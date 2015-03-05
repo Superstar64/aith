@@ -1,0 +1,104 @@
+#$Copyright (C) 2015  Freddy Angel Cubas "Superstar64"
+ MIT License
+$#
+import subdir::file;
+
+alias test1=*int_t.4*;
+alias test2={uint_t.4 a,uint_t.1 b}.a;
+alias test3={uint_t.4,uint_t.8}.1;
+alias test4=test1;
+
+#alias bad=bad;
+#alias bad2={uint_t.0 a,bad2 b};
+alias ok=ok*;
+
+enum main=${} arg{
+	tmp;#from subdir::file
+	
+	10;#int
+	
+	+42;#uint
+	
+	true;#bool
+	
+	();#struct()
+	
+	(+10,-10);#struct(uint,int)
+	
+	var;#int
+	
+	5:uint_t.4;#uint
+	
+	if true then
+		{};#struct()
+	
+	if false then
+		true
+	else
+		false;
+		
+	#if 0 then true;# bad case
+	
+	while true then {
+		
+	};
+	
+	new 0;#int*
+	new[+1] 0;#int[]
+	
+	(false,false).1;#bool
+	auto ar=new[+1] false;
+	
+	ar[+0];#bool
+	
+	func2();#uint
+	
+	0*0;#int
+	+0 * +0;#uint
+	
+	(new[+1] 0)~(new[+1] 0);#int[]
+	
+	()==();#bool
+	
+	0<=5;#bool
+	
+	(1==1)&&(2==2);#bool
+	
+	ar=new[+0] false;#bool[]
+	
+	-var;#int
+	
+	*new 0;#int
+	
+	~3;#int
+	
+	&var;#int*
+	
+	#&5;# bad case
+	
+	!false;#bool
+	
+	{#bool
+		return.0 true;
+	};
+	#1=1;#bad case
+	
+	'a';
+	'\-00-/';#escape
+	(new[10] 0)[1..5];
+	
+	"abc";
+	[1,2,3];
+	return 0;
+};
+
+
+auto var=-10;
+
+auto var2=new 0;
+
+#auto bad=var2;
+
+enum func2=${}_{
+	return +0;
+};

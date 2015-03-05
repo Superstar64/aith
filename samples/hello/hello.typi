@@ -1,0 +1,9 @@
+#$Copyright (C) 2015  Freddy Angel Cubas "Superstar64"
+ MIT License
+$#
+enum write=$char[] string {#function to be replaced with a javascript function
+};
+
+enum main=${} arg {
+	write("hello world");
+};

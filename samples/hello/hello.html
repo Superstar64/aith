@@ -1,0 +1,13 @@
+<html>
+<head>
+<script src="../../lib/typi.js"></script><!-- typi runtime library-->
+<script src="hello.js"></script><!-- output of source file-->
+<script><!-- modifing functions of defined in the source code-->
+typi.hello.write=function(arg){//override
+	document.write(libtypi.typiStringtoJSString(arg));
+}
+typi.hello.main(libtypi.struct([]));
+</script>
+</head>
+
+</html>

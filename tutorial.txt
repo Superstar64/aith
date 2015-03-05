@@ -1,0 +1,54 @@
+Typi is a staticly,structly typed language
+Typi's types:
+	"bool": Boolean type
+	"char": Character type,utf-32, variable length encoding such as utf-8 is not supported
+	"int_t.x": Signed Integer type, where x is replace with the number of bytes wanted.0 is size_t.x must be a power of 2.(as of now only 4 or lower is supported)
+	"uint_t.x": Unsigned Integer type
+	"{optional_name1 x1,optional_name x2,x3...}": Struct Type, where there is a variable list of types inside the parentheses where any of them can have names. if the number of types in the struct is 1 and it has no name the struct type get replace with it's one subtype
+	"x*": Pointer type,where x is any other type
+	"x[]": Array type,where x is any other type
+	"$x1:x2": Function type, where x1 is the return type and x2 is the argument type
+Typi's Expressions:
+	"123": Integer Literals,there type is int_t.0.If an Int lit has a prefix + it's type will be uint_t.0. May(or maynot) be implictly converted to another interger type
+	"'a'": Character Literals
+	"true","false": Boolean Literals
+	"(x1,x2,x3,...)": Struct Literals,If the amount of Expressions inside the Struct Literal is 1 then the Struct Literal get replaced with it's one expression
+	"abc": Variable
+	"if x1 then x2 else x3": If Expression, x1 must be of bool, x2 and x3 must be the same type,"else x2" is optional and when it is missing it is equivalent to "()";
+	"while x1 then x2": While Expression, x1 must be of bool,"then x2 is optional",While will always return "()";
+	"new x1": New Expression,copys x1 to a new heap pointer and returns it
+	"new[x1]x2": New Array Expression:Creates an array with size x1 and inits it with x2, x1 must be of uint_t.0
+	"x1:x2": Cast Expression,x1 is an Expression, x2 is a Type
+	"x1.x2": Dot Expression,x1 must be a struct, x2 is an integer token or a identifyer token
+	"x1[x2]": Array Index Expression,x2 must be of uint_t.0
+	"x1 x2": Function Call, functions only take 1 one argument and return 1 argument
+	"x1[x2..x3]":Slice Expression,x2 and x3 must be of uint_t.0
+	Binary Operators(in order of precedence by row): Both left and right sides must be the exact same type
+		"*","/","%",
+		"+","-","~":Array Append,
+		"&","|","^","<<",">>",">>>",
+		"==","!=","<=",">=","<",">",
+		"&&","||",
+		"="
+	Prefix Operators:
+		"-","*","&":Address of Stack Variables are copied to the heap,"~","!"
+	"{x1;x2;x3;...}": Scope Expression "x"s are statements.
+	"$x1 argument_name x2": Function Literal,x1 is a type.argument_name is any identifyer. x2 is a value.Return a value based on return
+	"return.x x1": Return Expression, where x1 is any value,".x" is optional and refers to how many scopes up the return refers to (see example 1).When ".x" is missing the return goes to the highest scope in the trace(c's return)
+Typi's Statements:
+	"alias x1=x2": Alias Statement, alias identifer x1 to type x2.
+	"auto x1=x2": Variable Decleration,declare variable x1,and assign x2 to it.
+	"enum x1=x2": Compile Time Variable Declarition,declare compile time variable x1 and assign x2 to it.This varable acts like a named literal(cannot assign,cannot take address of)
+	"import x1::x2::x3": Import Statement,Import "x1::x2::x3" in to current scope
+	"import x4::x5=x1::x2::x3": Import Statment,Import "x1::x2::x3" in to current scope and refer to it only by "x4::x5"
+	any expresion
+Typi's Modules only allow:alias,auto,enum,import statments at global scope
+example 1:
+	{#returns type uint_t.0
+		{#returns type char
+			return.0 'a';
+		}
+		{#returns {}
+			return.1 0;
+		}
+	}

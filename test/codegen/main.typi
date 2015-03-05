@@ -1,0 +1,36 @@
+#$Copyright (C) 2015  Freddy Angel Cubas "Superstar64"
+ MIT License
+$#
+alias size=uint_t.0;
+of size variable;#auto variable=():size:;
+of {size,size} variable2;#auto variable2=():{size,size}:;
+of size[] arr;#auto arr=():size[];
+
+auto fptr=${size} i{
+	return i;
+};
+
+enum main=${} arg{
+	variable=10;
+	variable2=(1,2);
+	auto i=if true then
+		1
+	else
+		2
+	;
+	while {return.0 false;};
+	auto ptr=new 0;
+	arr=new[10] 8:size;
+	auto v3=1000:uint_t.2;
+	variable2.1=-10;
+	arr[2]=-12;
+	fptr(arr[3]);
+	
+	auto math=4+4*5+9;
+	math=math*math;
+	of char[] val=new[10] '\0';
+	auto sli=val[1..5];
+	"abc";
+	[1,2,3];
+	return 0;
+};

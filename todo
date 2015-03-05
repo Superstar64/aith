@@ -1,0 +1,4 @@
+add immutable,const and make array literals and string return immutable types
+purity is in the compiler but completly infered(only used for global variables), add purity to type system
+templates
+run time type information
