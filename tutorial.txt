@@ -48,7 +48,7 @@ example 1:
 		{#returns type char
 			return.0 'a';
 		}
-		{#returns {}
+		{#returns type {}
 			return.1 0;
 		}
 	}
