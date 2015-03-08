@@ -6,6 +6,8 @@ of size variable;#auto variable=():size:;
 of {size,size} variable2;#auto variable2=():{size,size}:;
 of size[] arr;#auto arr=():size[];
 
+auto str=(1,2);
+
 auto fptr=${size} i{
 	return i;
 };
@@ -32,5 +34,10 @@ enum main=${} arg{
 	auto sli=val[1..5];
 	"abc";
 	[1,2,3];
+	
+	auto ptrptr=&ptr;
+	
+	auto strptr=&(str.1);
+	(*strptr)=10;
 	return 0;
 };

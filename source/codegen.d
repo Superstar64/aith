@@ -90,10 +90,10 @@ string genVal(Value v,string jsname,Trace t,ref uint uuid,ScopeNames scopenames,
 			postfix="()";
 		}
 		if(cast(ModuleVar)src){
-			return jsname~(cast(Module.ModuleTrace)tt).m.namespace.join(".")~"."~var.name;
+			return jsname~(cast(Module.ModuleTrace)tt).m.namespace.join(".")~"."~var.name~postfix;
 		}else{
 			assert(var.namespace is null);
-			return var.name;
+			return var.name~postfix;
 		}
 	}
 	if(cast(If)v){
@@ -223,7 +223,7 @@ string genVal(Value v,string jsname,Trace t,ref uint uuid,ScopeNames scopenames,
 	}
 	if(cast(Binary!"=")v){
 		auto bin=cast(Binary!"=")v;
-		auto right=genVal(bin.right,jsname,t,uuid,scopenames,result);
+		auto right="libtypi.copy("~genVal(bin.right,jsname,t,uuid,scopenames,result)~")";
 		return genValAssign(bin.left,right,jsname,t,uuid,scopenames,result);
 	}
 	if(cast(Binary!"~")v){
@@ -239,7 +239,47 @@ string genVal(Value v,string jsname,Trace t,ref uint uuid,ScopeNames scopenames,
 			return o~sub;
 		}
 	}
-	//todo support address of &
+	if(cast(Prefix!"&")v){
+		auto pre=cast(Prefix!"&")v;
+		auto sub=pre.value;
+		if(cast(Variable)sub){
+			auto var=cast(Variable)sub;
+			Trace tt;
+			auto src=t.var(var.name,var.namespace,tt);
+			if(cast(ModuleVar)src){
+				return jsname~(cast(Module.ModuleTrace)tt).m.namespace.join(".")~var.name;
+			}else{
+				return var.name;
+			}
+		}
+		if(cast(Dot)sub){
+			auto dot=cast(Dot)sub;
+			auto stru=dot.value;
+			assert(cast(Struct)stru.type.actual);
+			string index;
+			@trusted string tmp2(){//bigint isn't safe
+				return (dot.index.get!BigInt).to!string;
+			}
+			if(dot.index.peek!string){
+				index=(cast(Struct)(dot.value.type.actual)).names[dot.index.get!string].to!string;
+			}else{
+				index=tmp2;
+			}
+			auto stval=genVal(stru,jsname,t,uuid,scopenames,result);
+			return "libtypi.offsetPointer("~stval~","~index~")";
+		}
+		if(cast(ArrayIndex)sub){
+			auto arrind=cast(ArrayIndex)sub;
+			auto arr=genVal(arrind.array,jsname,t,uuid,scopenames,result);
+			auto index=genVal(arrind.index,jsname,t,uuid,scopenames,result);
+			return "libtypi.array.addr("~arr~","~index~")";
+		}
+		if(cast(Prefix!"*")sub){
+			auto def=cast(Prefix!"*")sub;
+			return genVal(def.value,jsname,t,uuid,scopenames,result);
+		}
+		assert(0);
+	}
 	
 	if(cast(Scope)v){
 		auto sc=cast(Scope)v;
@@ -414,5 +454,5 @@ string defaultValue(Type t){
 	readFiles(l,[["main"]],wanted,all);
 	processModules(all.values);
 	auto val=genJS(all.values);
-	//writeln(val);
+	writeln(val);
 }
