@@ -84,6 +84,7 @@ struct Keyword{
 		"else",
 		//"end",
 		"enum",
+		"extern",
 		"false",
 		//"float_t",
 		//"function",

@@ -43,5 +43,15 @@ enum main=${} arg{
 	
 	auto heapstructslice=heapstruct:{int_t.0,int_t.0,char}*;
 	
+	externTest("hello world");
+	
 	return 0;
 };
+
+
+enum externTest=extern "js" of ${}:char[] = 
+"
+	function(arg){
+		console.log(libtypi.typiStringtoJSString(arg));
+	}
+";

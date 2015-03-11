@@ -661,6 +661,12 @@ void assignValueTypes(Module mod){//assigns types,lvalues,purity to values
 			val.ispure=fn.value.ispure;
 			return;
 		}
+		if(cast(ExternJS)val){
+			auto ext=cast(ExternJS)val;
+			val.type=ext.type;
+			val.ispure=true;
+			return;
+		}
 		assert(0);
 	}
 	

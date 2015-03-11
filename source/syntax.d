@@ -739,6 +739,20 @@ class ArrayLit:Value{
 	}
 }
 
+class ExternJS:Value{
+	Type type;
+	string external;
+	override int children_(visiter fn,Trace t){
+		int res;
+		res=super.children_(fn,t);
+		if(res){
+			return res;
+		}
+		res=fn(type,t);
+		return res;
+	}
+}
+
 struct Parser{
 	Lexer l;
 	Module delegate (string[]) onImport;
@@ -1047,6 +1061,11 @@ struct Parser{
 		}
 		
 		val=parseArrayLit;
+		if(val){
+			goto end;
+		}
+		
+		val=parseExtern;
 		if(val){
 			goto end;
 		}
@@ -1461,6 +1480,31 @@ struct Parser{
 			auto ret=new ArrayLit;
 			ret.values=(cast(StructLit)val).values;
 			ret.pos=val.pos;
+			return ret;
+		}
+		return null;
+	}
+	
+	Value parseExtern(){
+		if(l.front==key!"extern"){
+			auto ret=new ExternJS;
+			auto pos=l.front.pos;
+			l.popFront;
+			l.front.expectT!StringLiteral;
+			auto str=l.front.get!(StringLiteral).data;
+			if(str!="js"){
+				error("Only extern js is supported",l.front.pos);
+			}
+			l.popFront;
+			l.front.expect(key!"of");
+			l.popFront;
+			ret.type=parseType;
+			l.front.expect(oper!"=");
+			l.popFront;
+			l.front.expectT!StringLiteral;
+			ret.external=l.front.get!(StringLiteral).data;
+			l.popFront;
+			ret.pos=pos.join(l.front.pos);
 			return ret;
 		}
 		return null;

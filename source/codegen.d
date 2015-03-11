@@ -338,6 +338,11 @@ string genVal(Value v,string jsname,Trace t,ref uint uuid,ScopeNames scopenames,
 		result~="break "~rbreak~";";
 		return "undefined";//it doesn't matter what i return
 	}
+	
+	if(cast(ExternJS)v){
+		auto ext=cast(ExternJS)v;
+		return ext.external;
+	}
 	assert(0);
 }
 
