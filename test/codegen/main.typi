@@ -5,7 +5,6 @@ alias size=uint_t.0;
 of size variable;#auto variable=():size:;
 of {size,size} variable2;#auto variable2=():{size,size}:;
 of size[] arr;#auto arr=():size[];
-
 auto str=(1,2);
 
 auto fptr=${size} i{
@@ -39,5 +38,10 @@ enum main=${} arg{
 	
 	auto strptr=&(str.1);
 	(*strptr)=10;
+	
+	auto heapstruct=new (0,1,'a','b');
+	
+	auto heapstructslice=heapstruct:{int_t.0,int_t.0,char}*;
+	
 	return 0;
 };

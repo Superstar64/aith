@@ -753,6 +753,25 @@ bool castable(Type tar,Type want){
 	if((cast(Int)tar || cast(UInt)tar) && (cast(Int)want || cast(UInt)want)){//casting between int types
 		return true;
 	}
+	if(cast(Pointer)tar && cast(Pointer)want){
+		
+		auto tarsub=(cast(Pointer)tar).type.actual;
+		auto wantsub=(cast(Pointer)want).type.actual;
+		if(!cast(Struct)tarsub && !cast(Struct)wantsub){
+			return false;
+		}
+		auto tarsubst=cast(Struct)tarsub;
+		auto wantsubst=cast(Struct)wantsub;
+		if(!(wantsubst.types.length,tarsubst.types.length)){
+			return false;
+		}
+		foreach(size_t c,t;wantsubst.types){
+			if(!sameType(t,tarsubst.types[c])){
+				return false;
+			}
+		}
+		return true;
+	}
 	return false;
 }
 

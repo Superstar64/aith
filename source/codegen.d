@@ -144,6 +144,9 @@ string genVal(Value v,string jsname,Trace t,ref uint uuid,ScopeNames scopenames,
 				return str~"("~var~")";
 			}
 		}
+		if(cast(Pointer) (ca.value.type.actual)){
+			return var;
+		}
 		assert(0);
 	}
 	if(cast(Dot)v){
