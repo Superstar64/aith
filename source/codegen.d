@@ -25,7 +25,7 @@ import parser;
 
 @safe:
 string genJS(Module[] mods,string jsname="typi"){
-	string result="/*plese include typi.js before this file*/";
+	string result="/*generated code*/";
 	result~="var "~jsname~"="~jsname~" || {};";
 	jsname~=".";
 	uint uuid;

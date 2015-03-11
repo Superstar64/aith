@@ -28,8 +28,8 @@ enum Help=
 --Add-Search-Dir|-I : add search directory for imports
 --Output|-o : output file, - is the default and means stdout
 --Namespace|-n : namespace to compile the javascript to default is "typi"
-
 The TYPI_CONFIG enviroment Variable is looked at for a config file(extra arguments sperated by lines)
+Any .js files in [files to compile] are interpeted as runtime files and will be include into the output
 
 Copyright (C) 2015  Freddy Angel Cubas "Superstar64"
 This software has no warrenty.
@@ -58,6 +58,7 @@ void main(string[] args){
 	    auto file=cast(string)read(configFile);
 	    auto lines=file.split("\n");
 	    opt(lines);
+	    args~=lines;
 	}
 	
 	opt(args);
@@ -72,12 +73,17 @@ void main(string[] args){
 	
 	Module[string[]] actual;
 	string[][] modnames;
+	string[] runtime;
 	foreach(f;args){
-	    if(f.length<".typi".length ||f[$-".typi".length..$]!=".typi"){
+	    if((f.length<".typi".length ||f[$-".typi".length..$]!=".typi")&&(f.length<".js".length ||f[$-".js".length..$]!=".js")){
 		writeln(f," is not a typi file");
 		return;
 	    }
-	    modnames~=f[0..$-".typi".length].split(dirSeparator);
+	    if(f[$-".js".length..$]==".js"){
+		runtime~=f;
+	    }else{
+		modnames~=f[0..$-".typi".length].split(dirSeparator);
+	    }
 	}
 	readFiles(l,modnames,wanted,all);
 	processModules(all.values);
@@ -86,7 +92,11 @@ void main(string[] args){
 	}else{
 		actual=wanted;
 	}
-	auto str=genJS(actual.values,jsname);
+	string prefix;
+	foreach(f;runtime){
+	    prefix~=cast(string)read(f);
+	}
+	auto str=prefix~genJS(actual.values,jsname);
 	if(output=="-"){
 		writeln(str);
 	}else{

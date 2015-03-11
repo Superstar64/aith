@@ -1,1 +1,1 @@
-../../typi hello.typi -o hello.js
+../../typi hello.typi -o hello.js ../../lib/*
