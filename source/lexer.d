@@ -35,7 +35,7 @@ struct Position{//used for token position in a file
 	size_t indexs;//file index start
 	size_t indexe;//file index end
 	auto join(Position other){
-		assert(file_name==other.file_name);
+		assert(file_name==other.file_name,file_name~" "~other.file_name);
 		assert(file.ptr==other.file.ptr);
 		return Position(file_name,line,file,indexs,other.indexs);
 	}
