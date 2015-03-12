@@ -371,7 +371,7 @@ void assignValueTypes(Module mod){//assigns types,lvalues,purity to values
 				error("Not a function",fcall.pos);
 			}
 			auto fun=cast(Function)(fcall.fptr.type.actual);
-			if(!sameType(fun.arg,fcall.arg.type)){
+			if(!(sameType(fun.arg,fcall.arg.type)||((cast(Int)(fun.arg.actual)||cast(UInt)(fun.arg.actual)) && implicitConvertInt(fcall.arg,fun.arg,t)) )){
 				error("unable to call function with arg's type",fcall.pos);
 			}
 			val.type=fun.ret;
