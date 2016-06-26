@@ -20,8 +20,6 @@ import error : error;
 import lexer;
 import etc;
 
-//todo support chars and immutable types
-@trusted:
 alias Index = Algebraic!(BigInt, string);
 alias visiter = int delegate(Node, Trace);
 
@@ -1542,7 +1540,7 @@ struct Parser {
 	}
 }
 
-@trusted unittest { //types
+unittest { //types
 	import std.file; //import error;import std.conv;
 	auto lexer = Lexer("test/syntax/types", cast(string) read("test/syntax/types"));
 	auto parser = Parser(lexer);
@@ -1601,7 +1599,7 @@ struct Parser {
 	assert(parser.l.empty);
 }
 
-@trusted unittest { //values
+unittest { //values
 	import std.file; //import error;import std.conv;
 	auto lexer = Lexer("test/syntax/values", cast(string) read("test/syntax/values"));
 	auto parser = Parser(lexer);
@@ -1781,7 +1779,7 @@ struct Parser {
 	assert(parser.l.empty);
 }
 
-@trusted unittest {
+unittest {
 	import std.file;
 	import std.stdio;
 	import error;
@@ -1790,7 +1788,7 @@ struct Parser {
 	auto lexer = Lexer("test/syntax/module", cast(string) read("test/syntax/module"));
 	auto parser = Parser(lexer);
 
-	@trusted Module importer(string[] str) {
+	Module importer(string[] str) {
 		assert(str == ["my", "test", "module"]);
 		return new Module();
 	}
@@ -1798,7 +1796,7 @@ struct Parser {
 	parser.onImport = &importer;
 
 	auto mod = parser.parseModule;
-	@trusted void visiter(Node n, Trace sc) {
+	void visiter(Node n, Trace sc) {
 		//writeln(n.to!string,prettyPrint(n.pos));
 		foreach (ch, subt; n.children(sc)) {
 			visiter(ch, subt);

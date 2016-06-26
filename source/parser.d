@@ -32,11 +32,9 @@ import etc;
  + add chars
  + strings / arrayliterals
  +/
-//todo figure out why @trusted is needed
-@trusted:
 struct Loader {
 	string[] importPaths;
-	@trusted string open(string file) {
+	string open(string file) {
 		foreach (i; importPaths) {
 			try {
 				auto f = cast(string) read(buildPath(i, file));
@@ -56,7 +54,7 @@ struct Loader {
 }
 
 void readFiles(Loader load, string[][] files, out Module[string[]] wanted, out Module[string[]] all) {
-	Module readModule(string[] imp) @trusted {
+	Module readModule(string[] imp) {
 		auto m = imp in all;
 		if (m) {
 			return *m;
@@ -93,7 +91,7 @@ void processModules(Module[] mods) {
 }
 
 void checkIntTypeSize(Module mod) {
-	void visiter(Node n, Trace t) @trusted {
+	void visiter(Node n, Trace t) {
 		void subVisit() {
 			foreach (ch, subt; n.children(t)) {
 				visiter(ch, subt);
@@ -125,7 +123,7 @@ void checkIntTypeSize(Module mod) {
 }
 
 void assignIndirectTypes(Module mod) {
-	void visiter(Node e, Trace sc) @trusted {
+	void visiter(Node e, Trace sc) {
 		void subVisit() {
 			foreach (ch, subt; e.children(sc)) {
 				visiter(ch, subt);
@@ -181,7 +179,7 @@ void assignIndirectTypes(Module mod) {
 				assert(0);
 			}
 			auto intype = cast(IndirectType) e;
-			@trusted void compare(Type actual) {
+			void compare(Type actual) {
 				if (actual == e) {
 					error("self referecing type", e.pos);
 				}
@@ -203,7 +201,7 @@ void assignIndirectTypes(Module mod) {
 }
 
 void assignValueTypes(Module mod) { //assigns types,lvalues,purity to values
-	void delegate(ModuleVar mv) @trusted processMVar;
+	void delegate(ModuleVar mv) processMVar;
 	void checkVal(Value val, Trace t) {
 		if (cast(IntLit) val) {
 			if ((cast(IntLit) val).usigned) {
@@ -706,7 +704,7 @@ void assignValueTypes(Module mod) { //assigns types,lvalues,purity to values
 		assert(0);
 	}
 
-	void processMVar_(ModuleVar mv) @trusted {
+	void processMVar_(ModuleVar mv) {
 		if (mv.process) {
 			error("forward declartion", mv.pos);
 		}
@@ -822,7 +820,7 @@ bool castable(Type tar, Type want) {
 }
 
 void checkBranches(Module m) {
-	@trusted bool Returns(Value v, uint level) {
+	bool Returns(Value v, uint level) {
 		if (cast(CharLit) v || cast(IntLit) v || cast(BoolLit) v
 				|| cast(Variable) v || cast(StringLit) v) {
 			return false;
@@ -924,7 +922,7 @@ void checkBranches(Module m) {
 		assert(0);
 	}
 
-	void visiter(Node n, Trace t) @trusted {
+	void visiter(Node n, Trace t) {
 		foreach (ch, subt; n.children(t)) {
 			visiter(ch, subt);
 		}
@@ -959,7 +957,7 @@ void checkGlobalExec(Module m) {
 	}
 }
 
-@trusted unittest {
+unittest {
 	import syntax;
 
 	auto l = Loader(["test/parser"]);
@@ -987,7 +985,7 @@ void checkGlobalExec(Module m) {
 		auto test4 = test.aliases["test4"];
 		assert(cast(Int) test4.actual);
 	}
-	@trusted void vis(Node n, Trace t) {
+	void vis(Node n, Trace t) {
 		import std.stdio;
 		import error;
 		import std.conv;
@@ -1005,7 +1003,7 @@ void checkGlobalExec(Module m) {
 	vis(test, null);
 }
 
-@trusted unittest {
+unittest {
 	assert(sameType(new Bool(), new Bool()));
 	Type ty = new Bool();
 	assert(sameType(ty, ty));

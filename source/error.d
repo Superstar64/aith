@@ -19,7 +19,6 @@ import std.stdio : write, writeln;
 import lexer;
 import std.conv : to;
 
-@safe:
 string prettyPrint(Position pos, string colorstart = "\x1b[31m", string colorend = "\x1b[0m") {
 	string res;
 	res ~= "in file:" ~ pos.file_name ~ " at line:" ~ pos.line.to!string ~ "\n";
@@ -56,20 +55,20 @@ string prettyPrint(Position pos, string colorstart = "\x1b[31m", string colorend
 	return res;
 }
 
-@trusted void error(string message, Position pos) {
+void error(string message, Position pos) {
 	writeln("Error: " ~ message);
 	writeln(prettyPrint(pos));
 	Runtime.terminate();
 	exit(1);
 }
 
-@trusted void error(string message) {
+void error(string message) {
 	writeln("Error: " ~ message);
 	Runtime.terminate();
 	exit(1);
 }
 
-@trusted void warn(string message, Position pos) { //todo count warnings and add easter eggs
+void warn(string message, Position pos) { //todo count warnings and add easter eggs
 	writeln("Warning: " ~ message);
 	writeln(prettyPrint(pos));
 }

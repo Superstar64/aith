@@ -15,6 +15,6 @@
 import std.bigint : BigInt;
 import std.conv : to;
 
-@trusted uint toUInt(BigInt i) {
+uint toUInt(BigInt i) {
 	return i.toLong.to!uint;
 }

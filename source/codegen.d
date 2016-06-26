@@ -23,8 +23,6 @@ import syntax;
 import error;
 import parser;
 
-//todo figure out why @trusted is needed
-@trusted:
 string genJS(Module[] mods, string jsname = "typi") {
 	string result = "/*generated code*/";
 	result ~= "var " ~ jsname ~ "=" ~ jsname ~ " || {};";
@@ -44,7 +42,7 @@ string genJS(Module[] mods, string jsname = "typi") {
 	return result;
 }
 
-@trusted string IntLitToString(IntLit i) {
+string IntLitToString(IntLit i) {
 	return i.value.to!string;
 }
 
@@ -157,15 +155,12 @@ string genVal(Value v, string jsname, Trace t, ref uint uuid, ScopeNames scopena
 	if (cast(Dot) v) {
 		auto dot = cast(Dot) v;
 		auto str = genVal(dot.value, jsname, t, uuid, scopenames, result);
-		@trusted string tmp() { //bigint isn't safe
-			return (dot.index.get!BigInt).to!string;
-		}
 
 		if (dot.index.peek!string) {
 			return "libtypi.array.get(" ~ str ~ "," ~ (cast(Struct)(dot.value.type.actual)).names[
 				dot.index.get!string].to!string ~ ")";
 		} else {
-			return "libtypi.array.get(" ~ str ~ "," ~ tmp ~ ")";
+			return "libtypi.array.get(" ~ str ~ "," ~ (dot.index.get!BigInt).to!string ~ ")";
 		}
 	}
 	if (cast(ArrayIndex) v) {
@@ -268,14 +263,11 @@ string genVal(Value v, string jsname, Trace t, ref uint uuid, ScopeNames scopena
 			auto stru = dot.value;
 			assert(cast(Struct) stru.type.actual);
 			string index;
-			@trusted string tmp2() { //bigint isn't safe
-				return (dot.index.get!BigInt).to!string;
-			}
 
 			if (dot.index.peek!string) {
 				index = (cast(Struct)(dot.value.type.actual)).names[dot.index.get!string].to!string;
 			} else {
-				index = tmp2;
+				index = (dot.index.get!BigInt).to!string;
 			}
 			auto stval = genVal(stru, jsname, t, uuid, scopenames, result);
 			return "libtypi.offsetPointer(" ~ stval ~ "," ~ index ~ ")";
@@ -376,15 +368,12 @@ string genValAssign(Value v, string assigner, string jsname, Trace t, uint uuid,
 	if (cast(Dot) v) {
 		auto dot = cast(Dot) v;
 		auto str = genVal(dot.value, jsname, t, uuid, scopenames, result);
-		@trusted string tmp() { //bigint isn't safe
-			return (dot.index.get!BigInt).to!string;
-		}
 
 		if (dot.index.peek!string) {
 			return "libtypi.array.set(" ~ str ~ "," ~ (cast(Struct)(dot.value.type.actual)).names[
 				dot.index.get!string].to!string ~ "," ~ assigner ~ ")";
 		} else {
-			return "libtypi.array.set(" ~ str ~ "," ~ tmp ~ "," ~ assigner ~ ")";
+			return "libtypi.array.set(" ~ str ~ "," ~ (dot.index.get!BigInt).to!string ~ "," ~ assigner ~ ")";
 		}
 	}
 	if (cast(ArrayIndex) v) {
@@ -466,7 +455,7 @@ string defaultValue(Type t) {
 	assert(0);
 }
 
-@trusted unittest {
+unittest {
 	import std.stdio;
 	import parser;
 

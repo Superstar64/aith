@@ -22,8 +22,6 @@ import std.range : chunks;
 import std.array : array;
 import error : error;
 
-//todo figure out why @trusted is needed
-@trusted:
 @property {
 	char front(string str) {
 		return str[0];
@@ -37,7 +35,7 @@ import error : error;
 		return str.length == 0;
 	}
 }
-@trusted BigInt ctorBigInt(string s) {
+BigInt ctorBigInt(string s) {
 	return BigInt(s);
 }
 
@@ -77,11 +75,11 @@ struct Identifier {
 struct IntLiteral {
 	BigInt num;
 	alias num this;
-	@trusted this(this) {
+	this(this) {
 
 	}
 
-	@trusted auto opAssign(typeof(this) other) {
+	auto opAssign(typeof(this) other) {
 		num = other.num;
 	}
 
@@ -101,21 +99,21 @@ struct IntLiteral {
 
 struct Keyword {
 	enum list = [
-			"alias", "auto", "bool_t",//"catch",
-			"char", "else",//"end",
+			"alias", "auto", "bool_t", //"catch",
+			"char", "else", //"end",
 			"enum", "extern", "false",
 			//"float_t",
 			//"function",
-			"if", "import", "int_t",//"is",
+			"if", "import", "int_t", //"is",
 			//"label",
-			"new", "of", "return",//"spawn"//thread;
-			"then",//"throw",
+			"new", "of", "return", //"spawn"//thread;
+			"then", //"throw",
 			//"throws",
-			"true",//"typedef",
+			"true", //"typedef",
 			//"type_template",
-			"uint_t",//"union",
+			"uint_t", //"union",
 			//"value_template",
-			"while",//"yield"//coroutine, acts like return but on next call will continue from yield point
+			"while", //"yield"//coroutine, acts like return but on next call will continue from yield point
 		];
 	size_t index;
 	string toString() {
@@ -151,7 +149,7 @@ struct Operator {
 			">>=", ">>>", "==", "!=", "<=", ">=", "<<", ">>", "&&",
 			"||", "+=", "-=", "*=", "/=", "%=", "&=", "^=", "|=", "~=", "::",
 			"~>", "~<", "..", "<", ">", "+", "-", "*", "/", "%", "=", "!",
-			"~", "&", "|", "^", ":", "$", "@",//"#",
+			"~", "&", "|", "^", ":", "$", "@", //"#",
 			"{", "}", "(", ")", "[", "]", ".", ",", ";"
 		];
 	size_t index;
@@ -521,7 +519,7 @@ struct Lexer {
 	}
 }
 
-@trusted unittest {
+unittest {
 	import std.file;
 
 	auto lexer = Lexer("test/lexer", cast(string) read("test/lexer"));
