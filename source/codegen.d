@@ -19,9 +19,9 @@ import std.bigint : BigInt;
 import std.algorithm : map;
 import std.utf : encode;
 
-import syntax;
-import error;
 import parser;
+import error;
+import semantic;
 
 string genJS(Module[] mods, string jsname = "typi") {
 	string result = "/*generated code*/";
@@ -457,7 +457,7 @@ string defaultValue(Type t) {
 
 unittest {
 	import std.stdio;
-	import parser;
+	import semantic;
 
 	auto l = Loader(["test/codegen"]);
 	Module[string[]] all;

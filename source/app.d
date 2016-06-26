@@ -13,9 +13,9 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 +/
 import std.stdio;
-import syntax;
-import lexer;
 import parser;
+import lexer;
+import semantic;
 import codegen;
 import std.getopt;
 import std.array;
