@@ -21,7 +21,7 @@ import lexer;
 import etc;
 
 //todo support chars and immutable types
-@safe:
+@trusted:
 alias Index=Algebraic!(BigInt,string);
 alias visiter=int delegate(Node,Trace);
 

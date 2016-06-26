@@ -22,8 +22,8 @@ import std.utf:encode;
 import syntax;
 import error;
 import parser;
-
-@safe:
+//todo figure out why @trusted is needed
+@trusted:
 string genJS(Module[] mods,string jsname="typi"){
 	string result="/*generated code*/";
 	result~="var "~jsname~"="~jsname~" || {};";

@@ -30,7 +30,8 @@ import etc;
  + add chars
  + strings / arrayliterals
  +/
-@safe:
+//todo figure out why @trusted is needed
+@trusted:
 struct Loader{
 	string[] importPaths;
 	@trusted string open(string file){
@@ -52,7 +53,7 @@ struct Loader{
 }
 
 void readFiles(Loader load,string[][] files,out Module[string[]] wanted,out Module[string[]] all){
-	Module readModule(string[] imp){
+	Module readModule(string[] imp) @trusted{
 		auto m=imp in all;
 		if(m){
 			return *m;
@@ -87,7 +88,7 @@ void processModules(Module[] mods){
 }
 
 void checkIntTypeSize(Module mod){
-	void visiter(Node n,Trace t){
+	void visiter(Node n,Trace t) @trusted{
 		void subVisit(){
 			foreach(ch,subt;n.children(t)){
 				visiter(ch,subt);
@@ -117,7 +118,7 @@ void checkIntTypeSize(Module mod){
 }
 
 void assignIndirectTypes(Module mod){
-	void visiter(Node e,Trace sc){
+	void visiter(Node e,Trace sc) @trusted{
 		void subVisit(){
 			foreach(ch,subt;e.children(sc)){
 				visiter(ch,subt);
@@ -670,7 +671,7 @@ void assignValueTypes(Module mod){//assigns types,lvalues,purity to values
 		assert(0);
 	}
 	
-	void processMVar_(ModuleVar mv){
+	void processMVar_(ModuleVar mv) @trusted{
 		if(mv.process){
 			error("forward declartion",mv.pos);
 		}
@@ -879,7 +880,7 @@ void checkBranches(Module m){
 		}
 		assert(0);
 	}
-	void visiter(Node n,Trace t){
+	void visiter(Node n,Trace t) @trusted{
 		foreach(ch,subt;n.children(t)){
 			visiter(ch,subt);
 		}

@@ -20,10 +20,20 @@ import std.typecons: Nullable;
 import std.variant: Algebraic;
 import std.range: chunks;
 import std.array: array;
-import string: front,popFront,empty;
 import error: error;
-@safe:
-
+//todo figure out why @trusted is needed
+@trusted:
+@property{
+	char front(string str){
+		return str[0];
+	}
+	void popFront(ref string str){
+		str=str[1..$];
+	}
+	bool empty(string str){
+		return str.length==0;
+	}
+}
 @trusted BigInt ctorBigInt(string s){
 	return BigInt(s);
 }
@@ -61,6 +71,12 @@ struct Identifier{
 
 struct IntLiteral{
 	BigInt num;alias num this;
+	@trusted this(this){
+		
+	}
+	@trusted auto opAssign(typeof(this) other){
+		num = other.num;
+	}
 	static Nullable!IntLiteral consume(ref string file){
 		if(file.front.isDigit){
 			auto org=file;
