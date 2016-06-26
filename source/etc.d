@@ -12,10 +12,9 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 +/
-import std.bigint: BigInt;
-import std.conv: to;
+import std.bigint : BigInt;
+import std.conv : to;
 
-
-@trusted uint toUInt(BigInt i){
+@trusted uint toUInt(BigInt i) {
 	return i.toLong.to!uint;
 }
