@@ -1541,7 +1541,7 @@ struct Parser {
 
 unittest { //types
 	import std.file; //import error;import std.conv;
-	auto lexer = Lexer("test/syntax/types", cast(string) read("test/syntax/types"));
+	auto lexer = Lexer("test/parser/types", cast(string) read("test/parser/types"));
 	auto parser = Parser(lexer);
 	auto ty = parser.parseType;
 	assert(cast(Int) ty);
@@ -1600,7 +1600,7 @@ unittest { //types
 
 unittest { //values
 	import std.file; //import error;import std.conv;
-	auto lexer = Lexer("test/syntax/values", cast(string) read("test/syntax/values"));
+	auto lexer = Lexer("test/parser/values", cast(string) read("test/parser/values"));
 	auto parser = Parser(lexer);
 	auto val = parser.parseValue;
 	assert(cast(IntLit) val);
@@ -1784,7 +1784,7 @@ unittest {
 	import error;
 	import std.conv;
 
-	auto lexer = Lexer("test/syntax/module", cast(string) read("test/syntax/module"));
+	auto lexer = Lexer("test/parser/module", cast(string) read("test/parser/module"));
 	auto parser = Parser(lexer);
 
 	Module importer(string[] str) {

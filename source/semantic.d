@@ -956,7 +956,7 @@ void checkGlobalExec(Module m) {
 unittest {
 	import parser;
 
-	auto l = Loader(["test/parser"]);
+	auto l = Loader(["test/semantic"]);
 	Module[string[]] all;
 	Module[string[]] wanted;
 	readFiles(l, [["test"]], wanted, all);
