@@ -14,7 +14,7 @@
 +/
 module error;
 import core.runtime : Runtime;
-import std.c.stdlib : exit;
+import core.stdc.stdlib : exit;
 import std.stdio : write, writeln;
 import lexer;
 import std.conv : to;

@@ -27,7 +27,6 @@ template staticForeach(T...) {
 import parser;
 import error : error;
 import lexer;
-import etc;
 
 struct Loader {
 	string[] importPaths;
@@ -143,7 +142,7 @@ void assignIndirectTypes(Module mod) {
 				if (cast(Struct) sub) {
 					auto str = cast(Struct) sub;
 					if (ty.index.peek!BigInt) {
-						auto ind = toUInt(ty.index.get!(BigInt));
+						auto ind = ty.index.get!(BigInt).toInt;
 						if (ind >= str.types.length) {
 							error("Index to big", e.pos);
 						}
@@ -345,7 +344,7 @@ void assignValueTypes(Module mod) { //assigns types,lvalues,purity to values
 					}
 					val.type = dval.types[dval.names[str]];
 				} else {
-					uint index = dot.index.get!(BigInt).toUInt;
+					uint index = dot.index.get!(BigInt).toInt;
 					if (index >= dval.types.length) {
 						error("Index number to high", dot.pos);
 					}

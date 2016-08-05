@@ -18,7 +18,6 @@ import std.variant : Algebraic;
 import std.utf : decodeFront;
 import error : error;
 import lexer;
-import etc;
 
 alias Index = Algebraic!(BigInt, string);
 alias visiter = int delegate(Node, Trace);
@@ -812,7 +811,7 @@ struct Parser {
 		uint parseDotFix() {
 			if (l.front == oper!".") {
 				l.popFront;
-				uint res = toUInt(l.front.expectT!(IntLiteral));
+				uint res = l.front.expectT!(IntLiteral).toInt();
 				l.popFront;
 				return res;
 			}
@@ -1456,7 +1455,7 @@ struct Parser {
 			if (l.front == oper!".") {
 				l.popFront;
 				l.front.expectT!IntLiteral;
-				ret.upper = l.front.get!(IntLiteral).num.toUInt;
+				ret.upper = l.front.get!(IntLiteral).num.toInt;
 				l.popFront;
 			} else {
 				ret.upper = uint.max;
