@@ -1,5 +1,5 @@
 #$Copyright (C) 2015  Freddy Angel Cubas "Superstar64"
- MIT License
+ Boost License
 $#
 alias size=uint_t.0;
 of size variable;#auto variable=():size:;

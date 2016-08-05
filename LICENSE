@@ -1,3 +1,3 @@
 Copyright (C)Freddy Angel Cubas "Superstar64"
 The source code for the compiler(under /source) is licenced under the General Public License Verison 3(see GPL3.txt)
-All the test and samples (under /test and /samples) are licenced under the MIT License(see MIT.txt)
+All the test,samples,and runtime files (under /test , /samples , /lib) are licenced under the Boost Software License(see BSL.txt)
