@@ -14,6 +14,7 @@
 +/
 module parser;
 import std.bigint : BigInt;
+import std.traits : isArray;
 import std.variant : Algebraic;
 import std.utf : decodeFront;
 import error : error;
@@ -21,6 +22,37 @@ import lexer;
 
 alias Index = Algebraic!(BigInt, string);
 alias visiter = int delegate(Node, Trace);
+
+
+int visitChildren(T)(ref T child,visiter fun,Trace trace) if(is(T : Node)){
+	return fun(child,trace);
+}
+
+int visitChildren(T)(ref T children,visiter fun,Trace trace) if(isArray!T) {
+	foreach(ref child;children){
+		int result = visitChildren(child,fun,trace);
+		if(result){
+			return result;
+		}
+	}
+	return 0;
+}
+
+mixin template autoChildren(T...){
+	override int children_(visiter fun,Trace trace){
+		foreach(ref child;T){
+			int result = super.children_(fun,trace);
+			if(result){
+				return result;
+			}
+			result = visitChildren(child,fun,trace);
+			if(result){
+				return result;
+			}
+		}
+		return 0;
+	}
+}
 
 abstract class Trace {
 	Trace upper;
@@ -225,65 +257,24 @@ class UInt : Type {
 class Struct : Type {
 	Type[] types;
 	size_t[string] names;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		foreach (ty; types) {
-			res = fn(ty, t);
-			if (res) {
-				return res;
-			}
-		}
-		return res;
-	}
+	mixin autoChildren!types;
 }
 
 class Pointer : Type {
 	Type type;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(type, t);
-		return res;
-	}
+	mixin autoChildren!type;
 }
 
 class Array : Type {
 	Type type;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(type, t);
-		return res;
-	}
+	mixin autoChildren!type;
 }
 
 class Function : Type {
 	Type ret;
 	Type arg;
 	bool ispure;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(ret, t);
-		if (res) {
-			return res;
-		}
-		res = fn(arg, t);
-		return res;
-	}
+	mixin autoChildren!(ret,arg);
 }
 
 abstract class IndirectType : Type {
@@ -295,29 +286,13 @@ abstract class IndirectType : Type {
 
 class SubType : IndirectType {
 	Type type;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(type, t);
-		return res;
-	}
+	mixin autoChildren!type;
 }
 
 class IndexType : IndirectType {
 	Type type;
 	Index index;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(type, t);
-		return res;
-	}
+	mixin autoChildren!type;
 }
 
 class UnknownType : IndirectType {
@@ -351,20 +326,7 @@ class BoolLit : Value {
 class StructLit : Value {
 	Value[] values;
 	size_t[string] names;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		foreach (v; values) {
-			res = fn(v, t);
-			if (res) {
-				return res;
-			}
-		}
-		return res;
-	}
+	mixin autoChildren!values;
 }
 
 class Variable : Value {
@@ -376,163 +338,55 @@ class If : Value {
 	Value cond;
 	Value yes;
 	Value no;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(cond, t);
-		if (res) {
-			return res;
-		}
-		res = fn(yes, t);
-		if (res) {
-			return res;
-		}
-		res = fn(no, t);
-		return res;
-	}
+	mixin autoChildren!(cond,yes,no);
 }
 
 class While : Value {
 	Value cond;
 	Value state;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(cond, t);
-		if (res) {
-			return res;
-		}
-		res = fn(state, t);
-		return res;
-	}
+	mixin autoChildren!(cond,state);
 }
 
 class New : Value {
 	Value value;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(value, t);
-		return res;
-	}
+	mixin autoChildren!value;
 }
 
 class NewArray : Value {
 	Value length;
 	Value value;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(length, t);
-		if (res) {
-			return res;
-		}
-		res = fn(value, t);
-		return res;
-	}
+	mixin autoChildren!(length,value);
 }
 
 class Cast : Value {
 	Value value;
 	Type wanted;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(value, t);
-		if (res) {
-			return res;
-		}
-		res = fn(wanted, t);
-		return res;
-	}
+	mixin autoChildren!(value,wanted);
 }
 
 class Dot : Value {
 	Value value;
 	Index index;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(value, t);
-		return res;
-	}
+	mixin autoChildren!value;
 }
 
 class ArrayIndex : Value {
 	Value array;
 	Value index;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(array, t);
-		if (res) {
-			return res;
-		}
-		res = fn(index, t);
-		return res;
-	}
+	mixin autoChildren!(array,index);
 }
 
 class FCall : Value {
 	Value fptr;
 	Value arg;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(fptr, t);
-		if (res) {
-			return res;
-		}
-		res = fn(arg, t);
-		return res;
-	}
+	mixin autoChildren!(fptr,arg);
 }
 
 class Slice : Value {
 	Value array;
 	Value left;
 	Value right;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(array, t);
-		if (res) {
-			return res;
-		}
-		res = fn(left, t);
-		if (res) {
-			return res;
-		}
-		res = fn(right, t);
-		return res;
-	}
+	mixin autoChildren!(array,left,right);
 }
 
 /+
@@ -546,19 +400,7 @@ class Slice : Value {
 class Binary(string T) : Value {
 	Value left;
 	Value right;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(left, t);
-		if (res) {
-			return res;
-		}
-		res = fn(right, t);
-		return res;
-	}
+	mixin autoChildren!(left,right);
 }
 
 /+
@@ -566,15 +408,7 @@ class Binary(string T) : Value {
 +/
 class Prefix(string T) : Value {
 	Value value;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(value, t);
-		return res;
-	}
+	mixin autoChildren!value;
 }
 //for position dependant statementss
 alias Statement = Algebraic!(Value, ScopeVar);
@@ -585,15 +419,7 @@ class ScopeVar : Var {
 		return def.type;
 	}
 
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(def, t);
-		return res;
-	}
+	mixin autoChildren!def;
 }
 
 class Scope : Value {
@@ -661,15 +487,7 @@ class FuncLitVar : Var {
 		return ty;
 	}
 
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(ty, t);
-		return res;
-	}
+	mixin autoChildren!ty;
 }
 
 class FuncLit : Value {
@@ -713,15 +531,7 @@ class FuncLit : Value {
 class Return : Value {
 	Value value;
 	uint upper = uint.max;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(value, t);
-		return res;
-	}
+	mixin autoChildren!value;
 }
 
 class StringLit : Value {
@@ -730,34 +540,13 @@ class StringLit : Value {
 
 class ArrayLit : Value {
 	Value[] values;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		foreach (v; values) {
-			res = fn(v, t);
-			if (res) {
-				return res;
-			}
-		}
-		return res;
-	}
+	mixin autoChildren!values;
 }
 
 class ExternJS : Value {
 	Type type;
 	string external;
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(type, t);
-		return res;
-	}
+	mixin autoChildren!type;
 }
 
 struct Parser {
