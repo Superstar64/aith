@@ -157,6 +157,9 @@ string genVal(Value v, string jsname, Trace t, ref uint uuid, ScopeNames scopena
 		auto str = genVal(dot.value, jsname, t, uuid, scopenames, result);
 
 		if (dot.index.peek!string) {
+			if(cast(Array)(dot.value.type.actual)){
+				return "libtypi.array.length";
+			}
 			return "libtypi.array.get(" ~ str ~ "," ~ (cast(Struct)(dot.value.type.actual)).names[
 				dot.index.get!string].to!string ~ ")";
 		} else {
