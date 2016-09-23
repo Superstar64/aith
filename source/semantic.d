@@ -245,22 +245,10 @@ void assignValueTypes(Module mod) { //assigns types,lvalues,purity to values
 			assert(vardef.getType);
 			val.type = vardef.getType;
 			val.lvalue = !vardef.manifest;
-
-			Trace fhead = t;
-			while (!cast(FuncLit.FuncLitTrace)(fhead)) {
-				fhead = t.upper;
-				if (fhead is null) {
-					assert(cast(ModuleVar) vardef);
-					assert(val.ispure == false);
-					return;
-				}
-			}
-			auto outer = fhead.upper;
-			assert(outer);
-			if (t.var(var.name, var.namespace)) {
-				assert(val.ispure == false);
-			} else {
-				val.ispure = true; //val is found is function scope and not outside
+			if(cast(ModuleVar) vardef){
+				val.ispure = false;
+			}else{
+				val.ispure = true;
 			}
 			return;
 		}
