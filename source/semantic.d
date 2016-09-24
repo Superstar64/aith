@@ -634,11 +634,21 @@ void assignValueTypes(Module mod) { //assigns types,lvalues,purity to values
 
 		if (cast(FuncLit) val) {
 			auto func = cast(FuncLit) val;
+			auto ftype = new Function();
+			ftype.arg = func.fvar.ty;
+			
+			if(func.explict_return){
+				ftype.ret = func.explict_return;
+				func.type = ftype;
+			}
 			auto subt = func.genTrace(t);
 			checkVal(func.text, subt);
-			auto ftype = new Function();
+			if(func.explict_return){
+				if(!sameType(func.explict_return,func.text.type)){
+					error("explict return doesn't match actual return", func.pos);
+				}
+			}
 			ftype.ret = func.text.type;
-			ftype.arg = func.fvar.ty;
 			ftype.ispure = func.text.ispure;
 			val.type = ftype;
 			val.ispure = true;

@@ -493,6 +493,7 @@ class FuncLitVar : Var {
 class FuncLit : Value {
 	FuncLitVar fvar;
 	Value text;
+	Type explict_return;//maybe null
 	static class FuncLitTrace : Trace {
 		FuncLit func;
 		private this(FuncLit f, Trace upper_) {
@@ -1221,9 +1222,15 @@ struct Parser {
 		if (l.front == oper!"$") {
 			auto ret = new FuncLit();
 			l.popFront;
+			auto type = parseType;
+			if(l.front == oper!":") {
+				l.popFront;
+				ret.explict_return = type;
+				type = parseType;
+			}
 			ret.fvar = new FuncLitVar;
 			auto pos2 = l.front.pos;
-			ret.fvar.ty = parseType;
+			ret.fvar.ty = type;
 			l.front.expectT!Identifier;
 			ret.fvar.name = l.front.get!(Identifier).name;
 			l.popFront;
