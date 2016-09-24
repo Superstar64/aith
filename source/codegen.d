@@ -23,16 +23,22 @@ import parser;
 import error;
 import semantic;
 
-string genJS(Module[] mods, string jsname = "typi") {
+string genJS(Module[] mods, string jsname = "") {
 	string result = "/*generated code*/";
-	result ~= "var " ~ jsname ~ "=" ~ jsname ~ " || {};";
-	jsname ~= ".";
+	if(jsname != ""){
+		result ~= "var " ~ jsname ~ "=" ~ jsname ~ " || {};";
+		jsname ~= ".";
+	}
 	uint uuid;
 	foreach (m; mods) {
 		auto name = m.namespace;
 		foreach (c, _; name) {
+			if(c == 0 && jsname == ""){
+				result ~= "var " ~ name[0] ~ "=" ~ name[0] ~ " || {};";
+			}else{
 			result ~= jsname ~ name[0 .. c + 1].join(".") ~ "=" ~ jsname ~ name[0 .. c + 1].join(
 				".") ~ " || {};";
+			}
 		}
 		foreach (v; m.vars) {
 			result ~= jsname ~ m.namespace.join(".") ~ "." ~ v.name ~ "=" ~ genVal(v.def,

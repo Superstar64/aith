@@ -27,7 +27,7 @@ enum Help = `typi {optional arguments} [files to compile]
 --Generate-All|-a : generate code for all imported files, default is to only generate code for command line files
 --Add-Search-Dir|-I : add search directory for imports
 --Output|-o : output file, - is the default and means stdout
---Namespace|-n : namespace to compile the javascript to default is "typi"
+--Namespace|-n : namespace to compile the javascript to default is global
 The TYPI_CONFIG enviroment Variable is looked at for a config file(extra arguments sperated by lines)
 Any .js files in [files to compile] are interpeted as runtime files and will be include into the output
 
@@ -45,7 +45,7 @@ void main(string[] args) {
 	bool genAll;
 	string[] searchDirs = ["."];
 	string output = "-";
-	string jsname = "typi";
+	string jsname = "";
 	void opt(ref string[] s) {
 		getopt(s, "Generate-All|a", &genAll, "Add-Search-Dir|I", &searchDirs,
 			"Output|o", &output, "Namespace|n", &jsname);
