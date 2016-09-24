@@ -25,7 +25,7 @@ import semantic;
 
 string genJS(Module[] mods, string jsname = "") {
 	string result = "/*generated code*/";
-	if(jsname != ""){
+	if (jsname != "") {
 		result ~= "var " ~ jsname ~ "=" ~ jsname ~ " || {};";
 		jsname ~= ".";
 	}
@@ -33,11 +33,11 @@ string genJS(Module[] mods, string jsname = "") {
 	foreach (m; mods) {
 		auto name = m.namespace;
 		foreach (c, _; name) {
-			if(c == 0 && jsname == ""){
+			if (c == 0 && jsname == "") {
 				result ~= "var " ~ name[0] ~ "=" ~ name[0] ~ " || {};";
-			}else{
-			result ~= jsname ~ name[0 .. c + 1].join(".") ~ "=" ~ jsname ~ name[0 .. c + 1].join(
-				".") ~ " || {};";
+			} else {
+				result ~= jsname ~ name[0 .. c + 1].join(".") ~ "=" ~ jsname ~ name[0 .. c + 1].join(
+					".") ~ " || {};";
 			}
 		}
 		foreach (v; m.vars) {
@@ -163,7 +163,7 @@ string genVal(Value v, string jsname, Trace t, ref uint uuid, ScopeNames scopena
 		auto str = genVal(dot.value, jsname, t, uuid, scopenames, result);
 
 		if (dot.index.peek!string) {
-			if(cast(Array)(dot.value.type.actual)){
+			if (cast(Array)(dot.value.type.actual)) {
 				return "libtypi.array.length";
 			}
 			return "libtypi.array.get(" ~ str ~ "," ~ (cast(Struct)(dot.value.type.actual)).names[

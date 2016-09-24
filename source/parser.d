@@ -23,30 +23,29 @@ import lexer;
 alias Index = Algebraic!(BigInt, string);
 alias visiter = int delegate(Node, Trace);
 
-
-int visitChildren(T)(ref T child,visiter fun,Trace trace) if(is(T : Node)){
-	return fun(child,trace);
+int visitChildren(T)(ref T child, visiter fun, Trace trace) if (is(T : Node)) {
+	return fun(child, trace);
 }
 
-int visitChildren(T)(ref T children,visiter fun,Trace trace) if(isArray!T) {
-	foreach(ref child;children){
-		int result = visitChildren(child,fun,trace);
-		if(result){
+int visitChildren(T)(ref T children, visiter fun, Trace trace) if (isArray!T) {
+	foreach (ref child; children) {
+		int result = visitChildren(child, fun, trace);
+		if (result) {
 			return result;
 		}
 	}
 	return 0;
 }
 
-mixin template autoChildren(T...){
-	override int children_(visiter fun,Trace trace){
-		foreach(ref child;T){
-			int result = super.children_(fun,trace);
-			if(result){
+mixin template autoChildren(T...) {
+	override int children_(visiter fun, Trace trace) {
+		foreach (ref child; T) {
+			int result = super.children_(fun, trace);
+			if (result) {
 				return result;
 			}
-			result = visitChildren(child,fun,trace);
-			if(result){
+			result = visitChildren(child, fun, trace);
+			if (result) {
 				return result;
 			}
 		}
@@ -274,7 +273,7 @@ class Function : Type {
 	Type ret;
 	Type arg;
 	bool ispure;
-	mixin autoChildren!(ret,arg);
+	mixin autoChildren!(ret, arg);
 }
 
 abstract class IndirectType : Type {
@@ -338,13 +337,13 @@ class If : Value {
 	Value cond;
 	Value yes;
 	Value no;
-	mixin autoChildren!(cond,yes,no);
+	mixin autoChildren!(cond, yes, no);
 }
 
 class While : Value {
 	Value cond;
 	Value state;
-	mixin autoChildren!(cond,state);
+	mixin autoChildren!(cond, state);
 }
 
 class New : Value {
@@ -355,13 +354,13 @@ class New : Value {
 class NewArray : Value {
 	Value length;
 	Value value;
-	mixin autoChildren!(length,value);
+	mixin autoChildren!(length, value);
 }
 
 class Cast : Value {
 	Value value;
 	Type wanted;
-	mixin autoChildren!(value,wanted);
+	mixin autoChildren!(value, wanted);
 }
 
 class Dot : Value {
@@ -373,20 +372,20 @@ class Dot : Value {
 class ArrayIndex : Value {
 	Value array;
 	Value index;
-	mixin autoChildren!(array,index);
+	mixin autoChildren!(array, index);
 }
 
 class FCall : Value {
 	Value fptr;
 	Value arg;
-	mixin autoChildren!(fptr,arg);
+	mixin autoChildren!(fptr, arg);
 }
 
 class Slice : Value {
 	Value array;
 	Value left;
 	Value right;
-	mixin autoChildren!(array,left,right);
+	mixin autoChildren!(array, left, right);
 }
 
 /+
@@ -400,7 +399,7 @@ class Slice : Value {
 class Binary(string T) : Value {
 	Value left;
 	Value right;
-	mixin autoChildren!(left,right);
+	mixin autoChildren!(left, right);
 }
 
 /+
@@ -493,7 +492,7 @@ class FuncLitVar : Var {
 class FuncLit : Value {
 	FuncLitVar fvar;
 	Value text;
-	Type explict_return;//maybe null
+	Type explict_return; //maybe null
 	static class FuncLitTrace : Trace {
 		FuncLit func;
 		private this(FuncLit f, Trace upper_) {
@@ -1223,7 +1222,7 @@ struct Parser {
 			auto ret = new FuncLit();
 			l.popFront;
 			auto type = parseType;
-			if(l.front == oper!":") {
+			if (l.front == oper!":") {
 				l.popFront;
 				ret.explict_return = type;
 				type = parseType;

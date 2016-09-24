@@ -245,9 +245,9 @@ void assignValueTypes(Module mod) { //assigns types,lvalues,purity to values
 			assert(vardef.getType);
 			val.type = vardef.getType;
 			val.lvalue = !vardef.manifest;
-			if(cast(ModuleVar) vardef){
+			if (cast(ModuleVar) vardef) {
 				val.ispure = false;
-			}else{
+			} else {
 				val.ispure = true;
 			}
 			return;
@@ -636,15 +636,15 @@ void assignValueTypes(Module mod) { //assigns types,lvalues,purity to values
 			auto func = cast(FuncLit) val;
 			auto ftype = new Function();
 			ftype.arg = func.fvar.ty;
-			
-			if(func.explict_return){
+
+			if (func.explict_return) {
 				ftype.ret = func.explict_return;
 				func.type = ftype;
 			}
 			auto subt = func.genTrace(t);
 			checkVal(func.text, subt);
-			if(func.explict_return){
-				if(!sameType(func.explict_return,func.text.type)){
+			if (func.explict_return) {
+				if (!sameType(func.explict_return, func.text.type)) {
 					error("explict return doesn't match actual return", func.pos);
 				}
 			}
