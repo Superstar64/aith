@@ -1,0 +1,30 @@
+#$Copyright (C) 2016  Freddy Angel Cubas "Superstar64"
+ Boost License
+$#
+
+enum qsort=${}:int_t.4[] array  {
+	if array.length < 2 then {
+		return ();
+	};
+	auto pivot = array[array.length - 1];
+	of uint_t.0 middle = 0;
+	of uint_t.0 end = 0;
+	while end < array.length - 1 then {
+		#0..middle < pivot
+		#middle..end - 1 > pivot
+		if pivot > array[end] then {
+			auto last = array[end];
+			auto current = array[middle];
+			array[middle] = last;
+			array[end] = current;
+			middle = middle + 1;
+		};
+		end = end + 1;
+	};
+	auto last = array[middle];
+	array[middle] = pivot;
+	array[array.length - 1] = last;
+	qsort(array[0..middle]);
+	qsort(array[middle..array.length]);
+	return ();
+};
