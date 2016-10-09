@@ -505,7 +505,7 @@ class JsObject : JsExpr {
 			}
 		}
 		decrease(indent);
-		line(result,indent);
+		line(result, indent);
 		result ~= "}";
 	}
 
