@@ -748,60 +748,6 @@ string escape(dchar d) {
 	return d.to!string;
 }
 
-string libtypiToInt(Type t) {
-	if (cast(Int) t) {
-		auto i = cast(Int) t;
-		if (i.size == 1) {
-			return "libtypi.int8";
-		}
-		if (i.size == 2) {
-			return "libtypi.int16";
-		}
-		if (i.size == 0 || i.size == 4) {
-			return "libtypi.int32";
-		}
-	}
-	if (cast(UInt) t) {
-		auto i = cast(UInt) t;
-		if (i.size == 1) {
-			return "libtypi.uint8";
-		}
-		if (i.size == 2) {
-			return "libtypi.uint16";
-		}
-		if (i.size == 0 || i.size == 4) {
-			return "libtypi.uint32";
-		}
-	}
-	return null;
-}
-
-string defaultValue(Type t) {
-	t = t.actual;
-	if (cast(Int) t || cast(UInt) t) {
-		return "0";
-	}
-	if (cast(Struct) t) {
-		auto st = cast(Struct) t;
-		auto res = "libtypi.struct([";
-		foreach (c, ty; st.types) {
-			res ~= defaultValue(ty.actual);
-			if (c != st.types.length - 1) {
-				res ~= ",";
-			}
-		}
-		res ~= "])";
-		return res;
-	}
-	if (cast(Pointer) t || cast(Function) t) {
-		return "undefined";
-	}
-	if (cast(Array) t) {
-		return "libtypi.array(0,undefined)";
-	}
-	assert(0);
-}
-
 unittest {
 	import std.stdio;
 	import semantic;
