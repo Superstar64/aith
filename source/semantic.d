@@ -25,6 +25,7 @@ template staticForeach(T...) {
 }
 
 import parser;
+import ast;
 import error : error;
 import lexer;
 

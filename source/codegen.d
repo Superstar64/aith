@@ -22,7 +22,7 @@ import std.range;
 import std.algorithm;
 import std.typecons : Tuple, tuple;
 
-import parser;
+import ast;
 import error : error;
 import semantic;
 import jsast;

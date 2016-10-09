@@ -17,6 +17,7 @@ import parser;
 import lexer;
 import semantic;
 import codegen;
+import ast;
 import std.getopt;
 import std.array;
 import std.path;
