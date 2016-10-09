@@ -16,7 +16,15 @@ import std.range;
 import std.algorithm;
 import std.typecons;
 
+bool returns(JsState[] states) {
+	return states.map!(a => a.returns).any;
+}
+
 abstract class JsState {
+	bool returns() {
+		return false;
+	}
+
 	void toStateString(ref string result, uint indent);
 	override string toString() {
 		string result;
@@ -61,6 +69,10 @@ class JsScope : JsLabel {
 		this.states = states;
 	}
 
+	override bool returns() {
+		return states.map!(a => a.returns).any;
+	}
+
 	override void toStateString(ref string result, uint indent) {
 		super.toStateString(result, indent);
 		result ~= "{";
@@ -86,6 +98,10 @@ class JsIf : JsLabel {
 		this.cond = cond;
 		this.yes = yes;
 		this.no = no;
+	}
+
+	override bool returns() {
+		return yes.map!(a => a.returns).any && no.map!(a => a.returns).any;
 	}
 
 	override void toStateString(ref string result, uint indent) {
@@ -236,6 +252,10 @@ class JsReturn : JsState {
 
 	this(JsExpr expr) {
 		this.expr = expr;
+	}
+
+	override bool returns() {
+		return true;
 	}
 
 	override void toStateString(ref string result, uint indent) {

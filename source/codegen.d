@@ -643,7 +643,9 @@ struct Generator {
 			auto subt = funcLit.genTrace(trace);
 			auto result = new JsFuncLit([funcLit.fvar.name], []);
 			auto val = genVal(funcLit.text, subt, Usage(Unique.copy, Eval.once), result.states);
-			result.states ~= new JsReturn(val);
+			if (!returns(result.states)) {
+				result.states ~= new JsReturn(val);
+			}
 			return returnWrap(result, Usage.literal, args);
 		} else if (auto ret = cast(Return) value) {
 			auto val = genVal(ret.value, trace, Usage(Unique.copy, Eval.once), depend);
