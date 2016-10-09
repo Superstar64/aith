@@ -18,385 +18,664 @@ import std.conv : to;
 import std.bigint : BigInt;
 import std.algorithm : map;
 import std.utf : encode;
+import std.range;
+import std.algorithm;
+import std.typecons : Tuple, tuple;
 
 import parser;
-import error;
+import error : error;
 import semantic;
-
+import jsast;
 string genJS(Module[] mods, string jsname = "") {
-	string result = "/*generated code*/";
-	if (jsname != "") {
-		result ~= "var " ~ jsname ~ "=" ~ jsname ~ " || {};";
-		jsname ~= ".";
-	}
-	uint uuid;
+	JsState[] result;
+	
 	foreach (m; mods) {
 		auto name = m.namespace;
+		JsExpr var;
 		foreach (c, _; name) {
 			if (c == 0 && jsname == "") {
-				result ~= "var " ~ name[0] ~ "=" ~ name[0] ~ " || {};";
+				result ~= new JsVarDef(name[0],new JsBinary!"||"(new JsLit(name[0]), new JsObject()));
+				var = new JsLit(name[0]);
 			} else {
-				result ~= jsname ~ name[0 .. c + 1].join(".") ~ "=" ~ jsname ~ name[0 .. c + 1].join(
-					".") ~ " || {};";
+				auto namespace = only(jsname).chain(name[0 .. c + 1]);
+				var = new JsLit(namespace.front);
+				namespace.popFront;
+				foreach(n; namespace){
+					var = new JsDot(var,n);
+				}
+				result ~= new JsBinary!"="(var,new JsBinary!"||"(var, new JsObject()));
 			}
 		}
 		foreach (v; m.vars) {
-			result ~= jsname ~ m.namespace.join(".") ~ "." ~ v.name ~ "=" ~ genVal(v.def,
-				jsname, m.genTrace(null), uuid, ScopeNames(), result) ~ ";";
+			Generator gen;
+			result ~= new JsBinary!"="(new JsDot(var,v.name),gen.genVal(v.def,m.genTrace(null),gen.Usage.once,result));
 		}
 	}
-	return result;
+	return "/* generated code */\n" ~ stringCode(result);
 }
 
-string IntLitToString(IntLit i) {
+string intLitToString(IntLit i) {
 	return i.value.to!string;
 }
 
-struct ScopeNames {
-	string[] results;
-	string[] breaks;
-}
-
-//returns js expression, may append statements to result
-string genVal(Value v, string jsname, Trace t, ref uint uuid, ScopeNames scopenames,
-	ref string result) {
+//structs are repesented as native arrays
+//arrays are either a native array or an object with a data, start, length, 
+//pointers are arrays
+//functions are native js functions
+struct Generator{
+	uint uuid;
+	Tuple!(JsLabel,string)[] scopeStack;
+	
 	string genName() {
 		auto vname = "$" ~ uuid.to!string;
 		uuid++;
 		return vname;
 	}
-
-	if (cast(IntLit) v) {
-		return IntLitToString(cast(IntLit) v);
-	}
-	if (cast(BoolLit) v) {
-		auto blit = cast(BoolLit) v;
-		if (blit.yes) {
-			return "true";
-		} else {
-			return "false";
-		}
-	}
-	if (cast(CharLit) v) {
-		auto clit = cast(CharLit) v;
-		return '"' ~ escape(clit.value) ~ '"';
-	}
-	if (cast(StructLit) v) {
-		auto slit = cast(StructLit) v;
-		string[] vars;
-		foreach (val; slit.values) {
-			vars ~= genVal(val, jsname, t, uuid, scopenames, result);
-		}
-		return "libtypi.struct([" ~ vars.join(",") ~ "])";
-	}
-	if (cast(Variable) v) {
-		auto var = cast(Variable) v;
-		Trace tt;
-		auto src = t.var(var.name, var.namespace, tt);
-		assert(src);
-		string postfix = "";
-		if (src.heap) {
-			postfix = "()";
-		}
-		if (cast(ModuleVar) src) {
-			return jsname ~ (cast(Module.ModuleTrace) tt).m.namespace.join(".") ~ "." ~ var.name ~ postfix;
-		} else {
-			assert(var.namespace is null);
-			return var.name ~ postfix;
-		}
-	}
-	if (cast(If) v) {
-		auto iF = cast(If) v;
-		auto vname = genName();
-		result ~= "var " ~ vname ~ " = undefined;";
-		auto cond = genVal(iF.cond, jsname, t, uuid, scopenames, result);
-		result ~= "if(" ~ cond ~ ") {";
-		auto yes = genVal(iF.yes, jsname, t, uuid, scopenames, result);
-		result ~= vname ~ "=" ~ yes ~ ";";
-		result ~= "}else{";
-		auto no = genVal(iF.no, jsname, t, uuid, scopenames, result);
-		result ~= vname ~ "=" ~ no ~ ";}";
-		return vname;
-	}
-	if (cast(While) v) {
-		auto wh = cast(While) v;
-		result ~= "do{";
-		auto cond = genVal(wh.cond, jsname, t, uuid, scopenames, result);
-		result ~= "if(!" ~ cond ~ "){break;}";
-		result ~= genVal(wh.state, jsname, t, uuid, scopenames, result) ~ ";";
-		result ~= "}while(true);";
-		return "libtypi.struct([])";
-	}
-	if (cast(New) v) {
-		auto n = cast(New) v;
-		auto value = genVal(n.value, jsname, t, uuid, scopenames, result);
-		return "libtypi.pointer(" ~ value ~ ")";
-	}
-	if (cast(NewArray) v) {
-		auto na = cast(NewArray) v;
-		auto length = genVal(na.length, jsname, t, uuid, scopenames, result);
-		auto value = genVal(na.value, jsname, t, uuid, scopenames, result);
-		return "libtypi.array(" ~ length ~ "," ~ value ~ ")";
-	}
-	if (cast(Cast) v) {
-		auto ca = cast(Cast) v;
-		auto var = genVal(ca.value, jsname, t, uuid, scopenames, result);
-		if (sameType(ca.value.type, ca.wanted)) {
-			return var;
-		}
-		if (sameType(ca.value.type, new Struct())) {
-			return defaultValue(ca.wanted);
-		}
-		if (cast(UInt)(ca.value.type.actual) || cast(Int)(ca.value.type.actual)) {
-			auto str = libtypiToInt(ca.wanted.actual);
-			if (str) {
-				return str ~ "(" ~ var ~ ")";
+	
+	enum Unique {no,copy,same};
+	enum Eval {once,any,none};
+	
+	//the expression usage for genVal
+	struct Usage {
+		//if copy the value returned by the expression should have no aliases
+		//if no any value my be returned
+		//if same the same reference must be returned each evaluatation
+		Unique unique;
+		//should the expression cache side effects in the depend array
+		//if any then the result will be evaluated 0..n times
+		//if once then the result will be evaluated once
+		//if none then null must be returned
+		Eval cache;
+		//special case when cache and unique is false
+		//if null is return the sub expression wrote the value to
+		//a variable called share
+		//otherwise normal behavior
+		string share;
+		invariant(){
+			if(share.length > 0){
+				assert(unique == Unique.no);
+				assert(cache == Eval.once);
 			}
 		}
-		if (cast(Pointer)(ca.value.type.actual)) {
-			return var;
+		
+		static:
+		Usage container(Usage usage){
+			return Usage(Unique.copy,usage.cache);
 		}
-		assert(0);
-	}
-	if (cast(Dot) v) {
-		auto dot = cast(Dot) v;
-		auto str = genVal(dot.value, jsname, t, uuid, scopenames, result);
-
-		if (dot.index.peek!string) {
-			if (cast(Array)(dot.value.type.actual)) {
-				return str ~ ".length";
-			}
-			return "libtypi.array.get(" ~ str ~ "," ~ (cast(Struct)(dot.value.type.actual)).names[
-				dot.index.get!string].to!string ~ ")";
-		} else {
-			return "libtypi.array.get(" ~ str ~ "," ~ (dot.index.get!BigInt).to!string ~ ")";
+	
+		Usage expression(Usage usage){
+			return Usage(usage.unique,usage.cache);
 		}
-	}
-	if (cast(ArrayIndex) v) {
-		auto arin = cast(ArrayIndex) v;
-		auto array = genVal(arin.array, jsname, t, uuid, scopenames, result);
-		auto index = genVal(arin.index, jsname, t, uuid, scopenames, result);
-		return "libtypi.array.get(" ~ array ~ "," ~ index ~ ")";
-	}
-	if (cast(FCall) v) {
-		auto fc = cast(FCall) v;
-		auto fptr = genVal(fc.fptr, jsname, t, uuid, scopenames, result);
-		auto arg = genVal(fc.arg, jsname, t, uuid, scopenames, result);
-		return fptr ~ "(libtypi.copy(" ~ arg ~ "))";
-	}
-	if (cast(Slice) v) {
-		auto sli = cast(Slice) v;
-		auto array = genVal(sli.array, jsname, t, uuid, scopenames, result);
-		auto left = genVal(sli.left, jsname, t, uuid, scopenames, result);
-		auto right = genVal(sli.right, jsname, t, uuid, scopenames, result);
-		return "libtypi.array.slice(" ~ array ~ "," ~ left ~ "," ~ right ~ ")";
-	}
-	if (cast(StringLit) v) {
-		auto str = cast(StringLit) v;
-		string res;
-		foreach (ch; str.str) {
-			res ~= escape(ch);
+	
+		Usage literal(){
+			return Usage(Unique.copy,Eval.any);
 		}
-		return "libtypi.jsStringToTypiString(\"" ~ res ~ "\")";
-	}
-	if (cast(ArrayLit) v) {
-		auto array = cast(ArrayLit) v;
-		string[] elms;
-		foreach (val; array.values) {
-			elms ~= genVal(val, jsname, t, uuid, scopenames, result);
+	
+		Usage variable(){
+			return Usage(Unique.same,Eval.any);
 		}
-		return "libtypi.array.literal([" ~ elms.join(",") ~ "])";
-	}
-	foreach (o; staticForeach!("*", "/", "%", "+", "-", "|", "^", "<<", ">>", ">>>")) {
-		if (cast(Binary!o) v) {
-			auto bin = cast(Binary!o) v;
-			auto left = genVal(bin.left, jsname, t, uuid, scopenames, result);
-			auto right = genVal(bin.right, jsname, t, uuid, scopenames, result);
-			return "(" ~ libtypiToInt(bin.type.actual) ~ "(" ~ left ~ o ~ right ~ "))";
+	
+		Usage shareUsage(string share){
+			return Usage(Unique.no,Eval.once,share);
 		}
-	}
-	foreach (o; staticForeach!("<=", ">=", "<", ">", "&&", "||")) {
-		if (cast(Binary!o) v) {
-			auto bin = cast(Binary!o) v;
-			auto left = genVal(bin.left, jsname, t, uuid, scopenames, result);
-			auto right = genVal(bin.right, jsname, t, uuid, scopenames, result);
-			return "(" ~ left ~ o ~ right ~ ")";
+	
+		Usage once(){
+			return Usage(Unique.no,Eval.once);
 		}
-	}
-	if (cast(Binary!"==") v) {
-		auto bin = cast(Binary!"==") v;
-		auto left = genVal(bin.left, jsname, t, uuid, scopenames, result);
-		auto right = genVal(bin.right, jsname, t, uuid, scopenames, result);
-		return "libtypi.equal(" ~ left ~ "," ~ right ~ ")";
-	}
-	if (cast(Binary!"!=") v) {
-		auto bin = cast(Binary!"!=") v;
-		auto left = genVal(bin.left, jsname, t, uuid, scopenames, result);
-		auto right = genVal(bin.right, jsname, t, uuid, scopenames, result);
-		return "!libtypi.equal(" ~ left ~ "," ~ right ~ ")";
-	}
-	if (cast(Binary!"=") v) {
-		auto bin = cast(Binary!"=") v;
-		auto right = "libtypi.copy(" ~ genVal(bin.right, jsname, t, uuid, scopenames,
-			result) ~ ")";
-		return genValAssign(bin.left, right, jsname, t, uuid, scopenames, result);
-	}
-	if (cast(Binary!"~") v) {
-		auto bin = cast(Binary!"~") v;
-		auto left = genVal(bin.left, jsname, t, uuid, scopenames, result);
-		auto right = genVal(bin.right, jsname, t, uuid, scopenames, result);
-		return "libtypi.array.concatArray(" ~ left ~ "," ~ right ~ ")";
-	}
-	foreach (o; staticForeach!("-", "~", "!")) {
-		if (cast(Prefix!o) v) {
-			auto pre = cast(Prefix!o) v;
-			auto sub = genVal(pre.value, jsname, t, uuid, scopenames, result);
-			return o ~ sub;
+	
+		Usage none(){
+			return Usage(Unique.no,Eval.none);
 		}
-	}
-	if (cast(Prefix!"&") v) {
-		auto pre = cast(Prefix!"&") v;
-		auto sub = pre.value;
-		if (cast(Variable) sub) {
-			auto var = cast(Variable) sub;
-			Trace tt;
-			auto src = t.var(var.name, var.namespace, tt);
-			if (cast(ModuleVar) src) {
-				return jsname ~ (cast(Module.ModuleTrace) tt).m.namespace.join(".") ~ var.name;
-			} else {
-				return var.name;
-			}
+	
+		Usage copy(){
+			return Usage(Unique.copy,Eval.any);
 		}
-		if (cast(Dot) sub) {
-			auto dot = cast(Dot) sub;
-			auto stru = dot.value;
-			assert(cast(Struct) stru.type.actual);
-			string index;
-
-			if (dot.index.peek!string) {
-				index = (cast(Struct)(dot.value.type.actual)).names[dot.index.get!string].to!string;
-			} else {
-				index = (dot.index.get!BigInt).to!string;
-			}
-			auto stval = genVal(stru, jsname, t, uuid, scopenames, result);
-			return "libtypi.offsetPointer(" ~ stval ~ "," ~ index ~ ")";
-		}
-		if (cast(ArrayIndex) sub) {
-			auto arrind = cast(ArrayIndex) sub;
-			auto arr = genVal(arrind.array, jsname, t, uuid, scopenames, result);
-			auto index = genVal(arrind.index, jsname, t, uuid, scopenames, result);
-			return "libtypi.array.addr(" ~ arr ~ "," ~ index ~ ")";
-		}
-		if (cast(Prefix!"*") sub) {
-			auto def = cast(Prefix!"*") sub;
-			return genVal(def.value, jsname, t, uuid, scopenames, result);
-		}
-		assert(0);
 	}
 
-	if (cast(Scope) v) {
-		auto sc = cast(Scope) v;
-		auto subt = sc.genTrace(t);
-		auto res = genName();
-		auto breaker = genName();
-		result ~= "var " ~ res ~ " = undefined;";
-		result ~= breaker ~ ": {";
-		auto scopeN = scopenames;
-		scopeN.results ~= res;
-		scopeN.breaks ~= breaker;
-		foreach (state; sc.states) {
-			if (state.peek!Value) {
-				result ~= genVal(state.get!Value, jsname, subt, uuid, scopeN, result) ~ ";";
-			} else {
-				auto va = state.get!ScopeVar;
-				string pre;
-				string pos;
-				if (va.heap) {
-					pre = "libtypi.pointer(";
-					pos = ")";
+	
+	JsExpr indexStruct(JsExpr str,size_t index){
+		return new JsIndex(str,new JsLit(index.to!string));
+	}
+	
+	JsExpr internalArray(JsExpr array){
+		return new JsBinary!"||"(new JsDot(array,"data"), array);
+	}
+	
+	JsExpr arrayStart(JsExpr array){
+		return new JsBinary!"||"(new JsDot(array,"start"), new JsLit("0"));
+	}
+	
+	JsExpr arrayLength(JsExpr array){
+		return new JsDot(array,"length");
+	}
+	
+	JsExpr indexArray(JsExpr array,JsExpr index){
+		return new JsIndex(internalArray(array), new JsBinary!"+"(new JsBinary!"||"(new JsDot(array,"start") , new JsLit("0")),index));
+	}
+	
+	JsExpr indexPointer(JsExpr pointer){
+		return new JsIndex(internalArray(pointer), new JsBinary!"||"(new JsDot(pointer,"start") , new JsLit("0")));
+	}
+	
+	JsExpr copy(JsExpr expr,Type type){
+		type = type.actual;
+		if(cast(Bool)type || cast(Char)type || cast(Int)type || cast(UInt)type || cast(Pointer)type || cast(Array)type || cast(Function)type){
+			return expr;
+		}else if(auto str = cast(Struct) type){
+			auto ret = new JsArray();
+			foreach(c,e;str.types){
+				ret.exprs ~= copy(indexStruct(expr,c),e);
+			}
+			return ret;
+		}else{
+			assert(0);
+		}
+	}
+		
+	JsExpr defaultValue(Type type){
+		type = type.actual;
+		if(cast(UInt) type || cast(Int) type){
+			return new JsLit("0");
+		}else if(cast(Bool) type){
+			return new JsLit("false");
+		}else if(cast(Char) type){
+			return new JsLit('"'~"\\0"~'"');
+		}else if(auto stu = cast(Struct) type){
+			auto ret = new JsArray();
+			foreach(sub;stu.types){
+				ret.exprs ~= defaultValue(sub);
+			}
+			return ret;
+		}else if(cast(Pointer) type || cast(Function) type){
+			return new JsLit("undefined");
+		} else if(cast(Array) type){
+			return new JsArray();
+		}else{
+			assert(0);
+		}
+	}
+	
+	JsExpr castInt(JsExpr expr,Type type){
+		type = type.actual;
+		if(auto i = cast(Int) type){
+			if(i.size == 1){
+				error("todo support size" ~ i.size.to!string);
+				assert(0);
+			}else if(i.size == 2){
+				error("todo support size" ~ i.size.to!string);
+				assert(0);
+			}else if(i.size == 4 || i.size == 0){
+				return new JsBinary!"|"(expr,new JsLit("0"));
+			}else{
+				error("todo support size" ~ i.size.to!string);
+				assert(0);
+			}
+		}else if(auto i = cast(UInt)type){
+			if(i.size == 1){
+				return new JsBinary!"&"(expr,new JsLit("0xff"));
+			}else if(i.size == 2){
+				return new JsBinary!"&"(expr,new JsLit("0xffff"));
+			}else if(i.size == 4 || i.size == 0){
+				return new JsBinary!"&"(expr,new JsLit("0xffffffff"));
+			}else{
+				error("todo support size" ~ i.size.to!string);
+				assert(0);
+			}
+		}else{
+			assert(0);
+		}
+	}
+	
+	JsExpr compare(JsExpr left,JsExpr right,Type type,JsState[] depend){
+		type = type.actual;
+		if(cast(Bool)type || cast(Char)type || cast(Int)type || cast(UInt)type|| cast(Function)type){
+			return new JsBinary!"=="(left,right);
+		} else if(auto ptr = cast(Pointer)type){
+			return new JsBinary!"&&"(new JsBinary!"=="(internalArray(left),internalArray(right)), new JsBinary!"=="(arrayStart(left),arrayStart(right)));
+		} else if(auto arr = cast(Array)type){
+			auto var = genName();
+			auto varLit = new JsLit(var);
+			depend ~= new JsVarDef(var,new JsBinary!"=="(arrayLength(left),arrayLength(right)));
+			auto i = new JsLit(genName());
+			auto loop = new JsFor(new JsVarDef(i.value,new JsLit("0")),new JsBinary!"<"(i,arrayLength(left)),new JsPostfix!"++"(i),[]);
+			depend ~= new JsIf(varLit,[loop],null);
+			loop.states ~= new JsBinary!"="(varLit,new JsBinary!"&&"(varLit,compare(indexArray(left,i),indexArray(right,i),arr.type,loop.states)));
+			return varLit;
+		} else if(auto str = cast(Struct) type){
+			if(str.types.length == 0){
+				return new JsLit("true");
+			} if(str.types.length == 0){
+				return compare(indexStruct(left,0),indexStruct(right,0),str.types[0],depend);
+			}else {
+				auto ret = new JsBinary!"&&"();
+				auto current = ret;
+				foreach(c,t;str.types){
+					current.left = compare(indexStruct(left,c), indexStruct(right,c),type,depend);
+					if(c == str.types.length - 2){
+						current.right = compare(indexStruct(left,c+1),indexStruct(right,c+1),type,depend);
+						break;
+					}
+					auto next = new JsBinary!"&&"();
+					current.right = next;
+					current = next;
 				}
-				result ~= "var " ~ va.name ~ " =" ~ pre ~ genVal(va.def,
-					jsname, subt, uuid, scopeN, result) ~ pos ~ ";";
-				(cast(Scope.ScopeTrace)(subt)).vars[va.name] = va;
+				return ret;
+			}
+		}else{
+			assert(0);
+		}
+	}
+	
+	JsLit genTmp(string share,JsExpr init,ref JsState[] depend){
+		if(share == ""){
+			share = genName();
+			depend ~= new JsVarDef(share,init ? init : new JsLit("undefined"));
+		}else{
+			if(init){
+				depend ~= new JsBinary!"="(new JsLit(share),init);
 			}
 		}
-		result ~= "}";
-		return res;
+		return new JsLit(share);
 	}
-
-	if (cast(FuncLit) v) {
-		auto flit = cast(FuncLit) v;
-		auto subt = flit.genTrace(t);
-		auto returns = "function(" ~ flit.fvar.name ~ "){";
-		auto val = genVal(flit.text, jsname, subt, uuid, scopenames, /+special case +/ returns);
-		returns ~= "return " ~ val ~ ";}";
-		return returns;
+	
+	JsExpr returnWrap(JsExpr result,Usage self,Usage request,Type type,ref JsState[] depend){
+		if(request.share != "" && self.share != ""){
+			assert(request.share == self.share);
+			return null;
+		}
+		if(request.cache == Eval.none){
+			if(self.cache == Eval.once){
+				depend ~= result;
+			}
+			return null;
+		}
+		if(request.cache == Eval.once){
+			assert(request.unique != Unique.same);//doesn't make sense
+			if(request.unique == Unique.copy && self.unique != Unique.copy){
+				auto ret = genTmp("",result,depend);
+				return copy(ret,type);
+			}
+			return result;
+		}
+		assert(request.cache == Eval.any);
+		if(self.cache != Eval.any){
+			auto ret = genTmp("",result,depend);
+			if(request.unique == Unique.copy){
+				return copy(ret,type);
+			}
+			return ret;
+		}
+		
+		if(request.unique == Unique.copy && self.unique != Unique.copy){
+			return copy(result,type);
+		}
+		if(request.unique == Unique.same && self.unique != Unique.same){
+			auto ret = genTmp("",result,depend);
+			return ret;
+		}
+		assert(request.unique == self.unique);
+		return result;
 	}
-
-	if (cast(Return) v) {
-		auto ret = cast(Return) v;
-		auto val = genVal(ret.value, jsname, t, uuid, scopenames, result);
-		string rbreak;
-		string rresult;
-		if (ret.upper == uint.max) {
-			rbreak = scopenames.breaks[0];
-			rresult = scopenames.results[0];
+	
+	struct Wrap{
+		Usage request;
+		Type type;
+		JsState[]* depend;
+	}
+	
+	JsExpr returnWrap(JsExpr result,Usage self,Wrap wrap) {
+		return returnWrap(result,self,wrap.request,wrap.type,*wrap.depend);
+	}
+	
+	void ignoreShare(ref Usage usage){
+		usage.share = "";
+	}
+	
+	JsExpr genVal(Value value,Trace trace,Usage usage,ref JsState[] depend) {
+		auto args = Wrap(usage,value.type,&depend);
+		if(auto lit = cast(IntLit) value){
+			return returnWrap(new JsLit(intLitToString(lit)),Usage.literal,args);
+		} else if(auto lit = cast(BoolLit) value){
+			if(lit.yes){
+				return returnWrap(new JsLit("true"),Usage.literal,args);
+			}else{
+				return returnWrap(new JsLit("false"),Usage.literal,args);
+			}
+		} else if(auto lit = cast(CharLit) value){
+			return returnWrap(new JsLit('"'~escape(lit.value)~'"'),Usage.literal,args);
+		} else if(auto lit = cast(StructLit) value){
+			ignoreShare(usage);
+			auto fields = lit.values;
+			JsExpr[] exprs;
+			exprs.length = fields.length;
+			foreach(i,field;fields){
+				exprs[i] = genVal(field,trace,Usage.container(usage),depend);
+			}
+			return returnWrap(new JsArray(exprs),Usage.container(usage),args);
+		} else if(auto var = cast(Variable) value){
+			Trace subtrace;
+			auto src = trace.var(var.name, var.namespace, subtrace);
+			assert(src);
+			JsExpr outvar;
+			if (cast(ModuleVar) src) {
+				auto modTrace = cast(Module.ModuleTrace)subtrace;
+				auto names = modTrace.m.namespace.chain(only(var.name));
+				foreach(c,name;names.enumerate){
+					if(c == 0){
+						outvar = new JsLit(name);
+					}else{
+						outvar = new JsDot(outvar,name);
+					}
+				}
+			} else {
+				assert(var.namespace is null);
+				outvar = new JsLit(var.name);
+			}
+			if (src.heap) {
+				outvar = new JsIndex(outvar,new JsLit("0"));
+			}
+			return returnWrap(outvar,Usage.variable,args);
+		} else if(auto iF = cast(If) value) {
+			auto state = new JsIf();
+			state.cond = genVal(iF.cond,trace,Usage.once,depend);
+			auto tmp = genTmp(usage.share,null,depend);
+			
+			auto yes = genVal(iF.yes,trace,Usage.shareUsage(tmp.value),state.yes);
+			auto no = genVal(iF.no,trace,Usage.shareUsage(tmp.value),state.no);
+			
+			if(yes){
+				state.yes ~= new JsBinary!"="(tmp,yes);
+			}
+			if(no){
+				state.no ~= new JsBinary!"="(tmp,no);
+			}
+			depend ~= state;
+			return returnWrap(tmp,Usage.shareUsage(tmp.value),args);
+		} else if(auto wh = cast(While) value){
+			JsState[] condStates;
+			auto cond = genVal(wh.cond,trace,Usage.once,condStates);
+			auto state = new JsWhile();
+			if(condStates.length == 0){
+				state.cond = cond;
+				genVal(wh.state,trace,Usage.none,state.states);
+			} else{
+				state.cond = new JsLit("true");
+				state.states ~= condStates;
+				state.states ~= new JsIf(new JsPrefix!"!"(cond),[new JsBreak()],[]);
+				genVal(wh.state,trace,Usage.none,state.states);
+			}
+			depend ~= state;
+			return returnWrap(new JsArray([]),Usage.literal,args);
+		} else if(auto ne = cast(New) value){
+			auto ptr = new JsArray([genVal(ne.value,trace,Usage.container(usage),depend)]);
+			return returnWrap(ptr,Usage.container(usage),args);
+		} else if(auto na = cast(NewArray) value){
+			auto len = genVal(na.length,trace,Usage.copy,depend);
+			auto val = genVal(na.value,trace,Usage.copy,depend);
+			auto lit = genTmp(usage.share,new JsArray(),depend);
+			auto loopInc = genName();
+			auto incLit = new JsLit(loopInc);
+			depend ~= new JsFor(new JsVarDef(loopInc,new JsLit("0")),new JsBinary!"<"(incLit,len),new JsPostfix!"++"(incLit),[new JsBinary!"="(new JsIndex(lit,incLit),val)]);
+			return returnWrap(lit,Usage.variable,args);
+		} else if(auto ca = cast(Cast) value){
+			ignoreShare(usage);
+			auto val = genVal(ca.value,trace,usage,depend);
+			if(sameType(ca.value.type,ca.wanted)){
+				return returnWrap(val,usage,args);
+			}else if(sameType(ca.value.type,new Struct())){
+				return returnWrap(defaultValue(ca.wanted),Usage.literal,args);
+			}else if(cast(UInt)ca.wanted.actual || cast(Int)ca.wanted.actual){
+				return returnWrap(castInt(val,ca.wanted),usage,args);
+			}
+			assert(0);
+		} else if(auto dot = cast(Dot) value){
+			ignoreShare(usage);
+			auto val = genVal(dot.value,trace,usage,depend);
+			JsExpr result;
+			if(dot.index.peek!string){
+				if(cast(Array)dot.value.type.actual){
+					return returnWrap(new JsDot(val,"length"),usage,args);
+				}
+				auto stru = cast(Struct)(dot.value.type.actual);
+				result = indexStruct(val,stru.names[dot.index.get!string]);
+			}else{
+				result = indexStruct(val,dot.index.get!BigInt.to!size_t);
+			}
+			return returnWrap(result,usage,args);
+		} else if(auto arr = cast(ArrayIndex) value){
+			ignoreShare(usage);
+			auto array = genVal(arr.array,trace,Usage.copy,depend);
+			auto index = genVal(arr.index,trace,usage,depend);
+			auto result = indexArray(array,index);
+			return returnWrap(result,Usage.container(usage),args);
+		} else if(auto func = cast(FCall) value){
+			auto funcPtr = genVal(func.fptr,trace,Usage.once,depend);
+			auto arg = genVal(func.arg,trace,Usage.copy,depend);
+			auto expr = new JsCall(funcPtr,[arg]);
+			return returnWrap(expr,Usage.once,args);
+		} else if(auto slice = cast(Slice)value){
+			auto array = genVal(slice.array,trace,Usage.copy,depend);
+			auto left = genVal(slice.left,trace,Usage.copy,depend);
+			auto right = genVal(slice.right,trace,Usage.copy,depend);
+			auto expr = new JsObject([Tuple!(string,JsExpr)("data",internalArray(array)),
+			Tuple!(string,JsExpr)("start",new JsBinary!"+"(arrayStart(array),left)),
+			Tuple!(string,JsExpr)("length",new JsBinary!"-"(right,left))]);
+			return returnWrap(expr,Usage.literal,args);
+		} else if(auto str = cast(StringLit) value){
+			string result;
+			foreach(c;str.str){
+				result ~= escape(c);
+			}
+			auto expr = new JsCall(new JsDot(new JsLit("libtypi"),"jsStringToTypiString"),[new JsLit('"'~result~'"')]);
+			return returnWrap(expr,Usage.literal,args);
+		} else if(auto arr = cast(ArrayLit) value){
+			auto ret = new JsArray();
+			foreach(val;arr.values){
+				ret.exprs ~= genVal(val,trace,Usage.copy,depend);
+			}
+			return returnWrap(ret,Usage.literal,args);
+		} else if (auto bin = cast(Binary!"==") value) {
+			auto left = genVal(bin.left, trace, Usage.copy, depend);
+			auto right = genVal(bin.right, trace, Usage.copy, depend);
+			auto expr = compare(left,right,bin.left.type,depend);
+			return returnWrap(expr,Usage.literal,args);
+		}else if (auto bin = cast(Binary!"!=") value) {
+			auto left = genVal(bin.left, trace, Usage.copy, depend);
+			auto right = genVal(bin.right, trace, Usage.copy, depend);
+			auto expr = new JsPrefix!"!"(compare(left,right,bin.left.type,depend));
+			return returnWrap(expr,Usage.literal,args);
+		}else if (auto bin = cast(Binary!"=") value) {
+			return genValAssign(bin.left,bin.right,trace,usage,depend);
+		}else if (auto bin = cast(Binary!"~") value) {
+			auto left = genVal(bin.left, trace, Usage.copy,depend);
+			auto right = genVal(bin.right, trace, Usage.copy,depend);
+			auto lit = genTmp(usage.share,new JsArray(),depend);
+			auto i = new JsLit(genName());
+			auto loop = new JsFor(new JsVarDef(i.value,new JsLit("0")),new JsBinary!"<"(i,arrayLength(left)),new JsPostfix!"++"(i),[]);
+			depend ~= loop;
+			loop.states ~= new JsBinary!"="(new JsIndex(lit,i),copy(indexArray(left,i),(cast(Array)bin.left.type.actual).type));
+			auto loop2 = new JsFor(new JsVarDef(i.value,arrayLength(left)),new JsBinary!"<"(i,new JsBinary!"+"(arrayLength(left),arrayLength(right))),new JsPostfix!"++"(i),[]);
+			depend ~= loop;
+			loop2.states ~= new JsBinary!"="(new JsIndex(lit,i),copy(indexArray(right,new JsBinary!"-"(i,arrayLength(left))),(cast(Array)bin.left.type.actual).type));
+			return returnWrap(lit,Usage.variable,args);
+		} else if(auto pre = cast(Prefix!"*")value){
+			ignoreShare(usage);
+			auto val = genVal(pre.value,trace,usage,depend);
+			return returnWrap(indexPointer(val),usage,args);
+		} else if (auto pre = cast(Prefix!"&") value) {
+			auto sub = pre.value;
+			if (auto var = cast(Variable) sub) {
+				Trace subtrace;
+				auto src = trace.var(var.name, var.namespace, subtrace);
+				assert(src);
+				JsExpr outvar;
+				if (cast(ModuleVar) src) {
+					auto names = var.namespace.chain(only(var.name));
+					foreach(c,name;names.enumerate){
+						if(c == 0){
+							outvar = new JsLit(name);
+						}else{
+							outvar = new JsDot(outvar,name);
+						}
+					}
+				} else {
+					assert(var.namespace is null);
+					outvar = new JsLit(var.name);
+				}
+				return returnWrap(outvar,Usage.literal,args);
+			} else if (auto dot = cast(Dot) sub) {
+				ignoreShare(usage);
+				auto stru = dot.value;
+				auto structType = cast(Struct) stru.type.actual;
+				assert(structType);
+				//todo bug, can't get address of .length
+				auto structValue = genVal(stru,trace,usage,depend);
+				size_t index;
+				if (dot.index.peek!string) {
+					index = structType.names[dot.index.get!string];
+				} else {
+					index = dot.index.get!BigInt.to!size_t;
+				}
+				auto expr = new JsObject([Tuple!(string,JsExpr)("data",structValue),
+				Tuple!(string,JsExpr)("start",new JsLit(index.to!string))]);
+				return returnWrap(expr,Usage.container(usage),args);
+			}
+			if (auto arrIndex = cast(ArrayIndex) sub) {
+				ignoreShare(usage);
+				auto arr = genVal(arrIndex.array,trace,Usage.copy,depend);
+				auto index = genVal(arrIndex.index,trace,usage,depend);
+				auto expr = new JsObject([Tuple!(string,JsExpr)("data",internalArray(arr)),
+				Tuple!(string,JsExpr)("start",new JsBinary!"+"(arrayStart(arr),index))]);
+				return returnWrap(expr,Usage.container(usage),args);
+			}
+			if (auto def = cast(Prefix!"*") sub) {
+				return genVal(def.value,trace,usage,depend);
+			}
+			assert(0);
+		} else if(auto sc = cast(Scope)value){
+			auto subt = sc.genTrace(trace);
+			scopeStack ~= Tuple!(JsLabel,string)(null,"");
+			JsState[] states;
+			foreach(state; sc.states){
+				if(auto val = state.peek!Value){
+					genVal(*val,subt,Usage.none,states);
+				}else{
+					auto var = state.get!ScopeVar;
+					auto val = genVal(var.def,subt,Usage(Unique.copy,Eval.once),states);
+					if(var.heap){
+						states ~= new JsVarDef(var.name,new JsArray([val]));
+					}else{
+						states ~= new JsVarDef(var.name,val);
+					}
+					(cast(Scope.ScopeTrace)(subt)).vars[var.name] = var;
+				}
+			}
+			if(scopeStack[$-1][1] != ""){
+				auto jsScope = cast(JsScope) scopeStack[$-1][0];
+				auto var = scopeStack[$-1][1];
+				depend ~= new JsVarDef(var, defaultValue(sc.type));
+				jsScope.states ~= states;
+				depend ~= jsScope;
+				scopeStack.popBack;
+				return returnWrap(new JsLit(var),Usage.variable,args);
+			}else{
+				scopeStack.popBack;
+				depend ~= states;
+				return returnWrap(new JsArray(),Usage.literal,args);
+			}
+		} else if(auto funcLit = cast(FuncLit)value){
+			auto subt = funcLit.genTrace(trace);
+			auto result = new JsFuncLit([funcLit.fvar.name],[]);
+			auto val = genVal(funcLit.text,subt,Usage(Unique.copy,Eval.once),result.states);
+			result.states ~= new JsReturn(val);
+			return returnWrap(result,Usage.literal,args);
+		} else if(auto ret = cast(Return)value){
+			auto val = genVal(ret.value,trace,Usage(Unique.copy,Eval.once),depend);
+			size_t stop;
+			if (ret.upper == uint.max) {
+				stop = 0;
+			} else {
+				stop = scopeStack.length - 1 - ret.upper;
+			}
+			if(stop == 0){
+				depend ~= new JsReturn(val);
+			}else{
+				if(scopeStack[stop][0] is null){
+					scopeStack[stop][0] = new JsScope;
+				}
+				if(scopeStack[stop][0].label == ""){
+					scopeStack[stop][0].label = genName();
+				}
+				if(scopeStack[stop][1] == ""){
+					scopeStack[stop][1] = genName();
+				}
+				auto label = scopeStack[stop][0].label; 
+				auto var = scopeStack[stop][1];
+				depend ~= new JsBinary!"="(new JsLit(var),val);
+				depend ~= new JsBreak(label);
+			}
+			return returnWrap(new JsArray(),Usage.literal,args);
+		} else if(auto ext = cast(ExternJS) value){
+			return returnWrap(new JsLit(ext.external),Usage.literal,args);
 		} else {
-			rbreak = scopenames.breaks[$ - 1 - ret.upper];
-			rresult = scopenames.results[$ - 1 - ret.upper];
+			foreach (o; staticForeach!("*", "/", "%", "+", "-", "|", "^", "<<", ">>", ">>>")) {
+				if (auto bin = cast(Binary!o) value) {
+					ignoreShare(usage);
+					auto left = genVal(bin.left, trace, usage, depend);
+					auto right = genVal(bin.right, trace, usage, depend);
+					return returnWrap(castInt(new JsBinary!o(left,right),bin.type),usage,args);
+				}
+			}
+			foreach (o; staticForeach!("<=", ">=", "<", ">", "&&", "||")) {
+				if (auto bin = cast(Binary!o) value) {
+					ignoreShare(usage);
+					auto left = genVal(bin.left, trace, usage, depend);
+					auto right = genVal(bin.right, trace, usage, depend);
+					return returnWrap(new JsBinary!o(left,right),usage,args);
+				}
+			}
+			
+			foreach (o; staticForeach!("-", "~", "!")) {
+				if (auto pre = cast(Prefix!o) value) {
+					ignoreShare(usage);
+					return returnWrap(new JsPrefix!"!"(genVal(pre.value, trace, usage,depend)),usage,args);
+				}
+			}
+			assert(0);
 		}
-		result ~= rresult ~ "=libtypi.copy(" ~ val ~ ");";
-		result ~= "break " ~ rbreak ~ ";";
-		return "undefined"; //it doesn't matter what i return
 	}
-
-	if (cast(ExternJS) v) {
-		auto ext = cast(ExternJS) v;
-		return ext.external;
-	}
-	assert(0);
-}
-
-string genValAssign(Value v, string assigner, string jsname, Trace t, uint uuid,
-	ScopeNames scopenames, ref string result) {
-	if (cast(Variable) v) {
-		auto var = cast(Variable) v;
-		Trace tt;
-		auto vsrc = t.var(var.name, var.namespace, tt);
-		string prefix;
-		if (cast(ModuleVar) vsrc) {
-			prefix = jsname ~ (cast(Module.ModuleTrace)(tt)).m.namespace.join(".") ~ ".";
-		}
-		prefix ~= var.name;
-		if (vsrc.heap) {
-			return "(" ~ prefix ~ "(" ~ assigner ~ "))";
+	
+	JsExpr genValAssign(Value value,Value rightValue,Trace trace,Usage usage,ref JsState[] depend) {
+		JsExpr outvar;
+		ignoreShare(usage);
+		auto right = genVal(rightValue,trace,Usage.copy,depend);
+		if (auto var = cast(Variable) value) {
+			Trace subtrace;
+			auto src = trace.var(var.name, var.namespace, subtrace);
+			assert(src);
+			if (cast(ModuleVar) src) {
+				auto names = var.namespace.chain(only(var.name));
+				foreach(c,name;names.enumerate){
+					if(c == 0){
+						outvar = new JsLit(name);
+					}else{
+						outvar = new JsDot(outvar,name);
+					}
+				}
+			} else {
+				assert(var.namespace is null);
+				outvar = new JsLit(var.name);
+			}
+			if (src.heap) {
+				outvar = new JsIndex(outvar,new JsLit("0"));
+			}
+			outvar = new JsBinary!"="(outvar,right);
 		} else {
-			return "(" ~ prefix ~ "=" ~ assigner ~ ")";
+			auto sub = genVal(value,trace,Usage.once,depend);
+			outvar = new JsBinary!"="(sub,right);
 		}
+		return returnWrap(outvar,Usage(Unique.no,Eval.once),usage,value.type,depend);
 	}
-	if (cast(Dot) v) {
-		auto dot = cast(Dot) v;
-		auto str = genVal(dot.value, jsname, t, uuid, scopenames, result);
-
-		if (dot.index.peek!string) {
-			return "libtypi.array.set(" ~ str ~ "," ~ (cast(Struct)(dot.value.type.actual)).names[
-				dot.index.get!string].to!string ~ "," ~ assigner ~ ")";
-		} else {
-			return "libtypi.array.set(" ~ str ~ "," ~ (dot.index.get!BigInt).to!string ~ "," ~ assigner ~ ")";
-		}
-	}
-	if (cast(ArrayIndex) v) {
-		auto arin = cast(ArrayIndex) v;
-		auto array = genVal(arin.array, jsname, t, uuid, scopenames, result);
-		auto index = genVal(arin.index, jsname, t, uuid, scopenames, result);
-		return "libtypi.array.set(" ~ array ~ "," ~ index ~ "," ~ assigner ~ ")";
-	}
-	if (cast(Prefix!"*") v) {
-		auto pre = cast(Prefix!"*") v;
-		auto sub = genVal(pre.value, jsname, t, uuid, scopenames, result);
-		return sub ~ "(" ~ assigner ~ ")";
-	}
-	assert(0);
 }
 
 string escape(dchar d) {

@@ -20,7 +20,11 @@ enum main=${} arg{
 		2
 	;
 	while {return.0 false;};
+	
 	auto ptr=new 0;
+	*ptr = 10;
+	auto ptrptr=&ptr;
+	
 	arr=new[10] 8:size;
 	auto v3=1000:uint_t.2;
 	variable2.1=-10;
@@ -34,14 +38,12 @@ enum main=${} arg{
 	"abc";
 	[1,2,3];
 	
-	auto ptrptr=&ptr;
-	
 	auto strptr=&(str.1);
 	(*strptr)=10;
 	
-	auto heapstruct=new (0,1,'a','b');
-	
-	auto heapstructslice=heapstruct:{int_t.0,int_t.0,char}*;
+	#auto heapstruct=new (0,1,'a','b');
+	#this feature is temporarily removed
+	#auto heapstructslice=heapstruct:{int_t.0,int_t.0,char}*;
 	
 	externTest("hello world");
 	
@@ -51,7 +53,7 @@ enum main=${} arg{
 
 enum externTest=extern "js" of ${}:char[] = 
 "
-	function(arg){
-		console.log(libtypi.typiStringtoJSString(arg));
-	}
+function(arg){
+	console.log(libtypi.typiStringtoJSString(arg));
+}
 ";

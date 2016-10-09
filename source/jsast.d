@@ -177,7 +177,7 @@ class JsFor : JsLabel {
 	this() {
 	}
 
-	this(JsVarDef varder, JsExpr cond, JsExpr inc, JsState[] states) {
+	this(JsVarDef vardef, JsExpr cond, JsExpr inc, JsState[] states) {
 		this.vardef = vardef;
 		this.cond = cond;
 		this.inc = inc;
@@ -187,7 +187,7 @@ class JsFor : JsLabel {
 	override void toStateString(ref string result, uint indent) {
 		super.toStateString(result, indent);
 		result ~= "for (";
-		if (vardef !is null) {
+		if (vardef) {
 			vardef.toStateString(result, indent);
 		} else {
 			result ~= ";";
@@ -505,6 +505,7 @@ class JsObject : JsExpr {
 			}
 		}
 		decrease(indent);
+		line(result,indent);
 		result ~= "}";
 	}
 
