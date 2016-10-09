@@ -90,9 +90,9 @@ struct Generator{
 		//if null is return the sub expression wrote the value to
 		//a variable called share
 		//otherwise normal behavior
-		string share;
+		JsExpr share;
 		invariant(){
-			if(share.length > 0){
+			if(share){
 				assert(unique == Unique.no);
 				assert(cache == Eval.once);
 			}
@@ -115,7 +115,7 @@ struct Generator{
 			return Usage(Unique.same,Eval.any);
 		}
 	
-		Usage shareUsage(string share){
+		Usage shareUsage(JsExpr share){
 			return Usage(Unique.no,Eval.once,share);
 		}
 	
@@ -171,7 +171,19 @@ struct Generator{
 			assert(0);
 		}
 	}
-		
+	
+	JsExpr onceCopy(JsExpr expr,Type type,JsState[] depend){
+		type = type.actual;
+		if(cast(Bool)type || cast(Char)type || cast(Int)type || cast(UInt)type || cast(Pointer)type || cast(Array)type || cast(Function)type){
+			return expr;
+		}else if(auto str = cast(Struct) type){
+			auto ret = genTmp(null,expr,depend);
+			return copy(ret,type);
+		}else{
+			assert(0);
+		}
+	}
+	
 	JsExpr defaultValue(Type type){
 		type = type.actual;
 		if(cast(UInt) type || cast(Int) type){
@@ -266,20 +278,21 @@ struct Generator{
 		}
 	}
 	
-	JsLit genTmp(string share,JsExpr init,ref JsState[] depend){
-		if(share == ""){
-			share = genName();
-			depend ~= new JsVarDef(share,init ? init : new JsLit("undefined"));
-		}else{
+	JsExpr genTmp(JsExpr share,JsExpr init,ref JsState[] depend){
+		if(share){
 			if(init){
-				depend ~= new JsBinary!"="(new JsLit(share),init);
+				depend ~= new JsBinary!"="(share,init);
 			}
+		} else {
+			auto name = genName(); 
+			share = new JsLit(name);
+			depend ~= new JsVarDef(name,init ? init : new JsLit("undefined"));
 		}
-		return new JsLit(share);
+		return share;
 	}
 	
 	JsExpr returnWrap(JsExpr result,Usage self,Usage request,Type type,ref JsState[] depend){
-		if(request.share != "" && self.share != ""){
+		if(request.share && self.share){
 			assert(request.share == self.share);
 			return null;
 		}
@@ -292,14 +305,13 @@ struct Generator{
 		if(request.cache == Eval.once){
 			assert(request.unique != Unique.same);//doesn't make sense
 			if(request.unique == Unique.copy && self.unique != Unique.copy){
-				auto ret = genTmp("",result,depend);
-				return copy(ret,type);
+				return onceCopy(result,type,depend);
 			}
 			return result;
 		}
 		assert(request.cache == Eval.any);
 		if(self.cache != Eval.any){
-			auto ret = genTmp("",result,depend);
+			auto ret = genTmp(null,result,depend);
 			if(request.unique == Unique.copy){
 				return copy(ret,type);
 			}
@@ -310,7 +322,7 @@ struct Generator{
 			return copy(result,type);
 		}
 		if(request.unique == Unique.same && self.unique != Unique.same){
-			auto ret = genTmp("",result,depend);
+			auto ret = genTmp(null,result,depend);
 			return ret;
 		}
 		assert(request.unique == self.unique);
@@ -328,7 +340,7 @@ struct Generator{
 	}
 	
 	void ignoreShare(ref Usage usage){
-		usage.share = "";
+		usage.share = null;
 	}
 	
 	JsExpr genVal(Value value,Trace trace,Usage usage,ref JsState[] depend) {
@@ -378,10 +390,17 @@ struct Generator{
 		} else if(auto iF = cast(If) value) {
 			auto state = new JsIf();
 			state.cond = genVal(iF.cond,trace,Usage.once,depend);
+			if(usage.cache == Eval.none){
+				auto yes = genVal(iF.yes,trace,Usage.none,state.yes);
+				auto no = genVal(iF.no,trace,Usage.none,state.no);
+				depend ~= state;
+				return null;
+			}
+			
 			auto tmp = genTmp(usage.share,null,depend);
 			
-			auto yes = genVal(iF.yes,trace,Usage.shareUsage(tmp.value),state.yes);
-			auto no = genVal(iF.no,trace,Usage.shareUsage(tmp.value),state.no);
+			auto yes = genVal(iF.yes,trace,Usage.shareUsage(tmp),state.yes);
+			auto no = genVal(iF.no,trace,Usage.shareUsage(tmp),state.no);
 			
 			if(yes){
 				state.yes ~= new JsBinary!"="(tmp,yes);
@@ -390,7 +409,7 @@ struct Generator{
 				state.no ~= new JsBinary!"="(tmp,no);
 			}
 			depend ~= state;
-			return returnWrap(tmp,Usage.shareUsage(tmp.value),args);
+			return returnWrap(tmp,Usage.variable,args);
 		} else if(auto wh = cast(While) value){
 			JsState[] condStates;
 			auto cond = genVal(wh.cond,trace,Usage.once,condStates);
