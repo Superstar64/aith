@@ -14,9 +14,10 @@
 	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
 +/
 module jsast;
-import std.range;
-import std.algorithm;
-import std.typecons;
+
+import std.algorithm : any, canFind, filter, map;
+import std.range : enumerate;
+import std.typecons : Tuple;
 
 bool returns(JsState[] states) {
 	return states.map!(a => a.returns).any;
@@ -27,11 +28,10 @@ abstract class JsState {
 		return false;
 	}
 
-	void toStateString(ref string result, uint indent);
+	void toStateString(scope void delegate(const(char)[]) result, uint indent);
 	override string toString() {
 		string result;
-		uint indent;
-		toStateString(result, indent);
+		toStateString((const(char)[] str) { result ~= str; }, 0);
 		return result;
 	}
 
@@ -43,10 +43,10 @@ abstract class JsState {
 		indent -= 4;
 	}
 
-	static line(ref string result, uint indent) {
-		result ~= "\n";
+	static line(scope void delegate(const(char)[]) result, uint indent) {
+		result("\n");
 		foreach (_; 0 .. indent) {
-			result ~= " ";
+			result(" ");
 		}
 	}
 }
@@ -54,9 +54,10 @@ abstract class JsState {
 abstract class JsLabel : JsState {
 	string label;
 
-	override void toStateString(ref string result, uint indent) {
+	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
 		if (label.length > 0) {
-			result ~= label ~ ":";
+			result(label);
+			result(":");
 			line(result, indent);
 		}
 	}
@@ -75,9 +76,9 @@ class JsScope : JsLabel {
 		return states.map!(a => a.returns).any;
 	}
 
-	override void toStateString(ref string result, uint indent) {
+	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
 		super.toStateString(result, indent);
-		result ~= "{";
+		result("{");
 		increase(indent);
 		foreach (state; states) {
 			line(result, indent);
@@ -85,7 +86,7 @@ class JsScope : JsLabel {
 		}
 		decrease(indent);
 		line(result, indent);
-		result ~= "}";
+		result("}");
 	}
 }
 
@@ -106,11 +107,11 @@ class JsIf : JsLabel {
 		return yes.map!(a => a.returns).any && no.map!(a => a.returns).any;
 	}
 
-	override void toStateString(ref string result, uint indent) {
+	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
 		super.toStateString(result, indent);
-		result ~= "if (";
+		result("if (");
 		cond.toExprString(result, indent);
-		result ~= ") {";
+		result(") {");
 		increase(indent);
 		foreach (state; yes) {
 			line(result, indent);
@@ -118,9 +119,9 @@ class JsIf : JsLabel {
 		}
 		decrease(indent);
 		line(result, indent);
-		result ~= "}";
+		result("}");
 		if (no.length > 0) {
-			result ~= " else {";
+			result(" else {");
 			increase(indent);
 			foreach (state; no) {
 				line(result, indent);
@@ -128,7 +129,7 @@ class JsIf : JsLabel {
 			}
 			decrease(indent);
 			line(result, indent);
-			result ~= "}";
+			result("}");
 		}
 	}
 }
@@ -144,11 +145,11 @@ class JsWhile : JsLabel {
 		this.states = states;
 	}
 
-	override void toStateString(ref string result, uint indent) {
+	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
 		super.toStateString(result, indent);
-		result ~= "while (";
+		result("while (");
 		cond.toExprString(result, indent);
-		result ~= ") {";
+		result(") {");
 		increase(indent);
 		foreach (state; states) {
 			line(result, indent);
@@ -156,7 +157,7 @@ class JsWhile : JsLabel {
 		}
 		decrease(indent);
 		line(result, indent);
-		result ~= "}";
+		result("}");
 	}
 }
 
@@ -171,9 +172,9 @@ class JsDoWhile : JsLabel {
 		this.cond = cond;
 	}
 
-	override void toStateString(ref string result, uint indent) {
+	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
 		super.toStateString(result, indent);
-		result ~= "do {";
+		result("do {");
 		increase(indent);
 		foreach (state; states) {
 			line(result, indent);
@@ -181,9 +182,9 @@ class JsDoWhile : JsLabel {
 		}
 		decrease(indent);
 		line(result, indent);
-		result ~= "} while (";
+		result("} while (");
 		cond.toExprString(result, indent);
-		result ~= ");";
+		result(");");
 	}
 }
 
@@ -202,22 +203,22 @@ class JsFor : JsLabel {
 		this.states = states;
 	}
 
-	override void toStateString(ref string result, uint indent) {
+	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
 		super.toStateString(result, indent);
-		result ~= "for (";
+		result("for (");
 		if (vardef) {
 			vardef.toStateString(result, indent);
 		} else {
-			result ~= ";";
+			result(";");
 		}
 		if (cond) {
 			cond.toExprString(result, indent);
 		}
-		result ~= ";";
+		result(";");
 		if (inc) {
 			inc.toExprString(result, indent);
 		}
-		result ~= ") {";
+		result(") {");
 		increase(indent);
 		foreach (state; states) {
 			line(result, indent);
@@ -225,7 +226,7 @@ class JsFor : JsLabel {
 		}
 		decrease(indent);
 		line(result, indent);
-		result ~= "}";
+		result("}");
 	}
 }
 
@@ -240,10 +241,12 @@ class JsVarDef : JsState {
 		this.value = value;
 	}
 
-	override void toStateString(ref string result, uint indent) {
-		result ~= "var " ~ name ~ " = ";
+	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
+		result("var ");
+		result(name);
+		result(" = ");
 		value.toExprString(result, indent);
-		result ~= ";";
+		result(";");
 	}
 }
 
@@ -260,13 +263,13 @@ class JsReturn : JsState {
 		return true;
 	}
 
-	override void toStateString(ref string result, uint indent) {
-		result ~= "return";
+	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
+		result("return");
 		if (expr) {
-			result ~= " ";
+			result(" ");
 			expr.toExprString(result, indent);
 		}
-		result ~= ";";
+		result(";");
 	}
 }
 
@@ -279,13 +282,13 @@ class JsContinue : JsState {
 		this.label = label;
 	}
 
-	override void toStateString(ref string result, uint indent) {
-		result ~= "continue";
+	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
+		result("continue");
 		if (label.length > 0) {
-			result ~= " ";
-			result ~= label;
+			result(" ");
+			result(label);
 		}
-		result ~= ";";
+		result(";");
 	}
 }
 
@@ -298,41 +301,43 @@ class JsBreak : JsState {
 		this.label = label;
 	}
 
-	override void toStateString(ref string result, uint indent) {
-		result ~= "break";
+	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
+		result("break");
 		if (label.length > 0) {
-			result ~= " ";
-			result ~= label;
+			result(" ");
+			result(label);
 		}
-		result ~= ";";
+		result(";");
 	}
 }
 
-//dfmt off
-enum precedence =
-[["="], ["||"], ["&&"], ["|"], ["^"], ["&"],
- ["==", "!=", "===", "!=="], [">", "<", ">=", "<=", "instanceof"],
- ["<<", ">>", ">>>"], ["+", "-"], ["*", "/", "%"]];
-//dfmt on
+enum precedence = [["="], ["||"], [
+		"&&"
+	], ["|"], ["^"], [
+		"&"
+	], ["==", "!=", "===", "!=="], [
+		">", "<", ">=", "<=", "instanceof"
+	], ["<<", ">>", ">>>"], ["+", "-"], ["*", "/", "%"]];
+
 enum predPrefix = precedence.length + 1;
 enum predPostfix = predPrefix + 1;
 enum predLit = predPostfix + 1;
 enum predHighest = predLit + 1;
 
 abstract class JsExpr : JsState {
-	override void toStateString(ref string result, uint indent) {
+	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
 		toExprString(result, indent);
-		result ~= ";";
+		result(";");
 	}
 
-	void toExprString(ref string result, uint indent);
-	void toExprString(ref string result, uint indent, uint pred) {
+	void toExprString(scope void delegate(const(char)[]) result, uint indent);
+	void toExprString(scope void delegate(const(char)[]) result, uint indent, uint pred) {
 		if (pred > this.pred) {
-			result ~= "(";
+			result("(");
 		}
 		toExprString(result, indent);
 		if (pred > this.pred) {
-			result ~= ")";
+			result(")");
 		}
 	}
 
@@ -349,8 +354,8 @@ class JsLit : JsExpr {
 		this.value = value;
 	}
 
-	override void toExprString(ref string result, uint indent) {
-		result ~= value;
+	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
+		result(value);
 	}
 
 	override uint pred() {
@@ -367,8 +372,8 @@ class JsPrefix(string op) : JsExpr {
 		this.expr = expr;
 	}
 
-	override void toExprString(ref string result, uint indent) {
-		result ~= op;
+	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
+		result(op);
 		expr.toExprString(result, indent, pred);
 	}
 
@@ -386,9 +391,9 @@ class JsPostfix(string op) : JsExpr {
 		this.expr = expr;
 	}
 
-	override void toExprString(ref string result, uint indent) {
+	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
 		expr.toExprString(result, indent, pred);
-		result ~= op;
+		result(op);
 	}
 
 	override uint pred() {
@@ -407,9 +412,9 @@ class JsBinary(string op) : JsExpr {
 		this.right = right;
 	}
 
-	override void toExprString(ref string result, uint indent) {
+	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
 		left.toExprString(result, indent, pred);
-		result ~= " " ~ op ~ " ";
+		result(" " ~ op ~ " ");
 		right.toExprString(result, indent, pred);
 	}
 
@@ -429,16 +434,16 @@ class JsCall : JsExpr {
 		this.args = args;
 	}
 
-	override void toExprString(ref string result, uint indent) {
+	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
 		func.toExprString(result, indent, pred);
-		result ~= "(";
+		result("(");
 		foreach (c, arg; args) {
 			arg.toExprString(result, indent);
 			if (c != args.length - 1) {
-				result ~= ", ";
+				result(", ");
 			}
 		}
-		result ~= ")";
+		result(")");
 	}
 
 	override uint pred() {
@@ -457,15 +462,15 @@ class JsFuncLit : JsExpr {
 		this.states = states;
 	}
 
-	override void toExprString(ref string result, uint indent) {
-		result ~= "function (";
+	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
+		result("function (");
 		foreach (c, arg; args) {
-			result ~= arg;
+			result(arg);
 			if (c != args.length - 1) {
-				result ~= ", ";
+				result(", ");
 			}
 		}
-		result ~= ") {";
+		result(") {");
 		increase(indent);
 		foreach (state; states) {
 			line(result, indent);
@@ -473,7 +478,7 @@ class JsFuncLit : JsExpr {
 		}
 		decrease(indent);
 		line(result, indent);
-		result ~= "}";
+		result("}");
 	}
 
 	override uint pred() {
@@ -490,15 +495,15 @@ class JsArray : JsExpr {
 		this.exprs = exprs;
 	}
 
-	override void toExprString(ref string result, uint indent) {
-		result ~= "[";
+	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
+		result("[");
 		foreach (c, expr; exprs) {
 			expr.toExprString(result, indent);
 			if (c != exprs.length - 1) {
-				result ~= ", ";
+				result(", ");
 			}
 		}
-		result ~= "]";
+		result("]");
 	}
 
 	override uint pred() {
@@ -515,20 +520,21 @@ class JsObject : JsExpr {
 		this.fields = fields;
 	}
 
-	override void toExprString(ref string result, uint indent) {
-		result ~= "{";
+	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
+		result("{");
 		increase(indent);
 		foreach (c, field; fields.enumerate) {
 			line(result, indent);
-			result ~= field[0] ~ " : ";
+			result(field[0]);
+			result(" : ");
 			field[1].toExprString(result, indent);
 			if (c != fields.length - 1) {
-				result ~= ",";
+				result(",");
 			}
 		}
 		decrease(indent);
 		line(result, indent);
-		result ~= "}";
+		result("}");
 	}
 
 	override uint pred() {
@@ -547,9 +553,10 @@ class JsDot : JsExpr {
 		this.value = value;
 	}
 
-	override void toExprString(ref string result, uint indent) {
+	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
 		object.toExprString(result, indent, pred);
-		result ~= "." ~ value;
+		result(".");
+		result(value);
 	}
 
 	override uint pred() {
@@ -568,11 +575,11 @@ class JsIndex : JsExpr {
 		this.index = index;
 	}
 
-	override void toExprString(ref string result, uint indent) {
+	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
 		array.toExprString(result, indent, pred);
-		result ~= "[";
+		result("[");
 		index.toExprString(result, indent);
-		result ~= "]";
+		result("]");
 	}
 
 	override uint pred() {
@@ -582,21 +589,9 @@ class JsIndex : JsExpr {
 
 string stringCode(JsState[] states) {
 	string result;
-	uint indent;
 	foreach (state; states) {
-		state.toStateString(result, indent);
-		JsState.line(result, indent);
+		state.toStateString((const(char)[] str) { result ~= str; }, 0);
+		JsState.line((const(char)[] str) { result ~= str; }, 0);
 	}
 	return result;
-}
-
-unittest {
-	import std.stdio;
-
-	JsState[] ast = [
-		new JsVarDef("myVar", new JsArray([new JsLit("0"), new JsLit("1")
-	])),
-		new JsWhile(new JsBinary!"<"(new JsLit("0"),
-		new JsIndex(new JsLit("myVar"), new JsLit("1"))), [new JsPrefix!"--"(new JsLit("myVar"))])];
-	writeln(ast.stringCode);
 }

@@ -16,9 +16,25 @@
 module error;
 import core.runtime : Runtime;
 import core.stdc.stdlib : exit;
-import std.stdio : write, writeln;
-import lexer;
 import std.conv : to;
+import std.stdio : stderr, write, writeln;
+
+struct Position { //used for token position in a file
+	string file_name;
+	uint line;
+	string file; //ref to file
+	size_t indexs; //file index start
+	size_t indexe; //file index end
+	auto join(Position other) {
+		assert(file_name == other.file_name, file_name ~ " " ~ other.file_name);
+		assert(file.ptr == other.file.ptr);
+		return Position(file_name, line, file, indexs, other.indexs);
+	}
+
+	string toString() {
+		return file[indexs .. indexe];
+	}
+}
 
 string prettyPrint(Position pos, string colorstart = "\x1b[31m", string colorend = "\x1b[0m") {
 	string res;
@@ -57,19 +73,19 @@ string prettyPrint(Position pos, string colorstart = "\x1b[31m", string colorend
 }
 
 void error(string message, Position pos) {
-	writeln("Error: " ~ message);
-	writeln(prettyPrint(pos));
+	stderr.writeln("Error: " ~ message);
+	stderr.writeln(prettyPrint(pos));
 	Runtime.terminate();
 	exit(1);
 }
 
 void error(string message) {
-	writeln("Error: " ~ message);
+	stderr.writeln("Error: " ~ message);
 	Runtime.terminate();
 	exit(1);
 }
 
 void warn(string message, Position pos) { //todo count warnings and add easter eggs
-	writeln("Warning: " ~ message);
+	stderr.writeln("Warning: " ~ message);
 	writeln(prettyPrint(pos));
 }

@@ -1,9 +1,0 @@
-{
-	"name": "typi",
-	"description": "Typi Programming language compiler",
-	"copyright": "Copyright © 2015, Freddy Angel Cubas 'Superstar64'",
-	"authors": ["superstar64"],
-	"dependencies":{
-	},
-	"license":"GPL-3.0"
-}

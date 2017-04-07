@@ -26,5 +26,4 @@ enum qsort=${}:int_t.4[] array  {
 	array[array.length - 1] = last;
 	qsort(array[0..middle]);
 	qsort(array[middle..array.length]);
-	return ();
 };

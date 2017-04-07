@@ -14,6 +14,7 @@
 	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
 +/
 module lexer;
+import std.algorithm : startsWith;
 import std.ascii : isAlpha, isAlphaNum, isDigit, isWhite;
 import std.bigint : BigInt;
 import std.conv : to;
@@ -21,7 +22,8 @@ import std.typecons : Nullable;
 import std.variant : Algebraic;
 import std.range : chunks;
 import std.array : array;
-import error : error;
+
+import error : error, Position;
 
 @property {
 	char front(string str) {
@@ -32,28 +34,12 @@ import error : error;
 		str = str[1 .. $];
 	}
 
+	void popFrontN(ref string str, size_t n) {
+		str = str[n .. $];
+	}
+
 	bool empty(string str) {
 		return str.length == 0;
-	}
-}
-BigInt ctorBigInt(string s) {
-	return BigInt(s);
-}
-
-struct Position { //used for token position in a file
-	string file_name;
-	uint line;
-	string file; //ref to file
-	size_t indexs; //file index start
-	size_t indexe; //file index end
-	auto join(Position other) {
-		assert(file_name == other.file_name, file_name ~ " " ~ other.file_name);
-		assert(file.ptr == other.file.ptr);
-		return Position(file_name, line, file, indexs, other.indexs);
-	}
-
-	string toString() {
-		return file[indexs .. indexe];
 	}
 }
 
@@ -62,12 +48,12 @@ struct Identifier {
 	alias name this;
 	static Nullable!Identifier consume(ref string file) {
 		if (file.front.isAlpha || file.front == '_') {
-			auto org = file;
+			auto original = file;
 			do {
 				file.popFront;
 			}
 			while (!file.empty && (file.front.isAlphaNum || file.front == '_'));
-			return typeof(return)(Identifier(org[0 .. org.length - file.length]));
+			return typeof(return)(Identifier(original[0 .. original.length - file.length]));
 		}
 		return typeof(return).init;
 	}
@@ -86,13 +72,13 @@ struct IntLiteral {
 
 	static Nullable!IntLiteral consume(ref string file) {
 		if (file.front.isDigit) {
-			auto org = file;
+			auto original = file;
 			do {
 				file.popFront;
 			}
 			while (!file.empty && file.front.isDigit);
-			auto number = org[0 .. org.length - file.length];
-			return typeof(return)(IntLiteral(ctorBigInt(number)));
+			auto number = original[0 .. original.length - file.length];
+			return typeof(return)(IntLiteral(BigInt(number)));
 		}
 		return typeof(return).init;
 	}
@@ -100,7 +86,8 @@ struct IntLiteral {
 
 struct Keyword {
 	enum list = [
-			"alias", "auto", "bool_t", //"catch",
+			"alias", //"assume"
+			"auto", "bool_t", //"catch",
 			"char", "else", //"end",
 			"enum", "extern", "false",
 			//"float_t",
@@ -114,7 +101,7 @@ struct Keyword {
 			//"type_template",
 			"uint_t", //"union",
 			//"value_template",
-			"while", //"yield"//coroutine, acts like return but on next call will continue from yield point
+			"while", //"yield
 		];
 	size_t index;
 	string toString() {
@@ -150,8 +137,7 @@ struct Operator {
 			">>=", ">>>", "==", "!=", "<=", ">=", "<<", ">>", "&&",
 			"||", "+=", "-=", "*=", "/=", "%=", "&=", "^=", "|=", "~=", "::",
 			"~>", "~<", "..", "<", ">", "+", "-", "*", "/", "%", "=", "!",
-			"~", "&", "|", "^", ":", "$", "@", //"#",
-			"{", "}", "(", ")", "[", "]", ".", ",", ";"
+			"~", "&", "|", "^", ":", "$", "@", "{", "}", "(", ")", "[", "]", ".", ",", ";"
 		];
 	size_t index;
 	string toString() {
@@ -185,6 +171,85 @@ template oper(string s) {
 	enum oper = findOper();
 }
 
+string readStringLitWithEscapes(ref string file, char end, string current, out string err) {
+	while (true) {
+		if (file.front == '\\') {
+			file.popFront;
+			if (file.empty) {
+				err = "Expected escape character after \\";
+				return null;
+			}
+			if (file.front == 'a') {
+				current ~= '\a';
+			} else if (file.front == 'b') {
+				current ~= '\b';
+			} else if (file.front == 'f') {
+				current ~= '\f';
+			} else if (file.front == 'n') {
+				current ~= '\n';
+			} else if (file.front == 'r') {
+				current ~= '\r';
+			} else if (file.front == 't') {
+				current ~= '\t';
+			} else if (file.front == 'v') {
+				current ~= '\v';
+			} else if (file.front == '\\') {
+				current ~= '\\';
+			} else if (file.front == '\'') {
+				current ~= '\'';
+			} else if (file.front == '"') {
+				current ~= '"';
+			} else if (file.front == '`') {
+				current ~= '`';
+			} else if (file.front == '0') {
+				current ~= '\0';
+			} else if (file.front == '-') {
+				file.popFront;
+				if (file.empty) {
+					err = "Expected hexadecmial";
+					return null;
+				}
+				string text = file;
+				while (file.front != '-') {
+					file.popFront;
+					if (file.empty) {
+						err = "Expected -";
+						return null;
+					}
+				}
+				text = text[0 .. text.length - file.length];
+				file.popFront;
+				if (file.empty || file.front != '/') {
+					err = "Expected /";
+					return null;
+				}
+
+				if (text.length % 2 != 0) {
+					err = "Bad Length for hex literal";
+					return null;
+				}
+				foreach (c; text.chunks(2)) {
+					current ~= c.array.to!ubyte(16);
+				}
+			} else {
+				err = "Expected escape character after \\";
+				return null;
+			}
+			file.popFront;
+		}
+		if (file.front == end) {
+			file.popFront;
+			return current;
+		}
+		current ~= file.front;
+		file.popFront;
+		if (file.empty) {
+			err = "Expected " ~ end;
+			return null;
+		}
+	}
+}
+
 string readStringLit(ref string file, char start, char end, out string err) {
 	if (file.front != start) {
 		return null;
@@ -194,94 +259,16 @@ string readStringLit(ref string file, char start, char end, out string err) {
 		err = "Expected " ~ end;
 		return null;
 	}
-	string old = file;
-	reader: while (true) {
+	string original = file;
+	while (true) {
 		if (file.front == '\\') {
-			old = old[0 .. old.length - file.length];
-			while (true) {
-				if (file.front == '\\') {
-					file.popFront;
-					if (file.empty) {
-						err = "Expected escape character after \\";
-						return null;
-					}
-					if (file.front == 'a') {
-						old ~= '\a';
-					} else if (file.front == 'b') {
-						old ~= '\b';
-					} else if (file.front == 'f') {
-						old ~= '\f';
-					} else if (file.front == 'n') {
-						old ~= '\n';
-					} else if (file.front == 'r') {
-						old ~= '\r';
-					} else if (file.front == 't') {
-						old ~= '\t';
-					} else if (file.front == 'v') {
-						old ~= '\v';
-					} else if (file.front == '\\') {
-						old ~= '\\';
-					} else if (file.front == '\'') {
-						old ~= '\'';
-					} else if (file.front == '"') {
-						old ~= '"';
-					} else if (file.front == '`') {
-						old ~= '`';
-					} else if (file.front == '0') {
-						old ~= '\0';
-					} else if (file.front == '-') {
-						file.popFront;
-						if (file.empty) {
-							err = "Expected hexadecmial";
-							return null;
-						}
-						string text = file;
-						while (file.front != '-') {
-							file.popFront;
-							if (file.empty) {
-								err = "Expected -";
-								return null;
-							}
-						}
-						text = text[0 .. text.length - file.length];
-						file.popFront;
-						if (file.empty || file.front != '/') {
-							err = "Expected /";
-							return null;
-						}
-
-						if (text.length % 2 != 0) {
-							err = "Bad Length for hex literal";
-							return null;
-						}
-						foreach (c; text.chunks(2)) { //untested
-							old ~= c.array.to!ubyte(16);
-						}
-					} else {
-						err = "Expected escape character after \\";
-						return null;
-					}
-					file.popFront;
-					if (file.empty) {
-						err = "Expected escape character after \\";
-						return null;
-					}
-					continue;
-				}
-				if (file.front == end) {
-					break reader;
-				}
-				old ~= file.front;
-				file.popFront;
-				if (file.empty) {
-					err = "Expected " ~ end;
-					return null;
-				}
-			}
+			return readStringLitWithEscapes(file, end,
+					original[0 .. original.length - file.length], err);
 		}
 		if (file.front == end) {
-			old = old[0 .. old.length - file.length];
-			break;
+			original = original[0 .. original.length - file.length];
+			file.popFront;
+			return original;
 		}
 		file.popFront;
 		if (file.empty) {
@@ -289,8 +276,6 @@ string readStringLit(ref string file, char start, char end, out string err) {
 			return null;
 		}
 	}
-	file.popFront;
-	return old;
 }
 
 struct CharLiteral {
@@ -321,8 +306,7 @@ struct Eof {
 
 struct Token {
 	Position pos;
-	Algebraic!(Identifier, IntLiteral, Keyword, Operator, CharLiteral, StringLiteral,
-		Eof) value;
+	Algebraic!(Identifier, IntLiteral, Keyword, Operator, CharLiteral, StringLiteral, Eof) value;
 	alias value this;
 	bool opEquals(Token other) {
 		return value == other.value;
@@ -363,63 +347,48 @@ struct Token {
 	}
 }
 
-void cleanComment(ref string file) {
+void removeMultiLine(ref string file) {
+	while (!file.startsWith("$#")) {
+		if (file.startsWith("#$")) {
+			file.popFrontN(2);
+			removeMultiLine(file);
+		}
+		if (file.empty) {
+			return;
+		}
+		file.popFront;
+	}
+	file.popFrontN(2);
+}
+
+void removeSingleLine(ref string file) {
+	if (file.startsWith('\n')) {
+		file.popFront;
+		return;
+	}
+	if (file.empty) {
+		return;
+	}
+	file.popFront;
+	return file.removeSingleLine;
+}
+
+void removeComment(ref string file) {
 	if (file.empty) {
 		return;
 	}
 	if (file.front.isWhite) {
 		file.popFront;
-		return file.cleanComment;
+		file.removeComment;
 	}
-	if (file.front == '#') {
-		file.popFront;
-		if (file.empty)
-			return;
-		if (file.front == '$') { //multiline comment
-			uint count = 1;
-			do {
-				file.popFront;
-				if (file.empty)
-					return;
-				if (file.front == '#') {
-					auto cpy = file;
-					cpy.popFront;
-					if (cpy.empty)
-						return;
-					if (cpy.front == '$') {
-						cpy.popFront;
-						file = cpy;
-						count++;
-					}
-				} else if (file.front == '$') {
-					auto cpy = file;
-					cpy.popFront;
-					if (cpy.empty)
-						return;
-					if (cpy.front == '#') {
-						cpy.popFront;
-						if (cpy.empty)
-							return;
-						file = cpy;
-						count--;
-						if (count == 0) {
-							return file.cleanComment;
-						}
-					}
-				}
-			}
-			while (true);
-		} else {
-			while (!file.empty && file.front != '\n') {
-				file.popFront;
-			}
-			if (file.empty)
-				return;
-			file.popFront;
-			if (file.empty)
-				return;
-			return file.cleanComment;
-		}
+	if (file.startsWith("#$")) {
+		file.popFrontN(2);
+		file.removeMultiLine;
+		file.removeComment;
+	}
+	if (file.startsWith("#")) {
+		file.removeSingleLine;
+		return file.removeComment;
 	}
 }
 
@@ -441,9 +410,9 @@ struct Lexer {
 
 	void popFront() {
 		{ //clean whitespace,comments,etc
-			auto old = file;
-			file.cleanComment();
-			diff(old);
+			auto original = file;
+			file.removeComment();
+			diff(original);
 		}
 		auto pos = Position(file_name, cline, file_org, cindex);
 		scope (success) {
@@ -451,9 +420,9 @@ struct Lexer {
 			front.pos = pos;
 		}
 
-		auto old = file;
+		auto original = file;
 		scope (success) {
-			diff(old);
+			diff(original);
 		}
 
 		if (file.empty) {
@@ -501,8 +470,8 @@ struct Lexer {
 		error("Unknown Token", Position(file_name, cline, file, cindex, cindex + 1));
 	}
 
-	void diff(string old) {
-		foreach (c; old[0 .. old.length - file.length]) {
+	void diff(string original) {
+		foreach (c; original[0 .. original.length - file.length]) {
 			if (c == '\n') {
 				cline++;
 			}
@@ -518,24 +487,4 @@ struct Lexer {
 	auto save() {
 		return this;
 	}
-}
-
-unittest {
-	import std.file;
-
-	auto lexer = Lexer("test/lexer", cast(string) read("test/lexer"));
-	assert(lexer.front == IntLiteral(BigInt("1234")));
-	lexer.popFront;
-	assert(lexer.front == oper!"(");
-	lexer.popFront;
-	assert(lexer.front == oper!"+");
-	lexer.popFront;
-	assert(lexer.front == Identifier("hi"));
-	lexer.popFront;
-	assert(lexer.front == CharLiteral("char literal"));
-	lexer.popFront;
-	assert(lexer.front == StringLiteral("string\tliteral"));
-	lexer.popFront;
-	assert(lexer.front == Eof());
-	assert(lexer.empty);
 }

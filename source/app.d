@@ -14,17 +14,61 @@
 	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
 +/
 module app;
+
+import std.algorithm;
+import std.array;
+import std.conv;
+import std.getopt;
+import std.process;
+import std.path;
+import std.mmfile;
+import std.range;
 import std.stdio;
+
+import error : error;
 import parser;
 import lexer;
 import semantic;
 import codegen;
 import ast;
-import std.getopt;
-import std.array;
-import std.path;
-import std.file;
-import std.process;
+import jsast;
+
+MmFile[] maps;
+
+void readFiles(string[][] imports, string[][] files, out Module[string[]] wanted,
+		out Module[string[]] all) {
+	string openImport(string[] mod) {
+		auto builder = mod.take(mod.length - 1).chain(only(mod[$ - 1] ~ ".typi"));
+		foreach (imp; imports) {
+			try {
+				auto map = new MmFile(buildPath(chain(imp, builder.save)));
+				maps ~= map;
+				return cast(string) map[];
+			}
+			catch (Exception e) {
+
+			}
+		}
+		error("Unable to open file " ~ buildPath(builder.save));
+		return null;
+	}
+
+	Module loadModule(string[] imp) {
+		auto m = imp in all;
+		if (m) {
+			return *m;
+		}
+		auto parser = Parser(Lexer(imp.join("::").to!string, openImport(imp)), &loadModule);
+		auto mod = parser.parseModule;
+		all[imp.idup] = mod;
+		mod.namespace = imp;
+		return mod;
+	}
+
+	foreach (f; files) {
+		wanted[f.idup] = loadModule(f);
+	}
+}
 
 enum Help = `typi {optional arguments} [files to compile]
 --Generate-All|-a : generate code for all imported files, default is to only generate code for command line files
@@ -32,7 +76,7 @@ enum Help = `typi {optional arguments} [files to compile]
 --Output|-o : output file, - is the default and means stdout
 --Namespace|-n : namespace to compile the javascript to default is global
 The TYPI_CONFIG enviroment Variable is looked at for a config file(extra arguments sperated by lines)
-Any .js files in [files to compile] are interpeted as runtime files and will be include into the output
+Any .js files in [files to compile] are interpeted as runtime files and will be included after the output
 
 Copyright (C) 2015  Freddy Angel Cubas "Superstar64"
 This software has no warrenty.
@@ -40,68 +84,78 @@ You may distrubute this software under the General Public Licenese Version 3
 `;
 
 void main(string[] args) {
-	args = args[1 .. $];
-	if (args.length == 0) {
+	if (args.length == 1) {
 		writeln(Help);
 		return;
 	}
 	bool genAll;
 	string[] searchDirs = ["."];
-	string output = "-";
+	string outputFile = "-";
 	string jsname = "";
 	void opt(ref string[] s) {
 		getopt(s, "Generate-All|a", &genAll, "Add-Search-Dir|I", &searchDirs,
-			"Output|o", &output, "Namespace|n", &jsname);
+				"Output|o", &outputFile, "Namespace|n", &jsname);
 	}
 
 	string configFile = environment.get("TYPI_CONFIG");
 	if (configFile !is null) {
-		auto file = cast(string) read(configFile);
-		auto lines = file.split("\n");
+		auto file = File(configFile, "r");
+		auto lines = chain(only(args[0]), file.byLineCopy).array;
 		opt(lines);
-		args ~= lines;
+		args ~= lines[1 .. $];
 	}
-
 	opt(args);
-	Loader l;
-	foreach (ref f; searchDirs) {
-		f = replace(f, "::", dirSeparator);
-	}
-	l.importPaths = searchDirs;
+	args = args[1 .. $];
 
 	Module[string[]] wanted;
 	Module[string[]] all;
 
-	Module[string[]] actual;
 	string[][] modnames;
-	string[] runtime;
-	foreach (f; args) {
-		if ((f.length < ".typi".length || f[$ - ".typi".length .. $] != ".typi")
-				&& (f.length < ".js".length || f[$ - ".js".length .. $] != ".js")) {
-			writeln(f, " is not a typi file");
+	foreach (file; args) {
+		if (!(file.endsWith(".typi") || file.endsWith(".js"))) {
+			writeln(file, " is not a typi file");
 			return;
 		}
-		if (f[$ - ".js".length .. $] == ".js") {
-			runtime ~= f;
-		} else {
-			modnames ~= f[0 .. $ - ".typi".length].split(dirSeparator);
+		if (file.endsWith(".typi")) {
+			modnames ~= file[0 .. $ - ".typi".length].split(dirSeparator);
 		}
 	}
-	readFiles(l, modnames, wanted, all);
-	processModules(all.values);
+	auto importPaths = searchDirs.split(dirSeparator).filter!(a => a.length)
+		.map!(a => a.array).array;
+	readFiles(importPaths, modnames, wanted, all);
+	all.each!(a => processModule(a));
+	File output;
+	if (outputFile == "-") {
+		output = stdin;
+	} else {
+		output = File(outputFile, "w");
+	}
+	auto writer = &output.write!(const(char)[]);
 	if (genAll) {
-		actual = all;
+		foreach (mod; all.values) {
+			generateJSModule(mod, jsname).each!((a) {
+				a.toStateString(writer, 0);
+				output.writeln;
+			});
+			output.writeln;
+		}
+		foreach (file; args) {
+			if (file.endsWith(".js")) {
+				File(file, "r").byChunk(4096).map!(a => cast(const(char)[]) a).copy(writer);
+			}
+		}
 	} else {
-		actual = wanted;
+		foreach (file; args) {
+			if (file.endsWith(".typi")) {
+				generateJSModule(wanted[file[0 .. $ - ".typi".length].split(dirSeparator)
+						.array], jsname).each!((a) {
+					a.toStateString(writer, 0);
+					output.writeln;
+				});
+			} else {
+				File(file, "r").byChunk(4096).map!(a => cast(const(char)[]) a).copy(writer);
+			}
+		}
 	}
-	string prefix;
-	foreach (f; runtime) {
-		prefix ~= cast(string) read(f);
-	}
-	auto str = prefix ~ genJS(actual.values, jsname);
-	if (output == "-") {
-		writeln(str);
-	} else {
-		std.file.write(output, str);
-	}
+	output.close;
 }

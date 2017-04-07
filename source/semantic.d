@@ -14,727 +14,765 @@
 	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
 +/
 module semantic;
-import std.array : join;
+import std.algorithm : all, any, canFind, each, filter, map, reduce, until;
+import std.array : join, array;
 import std.bigint : BigInt;
 import std.conv : to;
-import std.path : buildPath;
 import std.file : read;
-import std.algorithm : map, all;
+import std.meta : AliasSeq;
+import std.range : drop, take;
 
-template staticForeach(T...) {
-	alias staticForeach = T;
-}
-
-import parser;
 import ast;
-import error : error;
-import lexer;
+import error : error, Position;
+import parser;
 
-struct Loader {
-	string[] importPaths;
-	string open(string file) {
-		foreach (i; importPaths) {
-			try {
-				auto f = cast(string) read(buildPath(i, file));
-				return f;
-			}
-			catch (Throwable) {
+void processModule(Module mod) {
+	semantic1(mod, null);
+}
 
-			}
-		}
-		error("Unable to open file " ~ file);
-		return null;
+void checkIntTypeSize(int size, Position pos) {
+	if (size == 0) {
+		return;
 	}
-
-	string openImport(string[] imp) {
-		return open(buildPath(imp) ~ ".typi");
+	uint check = 1;
+	while (true) {
+		if (check == size) {
+			return;
+		}
+		if (check > size) {
+			error("Bad Int Size", pos);
+		}
+		check *= 2;
 	}
 }
 
-void readFiles(Loader load, string[][] files, out Module[string[]] wanted, out Module[string[]] all) {
-	Module readModule(string[] imp) {
-		auto m = imp in all;
-		if (m) {
-			return *m;
-		}
-		auto parser = Parser(Lexer(imp.join("::").to!string, load.openImport(imp)),
-			&readModule);
-		auto mod = parser.parseModule;
-		all[imp.idup] = mod;
-		mod.namespace = imp;
-		return mod;
-	}
+void semantic1(Node that, Trace* trace) {
+	auto nextTrace = Trace(that, trace);
+	trace = &nextTrace;
+	dispatch!(semantic1Impl, Bool, Char, Int, UInt, Struct, Pointer, Array,
+			Function, SubType, IndexType, UnknownType, ModuleVar, Module, IntLit, CharLit,
+			BoolLit, StructLit, Variable, If, While, New, NewArray, Cast, Dot,
+			ArrayIndex, FCall, Slice, ScopeVar, Scope, FuncLitVar, FuncLit, Return,
+			StringLit, ArrayLit, ExternJS, Binary!"*", Binary!"/",
+			Binary!"%", Binary!"+", Binary!"-", Binary!"~", Binary!"&",
+			Binary!"|", Binary!"^", Binary!"<<", Binary!">>", Binary!">>>",
+			Binary!"==", Binary!"!=", Binary!"<=", Binary!">=", Binary!"<",
+			Binary!">", Binary!"&&", Binary!"||", Binary!"=", Prefix!"+",
+			Prefix!"-", Prefix!"*", Prefix!"/", Prefix!"&", Prefix!"~", Prefix!"!")(that, trace);
+}
 
-	foreach (f; files) {
-		wanted[f.idup] = readModule(f);
+void semantic1Impl(Module that, Trace* trace) {
+	with (that) {
+		foreach (type; aliases) {
+			semantic1(type, trace);
+		}
+		foreach (var; vars) {
+			if (!var.process) {
+				semantic1(var, trace);
+			}
+			if (!var.ispure) {
+				error("Impure expression in global", var.pos);
+			}
+		}
 	}
 }
 
-void processModules(Module[] mods) {
-	foreach (m; mods) {
-		checkIntTypeSize(m);
-	}
-	foreach (m; mods) {
-		assignIndirectTypes(m);
-	}
-	foreach (m; mods) {
-		assignValueTypes(m);
-	}
-	foreach (m; mods) {
-		checkBranches(m);
-	}
-	foreach (m; mods) {
-		checkGlobalExec(m);
+void semantic1Impl(T)(T that, Trace* trace) if (is(T == Bool) || is(T == Char)) {
+
+}
+
+void semantic1Impl(T)(T that, Trace* trace) if (is(T == Int) || is(T == UInt)) {
+	with (that) {
+		checkIntTypeSize(size, pos);
 	}
 }
 
-void checkIntTypeSize(Module mod) {
-	void visiter(Node n, Trace t) {
-		void subVisit() {
-			foreach (ch, subt; n.children(t)) {
-				visiter(ch, subt);
-			}
-		}
-
-		if (cast(Int) n || cast(UInt) n) {
-			uint size = (cast(Int) n) ? (cast(Int) n).size : (cast(UInt) n).size;
-			if (size == 0) {
-				subVisit;
-				return;
-			}
-			uint check = 1;
-			while (true) {
-				if (check == size) {
-					subVisit;
-					return;
-				}
-				if (check > size) {
-					error("Bad Int Size", n.pos);
-				}
-				check *= 2;
-			}
-		}
-		subVisit;
+void semantic1Impl(Struct that, Trace* trace) {
+	with (that) {
+		types.each!(a => semantic1(a, trace));
 	}
-
-	visiter(mod, null);
 }
 
-void assignIndirectTypes(Module mod) {
-	void visiter(Node e, Trace sc) {
-		void subVisit() {
-			foreach (ch, subt; e.children(sc)) {
-				visiter(ch, subt);
-			}
-		}
+void semantic1Impl(T)(T that, Trace* trace) if (is(T == Pointer) || is(T == Array)) {
+	with (that) {
+		semantic1(type, trace);
+	}
+}
 
-		subVisit;
-		if (cast(IndirectType) e) {
-			if (cast(SubType) e) {
-				auto ty = cast(SubType) e;
-				auto sub = ty.type;
-				if (cast(Pointer) sub) {
-					ty.actual_ = (cast(Pointer) sub).type;
-				} else {
-					error("Unable to deref", e.pos);
+void semantic1Impl(Function that, Trace* trace) {
+	with (that) {
+		semantic1(arg, trace);
+		semantic1(ret, trace);
+	}
+}
+
+void semantic1CheckTypeLoop(Type that, Type root) {
+	dispatch!(semantic1CheckTypeLoopImpl, Struct, IndirectType, Type)(that, root);
+}
+
+void semantic1Impl(SubType that, Trace* trace) {
+	with (that) {
+		semantic1(type, trace);
+		actual_ = semantic1Dereference(type.actual);
+		semantic1CheckTypeLoop(actual_, that);
+	}
+}
+
+Type semantic1Dereference(Type that) {
+	return dispatch!(semantic1DereferenceImpl, Pointer, Type)(that);
+}
+
+void semantic1CheckTypeLoopImpl(T)(T that, Type root) {
+	with (that)
+		static if (is(T == Struct)) {
+			semantic1CheckTypeLoopImpl!Type(that, root);
+			foreach (type; types) {
+				semantic1CheckTypeLoop(type, root);
+			}
+		} else static if (is(T == IndirectType)) {
+			semantic1CheckTypeLoopImpl!Type(that, root);
+			if (actual_) {
+				semantic1CheckTypeLoop(actual_, root);
+			}
+		} else static if (is(T == Type)) {
+			if (that is root) {
+				error("Self referecing type", pos);
+			}
+		} else {
+			static assert(0);
+		}
+}
+
+Type semantic1DereferenceImpl(T)(T that) {
+	with (that)
+		static if (is(T == Pointer)) {
+			return type;
+		} else static if (is(T == Type)) {
+			error("Unable to deref", pos);
+			assert(0);
+		} else {
+			static assert(0);
+		}
+}
+
+void semantic1Impl(IndexType that, Trace* trace) {
+	with (that) {
+		semantic1(type, trace);
+		actual_ = semantic1IndexType(type.actual, index);
+		semantic1CheckTypeLoop(actual_, that);
+	}
+}
+
+Type semantic1IndexType(Type that, Index index) {
+	return dispatch!(semantic1IndexTypeImpl, Struct, Array, Type)(that, index);
+}
+
+Type semantic1IndexTypeImpl(T)(T that, Index index) {
+	with (that)
+		static if (is(T == Struct)) {
+			if (index.peek!BigInt) {
+				int where = index.get!BigInt.toInt;
+				if (where >= types.length) {
+					error("Index to big", pos);
 				}
-			} else if (cast(IndexType) e) {
-				auto ty = cast(IndexType) e;
-				auto sub = ty.type;
-				if (cast(Struct) sub) {
-					auto str = cast(Struct) sub;
-					if (ty.index.peek!BigInt) {
-						auto ind = ty.index.get!(BigInt).toInt;
-						if (ind >= str.types.length) {
-							error("Index to big", e.pos);
-						}
-						ty.actual_ = str.types[ind];
-					} else {
-						auto name = ty.index.get!string;
-						if (name in str.names) {
-							auto ind = str.names[name];
-							assert(ind < str.types.length);
-							ty.actual_ = str.types[ind];
-						} else {
-							error("Unknown field", e.pos);
-						}
-					}
-				} else if (cast(Array) sub && ty.index.peek!string
-						&& (ty.index.get!string) == "length") {
-					ty.actual_ = new UInt(0);
-				} else {
-					error("Unable to get member", e.pos);
-				}
-			} else if (cast(UnknownType) e) {
-				auto ty = cast(UnknownType) e;
-				auto act = sc.type(ty.name, ty.namespace);
-				if (act) {
-					ty.actual_ = act;
-				} else {
-					error("Unknown identifier", e.pos);
-				}
+				return types[where];
 			} else {
+				auto name = index.get!string;
+				if (auto where = name in names) {
+					return types[*where];
+				}
+				error("Unknown field", pos);
 				assert(0);
 			}
-			auto intype = cast(IndirectType) e;
-			void compare(Type actual) {
-				if (actual == e) {
-					error("self referecing type", e.pos);
-				}
-				if (cast(IndirectType) actual) {
-					compare((cast(IndirectType) actual).actual_);
-				} else if (cast(Struct) actual) {
-					foreach (t; (cast(Struct) actual).types) {
-						compare(t);
-					}
-				}
+		} else static if (is(T == Array)) {
+			if (index.peek!string && index.get!string == "length") {
+				return new UInt(0);
 			}
-
-			compare(intype.actual_);
-			return;
+			return semantic1IndexTypeImpl!Type(that, index);
+		} else static if (is(T == Type)) {
+			error("Unable to get member:" ~ index.to!string, pos);
+			assert(0);
+		} else {
+			static assert(0);
 		}
-	}
-
-	visiter(mod, null);
 }
 
-void assignValueTypes(Module mod) { //assigns types,lvalues,purity to values
-	void delegate(ModuleVar mv) processMVar;
-	void checkVal(Value val, Trace t) {
-		if (cast(IntLit) val) {
-			if ((cast(IntLit) val).usigned) {
-				val.type = new UInt(0);
-			} else {
-				val.type = new Int(0);
-			}
-			val.ispure = true;
-			return;
+void semantic1Impl(UnknownType that, Trace* trace) {
+	with (that) {
+		auto searched = trace.searchType(name, namespace);
+		if (!searched) {
+			error("Unknown identifier", pos);
 		}
-		if (cast(CharLit) val) {
-			val.type = new Char();
-			val.ispure = true;
-			return;
-		}
-		if (cast(BoolLit) val) {
-			val.type = new Bool();
-			val.ispure = true;
-			return;
-		}
-		if (cast(StructLit) val) {
-			auto st = cast(StructLit) val;
-			foreach (c; st.values) {
-				checkVal(c, t);
-			}
-			auto ty = new Struct();
-			ty.names = st.names;
-			foreach (v; st.values) {
-				ty.types ~= v.type;
-			}
-			val.type = ty;
-			val.ispure = st.values.map!(a => a.ispure).all;
-			return;
-		}
-		if (cast(Variable) val) {
-			auto var = cast(Variable) val;
-			auto vardef = t.var(var.name, var.namespace);
-			if (vardef is null) {
-				error("Unable to find variable", var.pos);
-			}
-			if (cast(ModuleVar) vardef && (cast(ModuleVar) vardef).getType is null) {
-				auto mvardef = cast(ModuleVar) vardef;
-				processMVar(mvardef);
-			}
-			assert(vardef.getType);
-			val.type = vardef.getType;
-			val.lvalue = !vardef.manifest;
-			if (cast(ModuleVar) vardef) {
-				val.ispure = false;
-			} else {
-				val.ispure = true;
-			}
-			return;
-		}
-		if (cast(If) val) {
-			auto iF = cast(If) val;
-			checkVal(iF.cond, t);
-			checkVal(iF.yes, t);
-			checkVal(iF.no, t);
-			if (!sameType(iF.cond.type, new Bool())) {
-				error("Boolean expected in if expression", iF.cond.pos);
-			}
-			if (!(sameType(iF.yes.type, iF.no.type)
-					|| implicitConvertInt(iF.yes, iF.no.type, t)
-					|| implicitConvertInt(iF.no, iF.yes.type, t))) {
-				error("If expression with the true and false parts having different types",
-					iF.pos);
-			}
-			val.type = iF.yes.type;
-			val.ispure = iF.cond.ispure && iF.yes.ispure && iF.no.ispure;
-			return;
-		}
-		if (cast(While) val) {
-			auto wh = cast(While) val;
-			checkVal(wh.cond, t);
-			if (!sameType(wh.cond.type, new Bool())) {
-				error("Boolean expected in if expression", wh.cond.pos);
-			}
-			checkVal(wh.state, t);
-			val.type = new Struct();
-			val.ispure = wh.cond.ispure && wh.state.ispure;
-			return;
-		}
-		if (cast(New) val) {
-			auto ne = cast(New) val;
-			checkVal(ne.value, t);
-			auto ptr = new Pointer();
-			ptr.type = ne.value.type;
-			val.type = ptr;
-			val.ispure = ne.value.ispure;
-			return;
-		}
-		if (cast(NewArray) val) {
-			auto ne = cast(NewArray) val;
-			checkVal(ne.length, t);
-			checkVal(ne.value, t);
-			if (!(sameType(ne.length.type, new UInt(0))
-					|| implicitConvertInt(ne.length, new UInt(0), t))) {
-				error("Can only create an array with length of UInts", ne.length.pos);
-			}
-			auto ar = new Array();
-			ar.type = ne.value.type;
-			val.type = ar;
-			val.ispure = ne.length.ispure && ne.value.ispure;
-			return;
-		}
-		if (cast(Cast) val) {
-			auto ct = cast(Cast) val;
-			checkVal(ct.value, t);
-			if (!castable(ct.value.type, ct.wanted)) {
-				error("Unable to cast", ct.pos);
-			}
-			val.type = ct.wanted;
-			val.ispure = ct.value.ispure;
-			return;
-		}
-		if (cast(Dot) val) {
-			auto dot = cast(Dot) val;
-			checkVal(dot.value, t);
-			if (cast(Array)(dot.value.type.actual) && dot.index.peek!string
-					&& (dot.index.get!string == "length")) {
-				val.type = new UInt(0);
-			} else {
-				if (cast(Struct)(dot.value.type.actual) is null) {
-					error("Unable to dot", dot.pos);
-				}
-				auto dval = cast(Struct)(dot.value.type.actual);
-				if (dot.index.peek!string) {
-					auto str = dot.index.get!string;
-					if (!(str in dval.names)) {
-						error("Unable to find field", dot.pos);
-					}
-					val.type = dval.types[dval.names[str]];
-				} else {
-					uint index = dot.index.get!(BigInt).toInt;
-					if (index >= dval.types.length) {
-						error("Index number to high", dot.pos);
-					}
-					val.type = dval.types[index];
-				}
-				val.lvalue = dot.value.lvalue;
-			}
-			val.ispure = dot.value.ispure;
-			return;
-		}
-
-		if (cast(ArrayIndex) val) {
-			auto arr = cast(ArrayIndex) val;
-			checkVal(arr.array, t);
-			checkVal(arr.index, t);
-			if (!cast(Array)(arr.array.type.actual)) {
-				error("Unable able to index", arr.pos);
-			}
-			if (!(sameType(arr.index.type, new UInt(0))
-					|| implicitConvertInt(arr.index, new UInt(0), t))) {
-				error("Can only index an array with UInts", arr.pos);
-			}
-			auto ar = cast(Array)(arr.array.type);
-			val.type = ar.type;
-			val.lvalue = true;
-			val.ispure = arr.array.ispure && arr.index.ispure;
-			return;
-		}
-
-		if (cast(FCall) val) {
-			auto fcall = cast(FCall) val;
-			checkVal(fcall.fptr, t);
-			checkVal(fcall.arg, t);
-			auto fn = cast(Function)(fcall.fptr.type.actual);
-			if (!fn) {
-				error("Not a function", fcall.pos);
-			}
-			auto fun = cast(Function)(fcall.fptr.type.actual);
-			if (!(sameType(fun.arg, fcall.arg.type)
-					|| ((cast(Int)(fun.arg.actual)
-					|| cast(UInt)(fun.arg.actual)) && implicitConvertInt(fcall.arg,
-					fun.arg, t)))) {
-				error("unable to call function with arg's type", fcall.pos);
-			}
-			val.type = fun.ret;
-			val.ispure = fcall.fptr.ispure && fn.ispure && fcall.arg.ispure;
-			return;
-		}
-		if (cast(Slice) val) {
-			auto sli = cast(Slice) val;
-			checkVal(sli.array, t);
-			checkVal(sli.left, t);
-			checkVal(sli.right, t);
-			if (!cast(Array)(sli.array.type.actual)) {
-				error("Not an array", sli.pos);
-			}
-			if (!(sameType(sli.right.type, new UInt(0))
-					|| implicitConvertInt(sli.left, new UInt(0), t))
-					|| !(sameType(sli.right.type, new UInt(0))
-					|| implicitConvertInt(sli.right, new UInt(0), t))) {
-				error("Can only index an array with UInts", sli.pos);
-			}
-			val.type = sli.array.type;
-			val.ispure = sli.array.ispure && sli.left.ispure && sli.right.ispure;
-			return;
-		}
-		if (cast(StringLit) val) {
-			auto ty = new Array;
-			ty.type = new Char;
-			val.type = ty;
-			val.ispure = true;
-			return;
-		}
-		if (cast(ArrayLit) val) {
-			auto array = cast(ArrayLit) val;
-			foreach (v; array.values) {
-				checkVal(v, t);
-			}
-			if (array.values.length == 0) {
-				error("Array Literals must contain at least one element", val.pos);
-			}
-			Type current = array.values[0].type;
-			foreach (v; array.values[1 .. $]) {
-				if (!sameType(current, v.type)) {
-					error("All elements of an array literal must be of the same type",
-						val.pos);
-				}
-			}
-			auto ty = new Array;
-			ty.type = current;
-			val.type = ty;
-			val.ispure = true;
-			foreach (v; array.values) {
-				val.ispure = val.ispure && v.ispure;
-			}
-			return;
-		}
-
-		foreach (op; staticForeach!("*", "/", "%", "+", "-", "&", "|", "^", "<<", ">>",
-				">>>")) {
-			if (cast(Binary!op) val) {
-				auto bn = cast(Binary!op) val;
-				checkVal(bn.left, t);
-				checkVal(bn.right, t);
-				auto ty = bn.left.type;
-				if (!((cast(UInt)(ty.actual) || cast(Int)(ty.actual))
-						&& (sameType(ty, bn.right.type)
-						|| implicitConvertInt(bn.left, bn.right.type, t)
-						|| implicitConvertInt(bn.right, bn.left.type, t)))) {
-					error(op ~ " only works on Ints or UInts of the same Type", bn.pos);
-				}
-				val.type = ty;
-				val.ispure = bn.left.ispure && bn.right.ispure;
-				return;
-			}
-		}
-
-		if (cast(Binary!"~") val) {
-			auto bn = cast(Binary!"~") val;
-			checkVal(bn.left, t);
-			checkVal(bn.right, t);
-			auto ty = bn.left.type;
-			if (!(cast(Array)(ty.actual) && sameType(ty, bn.right.type))) {
-				error("~ only works on Arrays of the same Type", bn.pos);
-			}
-			val.type = ty;
-			val.ispure = bn.left.ispure && bn.right.ispure;
-			return;
-		}
-
-		foreach (op; staticForeach!("==", "!=")) {
-			if (cast(Binary!op) val) {
-				auto bn = cast(Binary!op) val;
-				checkVal(bn.left, t);
-				checkVal(bn.right, t);
-				if (!(sameType(bn.left.type, bn.right.type)
-						|| implicitConvertInt(bn.left, bn.right.type, t)
-						|| implicitConvertInt(bn.right, bn.left.type, t))) {
-					error(op ~ " only works on the same Type", bn.pos);
-				}
-				val.type = new Bool();
-				val.ispure = bn.left.ispure && bn.right.ispure;
-				return;
-			}
-		}
-
-		foreach (op; staticForeach!("<=", ">=", ">", "<")) {
-			if (cast(Binary!op) val) {
-				auto bn = cast(Binary!op) val;
-				checkVal(bn.left, t);
-				checkVal(bn.right, t);
-				auto ty = bn.left.type;
-				if (!((cast(UInt)(ty.actual) || cast(Int)(ty.actual))
-						&& (sameType(ty, bn.right.type)
-						|| implicitConvertInt(bn.left, bn.right.type, t)
-						|| implicitConvertInt(bn.right, bn.left.type, t)))) {
-					error(op ~ " only works on Ints or UInts of the same Type", bn.pos);
-				}
-				val.type = new Bool();
-				val.ispure = bn.left.ispure && bn.right.ispure;
-				return;
-			}
-		}
-
-		foreach (op; staticForeach!("&&", "||")) {
-			if (cast(Binary!op) val) {
-				auto bn = cast(Binary!op) val;
-				checkVal(bn.left, t);
-				checkVal(bn.right, t);
-				auto ty = bn.left.type;
-				if (!(cast(Bool)(ty.actual) && sameType(ty, bn.right.type))) {
-					error(op ~ " only works on Ints or UInts of the same Type", bn.pos);
-				}
-				val.type = new Bool();
-				val.ispure = bn.left.ispure && bn.right.ispure;
-				return;
-			}
-		}
-
-		if (cast(Binary!"=") val) {
-			auto bn = cast(Binary!"=") val;
-			checkVal(bn.left, t);
-			checkVal(bn.right, t);
-			if (!(sameType(bn.left.type, bn.right.type)
-					|| implicitConvertInt(bn.right, bn.left.type, t))) {
-				error("= only works on the same type", bn.pos);
-			}
-			if (!bn.left.lvalue) {
-				error("= only works on lvalues", bn.pos);
-			}
-			val.type = bn.left.type;
-			val.ispure = bn.left.ispure && bn.right.ispure;
-			return;
-		}
-
-		if (cast(Prefix!"-") val) {
-			auto bn = cast(Prefix!"-") val;
-			checkVal(bn.value, t);
-			if (!cast(Int)(bn.value.type.actual)) {
-				error("= only works on the same type", bn.pos);
-			}
-			val.type = bn.value.type;
-			val.ispure = bn.value.ispure;
-			return;
-		}
-
-		if (cast(Prefix!"*") val) {
-			auto bn = cast(Prefix!"*") val;
-			checkVal(bn.value, t);
-			if (!cast(Pointer)(bn.value.type.actual)) {
-				error("* only works on pointers", bn.pos);
-			}
-			val.type = (cast(Pointer)(bn.value.type.actual)).type;
-			val.lvalue = true;
-			val.ispure = bn.value.ispure;
-			return;
-		}
-
-		if (cast(Prefix!"~") val) {
-			auto bn = cast(Prefix!"~") val;
-			checkVal(bn.value, t);
-			if (!(cast(UInt)(bn.value.type.actual) || cast(Int)(bn.value.type.actual))) {
-				error("~ only works on Ints and UInts", bn.pos);
-			}
-			val.type = bn.value.type;
-			val.ispure = bn.value.ispure;
-			return;
-		}
-
-		if (cast(Prefix!"&") val) {
-			auto bn = cast(Prefix!"&") val;
-			checkVal(bn.value, t);
-			if (!bn.value.lvalue) {
-				error("& only works lvalues", bn.pos);
-			}
-			void assignVar(Variable vari) { //needs testing
-				Var var = t.var(vari.name, vari.namespace);
-				var.heap = true;
-			}
-
-			void assignDot(Dot dot) {
-				if (cast(Dot)(dot.value)) {
-					assignDot(cast(Dot)(dot.value));
-				}
-				if (cast(Variable)(dot.value)) {
-					assignVar(cast(Variable)(dot.value));
-				}
-			}
-
-			if (cast(Variable)(bn.value)) {
-				assignVar(cast(Variable) bn.value);
-			}
-
-			auto ptr = new Pointer();
-			ptr.type = bn.value.type;
-			val.type = ptr;
-			val.ispure = bn.value.ispure;
-			return;
-		}
-
-		if (cast(Prefix!"!") val) {
-			auto bn = cast(Prefix!"!") val;
-			checkVal(bn.value, t);
-			if (!sameType(bn.value.type, new Bool())) {
-				error("! only works on Bools", bn.pos);
-			}
-			val.type = bn.value.type;
-			val.ispure = bn.value.ispure;
-			return;
-		}
-
-		foreach (op; staticForeach!("+", "/")) {
-			if (cast(Prefix!op) val) {
-				error(op ~ " not supported", val.pos);
-			}
-		}
-
-		if (cast(Scope) val) {
-			auto scop = cast(Scope) val;
-			auto subt = scop.genTrace(t);
-			val.ispure = true;
-			foreach (state; scop.states) {
-				if (state.peek!Value) {
-					checkVal(state.get!Value, subt);
-					val.ispure = val.ispure && state.get!(Value).ispure;
-				} else {
-					auto sv = state.get!ScopeVar;
-					checkVal(sv.def, subt);
-					(cast(Scope.ScopeTrace) subt).vars[sv.name] = sv;
-					val.ispure = val.ispure && sv.def.ispure;
-				}
-			}
-			if (scop.type is null) {
-				scop.type = new Struct();
-				scop.noreturn = true;
-			}
-			return;
-		}
-
-		if (cast(FuncLit) val) {
-			auto func = cast(FuncLit) val;
-			auto ftype = new Function();
-			ftype.arg = func.fvar.ty;
-
-			if (func.explict_return) {
-				ftype.ret = func.explict_return;
-				func.type = ftype;
-			}
-			auto subt = func.genTrace(t);
-			checkVal(func.text, subt);
-			if (func.explict_return) {
-				if (!sameType(func.explict_return, func.text.type)) {
-					error("explict return doesn't match actual return", func.pos);
-				}
-			}
-			ftype.ret = func.text.type;
-			ftype.ispure = func.text.ispure;
-			val.type = ftype;
-			val.ispure = true;
-			return;
-		}
-
-		if (cast(Return) val) {
-			auto fn = cast(Return) val;
-			checkVal(fn.value, t);
-			bool max = fn.upper == uint.max;
-			auto sc2 = t;
-			if (cast(FuncLit.FuncLitTrace) sc2) {
-				error("Can't return from a function literal", fn.pos);
-			}
-			for (uint i = 0; i < fn.upper; i++) {
-				auto prev = sc2;
-				sc2 = sc2.upper;
-				assert(sc2); //should never happen, scopes must be inside functions
-				if (!cast(Scope.ScopeTrace) sc2) {
-					if (!max) {
-						error("passed upper scope limit", fn.pos);
-					} else {
-						sc2 = prev;
-						fn.upper = i;
-						break;
-					}
-				}
-			}
-			auto sc3 = cast(Scope.ScopeTrace) sc2;
-			if (sc3.scop.type is null) {
-				sc3.scop.type = fn.value.type;
-			} else {
-				if (!sameType(sc3.scop.type, fn.value.type)) {
-					error("Doesn't match return type", fn.pos);
-				}
-			}
-			val.type = fn.value.type;
-			val.ispure = fn.value.ispure;
-			return;
-		}
-		if (cast(ExternJS) val) {
-			auto ext = cast(ExternJS) val;
-			val.type = ext.type;
-			val.ispure = true;
-			return;
-		}
-		assert(0);
+		actual_ = searched;
+		semantic1CheckTypeLoop(actual_, that);
 	}
+}
 
-	void processMVar_(ModuleVar mv) {
-		if (mv.process) {
-			error("forward declartion", mv.pos);
+void semantic1Impl(ModuleVar that, Trace* trace) {
+	with (that) {
+		if (process) {
+			error("Forward declartion", pos);
 		}
-		mv.process = true;
-		auto trace = mod.genTrace(null);
-		checkVal(mv.def, trace);
+		process = true;
+		semantic1(def, trace);
+		ispure = def.ispure;
 	}
+}
 
-	processMVar = &processMVar_;
-	foreach (mv; mod.vars) {
-		if (!mv.process) {
-			processMVar(mv);
+void semantic1Impl(IntLit that, Trace* trace) {
+	with (that) {
+		if (usigned) {
+			type = new UInt(0);
+		} else {
+			type = new Int(0);
+		}
+		ispure = true;
+	}
+}
+
+void semantic1Impl(CharLit that, Trace* trace) {
+	with (that) {
+		type = new Char();
+		ispure = true;
+	}
+}
+
+void semantic1Impl(BoolLit that, Trace* trace) {
+	with (that) {
+		type = new Bool();
+		ispure = true;
+	}
+}
+
+void semantic1Impl(StructLit that, Trace* trace) {
+	with (that) {
+		foreach (value; values) {
+			semantic1(value, trace);
+		}
+		auto structType = new Struct();
+		structType.names = names;
+		structType.types = values.map!(a => a.type).array;
+		type = structType;
+		ispure = values.map!(a => a.ispure).all;
+	}
+}
+
+void semantic1Impl(Variable that, Trace* trace) {
+	with (that) {
+		Trace subTrace;
+		auto vardef = trace.searchVar(name, namespace, subTrace);
+		if (vardef is null) {
+			error("Unable to find variable", pos);
+		}
+		if (cast(ModuleVar) vardef && (cast(ModuleVar) vardef).getType is null) {
+			semantic1(vardef, &subTrace);
+		}
+		assert(vardef.getType);
+		type = vardef.getType;
+		lvalue = !vardef.manifest;
+		if (cast(ModuleVar) vardef) {
+			ispure = false;
+		} else {
+			ispure = true;
 		}
 	}
 }
-//modifys v inplace
-//returns where v has been modify
-bool implicitConvertInt(ref Value v, Type ty, Trace t) {
-	if (cast(IntLit) v && (cast(UInt)(ty.actual) || cast(Int)(ty.actual))) {
-		auto res = new Cast;
-		res.wanted = ty;
-		res.value = v;
-		res.type = ty;
-		v = res;
+
+void semantic1Impl(If that, Trace* trace) {
+	with (that) {
+		semantic1(cond, trace);
+		semantic1(yes, trace);
+		semantic1(no, trace);
+		if (!cond.type.isBool) {
+			error("Boolean expected in if expression", cond.pos);
+		}
+		if (!(sameType(yes.type, no.type) || implicitConvertIntDual(yes, no))) {
+			error("If expression with the true and false parts having different types", pos);
+		}
+		type = yes.type;
+		ispure = cond.ispure && yes.ispure && no.ispure;
+	}
+}
+
+void semantic1Impl(While that, Trace* trace) {
+	with (that) {
+		semantic1(cond, trace);
+		semantic1(state, trace);
+		if (!cond.type.isBool) {
+			error("Boolean expected in while expression", cond.pos);
+		}
+		type = new Struct();
+		ispure = cond.ispure && state.ispure;
+	}
+}
+
+void semantic1Impl(New that, Trace* trace) {
+	with (that) {
+		semantic1(value, trace);
+		auto ptr = new Pointer();
+		ptr.type = value.type;
+		type = ptr;
+		ispure = value.ispure;
+	}
+}
+
+void semantic1Impl(NewArray that, Trace* trace) {
+	with (that) {
+		semantic1(length, trace);
+		semantic1(value, trace);
+		if (!(sameType(length.type, new UInt(0)) || implicitConvertInt(length, new UInt(0)))) {
+			error("Can only create an array with length of UInts", length.pos);
+		}
+		auto array = new Array();
+		array.type = value.type;
+		type = array;
+		ispure = length.ispure && value.ispure;
+	}
+}
+
+void semantic1Impl(Cast that, Trace* trace) {
+	with (that) {
+		semantic1(value, trace);
+		semantic1(wanted, trace);
+		if (!castable(value.type, wanted)) {
+			error("Unable to cast", pos);
+		}
+		type = wanted;
+		ispure = value.ispure;
+	}
+}
+
+void semantic1Impl(Dot that, Trace* trace) {
+	with (that) {
+		semantic1(value, trace);
+		semantic1Dot(value.type, trace, that);
+		ispure = value.ispure;
+	}
+}
+
+void semantic1Dot(Type that, Trace* trace, Dot dot) {
+	dispatch!(semantic1DotImpl, Struct, Array, IndirectType, Type)(that, trace, dot);
+}
+
+void semantic1DotImpl(T)(T that, Trace* trace, Dot dot) {
+	if (cycle(that, trace)) {
+		return;
+	}
+	auto nextTrace = Trace(that, trace);
+	trace = &nextTrace;
+	with (that)
+		static if (is(T == Struct)) {
+			auto index = dot.index;
+			if (index.peek!string) {
+				auto str = index.get!string;
+				if (!(str in names)) {
+					error("Unable to find field", dot.pos);
+				}
+				dot.type = types[names[str]];
+			} else {
+				uint typeIndex = index.get!(BigInt).toInt;
+				if (typeIndex >= types.length) {
+					error("Index number to high", dot.pos);
+				}
+				dot.type = types[typeIndex];
+			}
+			dot.lvalue = dot.value.lvalue;
+		} else static if (is(T == Array)) {
+			auto index = dot.index;
+			if (!(index.peek!string && index.get!string == "length")) {
+				semantic1DotImpl!Type(that, trace, dot);
+				return;
+			}
+			dot.type = new UInt(0);
+		} else static if (is(T == IndirectType)) {
+			semantic1Dot(actual_, trace, dot);
+		} else static if (is(T == Type)) {
+			error("Unable to dot", pos);
+		} else {
+			pragma(msg, T);
+			static assert(0);
+		}
+}
+
+void semantic1Impl(ArrayIndex that, Trace* trace) {
+	with (that) {
+		semantic1(array, trace);
+		semantic1(index, trace);
+		if (!array.type.isArray) {
+			error("Unable able to index", pos);
+		}
+		if (!(sameType(index.type, new UInt(0)) || implicitConvertInt(index, new UInt(0)))) {
+			error("Can only index an array with UInts", pos);
+		}
+		auto arrayType = array.type.isArray;
+		type = arrayType.type;
+		lvalue = true;
+		ispure = array.ispure && index.ispure;
+	}
+}
+
+void semantic1Impl(FCall that, Trace* trace) {
+	with (that) {
+		semantic1(fptr, trace);
+		semantic1(arg, trace);
+		auto fun = fptr.type.isFunction;
+		if (!fun) {
+			error("Not a function", pos);
+		}
+		if (!(sameType(fun.arg, arg.type) || ((fun.arg.isInt
+				|| fun.arg.isUInt) && implicitConvertInt(arg, fun.arg)))) {
+			error("Unable to call function with arg's type", pos);
+		}
+		type = fun.ret;
+		ispure = fptr.ispure && fun.ispure && arg.ispure;
+	}
+}
+
+void semantic1Impl(Slice that, Trace* trace) {
+	with (that) {
+		semantic1(array, trace);
+		semantic1(left, trace);
+		semantic1(right, trace);
+		if (!array.type.isArray) {
+			error("Not an array", pos);
+		}
+		if (!(sameType(right.type, new UInt(0)) || implicitConvertInt(left,
+				new UInt(0))) || !(sameType(right.type, new UInt(0))
+				|| implicitConvertInt(right, new UInt(0)))) {
+			error("Can only index an array with UInts", pos);
+		}
+		type = array.type;
+		ispure = array.ispure && left.ispure && right.ispure;
+	}
+}
+
+void semantic1Impl(string op)(Binary!op that, Trace* trace) {
+	with (that) {
+		semantic1(left, trace);
+		semantic1(right, trace);
+		static if (["*", "/", "%", "+", "-", "&", "|", "^", "<<", ">>", ">>>",
+				"<=", ">=", ">", "<"].canFind(op)) {
+			auto ty = left.type;
+			if (!((ty.isUInt || ty.isInt) && (sameType(ty, right.type)
+					|| implicitConvertIntDual(left, right)))) {
+				error(op ~ " only works on Ints or UInts of the same Type", pos);
+			}
+			static if (["<=", ">=", ">", "<"].canFind(op)) {
+				type = new Bool();
+			} else {
+				type = ty;
+			}
+			ispure = left.ispure && right.ispure;
+		} else static if (op == "~") {
+			auto ty = left.type;
+			if (!ty.isArray && sameType(ty, right.type)) {
+				error("~ only works on Arrays of the same Type", pos);
+			}
+			type = ty;
+			ispure = left.ispure && right.ispure;
+		} else static if (["==", "!="].canFind(op)) {
+			if (!(sameType(left.type, right.type) || implicitConvertIntDual(left, right))) {
+				error(op ~ " only works on the same Type", pos);
+			}
+			type = new Bool();
+			ispure = left.ispure && right.ispure;
+		} else static if (["&&", "||"].canFind(op)) {
+			auto ty = left.type;
+			if (!(ty.isBool && sameType(ty, right.type))) {
+				error(op ~ " only works on Bools", pos);
+			}
+			type = new Bool();
+			ispure = left.ispure && right.ispure;
+		} else static if (op == "=") {
+			if (!(sameType(left.type, right.type) || implicitConvertInt(right, left.type))) {
+				error("= only works on the same type", pos);
+			}
+			if (!left.lvalue) {
+				error("= only works on lvalues", pos);
+			}
+			type = left.type;
+			ispure = left.ispure && right.ispure;
+		} else {
+			static assert(0);
+		}
+	}
+}
+
+void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
+	with (that) {
+		semantic1(value, trace);
+		static if (op == "-") {
+			if (!value.type.isInt) {
+				error("= only works Signed Ints", pos);
+			}
+			type = value.type;
+			ispure = value.ispure;
+		} else static if (op == "*") {
+			if (!value.type.isPointer) {
+				error("* only works on pointers", pos);
+			}
+			type = value.type.isPointer.type;
+			lvalue = true;
+			ispure = value.ispure;
+		} else static if (op == "~") {
+			if (!(value.type.isUInt || value.type.isInt)) {
+				error("~ only works on Ints and UInts", pos);
+			}
+			type = value.type;
+			ispure = value.ispure;
+		} else static if (op == "&") {
+			if (!value.lvalue) {
+				error("& only works lvalues", pos);
+			}
+
+			static void assignHeapImpl(T)(T that, Trace* trace) {
+				auto nextTrace = Trace(that, trace);
+				trace = &nextTrace;
+				static if (is(T == Variable)) {
+					Var var = trace.searchVar(that.name, that.namespace);
+					var.heap = true;
+				} else static if (is(T == Dot)) {
+					assignHeap(that.value, trace);
+				}
+			}
+
+			static void assignHeap(Node that, Trace* trace) {
+				return dispatch!(assignHeapImpl, Variable, Dot, Node)(that, trace);
+			}
+
+			assignHeap(value, trace);
+
+			auto ptr = new Pointer();
+			ptr.type = value.type;
+			type = ptr;
+			ispure = value.ispure;
+		} else static if (op == "!") {
+			if (!value.type.isBool) {
+				error("! only works on Bools", pos);
+			}
+			type = value.type;
+			ispure = value.ispure;
+		} else static if (["+", "/"].canFind(op)) {
+			error(op ~ " not supported", pos);
+		} else {
+			static assert(0);
+		}
+	}
+}
+
+void semantic1Impl(ScopeVar that, Trace* trace) {
+	with (that) {
+		semantic1(def, trace);
+		ispure = def.ispure;
+	}
+}
+
+void semantic1Impl(Scope that, Trace* trace) {
+	with (that) {
+		ispure = true;
+		foreach (type; aliases) {
+			semantic1(type, trace);
+		}
+		foreach (state; states) {
+			semantic1(state, trace);
+			trace.context.pass(state);
+			ispure = ispure && state.ispure;
+		}
+		if (type is null) {
+			type = new Struct();
+		}
+		if (!(states.map!(a => returns(a, 0)).any || sameType(type, new Struct()))) {
+			error("Missing returns in scope", pos);
+		}
+	}
+}
+
+void semantic1Impl(FuncLitVar that, Trace* trace) {
+	with (that) {
+		semantic1(ty, trace);
+		ispure = true;
+	}
+}
+
+void semantic1Impl(FuncLit that, Trace* trace) {
+	with (that) {
+		auto ftype = new Function();
+		semantic1(fvar, trace);
+		ftype.arg = fvar.ty;
+
+		if (explict_return) {
+			semantic1(explict_return, trace);
+			ftype.ret = explict_return;
+			type = ftype;
+		}
+		semantic1(text, trace);
+
+		if (explict_return) {
+			if (!sameType(explict_return, text.type)) {
+				error("Explict return doesn't match actual return", pos);
+			}
+		}
+		ftype.ret = text.type;
+		ftype.ispure = text.ispure;
+		type = ftype;
+		ispure = true;
+	}
+}
+
+void semantic1Impl(Return that, Trace* trace) {
+	with (that) {
+		semantic1(value, trace);
+		bool max = upper == uint.max;
+		auto range = trace.range.filter!(a => a.context);
+		if (range.empty || !cast(Scope) range.front.node) {
+			error("Must return from a scope", pos);
+		}
+		Node node;
+		if (max) {
+			node = range.until!(a => !cast(Scope) a.node).reduce!"b".node;
+		} else {
+			if (range.save.take(upper).any!(a => !cast(Scope) a.context)) {
+				error("Tried to return past function");
+			}
+			node = range.drop(upper).front.node;
+		}
+		auto target = cast(Scope) node;
+		assert(target);
+
+		if (target.type is null) {
+			target.type = value.type;
+		} else {
+			if (!sameType(target.type, value.type)) {
+				error("Doesn't match return type", pos);
+			}
+		}
+		type = value.type;
+		ispure = value.ispure;
+	}
+}
+
+void semantic1Impl(StringLit that, Trace* trace) {
+	with (that) {
+		auto array = new Array;
+		array.type = new Char;
+		type = array;
+		ispure = true;
+	}
+}
+
+void semantic1Impl(ArrayLit that, Trace* trace) {
+	with (that) {
+		foreach (value; values) {
+			semantic1(value, trace);
+		}
+		if (values.length == 0) {
+			error("Array Literals must contain at least one element", pos);
+		}
+		Type current = values[0].type;
+		foreach (value; values[1 .. $]) {
+			if (!sameType(current, value.type)) {
+				error("All elements of an array literal must be of the same type", pos);
+			}
+		}
+		auto array = new Array;
+		array.type = current;
+		type = array;
+		ispure = true;
+		foreach (value; values) {
+			ispure = ispure && value.ispure;
+		}
+	}
+}
+
+void semantic1Impl(ExternJS that, Trace* trace) {
+	with (that) {
+		semantic1(type, trace);
+		ispure = true;
+	}
+}
+
+bool returns(Statement that, uint level) {
+	return dispatch!(returnsImpl, IntLit, CharLit, BoolLit, StructLit, Variable,
+			If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall, Slice, ScopeVar,
+			Scope, FuncLitVar, FuncLit, Return, StringLit, ArrayLit, ExternJS,
+			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
+			Binary!"~", Binary!"&", Binary!"|", Binary!"^", Binary!"<<",
+			Binary!">>", Binary!">>>", Binary!"==", Binary!"!=", Binary!"<=",
+			Binary!">=", Binary!"<", Binary!">", Binary!"&&", Binary!"||",
+			Binary!"=", Prefix!"+", Prefix!"-", Prefix!"*", Prefix!"/",
+			Prefix!"&", Prefix!"~", Prefix!"!")(that, level);
+}
+
+bool returnsImpl(T)(T that, uint level) {
+	with (that)
+		static if (is(T == IntLit)) {
+			return false;
+		} else static if (is(T == CharLit)) {
+			return false;
+		} else static if (is(T == BoolLit)) {
+			return false;
+		} else static if (is(T == StructLit)) {
+			return values.map!(a => a.returns(level)).any;
+		} else static if (is(T == Variable)) {
+			return false;
+		} else static if (is(T == If)) {
+			return cond.returns(level) || (yes.returns(level) && no.returns(level));
+		} else static if (is(T == While)) {
+			return cond.returns(level);
+		} else static if (is(T == New)) {
+			return value.returns(level);
+		} else static if (is(T == NewArray)) {
+			return length.returns(level) || value.returns(level);
+		} else static if (is(T == Cast)) {
+			return value.returns(level);
+		} else static if (is(T == Dot)) {
+			return value.returns(level);
+		} else static if (is(T == ArrayIndex)) {
+			return array.returns(level) || index.returns(level);
+		} else static if (is(T == FCall)) {
+			return fptr.returns(level) || arg.returns(level);
+		} else static if (is(T == Slice)) {
+			return array.returns(level) || left.returns(level) || right.returns(level);
+		} else static if (is(T == Binary!op, string op)) {
+			return left.returns(level) || right.returns(level);
+		} else static if (is(T == Prefix!op, string op)) {
+			return value.returns(level);
+		} else static if (is(T == ScopeVar)) {
+			return def.returns(level);
+		} else static if (is(T == Scope)) {
+			return states.map!(a => a.returns(level + 1)).any;
+		} else static if (is(T == FuncLitVar)) {
+			return false;
+		} else static if (is(T == FuncLit)) {
+			return false;
+		} else static if (is(T == Return)) {
+			return value.returns(level) || level == upper;
+		} else static if (is(T == StringLit)) {
+			return false;
+		} else static if (is(T == ArrayLit)) {
+			return values.map!(a => a.returns(level)).any;
+		} else static if (is(T == ExternJS)) {
+			return false;
+		} else {
+			static assert(0);
+		}
+}
+
+//modifys value's type
+//returns if converted
+bool implicitConvertInt(Value value, Type type) {
+	if (cast(IntLit) value && (type.isUInt || type.isInt)) {
+		value.type = type;
 		return true;
 	}
-	if (cast(StructLit) v && cast(Struct)(ty.actual)) {
-		auto str = cast(StructLit) v;
-		auto tar = cast(Struct) ty;
-		foreach (c, ref val; str.values) {
-			if (sameType(val.type, tar.types[c])) {
+	if (cast(StructLit) value && cast(Struct)(type)) {
+		auto str = cast(StructLit) value;
+		auto target = cast(Struct) type;
+		foreach (c, ref sub; str.values) {
+			if (sameType(sub.type, target.types[c])) {
 				continue;
 			}
-			if (implicitConvertInt(val, tar.types[c], t)) {
+			if (implicitConvertInt(sub, target.types[c])) {
 				continue;
 			}
 			return false;
@@ -742,43 +780,43 @@ bool implicitConvertInt(ref Value v, Type ty, Trace t) {
 		return true;
 	}
 	return false;
+}
+
+bool implicitConvertIntDual(Value left, Value right) {
+	return implicitConvertInt(left, right.type) || implicitConvertInt(right, left.type);
 }
 
 bool sameType(Type a, Type b) {
-	auto t1 = a.actual;
-	assert(t1);
-	auto t2 = b.actual;
-	assert(t2);
-	if (cast(Bool) t1 && cast(Bool) t2) {
-		return true;
-	} else if (cast(Char) t1 && cast(Char) t2) {
-		return true;
-	} else if (cast(Int) t1 && cast(Int) t2) {
-		return (cast(Int) t1).size == (cast(Int) t2).size;
-	} else if (cast(UInt) t1 && cast(UInt) t2) {
-		return (cast(UInt) t1).size == (cast(UInt) t2).size;
-	} else if (cast(Struct) t1 && cast(Struct) t2) {
-		auto s1 = cast(Struct) t1;
-		auto s2 = cast(Struct) t2;
-		if (s1.types.length != s2.types.length) {
-			return false;
-		}
-		foreach (c, t; s1.types) {
-			if (!sameType(t, s2.types[c])) {
+	alias Types = AliasSeq!(Char, Int, UInt, Struct, Pointer, Array, Function);
+	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(
+			a.actual, b.actual);
+}
+
+bool sameTypeImpl(T1, T2)(T1 a, T2 b) {
+	static if (!is(T1 == T2)) {
+		return false;
+	} else {
+		alias T = T1;
+		static if (is(T == Bool) || is(T == Char)) {
+			return true;
+		} else static if (is(T == UInt) || is(T == Int)) {
+			return a.size == b.size;
+		} else static if (is(T == Struct)) {
+			if (a.types.length != b.types.length) {
 				return false;
 			}
+			foreach (c, t; a.types) {
+				if (!sameType(t, b.types[c])) {
+					return false;
+				}
+			}
+			return true;
+		} else static if (is(T == Pointer) || is(T == Array)) {
+			return sameType(a.type, b.type);
+		} else static if (is(T == Function)) {
+			return sameType(a.ret, b.ret) && sameType(a.arg, b.arg);
 		}
-		return true;
-	} else if (cast(Pointer) t1 && cast(Pointer) t2) {
-		return sameType((cast(Pointer) t1).type, (cast(Pointer) t2).type);
-	} else if (cast(Array) t1 && cast(Array) t2) {
-		return sameType((cast(Array) t1).type, (cast(Array) t2).type);
-	} else if (cast(Function) t1 && cast(Function) t2) {
-		return sameType((cast(Function) t1).ret, (cast(Function) t2).ret)
-			&& sameType((cast(Function) t1).arg, (cast(Function) t2).arg);
 	}
-
-	return false;
 }
 
 bool castable(Type tar, Type want) {
@@ -794,207 +832,4 @@ bool castable(Type tar, Type want) {
 		return true;
 	}
 	return false;
-}
-
-void checkBranches(Module m) {
-	bool Returns(Value v, uint level) {
-		if (cast(CharLit) v || cast(IntLit) v || cast(BoolLit) v
-				|| cast(Variable) v || cast(StringLit) v) {
-			return false;
-		}
-		if (cast(StructLit) v) {
-			auto sl = cast(StructLit) v;
-			foreach (val; sl.values) {
-				if (Returns(val, level)) {
-					return true;
-				}
-			}
-			return false;
-		}
-		if (cast(If) v) {
-			auto iF = cast(If) v;
-			return Returns(iF.cond, level) || (Returns(iF.yes, level) && Returns(iF.no,
-				level));
-		}
-		if (cast(While) v) {
-			auto wh = cast(While) v;
-			return Returns(wh.cond, level);
-		}
-		if (cast(New) v) {
-			auto ne = cast(New) v;
-			return Returns(ne.value, level);
-		}
-		if (cast(NewArray) v) {
-			auto ne = cast(NewArray) v;
-			return Returns(ne.length, level) || Returns(ne.value, level);
-		}
-		if (cast(Cast) v) {
-			auto ca = cast(Cast) v;
-			return Returns(ca.value, level);
-		}
-		if (cast(Dot) v) {
-			auto dot = cast(Dot) v;
-			return Returns(dot.value, level);
-		}
-		if (cast(ArrayIndex) v) {
-			auto ar = cast(ArrayIndex) v;
-			return Returns(ar.array, level) || Returns(ar.index, level);
-		}
-		if (cast(FCall) v) {
-			auto fc = cast(FCall) v;
-			return Returns(fc.fptr, level) || Returns(fc.arg, level);
-		}
-		if (cast(Slice) v) {
-			auto sc = cast(Slice) v;
-			return Returns(sc.array, level) || Returns(sc.left, level) || Returns(sc.right,
-				level);
-		}
-		if (cast(ArrayLit) v) {
-			auto array = cast(ArrayLit) v;
-			foreach (val; array.values) {
-				if (Returns(val, level)) {
-					return true;
-				}
-			}
-			return false;
-		}
-		foreach (o; staticForeach!("*", "/", "%", "+", "-", "~", "&", "|", "^",
-				"<<", ">>", ">>>", "==", "!=", "<=", ">=", "<", ">", "&&", "||", "=")) {
-			if (cast(Binary!o) v) {
-				auto bin = cast(Binary!o) v;
-				return Returns(bin.left, level) || Returns(bin.right, level);
-			}
-		}
-		foreach (o; staticForeach!("+", "-", "*", "/", "&", "~", "!")) {
-			if (cast(Prefix!o) v) {
-				auto pre = cast(Prefix!o) v;
-				return Returns(pre.value, level);
-			}
-		}
-		if (cast(Scope) v) {
-			level++;
-			foreach (sta; (cast(Scope) v).states) {
-				if (sta.peek!Value) {
-					if (Returns(sta.get!Value, level)) {
-						return true;
-					}
-				} else {
-					if (Returns((sta.get!(ScopeVar)).def, level)) {
-						return true;
-					}
-				}
-			}
-			return false;
-		}
-		if (cast(FuncLit) v) {
-			return false;
-		}
-		if (cast(Return) v) {
-			auto fn = cast(Return) v;
-			if (fn.upper == level) {
-				return true;
-			}
-			return false;
-		}
-		assert(0);
-	}
-
-	void visiter(Node n, Trace t) {
-		foreach (ch, subt; n.children(t)) {
-			visiter(ch, subt);
-		}
-		if (cast(Scope) n) {
-			auto sc = cast(Scope) n;
-			if (sc.noreturn) {
-				return;
-			}
-			foreach (state; sc.states) {
-				if (state.peek!Value) {
-					if (Returns(state.get!Value, 0)) {
-						return;
-					}
-				} else {
-					if (Returns((state.get!ScopeVar).def, 0)) {
-						return;
-					}
-				}
-			}
-			error("Missing Returns in scope", n.pos);
-		}
-	}
-
-	visiter(m, null);
-}
-
-void checkGlobalExec(Module m) {
-	foreach (var; m.vars) {
-		if (!var.def.ispure) {
-			error("Impure expression in global", var.pos);
-		}
-	}
-}
-
-unittest {
-	import parser;
-
-	auto l = Loader(["test/semantic"]);
-	Module[string[]] all;
-	Module[string[]] wanted;
-	readFiles(l, [["test"]], wanted, all);
-	assert(wanted.length == 1); //imports
-	assert(all.length == 2);
-	assert(["test"] in wanted);
-	assert(["subdir", "file"] in all);
-	assert(["test"] in all);
-	assert(wanted[["test"]].imports[0] == all[["subdir", "file"]]);
-
-	processModules(all.values);
-
-	auto test = wanted[["test"]]; //assign types
-
-	{
-		auto test1 = test.aliases["test1"];
-		assert(cast(Int) test1.actual);
-		auto test2 = test.aliases["test2"];
-		assert(cast(UInt) test2.actual);
-		auto test3 = test.aliases["test3"];
-		assert(cast(UInt) test3.actual);
-		auto test4 = test.aliases["test4"];
-		assert(cast(Int) test4.actual);
-	}
-	void vis(Node n, Trace t) {
-		import std.stdio;
-		import error;
-		import std.conv;
-
-		if (cast(Value) n) {
-			auto val = cast(Value) n;
-			assert(val.type, prettyPrint(val.pos));
-			//writeln("Value "~val.to!string~" of "~val.type.to!string~" lvalue "~val.lvalue.to!string~" "~prettyPrint(val.pos));
-		}
-		foreach (ch, subt; n.children(t)) {
-			vis(ch, subt);
-		}
-	}
-
-	vis(test, null);
-}
-
-unittest {
-	assert(sameType(new Bool(), new Bool()));
-	Type ty = new Bool();
-	assert(sameType(ty, ty));
-	auto st = new Struct();
-	st.types ~= new Int(0);
-	st.types ~= new Bool();
-	assert(!sameType(st, new Int(0)));
-	auto st2 = new Struct();
-	st2.types ~= new Int(0);
-	st2.types ~= new Bool();
-	assert(sameType(st, st2));
-	auto ptr = new Pointer();
-	ptr.type = st;
-	auto ptr2 = new Pointer();
-	ptr2.type = st2;
-	assert(sameType(ptr, ptr2));
 }

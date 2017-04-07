@@ -15,247 +15,267 @@
 +/
 module ast;
 
+import std.algorithm : any, canFind, joiner, map;
 import std.bigint : BigInt;
-import std.traits : isArray;
+import std.conv : to;
+import std.range : chain, InputRange, inputRangeObject;
+import std.traits : isArray, isAssociativeArray;
 import std.variant : Algebraic;
-import lexer : Position;
+
+import error : error, Position;
+
+template dispatch(alias fun, Types...) {
+	auto dispatch(T...)(auto ref T args) {
+		foreach (Type; Types) {
+			if (auto sub = cast(Type) args[0]) {
+				return fun(sub, args[1 .. $]);
+			}
+		}
+		assert(0, args[0].to!string);
+	}
+}
 
 alias Index = Algebraic!(BigInt, string);
-alias visiter = int delegate(Node, Trace);
 
-int visitChildren(T)(ref T child, visiter fun, Trace trace) if (is(T : Node)) {
-	return fun(child, trace);
+Node[] childrenRange() {
+	return [];
 }
 
-int visitChildren(T)(ref T children, visiter fun, Trace trace) if (isArray!T) {
-	foreach (ref child; children) {
-		int result = visitChildren(child, fun, trace);
-		if (result) {
-			return result;
-		}
-	}
-	return 0;
+auto childrenRange(T)(ref T node) if (is(T : Node)) {
+	return node is null ? childrenRange : (cast(Node*)&node)[0 .. 1];
 }
+
+auto childrenRange(T)(ref T array) if (isArray!T) {
+	return array.map!(.childrenRange).joiner;
+}
+
+auto childrenRange(T)(ref T array) if (isAssociativeArray!T) {
+	return array.byValue.map!(.childrenRange).joiner;
+}
+
+auto childrenRange(T...)(ref T args) if (T.length > 1) {
+	return childrenRange(args[0]).chain(childrenRange(args[1 .. $]));
+}
+
+alias Children = InputRange!Node;
 
 mixin template autoChildren(T...) {
-	override int children_(visiter fun, Trace trace) {
-		foreach (ref child; T) {
-			int result = super.children_(fun, trace);
-			if (result) {
-				return result;
-			}
-			result = visitChildren(child, fun, trace);
-			if (result) {
-				return result;
-			}
-		}
-		return 0;
+	override Children children() {
+		auto range = childrenRange(T);
+		return inputRangeObject(range);
 	}
 }
 
-abstract class Trace {
-	Trace upper;
-	Module[] imports;
-	Module[][string[]] staticimports;
-	Type[string] aliases;
-	abstract Var getVar(string);
-	final Var var(string name, string[] namespace) {
-		Trace t;
-		return var(name, namespace, t);
-	}
+interface SearchContext {
+	Var searchVar(string name, string[] namespace, ref Trace); //trace is an out variable with is by default the current trace
+	Type searchType(string name, string[] namespace, ref Trace);
+	//for some types(scopes) looping over children changes the searchcontext
+	void pass(Node child);
+}
 
-	final Var var(string name, string[] namespace, out Trace t) {
-
+template SearchContextImpl(alias imports, alias staticimports, alias aliases) {
+	Var searchVar(string name, string[] namespace, ref Trace trace) {
 		if (namespace is null) {
-			auto v = getVar(name);
-			if (v) {
-				t = this;
-				return v;
-			}
-			foreach (m; imports) {
-				if (name in m.vars) {
-					t = m.genTrace(null);
-					return m.vars[name];
+			foreach (mod; imports) {
+				if (name in mod.vars) {
+					trace = Trace(mod, null);
+					return mod.vars[name];
 				}
 			}
 		} else {
 			if (namespace in staticimports) {
 				auto mods = staticimports[namespace];
-				foreach (m; mods) {
-					if (name in m.vars) {
-						t = m.genTrace(null);
-						return m.vars[name];
+				foreach (mod; mods) {
+					if (name in mod.vars) {
+						trace = Trace(mod, null);
+						return mod.vars[name];
 					}
 				}
 			}
 		}
-		if (upper) {
-			return upper.var(name, namespace, t);
-		} else {
-			return null;
-		}
+		return null;
 	}
 
-	final Type type(string name, string[] namespace) {
+	Type searchType(string name, string[] namespace, ref Trace trace) {
 		if (namespace is null) {
-			auto v = name in aliases;
-			if (v) {
-				return *v;
+			auto type = name in aliases;
+			if (type) {
+				return *type;
 			}
-			foreach (m; imports) {
-				if (name in m.aliases) {
-					return m.aliases[name];
+			foreach (mod; imports) {
+				if (name in mod.aliases) {
+					trace = Trace(mod, null);
+					return mod.aliases[name];
 				}
 			}
 		} else {
 			if (namespace in staticimports) {
 				auto mods = staticimports[namespace];
-				foreach (m; mods) {
-					if (name in m.aliases) {
-						return m.aliases[name];
+				foreach (mod; mods) {
+					if (name in mod.aliases) {
+						trace = Trace(mod, null);
+						return mod.aliases[name];
 					}
 				}
 			}
 		}
+		return null;
+	}
+}
+
+struct Trace {
+	Node node;
+	SearchContext context;
+	Trace* upper;
+
+	this(Node node, Trace* upper) {
+		this.node = node;
+		this.context = node.context();
+		this.upper = upper;
+	}
+
+	Var searchVar(string name, string[] namespace) {
+		Trace trace;
+		return searchVar(name, namespace, trace);
+	}
+
+	Var searchVar(string name, string[] namespace, ref Trace trace) {
+		trace = this;
+		if (context) {
+			if (auto result = context.searchVar(name, namespace, trace)) {
+				return result;
+			}
+		}
 		if (upper) {
-			return upper.type(name, namespace);
+			return upper.searchVar(name, namespace, trace);
 		} else {
 			return null;
 		}
 	}
+
+	Type searchType(string name, string[] namespace) {
+		Trace trace;
+		return searchType(name, namespace, trace);
+	}
+
+	Type searchType(string name, string[] namespace, ref Trace trace) {
+		trace = this;
+		if (context) {
+			if (auto result = context.searchType(name, namespace, trace)) {
+				return result;
+			}
+		}
+		if (upper) {
+			return upper.searchType(name, namespace, trace);
+		} else {
+			return null;
+		}
+	}
+}
+
+struct TraceRange {
+	Trace* current;
+	bool empty() {
+		return current is null;
+	}
+
+	ref Trace front() {
+		return *current;
+	}
+
+	void popFront() {
+		current = current.upper;
+	}
+
+	auto save() {
+		return this;
+	}
+}
+
+auto range(Trace* trace) {
+	return TraceRange(trace);
+}
+
+bool cycle(Node node, Trace* trace) {
+	return trace.range.any!(a => a.node == node);
 }
 
 abstract class Node { //base class for all ast nodes
 	Position pos;
-
-	final auto children(Trace t) {
-		static struct Looper {
-			Node n;
-			Trace trace;
-			int opApply(visiter fn) {
-				return n.children_(fn, trace);
-			}
-		}
-
-		return Looper(this, t);
-	}
-
-	int children_(visiter, Trace) {
-		return 0;
+	Children children();
+	SearchContext context() {
+		return null;
 	}
 }
-
-abstract class Var : Node {
-	string name;
-	bool manifest;
-	bool heap; //has the address of the variable been taken,does not apply to closures
-	@property abstract ref Type getType();
-}
-
-class ModuleVar : Var {
-	Value def;
-	bool process;
-	@property override ref Type getType() {
-		return def.type;
-	}
-
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		res = fn(def, t);
-		return res;
-	}
-}
-
-class Module : Node {
-	Type[string] aliases;
-	Module[] imports;
-	Module[][string[]] staticimports;
-	ModuleVar[string] vars;
-	string[] namespace;
-	static class ModuleTrace : Trace {
-		private this(Module mod) {
-			imports = mod.imports;
-			staticimports = mod.staticimports;
-			aliases = mod.aliases;
-			m = mod;
-		}
-
-		Module m;
-		override Var getVar(string s) {
-			if (s in m.vars) {
-				return m.vars[s];
-			}
-			return null;
-		}
-	}
-
-	ModuleTrace genTrace(Trace t) {
-		return new ModuleTrace(this);
-	}
-
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		auto subt = genTrace(t);
-		foreach (ty; aliases) {
-			res = fn(ty, subt);
-			if (res) {
-				return res;
-			}
-		}
-		foreach (v; vars) {
-			res = fn(v, subt);
-			if (res) {
-				return res;
-			}
-		}
-		return res;
-	}
-}
-
-/+
- + Types 
- +/
 
 abstract class Type : Node {
 	@property Type actual() {
 		return this;
 	}
+
+	Bool isBool() {
+		return cast(Bool) actual;
+	}
+
+	Char isChar() {
+		return cast(Char) actual;
+	}
+
+	Int isInt() {
+		return cast(Int) actual;
+	}
+
+	UInt isUInt() {
+		return cast(UInt) actual;
+	}
+
+	Struct isStruct() {
+		return cast(Struct) actual;
+	}
+
+	Pointer isPointer() {
+		return cast(Pointer) actual;
+	}
+
+	Array isArray() {
+		return cast(Array) actual;
+	}
+
+	Function isFunction() {
+		return cast(Function) actual;
+	}
 }
 
 class Bool : Type {
-
+	mixin autoChildren!();
 }
 
 class Char : Type {
+	mixin autoChildren!();
 }
 
 class Int : Type {
+	uint size;
 	this(uint _) {
 		size = _;
 	}
 
-	uint size;
+	mixin autoChildren!();
 }
 
 class UInt : Type {
+	uint size;
 	this(uint _) {
 		size = _;
 	}
 
-	uint size;
+	mixin autoChildren!();
 }
 
 class Struct : Type {
 	Type[] types;
 	size_t[string] names;
+
 	mixin autoChildren!types;
 }
 
@@ -278,7 +298,8 @@ class Function : Type {
 
 abstract class IndirectType : Type {
 	Type actual_;
-	@property override Type actual() {
+override:
+	@property Type actual() {
 		return actual_.actual;
 	}
 }
@@ -297,29 +318,81 @@ class IndexType : IndirectType {
 class UnknownType : IndirectType {
 	string name;
 	string[] namespace;
+	mixin autoChildren!();
 }
 
-/+
- + Values
- +/
+//for position dependant statements
+abstract class Statement : Node {
+	bool ispure;
+}
 
-abstract class Value : Node {
+abstract class Var : Statement {
+	string name;
+	bool manifest;
+	bool heap; //has the address of the variable been taken,does not apply to closures
+	@property abstract ref Type getType();
+}
+
+class ModuleVar : Var {
+	Value def;
+	bool process;
+	mixin autoChildren!def;
+override:
+	@property ref Type getType() {
+		return def.type;
+	}
+}
+
+class Module : Node, SearchContext {
+	Type[string] aliases;
+	Module[] imports;
+	Module[][string[]] staticimports;
+	ModuleVar[string] vars;
+	string[] namespace;
+
+override:
+	SearchContext context() {
+		return this;
+	}
+
+	Var searchVar(string name, string[] namespace, ref Trace trace) {
+		if (namespace is null && name in vars) {
+			return vars[name];
+		}
+		return SearchContextImpl!(imports, staticimports, aliases).searchVar(name,
+				namespace, trace);
+	}
+
+	Type searchType(string name, string[] namespace, ref Trace trace) {
+		return SearchContextImpl!(imports, staticimports, aliases).searchType(name,
+				namespace, trace);
+	}
+
+	void pass(Node) {
+	}
+
+	mixin autoChildren!(aliases, vars);
+}
+
+abstract class Value : Statement {
 	Type type;
 	bool lvalue;
-	bool ispure;
 }
 
 class IntLit : Value {
 	BigInt value;
 	bool usigned;
+	mixin autoChildren!();
 }
 
 class CharLit : Value {
 	dchar value;
+	mixin autoChildren!();
 }
 
 class BoolLit : Value {
 	bool yes;
+	mixin autoChildren!();
 }
 
 class StructLit : Value {
@@ -331,6 +404,7 @@ class StructLit : Value {
 class Variable : Value {
 	string name;
 	string[] namespace;
+	mixin autoChildren!();
 }
 
 class If : Value {
@@ -388,37 +462,26 @@ class Slice : Value {
 	mixin autoChildren!(array, left, right);
 }
 
-/+
-	"*","/","%",
-	"+","-","~",
-	"&","|","^","<<",">>",">>>",
-	"==","!=","<=",">=","<",">",
-	"&&","||",
-	"="
- +/
-class Binary(string T) : Value {
+class Binary(string T) : Value 
+		if (["*", "/", "%", "+", "-", "~", "&", "|", "^",
+			"<<", ">>", ">>>", "==", "!=", "<=", ">=", "<", ">", "&&", "||", "="].canFind(T)) {
 	Value left;
 	Value right;
 	mixin autoChildren!(left, right);
 }
 
-/+
-	"+","-","*","/","&","~","!"
-+/
-class Prefix(string T) : Value {
+class Prefix(string T) : Value if (["+", "-", "*", "/", "&", "~", "!"].canFind(T)) {
 	Value value;
 	mixin autoChildren!value;
 }
-//for position dependant statementss
-alias Statement = Algebraic!(Value, ScopeVar);
 
 class ScopeVar : Var {
 	Value def;
-	@property override ref Type getType() {
+	mixin autoChildren!def;
+override:
+	@property ref Type getType() {
 		return def.type;
 	}
-
-	mixin autoChildren!def;
 }
 
 class Scope : Value {
@@ -426,106 +489,83 @@ class Scope : Value {
 	Module[] imports;
 	Module[][string[]] staticimports;
 	Statement[] states;
-	bool noreturn;
-	static class ScopeTrace : Trace {
-		Scope scop;
+
+	static class ScopeContext : SearchContext {
+		Scope that;
 		ScopeVar[string] vars;
-		private this(Scope sc, Trace upper_) {
-			scop = sc;
-			imports = sc.imports;
-			staticimports = sc.staticimports;
-			aliases = sc.aliases;
-			upper = upper_;
+
+		this(Scope that) {
+			this.that = that;
 		}
 
-		override Var getVar(string n) {
-			if (n in vars) {
-				return vars[n];
+		Var searchVar(string name, string[] namespace, ref Trace trace) {
+			if (namespace is null && name in vars) {
+				return vars[name];
 			}
-			return null;
+			auto imports = that.imports;
+			auto staticimports = that.staticimports;
+			auto aliases = that.aliases;
+			return SearchContextImpl!(imports, staticimports, aliases).searchVar(name,
+					namespace, trace);
+		}
+
+		Type searchType(string name, string[] namespace, ref Trace trace) {
+			auto imports = that.imports;
+			auto staticimports = that.staticimports;
+			auto aliases = that.aliases;
+			return SearchContextImpl!(imports, staticimports, aliases).searchType(name,
+					namespace, trace);
+		}
+
+		void pass(Node node) {
+			if (auto var = cast(ScopeVar) node) {
+				vars[var.name] = var;
+			}
 		}
 	}
 
-	ScopeTrace genTrace(Trace t) {
-		return new ScopeTrace(this, t);
+override:
+	SearchContext context() {
+		return new ScopeContext(this);
 	}
 
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		auto subt = genTrace(t);
-
-		foreach (ty; aliases) {
-			res = fn(ty, subt);
-			if (res) {
-				return res;
-			}
-		}
-		foreach (s; states) {
-			if (s.peek!Value) {
-				res = fn(s.get!Value, subt);
-			} else {
-				res = fn(s.get!ScopeVar, subt);
-				subt.vars[s.get!(ScopeVar).name] = s.get!ScopeVar;
-			}
-			if (res) {
-				return res;
-			}
-		}
-
-		return res;
-	}
+	mixin autoChildren!(aliases, states);
 }
 
 class FuncLitVar : Var {
 	Type ty;
+	mixin autoChildren!ty;
 	override ref Type getType() {
 		return ty;
 	}
-
-	mixin autoChildren!ty;
 }
 
-class FuncLit : Value {
+class FuncLit : Value, SearchContext {
 	FuncLitVar fvar;
 	Value text;
 	Type explict_return; //maybe null
-	static class FuncLitTrace : Trace {
-		FuncLit func;
-		private this(FuncLit f, Trace upper_) {
-			upper = upper_;
-			func = f;
-		}
 
-		override Var getVar(string s) {
-			if (func.fvar.name == s) {
-				return func.fvar;
-			}
-			return null;
-		}
+override:
+
+	SearchContext context() {
+		return this;
 	}
 
-	FuncLitTrace genTrace(Trace t) {
-		return new FuncLitTrace(this, t);
+	Var searchVar(string name, string[] namespace, ref Trace) {
+		if (namespace is null && fvar.name == name) {
+			return fvar;
+		}
+		return null;
 	}
 
-	override int children_(visiter fn, Trace t) {
-		int res;
-		res = super.children_(fn, t);
-		if (res) {
-			return res;
-		}
-		auto subt = genTrace(t);
-		res = fn(fvar, subt);
-		if (res) {
-			return res;
-		}
-		res = fn(text, subt);
-		return res;
+	Type searchType(string name, string[] namespace, ref Trace) {
+		return null;
 	}
+
+	void pass(Node) {
+	}
+
+	mixin autoChildren!(fvar, text, explict_return);
 }
 
 class Return : Value {
@@ -536,6 +576,7 @@ class Return : Value {
 
 class StringLit : Value {
 	string str;
+	mixin autoChildren!();
 }
 
 class ArrayLit : Value {
@@ -544,7 +585,6 @@ class ArrayLit : Value {
 }
 
 class ExternJS : Value {
-	Type type;
 	string external;
 	mixin autoChildren!type;
 }
