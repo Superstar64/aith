@@ -9,6 +9,7 @@ Typi's types:
 	"x[]": Array type,where x is any other type
 	"$x1:x2": Function type, where x1 is the return type and x2 is the argument type
 Typi's Expressions:
+	name::value Use value from other modulee 
 	"123": Integer Literals,there type is int_t.0.If an Int lit has a prefix + it's type will be uint_t.0. May(or maynot) be implictly converted to another interger type
 	"'a'": Character Literals
 	"true","false": Boolean Literals
@@ -34,6 +35,7 @@ Typi's Expressions:
 		"-","*","&":Address of Stack Variables are copied to the heap,"~","!"
 	"{x1;x2;x3;...}": Scope Expression "x"s are statements.
 	"$x1 argument_name x2": Function Literal,x1 is a type.argument_name is any identifyer. x2 is a value.Return a value based on return
+	"$x3:x1 argument_name x2" Function Literal where x3 is the return value
 	"return.x x1": Return Expression, where x1 is any value,".x" is optional and refers to how many scopes up the return refers to (see example 1).When ".x" is missing the return goes to the highest scope in the trace(c's return)
 Typi's Statements:
 	"alias x1=x2": Alias Statement, alias identifer x1 to type x2.
@@ -44,6 +46,8 @@ Typi's Statements:
 	"of x1 x2=x3": Pretty Variable Declaration, Equivalent to "auto x2=x3:x1"
 	any expresion
 Typi's Modules only allow:alias,auto,enum,import statments at global scope
+# is used for single line comments
+#/ /# is used for multiline comments
 example 1:
 	{#returns type uint_t.0
 		{#returns type char
