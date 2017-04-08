@@ -348,8 +348,8 @@ struct Token {
 }
 
 void removeMultiLine(ref string file) {
-	while (!file.startsWith("$#")) {
-		if (file.startsWith("#$")) {
+	while (!file.startsWith("$/")) {
+		if (file.startsWith("/$")) {
 			file.popFrontN(2);
 			removeMultiLine(file);
 		}
@@ -381,7 +381,7 @@ void removeComment(ref string file) {
 		file.popFront;
 		file.removeComment;
 	}
-	if (file.startsWith("#$")) {
+	if (file.startsWith("#/")) {
 		file.popFrontN(2);
 		file.removeMultiLine;
 		file.removeComment;

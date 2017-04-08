@@ -1,6 +1,6 @@
-#$Copyright (C) 2015  Freddy Angel Cubas "Superstar64"
+#/Copyright (C) 2015  Freddy Angel Cubas "Superstar64"
  Boost License
-$#
+/#
 enum write=extern "js" of ${}:char[] = 
 "
 	function(arg){

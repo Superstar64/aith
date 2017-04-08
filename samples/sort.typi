@@ -1,6 +1,6 @@
-#$Copyright (C) 2016  Freddy Angel Cubas "Superstar64"
+#/Copyright (C) 2016  Freddy Angel Cubas "Superstar64"
  Boost License
-$#
+/#
 
 enum qsort=${}:int_t.4[] array  {
 	if array.length < 2 then {
