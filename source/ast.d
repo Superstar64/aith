@@ -453,14 +453,14 @@ class Slice : Value {
 }
 
 class Binary(string T) : Value 
-		if (["*", "/", "%", "+", "-", "~", "&", "|", "^",
-			"<<", ">>", ">>>", "==", "!=", "<=", ">=", "<", ">", "&&", "||", "="].canFind(T)) {
+		if (["*", "/", "%", "+", "-", "~", "==", "!=",
+			"<=", ">=", "<", ">", "&&", "||", "="].canFind(T)) {
 	Value left;
 	Value right;
 	mixin autoChildren!(left, right);
 }
 
-class Prefix(string T) : Value if (["+", "-", "*", "/", "&", "~", "!"].canFind(T)) {
+class Prefix(string T) : Value if (["+", "-", "*", "/", "&", "!"].canFind(T)) {
 	Value value;
 	mixin autoChildren!value;
 }

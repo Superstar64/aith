@@ -27,7 +27,6 @@ Typi's Expressions:
 	Binary Operators(in order of precedence by row): Both left and right sides must be the exact same type
 		"*","/","%",
 		"+","-","~":Array Append,
-		"&","|","^","<<",">>",">>>",
 		"==","!=","<=",">=","<",">",
 		"&&","||",
 		"="

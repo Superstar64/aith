@@ -55,11 +55,10 @@ void semantic1(Node that, Trace* trace) {
 			Variable, If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall, Slice,
 			ScopeVar, Scope, FuncLitVar, FuncLit, Return, StringLit, ArrayLit,
 			ExternJS, Binary!"*", Binary!"/", Binary!"%", Binary!"+",
-			Binary!"-", Binary!"~", Binary!"&", Binary!"|", Binary!"^",
-			Binary!"<<", Binary!">>", Binary!">>>", Binary!"==", Binary!"!=",
-			Binary!"<=", Binary!">=", Binary!"<", Binary!">", Binary!"&&",
-			Binary!"||", Binary!"=", Prefix!"+", Prefix!"-", Prefix!"*",
-			Prefix!"/", Prefix!"&", Prefix!"~", Prefix!"!")(that, trace);
+			Binary!"-", Binary!"~", Binary!"==", Binary!"!=", Binary!"<=",
+			Binary!">=", Binary!"<", Binary!">", Binary!"&&", Binary!"||",
+			Binary!"=", Prefix!"+", Prefix!"-", Prefix!"*", Prefix!"/",
+			Prefix!"&", Prefix!"!")(that, trace);
 }
 
 void semantic1Impl(Module that, Trace* trace) {
@@ -401,8 +400,7 @@ void semantic1Impl(string op)(Binary!op that, Trace* trace) {
 	with (that) {
 		semantic1(left, trace);
 		semantic1(right, trace);
-		static if (["*", "/", "%", "+", "-", "&", "|", "^", "<<", ">>", ">>>",
-				"<=", ">=", ">", "<"].canFind(op)) {
+		static if (["*", "/", "%", "+", "-", "<=", ">=", ">", "<"].canFind(op)) {
 			auto ty = left.type;
 			if (!((ty.isUInt || ty.isInt) && (sameType(ty, right.type)
 					|| implicitConvertIntDual(left, right)))) {
@@ -464,12 +462,6 @@ void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
 			}
 			type = value.type.isPointer.type;
 			lvalue = true;
-			ispure = value.ispure;
-		} else static if (op == "~") {
-			if (!(value.type.isUInt || value.type.isInt)) {
-				error("~ only works on Ints and UInts", pos);
-			}
-			type = value.type;
 			ispure = value.ispure;
 		} else static if (op == "&") {
 			if (!value.lvalue) {
@@ -647,11 +639,9 @@ bool returns(Statement that, uint level) {
 			If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall, Slice, ScopeVar,
 			Scope, FuncLitVar, FuncLit, Return, StringLit, ArrayLit, ExternJS,
 			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
-			Binary!"~", Binary!"&", Binary!"|", Binary!"^", Binary!"<<",
-			Binary!">>", Binary!">>>", Binary!"==", Binary!"!=", Binary!"<=",
-			Binary!">=", Binary!"<", Binary!">", Binary!"&&", Binary!"||",
-			Binary!"=", Prefix!"+", Prefix!"-", Prefix!"*", Prefix!"/",
-			Prefix!"&", Prefix!"~", Prefix!"!")(that, level);
+			Binary!"~", Binary!"==", Binary!"!=", Binary!"<=", Binary!">=",
+			Binary!"<", Binary!">", Binary!"&&", Binary!"||", Binary!"=",
+			Prefix!"+", Prefix!"-", Prefix!"*", Prefix!"/", Prefix!"&", Prefix!"!")(that, level);
 }
 
 bool returnsImpl(T)(T that, uint level) {

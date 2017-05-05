@@ -419,9 +419,8 @@ JsExpr generateJS(Value that, CodegenTrace* trace, Usage usage, ref JsState[] de
 			FCall, Slice, StringLit, ArrayLit, Binary!"==", Binary!"!=",
 			Binary!"=", Binary!"~", Prefix!"*", Prefix!"&", Scope, FuncLit,
 			Return, ExternJS, Binary!"*", Binary!"/", Binary!"%",
-			Binary!"+", Binary!"-", Binary!"|", Binary!"^", Binary!"<<",
-			Binary!">>", Binary!">>>", Binary!"<=", Binary!">=", Binary!"<",
-			Binary!">", Binary!"&&", Binary!"||", Prefix!"-", Prefix!"~", Prefix!"!")(that,
+			Binary!"+", Binary!"-", Binary!"<=", Binary!">=", Binary!"<",
+			Binary!">", Binary!"&&", Binary!"||", Prefix!"-", Prefix!"!")(that,
 			trace, usage, depend, uuid).expand, usage, that.type, depend, uuid);
 }
 
@@ -862,7 +861,7 @@ Tuple!(JsExpr, Usage) generateJSImpl(ExternJS that, CodegenTrace* trace,
 
 Tuple!(JsExpr, Usage) generateJSImpl(string op)(Binary!op that,
 		CodegenTrace* trace, Usage usage, ref JsState[] depend, ref uint uuid)
-		if (["*", "/", "%", "+", "-", "|", "^", "<<", ">>", ">>>"].canFind(op)) {
+		if (["*", "/", "%", "+", "-"].canFind(op)) {
 	with (that) {
 		ignoreShare(usage);
 		auto left = generateJS(left, trace, usage, depend, uuid);
@@ -884,7 +883,7 @@ Tuple!(JsExpr, Usage) generateJSImpl(string op)(Binary!op that,
 
 Tuple!(JsExpr, Usage) generateJSImpl(string op)(Prefix!op that,
 		CodegenTrace* trace, Usage usage, ref JsState[] depend, ref uint uuid)
-		if (["-", "~", "!"].canFind(op)) {
+		if (["-", "!"].canFind(op)) {
 	with (that) {
 		ignoreShare(usage);
 		return typeof(return)(new JsPrefix!op(generateJS(value, trace, usage, depend, uuid)), usage);

@@ -190,9 +190,8 @@ struct Parser {
 	Value parseValue(bool nullable = false) {
 		with (lexer) {
 			return parseBinary!("=", parseBinary!("&&", "||", parseBinary!("==",
-					"!=", "<=", ">=", "<", ">", parseBinary!("&", "|", "^",
-					"<<", ">>", ">>>", parseBinary!("+", "-", "~", parseBinary!("*",
-					"/", "%", parseValuePrefix!("+", "-", "*", "/", "&", "~", "!")))))));
+					"!=", "<=", ">=", "<", ">", parseBinary!("+", "-", "~",
+					parseBinary!("*", "/", "%", parseValuePrefix!("+", "-", "*", "/", "&", "!"))))));
 		}
 	}
 
