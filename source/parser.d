@@ -35,7 +35,7 @@ struct Parser {
 	Type parseType(bool nullable = false) {
 		with (lexer) {
 			foreach (fun; AliasSeq!(parseTypeBasic, parseTypeFunc,
-					parseTypeStruct, parseTypeUnknown, parseTypeSub)) {
+					parseTypeStruct, parseTypeUnknown)) {
 				auto type = fun();
 				if (type) {
 					return parseTypePostfix(type);
@@ -100,19 +100,6 @@ struct Parser {
 				auto ret = new Array();
 				popFront;
 				front.expect(oper!"]");
-				popFront;
-				ret.type = current;
-				ret.pos = pos.join(front.pos);
-				return parseTypePostfix(ret);
-			} else if (front == oper!".") {
-				auto ret = new IndexType();
-				popFront;
-				front.expectT!(Identifier, IntLiteral);
-				if (front.peek!Identifier) {
-					ret.index = front.get!(Identifier).name;
-				} else {
-					ret.index = front.get!(IntLiteral).num;
-				}
 				popFront;
 				ret.type = current;
 				ret.pos = pos.join(front.pos);
@@ -194,22 +181,6 @@ struct Parser {
 					ret.namespace ~= ret.name;
 					popFront;
 				}
-				return ret;
-			}
-			return null;
-		}
-	}
-
-	Type parseTypeSub() {
-		with (lexer) {
-			if (front == oper!"*") {
-				auto ret = new SubType();
-				auto pos = front.pos;
-				scope (exit) {
-					ret.pos = pos.join(front.pos);
-				}
-				popFront;
-				ret.type = parseType;
 				return ret;
 			}
 			return null;

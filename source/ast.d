@@ -305,17 +305,6 @@ override:
 	}
 }
 
-class SubType : IndirectType {
-	Type type;
-	mixin autoChildren!type;
-}
-
-class IndexType : IndirectType {
-	Type type;
-	Index index;
-	mixin autoChildren!type;
-}
-
 class UnknownType : IndirectType {
 	string name;
 	string[] namespace;

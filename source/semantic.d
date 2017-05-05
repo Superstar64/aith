@@ -51,15 +51,15 @@ void semantic1(Node that, Trace* trace) {
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
 	dispatch!(semantic1Impl, Bool, Char, Int, UInt, Struct, Pointer, Array,
-			Function, SubType, IndexType, UnknownType, ModuleVar, Module, IntLit, CharLit,
-			BoolLit, StructLit, Variable, If, While, New, NewArray, Cast, Dot,
-			ArrayIndex, FCall, Slice, ScopeVar, Scope, FuncLitVar, FuncLit, Return,
-			StringLit, ArrayLit, ExternJS, Binary!"*", Binary!"/",
-			Binary!"%", Binary!"+", Binary!"-", Binary!"~", Binary!"&",
-			Binary!"|", Binary!"^", Binary!"<<", Binary!">>", Binary!">>>",
-			Binary!"==", Binary!"!=", Binary!"<=", Binary!">=", Binary!"<",
-			Binary!">", Binary!"&&", Binary!"||", Binary!"=", Prefix!"+",
-			Prefix!"-", Prefix!"*", Prefix!"/", Prefix!"&", Prefix!"~", Prefix!"!")(that, trace);
+			Function, UnknownType, ModuleVar, Module, IntLit, CharLit, BoolLit, StructLit,
+			Variable, If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall, Slice,
+			ScopeVar, Scope, FuncLitVar, FuncLit, Return, StringLit, ArrayLit,
+			ExternJS, Binary!"*", Binary!"/", Binary!"%", Binary!"+",
+			Binary!"-", Binary!"~", Binary!"&", Binary!"|", Binary!"^",
+			Binary!"<<", Binary!">>", Binary!">>>", Binary!"==", Binary!"!=",
+			Binary!"<=", Binary!">=", Binary!"<", Binary!">", Binary!"&&",
+			Binary!"||", Binary!"=", Prefix!"+", Prefix!"-", Prefix!"*",
+			Prefix!"/", Prefix!"&", Prefix!"~", Prefix!"!")(that, trace);
 }
 
 void semantic1Impl(Module that, Trace* trace) {
@@ -111,14 +111,6 @@ void semantic1CheckTypeLoop(Type that, Type root) {
 	dispatch!(semantic1CheckTypeLoopImpl, Struct, IndirectType, Type)(that, root);
 }
 
-void semantic1Impl(SubType that, Trace* trace) {
-	with (that) {
-		semantic1(type, trace);
-		actual_ = semantic1Dereference(type.actual);
-		semantic1CheckTypeLoop(actual_, that);
-	}
-}
-
 Type semantic1Dereference(Type that) {
 	return dispatch!(semantic1DereferenceImpl, Pointer, Type)(that);
 }
@@ -150,48 +142,6 @@ Type semantic1DereferenceImpl(T)(T that) {
 			return type;
 		} else static if (is(T == Type)) {
 			error("Unable to deref", pos);
-			assert(0);
-		} else {
-			static assert(0);
-		}
-}
-
-void semantic1Impl(IndexType that, Trace* trace) {
-	with (that) {
-		semantic1(type, trace);
-		actual_ = semantic1IndexType(type.actual, index);
-		semantic1CheckTypeLoop(actual_, that);
-	}
-}
-
-Type semantic1IndexType(Type that, Index index) {
-	return dispatch!(semantic1IndexTypeImpl, Struct, Array, Type)(that, index);
-}
-
-Type semantic1IndexTypeImpl(T)(T that, Index index) {
-	with (that)
-		static if (is(T == Struct)) {
-			if (index.peek!BigInt) {
-				int where = index.get!BigInt.toInt;
-				if (where >= types.length) {
-					error("Index to big", pos);
-				}
-				return types[where];
-			} else {
-				auto name = index.get!string;
-				if (auto where = name in names) {
-					return types[*where];
-				}
-				error("Unknown field", pos);
-				assert(0);
-			}
-		} else static if (is(T == Array)) {
-			if (index.peek!string && index.get!string == "length") {
-				return new UInt(0);
-			}
-			return semantic1IndexTypeImpl!Type(that, index);
-		} else static if (is(T == Type)) {
-			error("Unable to get member:" ~ index.to!string, pos);
 			assert(0);
 		} else {
 			static assert(0);
