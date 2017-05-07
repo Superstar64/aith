@@ -53,12 +53,11 @@ void semantic1(Node that, Trace* trace) {
 	dispatch!(semantic1Impl, Bool, Char, Int, UInt, Struct, Pointer, Array,
 			Function, UnknownType, ModuleVar, Module, IntLit, CharLit, BoolLit, StructLit,
 			Variable, If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall, Slice,
-			ScopeVar, Scope, FuncLitVar, FuncLit, Return, StringLit, ArrayLit,
-			ExternJS, Binary!"*", Binary!"/", Binary!"%", Binary!"+",
-			Binary!"-", Binary!"~", Binary!"==", Binary!"!=", Binary!"<=",
-			Binary!">=", Binary!"<", Binary!">", Binary!"&&", Binary!"||",
-			Binary!"=", Prefix!"+", Prefix!"-", Prefix!"*", Prefix!"/",
-			Prefix!"&", Prefix!"!")(that, trace);
+			ScopeVar, Scope, FuncLitVar, FuncLit, StringLit, ArrayLit, ExternJS,
+			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
+			Binary!"~", Binary!"==", Binary!"!=", Binary!"<=", Binary!">=",
+			Binary!"<", Binary!">", Binary!"&&", Binary!"||", Binary!"=",
+			Prefix!"+", Prefix!"-", Prefix!"*", Prefix!"/", Prefix!"&", Prefix!"!")(that, trace);
 }
 
 void semantic1Impl(Module that, Trace* trace) {
@@ -521,12 +520,11 @@ void semantic1Impl(Scope that, Trace* trace) {
 			trace.context.pass(state);
 			ispure = ispure && state.ispure;
 		}
-		if (type is null) {
-			type = new Struct();
+		if (last is null) {
+			last = new StructLit();
 		}
-		if (!(states.map!(a => returns(a, 0)).any || sameType(type, new Struct()))) {
-			error("Missing returns in scope", pos);
-		}
+		semantic1(last, trace);
+		type = last.type;
 	}
 }
 
@@ -559,38 +557,6 @@ void semantic1Impl(FuncLit that, Trace* trace) {
 		ftype.ispure = text.ispure;
 		type = ftype;
 		ispure = true;
-	}
-}
-
-void semantic1Impl(Return that, Trace* trace) {
-	with (that) {
-		semantic1(value, trace);
-		bool max = upper == uint.max;
-		auto range = trace.range.filter!(a => a.context);
-		if (range.empty || !cast(Scope) range.front.node) {
-			error("Must return from a scope", pos);
-		}
-		Node node;
-		if (max) {
-			node = range.until!(a => !cast(Scope) a.node).reduce!"b".node;
-		} else {
-			if (range.save.take(upper).any!(a => !cast(Scope) a.context)) {
-				error("Tried to return past function");
-			}
-			node = range.drop(upper).front.node;
-		}
-		auto target = cast(Scope) node;
-		assert(target);
-
-		if (target.type is null) {
-			target.type = value.type;
-		} else {
-			if (!sameType(target.type, value.type)) {
-				error("Doesn't match return type", pos);
-			}
-		}
-		type = value.type;
-		ispure = value.ispure;
 	}
 }
 
@@ -632,71 +598,6 @@ void semantic1Impl(ExternJS that, Trace* trace) {
 		semantic1(type, trace);
 		ispure = true;
 	}
-}
-
-bool returns(Statement that, uint level) {
-	return dispatch!(returnsImpl, IntLit, CharLit, BoolLit, StructLit, Variable,
-			If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall, Slice, ScopeVar,
-			Scope, FuncLitVar, FuncLit, Return, StringLit, ArrayLit, ExternJS,
-			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
-			Binary!"~", Binary!"==", Binary!"!=", Binary!"<=", Binary!">=",
-			Binary!"<", Binary!">", Binary!"&&", Binary!"||", Binary!"=",
-			Prefix!"+", Prefix!"-", Prefix!"*", Prefix!"/", Prefix!"&", Prefix!"!")(that, level);
-}
-
-bool returnsImpl(T)(T that, uint level) {
-	with (that)
-		static if (is(T == IntLit)) {
-			return false;
-		} else static if (is(T == CharLit)) {
-			return false;
-		} else static if (is(T == BoolLit)) {
-			return false;
-		} else static if (is(T == StructLit)) {
-			return values.map!(a => a.returns(level)).any;
-		} else static if (is(T == Variable)) {
-			return false;
-		} else static if (is(T == If)) {
-			return cond.returns(level) || (yes.returns(level) && no.returns(level));
-		} else static if (is(T == While)) {
-			return cond.returns(level);
-		} else static if (is(T == New)) {
-			return value.returns(level);
-		} else static if (is(T == NewArray)) {
-			return length.returns(level) || value.returns(level);
-		} else static if (is(T == Cast)) {
-			return value.returns(level);
-		} else static if (is(T == Dot)) {
-			return value.returns(level);
-		} else static if (is(T == ArrayIndex)) {
-			return array.returns(level) || index.returns(level);
-		} else static if (is(T == FCall)) {
-			return fptr.returns(level) || arg.returns(level);
-		} else static if (is(T == Slice)) {
-			return array.returns(level) || left.returns(level) || right.returns(level);
-		} else static if (is(T == Binary!op, string op)) {
-			return left.returns(level) || right.returns(level);
-		} else static if (is(T == Prefix!op, string op)) {
-			return value.returns(level);
-		} else static if (is(T == ScopeVar)) {
-			return def.returns(level);
-		} else static if (is(T == Scope)) {
-			return states.map!(a => a.returns(level + 1)).any;
-		} else static if (is(T == FuncLitVar)) {
-			return false;
-		} else static if (is(T == FuncLit)) {
-			return false;
-		} else static if (is(T == Return)) {
-			return value.returns(level) || level == upper;
-		} else static if (is(T == StringLit)) {
-			return false;
-		} else static if (is(T == ArrayLit)) {
-			return values.map!(a => a.returns(level)).any;
-		} else static if (is(T == ExternJS)) {
-			return false;
-		} else {
-			static assert(0);
-		}
 }
 
 //modifys value's type

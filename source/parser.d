@@ -252,7 +252,7 @@ struct Parser {
 			foreach (fun; AliasSeq!(parseValueBasic, parseValueStruct!(oper!"(",
 					oper!")"), parseValueVar, parseValueIf, parseValueWhile,
 					parseValueNew, parseValueScope, parseValueFuncLit,
-					parseValueReturn, parseValueStringLit, parseValueArrayLit, parseValueExtern)) {
+					parseValueStringLit, parseValueArrayLit, parseValueExtern)) {
 				auto value = fun;
 				if (value) {
 					return parseValuePostfix(value);
@@ -620,7 +620,13 @@ struct Parser {
 						error("Expected alias,variable decleration, or value", front.pos);
 						return null;
 					} else {
-						ret.states ~= val;
+						if (front == end) {
+							ret.last = val;
+							popFront;
+							return ret;
+						} else {
+							ret.states ~= val;
+						}
 					}
 				}
 				front.expect(oper!";");
@@ -650,28 +656,6 @@ struct Parser {
 				ret.fvar.pos = pos2.join(front.pos);
 				ret.text = parseValue;
 
-				ret.pos = pos.join(front.pos);
-				return ret;
-			}
-			return null;
-		}
-	}
-
-	Value parseValueReturn() {
-		with (lexer) {
-			if (front == key!"return") {
-				auto ret = new Return();
-				auto pos = front.pos;
-				popFront;
-				if (front == oper!".") {
-					popFront;
-					front.expectT!IntLiteral;
-					ret.upper = front.get!(IntLiteral).num.toInt;
-					popFront;
-				} else {
-					ret.upper = uint.max;
-				}
-				ret.value = parseValue;
 				ret.pos = pos.join(front.pos);
 				return ret;
 			}

@@ -479,6 +479,7 @@ class Scope : Value {
 	Module[] imports;
 	Module[][string[]] staticimports;
 	Statement[] states;
+	Value last;
 
 	static class ScopeContext : SearchContext {
 		Scope that;
@@ -556,12 +557,6 @@ override:
 	}
 
 	mixin autoChildren!(fvar, text, explict_return);
-}
-
-class Return : Value {
-	Value value;
-	uint upper = uint.max;
-	mixin autoChildren!value;
 }
 
 class StringLit : Value {
