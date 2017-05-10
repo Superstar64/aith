@@ -642,7 +642,7 @@ struct Parser {
 				auto ret = new FuncLit();
 				popFront;
 				auto type = parseType;
-				if (front == oper!":") {
+				if (front == oper!"->") {
 					popFront;
 					ret.explict_return = type;
 					type = parseType;

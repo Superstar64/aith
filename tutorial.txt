@@ -33,8 +33,8 @@ Typi's Expressions:
 	Prefix Operators:
 		"-","*","&":Address of Stack Variables are copied to the heap,"~","!"
 	"{x1;x2;x3;...;x4}": Scope Expression "x"s are statements and x4 is the return value.
-	"$x1 argument_name x2": Function Literal,x1 is a type.argument_name is any identifyer. x2 is a value.Return a value based on return
-	"$x3:x1 argument_name x2" Function Literal where x3 is the return value
+	"$x1 argument_name x2": Function Literal,x1 is a type. argument_name is any identifyer. x2 is a value.
+	"$x3 -> x1 argument_name x2" Function Literal where x3 is the return value
 Typi's Statements:
 	"alias x1=x2": Alias Statement, alias identifer x1 to type x2.
 	"auto x1=x2": Variable Decleration,declare variable x1,and assign x2 to it.
