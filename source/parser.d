@@ -506,7 +506,7 @@ struct Parser {
 					ret.pos = pos.join(front.pos);
 					return parseValuePostfix(ret);
 				}
-			} else {
+			} else if (front == oper!"(") {
 				auto tmp = parseValueCore(true);
 				if (tmp) {
 					auto ret = new FCall();

@@ -22,7 +22,7 @@ Typi's Expressions:
 	"x1:x2": Cast Expression,x1 is an Expression, x2 is a Type
 	"x1.x2": Dot Expression,x1 must be a struct, x2 is an integer token or a identifyer token
 	"x1[x2]": Array Index Expression,x2 must be of uint_t.0
-	"x1 x2": Function Call, functions only take 1 one argument and return 1 argument
+	"x1(x2)": Function Call, functions only take 1 one argument and return 1 argument
 	"x1[x2..x3]":Slice Expression,x2 and x3 must be of uint_t.0
 	Binary Operators(in order of precedence by row): Both left and right sides must be the exact same type
 		"*","/","%",
