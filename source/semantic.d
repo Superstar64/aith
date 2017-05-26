@@ -217,6 +217,7 @@ void semantic1Impl(Variable that, Trace* trace) {
 			semantic1(vardef, &subTrace);
 		}
 		assert(vardef.getType);
+		that.definition = vardef;
 		type = vardef.getType;
 		lvalue = !vardef.manifest;
 		if (cast(ModuleVar) vardef) {
@@ -471,8 +472,8 @@ void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
 				auto nextTrace = Trace(that, trace);
 				trace = &nextTrace;
 				static if (is(T == Variable)) {
-					Var var = trace.searchVar(that.name, that.namespace);
-					var.heap = true;
+
+					that.definition.heap = true;
 				} else static if (is(T == Dot)) {
 					assignHeap(that.value, trace);
 				}

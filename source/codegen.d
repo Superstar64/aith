@@ -375,12 +375,8 @@ void ignoreShare(ref Usage usage) {
 	usage.share = null;
 }
 
-JsExpr nameOfGlobal(ModuleVar variable, Trace* trace, string name, string[] namespace) {
-	Trace outTrace;
-	trace.searchVar(name, namespace, outTrace);
-	assert(cast(Module) outTrace.context);
-	auto mod = cast(Module) outTrace.context;
-	auto names = mod.namespace.chain(only(name));
+JsExpr nameOfGlobal(ModuleVar variable) {
+	auto names = variable.namespace.chain(only(variable.name));
 	JsExpr outvar;
 	foreach (c, iden; names.enumerate) {
 		if (c == 0) {
@@ -390,6 +386,14 @@ JsExpr nameOfGlobal(ModuleVar variable, Trace* trace, string name, string[] name
 		}
 	}
 	return outvar;
+}
+
+JsExpr symbolName(Var var) {
+	if (auto global = cast(ModuleVar) var) {
+		return nameOfGlobal(global);
+	} else {
+		return new JsLit(var.name);
+	}
 }
 
 JsExpr generateJS(Value that, Trace* trace, Usage usage, ref JsState[] depend, ref uint uuid) {
@@ -446,17 +450,8 @@ Tuple!(JsExpr, Usage) generateJSImpl(StructLit that, Trace* trace, Usage usage,
 Tuple!(JsExpr, Usage) generateJSImpl(Variable that, Trace* trace, Usage usage,
 		ref JsState[] depend, ref uint uuid) {
 	with (that) {
-		Trace subtrace;
-		auto src = trace.searchVar(name, namespace, subtrace);
-		assert(src);
-		JsExpr outvar;
-		if (auto global = cast(ModuleVar) src) {
-			outvar = nameOfGlobal(global, trace, name, namespace);
-		} else {
-			assert(namespace is null);
-			outvar = new JsLit(name);
-		}
-		if (src.heap) {
+		JsExpr outvar = symbolName(that.definition);
+		if (that.definition.heap) {
 			outvar = new JsIndex(outvar, new JsLit("0"));
 		}
 		return typeof(return)(outvar, Usage.variable);
@@ -661,16 +656,8 @@ Tuple!(JsExpr, Usage) generateJSAssign(Value value, Value rightValue,
 	ignoreShare(usage);
 	auto right = generateJS(rightValue, trace, Usage.copy, depend, uuid);
 	if (auto var = cast(Variable) value) {
-		Trace subtrace;
-		auto src = trace.searchVar(var.name, var.namespace, subtrace);
-		assert(src);
-		if (auto global = cast(ModuleVar) src) {
-			outvar = nameOfGlobal(global, trace, var.name, var.namespace);
-		} else {
-			assert(var.namespace is null);
-			outvar = new JsLit(var.name);
-		}
-		if (src.heap) {
+		outvar = symbolName(var.definition);
+		if (var.definition.heap) {
 			outvar = new JsIndex(outvar, new JsLit("0"));
 		}
 		outvar = new JsBinary!"="(outvar, right);
@@ -727,16 +714,7 @@ Tuple!(JsExpr, Usage) generateJSAddressOfImpl(T)(T that, Trace* trace,
 	trace = &nextTrace;
 	with (that)
 		static if (is(T == Variable)) {
-			Trace subtrace;
-			auto definition = trace.searchVar(name, namespace, subtrace);
-			assert(definition);
-			JsExpr outvar;
-			if (auto global = cast(ModuleVar) definition) {
-				outvar = nameOfGlobal(global, trace, name, namespace);
-			} else {
-				assert(namespace is null);
-				outvar = new JsLit(name);
-			}
+			JsExpr outvar = symbolName(that.definition);
 			return typeof(return)(outvar, Usage.literal);
 		} else static if (is(T == Dot)) {
 			ignoreShare(usage);

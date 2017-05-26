@@ -60,9 +60,8 @@ void readFiles(string[][] imports, string[][] files, out Module[string[]] wanted
 			return *m;
 		}
 		auto parser = Parser(Lexer(imp.join("::").to!string, openImport(imp)), &loadModule);
-		auto mod = parser.parseModule;
+		auto mod = parser.parseModule(imp);
 		all[imp.idup] = mod;
-		mod.namespace = imp;
 		return mod;
 	}
 

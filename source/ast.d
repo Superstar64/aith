@@ -326,6 +326,7 @@ abstract class Var : Statement {
 class ModuleVar : Var {
 	Value def;
 	bool process;
+	string[] namespace;
 	mixin autoChildren!def;
 override:
 	@property ref Type getType() {
@@ -394,6 +395,7 @@ class StructLit : Value {
 class Variable : Value {
 	string name;
 	string[] namespace;
+	Var definition;
 	mixin autoChildren!();
 }
 

@@ -717,13 +717,14 @@ struct Parser {
 		}
 	}
 
-	Module parseModule() {
+	Module parseModule(string[] namespace) {
 		with (lexer) {
 			auto ret = new Module();
 			auto base = cast(Scope) parseValueScopeimp!(Eof());
 			ret.aliases = base.aliases;
 			ret.imports = base.imports;
 			ret.staticimports = base.staticimports;
+			ret.namespace = namespace;
 			foreach (state; base.states) {
 				if (auto value = cast(Value) state) {
 					error("Executable code not allow at global scope", value.pos);
@@ -735,6 +736,7 @@ struct Parser {
 				mvar.pos = var.pos;
 				mvar.name = var.name;
 				mvar.manifest = var.manifest;
+				mvar.namespace = namespace;
 				ret.vars[mvar.name] = mvar;
 			}
 			return ret;
