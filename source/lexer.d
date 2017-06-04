@@ -89,9 +89,9 @@ struct Keyword {
 	enum list = [
 			"alias", //"assume"
 			"auto", "bool_t", //"catch",
-			"char", "else", //"end",
-			"enum", "extern", "false",
-			//"float_t",
+			"cast", "char", "else", //"end",
+			"enum", "extern",
+			"false", //"float_t",
 			//"function",
 			"if", "import", "int_t", //"is",
 			//"label",

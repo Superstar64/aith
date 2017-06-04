@@ -249,10 +249,10 @@ struct Parser {
 	Value parseValueCore(bool nullable = false) {
 		with (lexer) {
 			Value val;
-			foreach (fun; AliasSeq!(parseValueBasic, parseValueStruct!(oper!"(",
-					oper!")"), parseValueVar, parseValueIf, parseValueWhile,
-					parseValueNew, parseValueScope, parseValueFuncLit,
-					parseValueStringLit, parseValueArrayLit, parseValueExtern)) {
+			foreach (fun; AliasSeq!(parseValueBasic, parseValueCast,
+					parseValueStruct!(oper!"(", oper!")"), parseValueVar, parseValueIf,
+					parseValueWhile, parseValueNew, parseValueScope,
+					parseValueFuncLit, parseValueStringLit, parseValueArrayLit, parseValueExtern)) {
 				auto value = fun;
 				if (value) {
 					return parseValuePostfix(value);
@@ -312,6 +312,25 @@ struct Parser {
 					ret.value = -ret.value;
 				}
 				popFront;
+				return ret;
+			}
+			return null;
+		}
+	}
+
+	Value parseValueCast() {
+		with (lexer) {
+			auto pos = front.pos;
+			if (front == key!"cast") {
+				auto ret = new Cast();
+				popFront;
+				front.expect(oper!"(");
+				popFront;
+				ret.wanted = parseType;
+				front.expect(oper!")");
+				popFront;
+				ret.value = parseValue;
+				ret.pos = pos.join(front.pos);
 				return ret;
 			}
 			return null;
@@ -444,18 +463,7 @@ struct Parser {
 	Value parseValuePostfix(Value current) {
 		with (lexer) {
 			auto pos = current.pos;
-			if (front == oper!":") {
-				auto ret = new Cast();
-				ret.value = current;
-				popFront;
-				ret.wanted = parseType;
-				if (!(front == oper!";" || front == oper!"}" || front == oper!")")) {
-					front.expect(oper!":");
-					popFront;
-				}
-				ret.pos = pos.join(front.pos);
-				return parseValuePostfix(ret);
-			} else if (front == oper!".") {
+			if (front == oper!".") {
 				auto ret = new Dot();
 				ret.value = current;
 				popFront;

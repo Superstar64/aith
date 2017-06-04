@@ -19,7 +19,7 @@ Typi's Expressions:
 	"while x1 then x2": While Expression, x1 must be of bool,"then x2 is optional",While will always return "()";
 	"new x1": New Expression,copys x1 to a new heap pointer and returns it
 	"new[x1]x2": New Array Expression:Creates an array with size x1 and inits it with x2, x1 must be of uint_t.0
-	"x1:x2": Cast Expression,x1 is an Expression, x2 is a Type
+	"cast(x2)x1": Cast Expression,x1 is an Expression, x2 is a Type
 	"x1.x2": Dot Expression,x1 must be a struct, x2 is an integer token or a identifyer token
 	"x1[x2]": Array Index Expression,x2 must be of uint_t.0
 	"x1(x2)": Function Call, functions only take 1 one argument and return 1 argument
