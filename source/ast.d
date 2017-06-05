@@ -399,6 +399,11 @@ class Variable : Value {
 	mixin autoChildren!();
 }
 
+class FuncArgument : Value {
+	FuncLit func;
+	mixin autoChildren!();
+}
+
 class If : Value {
 	Value cond;
 	Value yes;
@@ -525,40 +530,12 @@ override:
 	mixin autoChildren!(aliases, states);
 }
 
-class FuncLitVar : Var {
-	Type ty;
-	mixin autoChildren!ty;
-	override ref Type getType() {
-		return ty;
-	}
-}
-
-class FuncLit : Value, SearchContext {
-	FuncLitVar fvar;
+class FuncLit : Value {
+	Type argument;
 	Value text;
 	Type explict_return; //maybe null
 
-override:
-
-	SearchContext context() {
-		return this;
-	}
-
-	Var searchVar(string name, string[] namespace, ref Trace) {
-		if (namespace is null && fvar.name == name) {
-			return fvar;
-		}
-		return null;
-	}
-
-	Type searchType(string name, string[] namespace, ref Trace) {
-		return null;
-	}
-
-	void pass(Node) {
-	}
-
-	mixin autoChildren!(fvar, text, explict_return);
+	mixin autoChildren!(argument, text, explict_return);
 }
 
 class StringLit : Value {

@@ -8,6 +8,6 @@ enum write=extern "js" of ${}:char[] =
 	}
 ";
 
-enum main=${} arg {
+enum main=${} {
 	write("hello world");
 };

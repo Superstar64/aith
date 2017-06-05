@@ -62,7 +62,7 @@ JsState[] generateJSModule(Module mod, string jsname = "") {
 	return result;
 }
 
-string genName(uint uuid) {
+string genName(ref uint uuid) {
 	auto vname = "$" ~ uuid.to!string;
 	uuid++;
 	return vname;
@@ -237,7 +237,7 @@ JsExpr compareImpl(T)(T that, JsExpr left, JsExpr right, JsState[] depend, ref u
 	}
 }
 
-JsExpr genTmp(JsExpr share, JsExpr init, ref JsState[] depend, uint uuid) {
+JsExpr genTmp(JsExpr share, JsExpr init, ref JsState[] depend, ref uint uuid) {
 	if (share) {
 		if (init) {
 			depend ~= new JsBinary!"="(share, init);
@@ -399,8 +399,8 @@ JsExpr symbolName(Var var) {
 JsExpr generateJS(Value that, Trace* trace, Usage usage, ref JsState[] depend, ref uint uuid) {
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
-	return returnWrap(dispatch!(generateJSImpl, IntLit, BoolLit, CharLit,
-			StructLit, Variable, If, While, New, NewArray, Cast, Dot, ArrayIndex,
+	return returnWrap(dispatch!(generateJSImpl, IntLit, BoolLit, CharLit, StructLit,
+			Variable, FuncArgument, If, While, New, NewArray, Cast, Dot, ArrayIndex,
 			FCall, Slice, StringLit, ArrayLit, Binary!"==", Binary!"!=",
 			Binary!"=", Binary!"~", Prefix!"*", Prefix!"&", Scope, FuncLit,
 			ExternJS, Binary!"*", Binary!"/", Binary!"%", Binary!"+",
@@ -455,6 +455,13 @@ Tuple!(JsExpr, Usage) generateJSImpl(Variable that, Trace* trace, Usage usage,
 			outvar = new JsIndex(outvar, new JsLit("0"));
 		}
 		return typeof(return)(outvar, Usage.variable);
+	}
+}
+
+Tuple!(JsExpr, Usage) generateJSImpl(FuncArgument that, Trace* trace,
+		Usage usage, ref JsState[] depend, ref uint uuid) {
+	with (that) {
+		return typeof(return)(new JsLit("$argument"), Usage.variable);
 	}
 }
 
@@ -773,7 +780,7 @@ Tuple!(JsExpr, Usage) generateJSImpl(Scope that, Trace* trace, Usage usage,
 Tuple!(JsExpr, Usage) generateJSImpl(FuncLit that, Trace* trace, Usage usage,
 		ref JsState[] depend, ref uint uuid) {
 	with (that) {
-		auto result = new JsFuncLit([fvar.name], []);
+		auto result = new JsFuncLit(["$argument"], []);
 		auto val = generateJS(text, trace, Usage(Unique.copy, Eval.once), result.states, uuid);
 
 		if (!returns(result.states)) {

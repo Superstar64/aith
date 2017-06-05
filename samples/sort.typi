@@ -2,7 +2,8 @@
  Boost License
 /#
 
-enum qsort=${} -> int_t.4[] array  {
+enum qsort=${} -> int_t.4[] {
+	auto array = $@;
 	if array.length < 2 then {
 		()
 	} else {

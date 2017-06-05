@@ -252,7 +252,8 @@ struct Parser {
 			foreach (fun; AliasSeq!(parseValueBasic, parseValueCast,
 					parseValueStruct!(oper!"(", oper!")"), parseValueVar, parseValueIf,
 					parseValueWhile, parseValueNew, parseValueScope,
-					parseValueFuncLit, parseValueStringLit, parseValueArrayLit, parseValueExtern)) {
+					parseValueFuncArgument, parseValueFuncLit,
+					parseValueStringLit, parseValueArrayLit, parseValueExtern)) {
 				auto value = fun;
 				if (value) {
 					return parseValuePostfix(value);
@@ -370,6 +371,19 @@ struct Parser {
 				val.pos = pos.join(front.pos);
 			}
 			return val;
+		}
+	}
+
+	Value parseValueFuncArgument() {
+		with (lexer) {
+			if (front == oper!"$@") {
+				auto ret = new FuncArgument();
+				auto pos = front.pos;
+				popFront;
+				ret.pos = pos.join(front.pos);
+				return ret;
+			}
+			return null;
 		}
 	}
 
@@ -655,13 +669,7 @@ struct Parser {
 					ret.explict_return = type;
 					type = parseType;
 				}
-				ret.fvar = new FuncLitVar;
-				auto pos2 = front.pos;
-				ret.fvar.ty = type;
-				front.expectT!Identifier;
-				ret.fvar.name = front.get!(Identifier).name;
-				popFront;
-				ret.fvar.pos = pos2.join(front.pos);
+				ret.argument = type;
 				ret.text = parseValue;
 
 				ret.pos = pos.join(front.pos);

@@ -52,8 +52,8 @@ void semantic1(Node that, Trace* trace) {
 	trace = &nextTrace;
 	dispatch!(semantic1Impl, Bool, Char, Int, UInt, Struct, Pointer, Array,
 			Function, UnknownType, ModuleVar, Module, IntLit, CharLit, BoolLit, StructLit,
-			Variable, If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall, Slice,
-			ScopeVar, Scope, FuncLitVar, FuncLit, StringLit, ArrayLit, ExternJS,
+			Variable, FuncArgument, If, While, New, NewArray, Cast, Dot, ArrayIndex,
+			FCall, Slice, ScopeVar, Scope, FuncLit, StringLit, ArrayLit, ExternJS,
 			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
 			Binary!"~", Binary!"==", Binary!"!=", Binary!"<=", Binary!">=",
 			Binary!"<", Binary!">", Binary!"&&", Binary!"||", Binary!"=",
@@ -224,6 +224,18 @@ void semantic1Impl(Variable that, Trace* trace) {
 			ispure = false;
 		} else {
 			ispure = true;
+		}
+	}
+}
+
+void semantic1Impl(FuncArgument that, Trace* trace) {
+	with (that) {
+		foreach (node; trace.range.map!(a => a.node)) {
+			if (auto func = cast(FuncLit) node) {
+				that.func = func;
+				that.type = func.argument;
+				//todo make lvalue-able
+			}
 		}
 	}
 }
@@ -529,18 +541,11 @@ void semantic1Impl(Scope that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(FuncLitVar that, Trace* trace) {
-	with (that) {
-		semantic1(ty, trace);
-		ispure = true;
-	}
-}
-
 void semantic1Impl(FuncLit that, Trace* trace) {
 	with (that) {
 		auto ftype = new Function();
-		semantic1(fvar, trace);
-		ftype.arg = fvar.ty;
+		semantic1(argument, trace);
+		ftype.arg = argument;
 
 		if (explict_return) {
 			semantic1(explict_return, trace);
