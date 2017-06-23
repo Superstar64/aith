@@ -55,10 +55,12 @@ JsState[] generateJSModule(Module mod) {
 		}
 	}
 	auto modTrace = Trace(mod, null);
-	foreach (v; mod.vars) {
+	foreach (symbol; mod.symbols) {
 		uint uuid;
-		result ~= new JsBinary!"="(new JsDot(var, v.name), generateJS(v.def,
-				&modTrace, Usage.once, result, uuid));
+		if (isRuntimeValue(symbol.definition)) {
+			result ~= new JsBinary!"="(new JsDot(var, symbol.name),
+					generateJS(symbol.definition, &modTrace, Usage.once, result, uuid));
+		}
 	}
 	return result;
 }
@@ -94,18 +96,18 @@ JsExpr indexPointer(JsExpr pointer) {
 			new JsBinary!"||"(new JsDot(pointer, "start"), new JsLit("0")));
 }
 
-JsExpr copy(JsExpr expr, Type type) {
-	return dispatch!(copyImpl, Bool, Char, Int, UInt, Pointer, Array, Function, Struct)(
-			type.actual, expr);
+JsExpr copy(JsExpr expr, Expression type) {
+	return dispatch!(copyImpl, Bool, Char, Int, UInt, Pointer, ArrayIndex, FCall, StructLit)(
+			type.unalias, expr);
 }
 
 JsExpr copyImpl(T)(T that, JsExpr expr) {
 	static if (is(T == Bool) || is(T == Char) || is(T == Int) || is(T == UInt)
-			|| is(T == Pointer) || is(T == Array) || is(T == Function)) {
+			|| is(T == Pointer) || is(T == ArrayIndex) || is(T == FCall)) {
 		return expr;
-	} else static if (is(T == Struct)) {
+	} else static if (is(T == StructLit)) {
 		auto ret = new JsArray();
-		foreach (c, subType; that.types) {
+		foreach (c, subType; that.values) {
 			ret.exprs ~= copy(indexStruct(expr, c), subType);
 		}
 		return ret;
@@ -114,16 +116,16 @@ JsExpr copyImpl(T)(T that, JsExpr expr) {
 	}
 }
 
-JsExpr onceCopy(JsExpr expr, Type type, JsState[] depend, ref uint uuid) {
-	return dispatch!(onceCopyImpl, Bool, Char, Int, UInt, Pointer, Array, Function, Struct)(
-			type.actual, expr, depend, uuid);
+JsExpr onceCopy(JsExpr expr, Expression type, JsState[] depend, ref uint uuid) {
+	return dispatch!(onceCopyImpl, Bool, Char, Int, UInt, Pointer, ArrayIndex, FCall, StructLit)(
+			type.unalias, expr, depend, uuid);
 }
 
 JsExpr onceCopyImpl(T)(T that, JsExpr expr, JsState[] depend, ref uint uuid) {
 	static if (is(T == Bool) || is(T == Char) || is(T == Int) || is(T == UInt)
-			|| is(T == Pointer) || is(T == Array) || is(T == Function)) {
+			|| is(T == Pointer) || is(T == ArrayIndex) || is(T == FCall)) {
 		return expr;
-	} else static if (is(T == Struct)) {
+	} else static if (is(T == StructLit)) {
 		auto ret = genTmp(null, expr, depend, uuid);
 		return copy(ret, that);
 	} else {
@@ -131,9 +133,9 @@ JsExpr onceCopyImpl(T)(T that, JsExpr expr, JsState[] depend, ref uint uuid) {
 	}
 }
 
-JsExpr defaultValue(Type type) {
-	return dispatch!(defaultValueImpl, Bool, Char, Int, UInt, Pointer, Array, Function, Struct)(
-			type.actual);
+JsExpr defaultValue(Expression type) {
+	return dispatch!(defaultValueImpl, Bool, Char, Int, UInt, Pointer,
+			ArrayIndex, FCall, StructLit)(type.unalias);
 }
 
 JsExpr defaultValueImpl(T)(T that) {
@@ -143,23 +145,23 @@ JsExpr defaultValueImpl(T)(T that) {
 		return new JsLit("0");
 	} else static if (is(T == Char)) {
 		return new JsLit('"' ~ "\\0" ~ '"');
-	} else static if (is(T == Struct)) {
+	} else static if (is(T == StructLit)) {
 		auto ret = new JsArray();
-		foreach (subType; that.types) {
+		foreach (subType; that.values) {
 			ret.exprs ~= defaultValue(subType);
 		}
 		return ret;
-	} else static if (is(T == Pointer) || is(T == Function)) {
+	} else static if (is(T == Pointer) || is(T == FCall)) {
 		return new JsLit("undefined");
-	} else static if (is(T == Array)) {
+	} else static if (is(T == ArrayIndex)) {
 		return new JsArray();
 	} else {
 		static assert(0);
 	}
 }
 
-JsExpr castInt(JsExpr expr, Type type) {
-	type = type.actual;
+JsExpr castInt(JsExpr expr, Expression type) {
+	type = type.unalias;
 	if (auto i = cast(Int) type) {
 		if (i.size == 1) {
 			error("todo support size" ~ i.size.to!string);
@@ -189,18 +191,18 @@ JsExpr castInt(JsExpr expr, Type type) {
 	}
 }
 
-JsExpr compare(JsExpr left, JsExpr right, Type type, JsState[] depend, ref uint uuid) {
-	return dispatch!(compareImpl, Bool, Char, Int, UInt, Function, Pointer, Array, Struct)(
-			type.actual, left, right, depend, uuid);
+JsExpr compare(JsExpr left, JsExpr right, Expression type, JsState[] depend, ref uint uuid) {
+	return dispatch!(compareImpl, Bool, Char, Int, UInt, FCall, Pointer, ArrayIndex, StructLit)(
+			type.unalias, left, right, depend, uuid);
 }
 
 JsExpr compareImpl(T)(T that, JsExpr left, JsExpr right, JsState[] depend, ref uint uuid) {
-	static if (is(T == Bool) || is(T == Char) || is(T == Int) || is(T == UInt) || is(T == Function)) {
+	static if (is(T == Bool) || is(T == Char) || is(T == Int) || is(T == UInt) || is(T == FCall)) {
 		return new JsBinary!"=="(left, right);
 	} else static if (is(T == Pointer)) {
 		return new JsBinary!"&&"(new JsBinary!"=="(internalArray(left),
 				internalArray(right)), new JsBinary!"=="(arrayStart(left), arrayStart(right)));
-	} else static if (is(T == Array)) {
+	} else static if (is(T == ArrayIndex)) {
 		auto var = genName(uuid);
 		auto varLit = new JsLit(var);
 		depend ~= new JsVarDef(var, new JsBinary!"=="(arrayLength(left), arrayLength(right)));
@@ -209,23 +211,23 @@ JsExpr compareImpl(T)(T that, JsExpr left, JsExpr right, JsState[] depend, ref u
 				new JsBinary!"<"(i, arrayLength(left)), new JsPostfix!"++"(i), []);
 		depend ~= new JsIf(varLit, [loop], null);
 		loop.states ~= new JsBinary!"="(varLit, new JsBinary!"&&"(varLit,
-				compare(indexArray(left, i), indexArray(right, i), that.type, loop.states, uuid)));
+				compare(indexArray(left, i), indexArray(right, i), that.array, loop.states, uuid)));
 		return varLit;
-	} else static if (is(T == Struct)) {
-		if (that.types.length == 0) {
+	} else static if (is(T == StructLit)) {
+		if (that.values.length == 0) {
 			return new JsLit("true");
-		} else if (that.types.length == 1) {
+		} else if (that.values.length == 1) {
 			return compare(indexStruct(left, 0), indexStruct(right, 0),
-					that.types[0], depend, uuid);
+					that.values[0], depend, uuid);
 		}
 		auto ret = new JsBinary!"&&"();
 		auto current = ret;
-		foreach (c, subType; that.types) {
+		foreach (c, subType; that.values) {
 			current.left = compare(indexStruct(left, c), indexStruct(right, c),
 					subType, depend, uuid);
-			if (c == that.types.length - 2) {
+			if (c == that.values.length - 2) {
 				current.right = compare(indexStruct(left, c + 1),
-						indexStruct(right, c + 1), that.types[c + 1], depend, uuid);
+						indexStruct(right, c + 1), that.values[c + 1], depend, uuid);
 				break;
 			}
 			auto next = new JsBinary!"&&"();
@@ -329,7 +331,7 @@ static:
 	}
 }
 
-JsExpr returnWrap(JsExpr result, Usage self, Usage request, Type type,
+JsExpr returnWrap(JsExpr result, Usage self, Usage request, Expression type,
 		ref JsState[] depend, ref uint uuid) {
 	if (self.eval == Eval.none) {
 		assert(request.eval == Eval.none);
@@ -397,7 +399,8 @@ JsExpr symbolName(Var var) {
 	}
 }
 
-JsExpr generateJS(Value that, Trace* trace, Usage usage, ref JsState[] depend, ref uint uuid) {
+JsExpr generateJS(Expression that, Trace* trace, Usage usage, ref JsState[] depend, ref uint uuid) {
+	assert(isRuntimeValue(that));
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
 	return returnWrap(dispatch!(generateJSImpl, IntLit, BoolLit, CharLit, StructLit,
@@ -544,9 +547,9 @@ Tuple!(JsExpr, Usage) generateJSImpl(Cast that, Trace* trace, Usage usage,
 		auto val = generateJS(value, trace, usage, depend, uuid);
 		if (sameType(value.type, wanted)) {
 			return typeof(return)(val, usage);
-		} else if (sameType(value.type, new Struct())) {
+		} else if (sameType(value.type, new StructLit())) {
 			return typeof(return)(defaultValue(wanted), Usage.literal);
-		} else if (cast(UInt) wanted.actual || cast(Int) wanted.actual) {
+		} else if (cast(UInt) wanted.unalias || cast(Int) wanted.unalias) {
 			return typeof(return)(castInt(val, wanted), usage);
 		}
 		assert(0);
@@ -560,10 +563,10 @@ Tuple!(JsExpr, Usage) generateJSImpl(Dot that, Trace* trace, Usage usage,
 		auto val = generateJS(value, trace, usage, depend, uuid);
 		JsExpr result;
 		if (index.peek!string) {
-			if (cast(Array) value.type.actual) {
+			if (cast(ArrayIndex) value.type.unalias) {
 				return typeof(return)(new JsDot(val, "length"), usage);
 			}
-			auto stru = cast(Struct)(value.type.actual);
+			auto stru = cast(StructLit)(value.type.unalias);
 			result = indexStruct(val, stru.names[index.get!string]);
 		} else {
 			result = indexStruct(val, index.get!BigInt.to!size_t);
@@ -658,7 +661,7 @@ Tuple!(JsExpr, Usage) generateJSImpl(Binary!"=" that, Trace* trace, Usage usage,
 	}
 }
 
-Tuple!(JsExpr, Usage) generateJSAssign(Value value, Value rightValue,
+Tuple!(JsExpr, Usage) generateJSAssign(Expression value, Expression rightValue,
 		Trace* trace, Usage usage, ref JsState[] depend, ref uint uuid) {
 	JsExpr outvar;
 	ignoreShare(usage);
@@ -687,14 +690,14 @@ Tuple!(JsExpr, Usage) generateJSImpl(Binary!"~" that, Trace* trace, Usage usage,
 				new JsBinary!"<"(i, arrayLength(left)), new JsPostfix!"++"(i), []);
 		depend ~= loop;
 		loop.states ~= new JsBinary!"="(new JsIndex(lit, i),
-				copy(indexArray(left, i), (cast(Array) that.left.type.actual).type));
+				copy(indexArray(left, i), (cast(ArrayIndex) that.left.type.unalias).array));
 		auto loop2 = new JsFor(new JsVarDef(i.value, arrayLength(left)),
 				new JsBinary!"<"(i, new JsBinary!"+"(arrayLength(left), arrayLength(right))),
 				new JsPostfix!"++"(i), []);
 		depend ~= loop;
 		loop2.states ~= new JsBinary!"="(new JsIndex(lit, i),
 				copy(indexArray(right, new JsBinary!"-"(i, arrayLength(left))),
-					(cast(Array) that.left.type.actual).type));
+					(cast(ArrayIndex) that.left.type.unalias).array));
 		return typeof(return)(lit, Usage.variable);
 	}
 }
@@ -717,7 +720,7 @@ Tuple!(JsExpr, Usage) generateJSImpl(Prefix!"&" that, Trace* trace, Usage usage,
 }
 
 Tuple!(JsExpr, Usage) generateJSAddressOfImpl(T)(T that, Trace* trace,
-		Usage usage, ref JsState[] depend, ref uint uuid, Type type) {
+		Usage usage, ref JsState[] depend, ref uint uuid, Expression type) {
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
 	with (that)
@@ -726,7 +729,7 @@ Tuple!(JsExpr, Usage) generateJSAddressOfImpl(T)(T that, Trace* trace,
 			return typeof(return)(outvar, Usage.literal);
 		} else static if (is(T == Dot)) {
 			ignoreShare(usage);
-			auto structType = cast(Struct) that.type.actual;
+			auto structType = cast(StructLit) that.type.unalias;
 			assert(structType);
 			//todo bug, can't get address of .length
 			auto structValue = generateJS(value, trace, usage, depend, uuid);
@@ -758,10 +761,11 @@ Tuple!(JsExpr, Usage) generateJSImpl(Scope that, Trace* trace, Usage usage,
 		ref JsState[] depend, ref uint uuid) {
 	with (that) {
 		foreach (state; states) {
-			if (auto val = cast(Value) state) {
+			if (auto val = cast(Expression) state) {
 				generateJS(val, trace, Usage.none, depend, uuid);
 			} else if (auto var = cast(ScopeVar) state) {
-				auto val = generateJS(var.def, trace, Usage(Unique.copy, Eval.once), depend, uuid);
+				auto val = generateJS(var.definition, trace, Usage(Unique.copy,
+						Eval.once), depend, uuid);
 				if (var.heap) {
 					depend ~= new JsVarDef(var.name, new JsArray([val]));
 				} else {

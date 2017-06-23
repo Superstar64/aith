@@ -31,6 +31,94 @@ void processModule(Module mod) {
 	semantic1(mod, null);
 }
 
+Expression unalias(Expression expression) {
+	if (auto unknown = cast(Variable) expression) {
+		if (unknown.definition.manifest) {
+			return unknown.definition.definition;
+		}
+	}
+	return expression;
+}
+
+Bool isBool(Expression type) {
+	return cast(Bool) type.unalias;
+}
+
+Char isChar(Expression type) {
+	return cast(Char) type.unalias;
+}
+
+Int isInt(Expression type) {
+	return cast(Int) type.unalias;
+}
+
+UInt isUInt(Expression type) {
+	return cast(UInt) type.unalias;
+}
+
+Pointer isPointer(Expression type) {
+	return cast(Pointer) type.unalias;
+}
+
+//todo remove these
+ArrayIndex isArray(Expression type) {
+	if (type.isType && cast(ArrayIndex) type.unalias) {
+		return cast(ArrayIndex) type.unalias;
+	}
+	return null;
+}
+
+FCall isFunction(Expression type) {
+	if (type.isType && cast(FCall) type.unalias) {
+		return cast(FCall) type.unalias;
+	}
+	return null;
+}
+
+bool isType(Expression expression) {
+	expression = expression.unalias;
+	if (expression.isBool || expression.isChar || expression.isInt
+			|| expression.isUInt || expression.isPointer) {
+		return true;
+	}
+	if (auto structlit = cast(StructLit) expression) {
+		return structlit.values.map!isType.all;
+	}
+	if (auto array = cast(ArrayIndex) expression) {
+		return array.array.isType && array.index.isType;
+	}
+	if (auto func = cast(FCall) expression) {
+		return func.fptr.isType && func.arg.isType;
+	}
+	if (auto var = cast(Variable) expression) {
+		return var.definition.manifest && var.unalias.isType;
+	}
+	return !!cast(Metaclass) expression;
+}
+
+bool isRuntimeValue(Expression expression) {
+	expression = expression.unalias;
+	//todo implement actual check for runtime values
+	if (auto structlit = cast(StructLit) expression) {
+		if (structlit.values.length == 0) {
+			return true;
+		}
+	}
+	return !expression.isType;
+}
+
+void checkRuntimeValue(Expression expression) {
+	if (!isRuntimeValue(expression)) {
+		error("Expected runtime value", expression.pos);
+	}
+}
+
+void checkType(Expression expression) {
+	if (!isType(expression)) {
+		error("Expected type", expression.pos);
+	}
+}
+
 void checkIntTypeSize(int size, Position pos) {
 	if (size == 0) {
 		return;
@@ -48,123 +136,77 @@ void checkIntTypeSize(int size, Position pos) {
 }
 
 void semantic1(Node that, Trace* trace) {
+	if (that.process) {
+		error("Cyclic variable", that.pos);
+	}
+	that.process = true;
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
-	dispatch!(semantic1Impl, Bool, Char, Int, UInt, Struct, Pointer, Array,
-			Function, UnknownType, ModuleVar, Module, IntLit, CharLit, BoolLit, StructLit,
-			Variable, FuncArgument, If, While, New, NewArray, Cast, Dot, ArrayIndex,
-			FCall, Slice, ScopeVar, Scope, FuncLit, StringLit, ArrayLit, ExternJS,
-			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
-			Binary!"~", Binary!"==", Binary!"!=", Binary!"<=", Binary!">=",
-			Binary!"<", Binary!">", Binary!"&&", Binary!"||", Binary!"=",
-			Prefix!"+", Prefix!"-", Prefix!"*", Prefix!"/", Prefix!"&", Prefix!"!")(that, trace);
+	dispatch!(semantic1Impl, Metaclass, Bool, Char, Int, UInt, Pointer, ModuleVar,
+			Module, IntLit, CharLit, BoolLit, StructLit, Variable, FuncArgument, If,
+			While, New, NewArray, Cast, Dot, ArrayIndex, FCall, Slice, ScopeVar,
+			Scope, FuncLit, StringLit, ArrayLit, ExternJS, Binary!"*",
+			Binary!"/", Binary!"%", Binary!"+", Binary!"-", Binary!"~",
+			Binary!"==", Binary!"!=", Binary!"<=", Binary!">=", Binary!"<",
+			Binary!">", Binary!"&&", Binary!"||", Binary!"=", Prefix!"+",
+			Prefix!"-", Prefix!"*", Prefix!"/", Prefix!"&", Prefix!"!")(that, trace);
 }
 
 void semantic1Impl(Module that, Trace* trace) {
 	with (that) {
-		foreach (type; aliases) {
-			semantic1(type, trace);
-		}
-		foreach (var; vars) {
-			if (!var.process) {
-				semantic1(var, trace);
+		foreach (symbol; symbols) {
+			if (!symbol.process) {
+				semantic1(symbol, trace);
 			}
-			if (!var.ispure) {
-				error("Impure expression in global", var.pos);
+			if (!symbol.ispure) {
+				error("Impure expression in global", symbol.pos);
 			}
 		}
 	}
 }
 
-void semantic1Impl(T)(T that, Trace* trace) if (is(T == Bool) || is(T == Char)) {
+Metaclass metaclass;
+static this() {
+	metaclass = new Metaclass();
+	metaclass.type = metaclass;
+	metaclass.ispure = true;
+}
 
+void semantic1Impl(Metaclass that, Trace* trace) {
+
+}
+
+void semantic1Impl(T)(T that, Trace* trace) if (is(T == Bool) || is(T == Char)) {
+	with (that) {
+		that.type = metaclass;
+		that.ispure = true;
+	}
 }
 
 void semantic1Impl(T)(T that, Trace* trace) if (is(T == Int) || is(T == UInt)) {
 	with (that) {
 		checkIntTypeSize(size, pos);
+		that.type = metaclass;
+		that.ispure = true;
 	}
 }
 
-void semantic1Impl(Struct that, Trace* trace) {
+void semantic1Impl(T)(T that, Trace* trace) if (is(T == Pointer)) {
 	with (that) {
-		types.each!(a => semantic1(a, trace));
-	}
-}
-
-void semantic1Impl(T)(T that, Trace* trace) if (is(T == Pointer) || is(T == Array)) {
-	with (that) {
-		semantic1(type, trace);
-	}
-}
-
-void semantic1Impl(Function that, Trace* trace) {
-	with (that) {
-		semantic1(arg, trace);
-		semantic1(ret, trace);
-	}
-}
-
-void semantic1CheckTypeLoop(Type that, Type root) {
-	dispatch!(semantic1CheckTypeLoopImpl, Struct, IndirectType, Type)(that, root);
-}
-
-Type semantic1Dereference(Type that) {
-	return dispatch!(semantic1DereferenceImpl, Pointer, Type)(that);
-}
-
-void semantic1CheckTypeLoopImpl(T)(T that, Type root) {
-	with (that)
-		static if (is(T == Struct)) {
-			semantic1CheckTypeLoopImpl!Type(that, root);
-			foreach (type; types) {
-				semantic1CheckTypeLoop(type, root);
-			}
-		} else static if (is(T == IndirectType)) {
-			semantic1CheckTypeLoopImpl!Type(that, root);
-			if (actual_) {
-				semantic1CheckTypeLoop(actual_, root);
-			}
-		} else static if (is(T == Type)) {
-			if (that is root) {
-				error("Self referecing type", pos);
-			}
-		} else {
-			static assert(0);
-		}
-}
-
-Type semantic1DereferenceImpl(T)(T that) {
-	with (that)
-		static if (is(T == Pointer)) {
-			return type;
-		} else static if (is(T == Type)) {
-			error("Unable to deref", pos);
-			assert(0);
-		} else {
-			static assert(0);
-		}
-}
-
-void semantic1Impl(UnknownType that, Trace* trace) {
-	with (that) {
-		auto searched = trace.searchType(name, namespace);
-		if (!searched) {
-			error("Unknown identifier", pos);
-		}
-		actual_ = searched;
-		semantic1CheckTypeLoop(actual_, that);
+		//todo reorder
+		semantic1(node, trace);
+		checkType(node);
+		type = metaclass;
+		that.ispure = true;
 	}
 }
 
 void semantic1Impl(ModuleVar that, Trace* trace) {
 	with (that) {
-		if (process) {
-			error("Forward declartion", pos);
-		}
-		process = true;
-		semantic1(def, trace);
-		ispure = def.ispure;
+		semantic1(definition, trace);
+		//todo metaclasses
+		checkRuntimeValue(definition);
+		ispure = definition.ispure;
 	}
 }
 
@@ -198,33 +240,38 @@ void semantic1Impl(StructLit that, Trace* trace) {
 		foreach (value; values) {
 			semantic1(value, trace);
 		}
-		auto structType = new Struct();
-		structType.names = names;
-		structType.types = values.map!(a => a.type).array;
-		type = structType;
+		//todo fix me, make untypes structs have no type eg.. (())
+		if (that.values.length != 0 && values.map!isType.all) {
+			type = metaclass;
+		} else {
+			auto structType = new StructLit();
+			structType.names = names;
+			structType.values = values.map!(a => a.type).array;
+			type = structType;
+			values.each!checkRuntimeValue;
+		}
 		ispure = values.map!(a => a.ispure).all;
 	}
 }
 
+//todo remember to put unalias before doing checks on values
+
 void semantic1Impl(Variable that, Trace* trace) {
 	with (that) {
 		Trace subTrace;
-		auto vardef = trace.searchVar(name, namespace, subTrace);
-		if (vardef is null) {
-			error("Unable to find variable", pos);
+		auto source = trace.search(name, namespace, subTrace);
+		if (source is null) {
+			error("Unknown variable", pos);
 		}
-		if (cast(ModuleVar) vardef && (cast(ModuleVar) vardef).getType is null) {
-			semantic1(vardef, &subTrace);
+		if (source.type is null) {
+			semantic1(source, &subTrace);
 		}
-		assert(vardef.getType);
-		that.definition = vardef;
-		type = vardef.getType;
-		lvalue = !vardef.manifest;
-		if (cast(ModuleVar) vardef) {
-			ispure = false;
-		} else {
-			ispure = true;
-		}
+		assert(source.type);
+		that.definition = source;
+		type = source.type;
+		lvalue = !source.manifest;
+		ispure = source.manifest;
+
 	}
 }
 
@@ -243,8 +290,11 @@ void semantic1Impl(FuncArgument that, Trace* trace) {
 void semantic1Impl(If that, Trace* trace) {
 	with (that) {
 		semantic1(cond, trace);
+		checkRuntimeValue(cond);
 		semantic1(yes, trace);
+		checkRuntimeValue(yes);
 		semantic1(no, trace);
+		checkRuntimeValue(no);
 		if (!cond.type.isBool) {
 			error("Boolean expected in if expression", cond.pos);
 		}
@@ -259,11 +309,13 @@ void semantic1Impl(If that, Trace* trace) {
 void semantic1Impl(While that, Trace* trace) {
 	with (that) {
 		semantic1(cond, trace);
+		checkRuntimeValue(cond);
 		semantic1(state, trace);
+		checkRuntimeValue(state);
 		if (!cond.type.isBool) {
 			error("Boolean expected in while expression", cond.pos);
 		}
-		type = new Struct();
+		type = new StructLit();
 		ispure = cond.ispure && state.ispure;
 	}
 }
@@ -271,8 +323,9 @@ void semantic1Impl(While that, Trace* trace) {
 void semantic1Impl(New that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
+		checkRuntimeValue(value);
 		auto ptr = new Pointer();
-		ptr.type = value.type;
+		ptr.node = value.type;
 		type = ptr;
 		ispure = value.ispure;
 	}
@@ -281,12 +334,15 @@ void semantic1Impl(New that, Trace* trace) {
 void semantic1Impl(NewArray that, Trace* trace) {
 	with (that) {
 		semantic1(length, trace);
+		checkRuntimeValue(length);
 		semantic1(value, trace);
+		checkRuntimeValue(value);
 		if (!(sameType(length.type, new UInt(0)) || implicitConvertInt(length, new UInt(0)))) {
 			error("Can only create an array with length of UInts", length.pos);
 		}
-		auto array = new Array();
-		array.type = value.type;
+		auto array = new ArrayIndex();
+		array.array = value.type;
+		array.index = new StructLit();
 		type = array;
 		ispure = length.ispure && value.ispure;
 	}
@@ -295,7 +351,9 @@ void semantic1Impl(NewArray that, Trace* trace) {
 void semantic1Impl(Cast that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
+		checkRuntimeValue(value);
 		semantic1(wanted, trace);
+		checkType(wanted);
 		if (!castable(value.type, wanted)) {
 			error("Unable to cast", pos);
 		}
@@ -307,13 +365,14 @@ void semantic1Impl(Cast that, Trace* trace) {
 void semantic1Impl(Dot that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
+		checkRuntimeValue(value);
 		semantic1Dot(value.type, trace, that);
 		ispure = value.ispure;
 	}
 }
 
-void semantic1Dot(Type that, Trace* trace, Dot dot) {
-	dispatch!(semantic1DotImpl, Struct, Array, IndirectType, Type)(that, trace, dot);
+void semantic1Dot(Expression that, Trace* trace, Dot dot) {
+	dispatch!(semantic1DotImpl, StructLit, ArrayIndex, Expression)(that.unalias, trace, dot);
 }
 
 void semantic1DotImpl(T)(T that, Trace* trace, Dot dot) {
@@ -323,32 +382,30 @@ void semantic1DotImpl(T)(T that, Trace* trace, Dot dot) {
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
 	with (that)
-		static if (is(T == Struct)) {
+		static if (is(T == StructLit)) {
 			auto index = dot.index;
 			if (index.peek!string) {
 				auto str = index.get!string;
 				if (!(str in names)) {
 					error("Unable to find field", dot.pos);
 				}
-				dot.type = types[names[str]];
+				dot.type = values[names[str]];
 			} else {
 				uint typeIndex = index.get!(BigInt).toInt;
-				if (typeIndex >= types.length) {
+				if (typeIndex >= values.length) {
 					error("Index number to high", dot.pos);
 				}
-				dot.type = types[typeIndex];
+				dot.type = values[typeIndex];
 			}
 			dot.lvalue = dot.value.lvalue;
-		} else static if (is(T == Array)) {
+		} else static if (is(T == ArrayIndex)) {
 			auto index = dot.index;
 			if (!(index.peek!string && index.get!string == "length")) {
-				semantic1DotImpl!Type(that, trace, dot);
+				semantic1DotImpl!Expression(that, trace, dot);
 				return;
 			}
 			dot.type = new UInt(0);
-		} else static if (is(T == IndirectType)) {
-			semantic1Dot(actual_, trace, dot);
-		} else static if (is(T == Type)) {
+		} else static if (is(T == Expression)) {
 			error("Unable to dot", pos);
 		} else {
 			pragma(msg, T);
@@ -360,16 +417,24 @@ void semantic1Impl(ArrayIndex that, Trace* trace) {
 	with (that) {
 		semantic1(array, trace);
 		semantic1(index, trace);
-		if (!array.type.isArray) {
-			error("Unable able to index", pos);
+		if (array.isType) {
+			if (!(index.isType && sameType(index, new StructLit()))) {
+				error("Expected empty type in array type", pos);
+			}
+			type = metaclass;
+			ispure = true;
+		} else {
+			if (!array.type.isArray) {
+				error("Unable able to index", pos);
+			}
+			if (!(sameType(index.type, new UInt(0)) || implicitConvertInt(index, new UInt(0)))) {
+				error("Can only index an array with UInts", pos);
+			}
+			auto arrayType = array.type.isArray;
+			type = arrayType.array;
+			lvalue = true;
+			ispure = array.ispure && index.ispure;
 		}
-		if (!(sameType(index.type, new UInt(0)) || implicitConvertInt(index, new UInt(0)))) {
-			error("Can only index an array with UInts", pos);
-		}
-		auto arrayType = array.type.isArray;
-		type = arrayType.type;
-		lvalue = true;
-		ispure = array.ispure && index.ispure;
 	}
 }
 
@@ -377,24 +442,31 @@ void semantic1Impl(FCall that, Trace* trace) {
 	with (that) {
 		semantic1(fptr, trace);
 		semantic1(arg, trace);
-		auto fun = fptr.type.isFunction;
-		if (!fun) {
-			error("Not a function", pos);
+		if (fptr.isType) {
+
+		} else {
+			auto fun = fptr.type.isFunction;
+			if (!fun) {
+				error("Not a function", pos);
+			}
+			if (!(sameType(fun.arg, arg.type) || ((fun.arg.isInt
+					|| fun.arg.isUInt) && implicitConvertInt(arg, fun.arg)))) {
+				error("Unable to call function with the  argument's type", pos);
+			}
+			type = fun.fptr;
+			ispure = fptr.ispure && arg.ispure /* todo fix me && fun.ispure*/ ;
 		}
-		if (!(sameType(fun.arg, arg.type) || ((fun.arg.isInt
-				|| fun.arg.isUInt) && implicitConvertInt(arg, fun.arg)))) {
-			error("Unable to call function with arg's type", pos);
-		}
-		type = fun.ret;
-		ispure = fptr.ispure && fun.ispure && arg.ispure;
 	}
 }
 
 void semantic1Impl(Slice that, Trace* trace) {
 	with (that) {
 		semantic1(array, trace);
+		checkRuntimeValue(array);
 		semantic1(left, trace);
+		checkRuntimeValue(left);
 		semantic1(right, trace);
+		checkRuntimeValue(right);
 		if (!array.type.isArray) {
 			error("Not an array", pos);
 		}
@@ -411,7 +483,9 @@ void semantic1Impl(Slice that, Trace* trace) {
 void semantic1Impl(string op)(Binary!op that, Trace* trace) {
 	with (that) {
 		semantic1(left, trace);
+		checkRuntimeValue(left);
 		semantic1(right, trace);
+		checkRuntimeValue(right);
 		static if (["*", "/", "%", "+", "-", "<=", ">=", ">", "<"].canFind(op)) {
 			auto ty = left.type;
 			if (!((ty.isUInt || ty.isInt) && (sameType(ty, right.type)
@@ -462,6 +536,7 @@ void semantic1Impl(string op)(Binary!op that, Trace* trace) {
 void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
+		checkRuntimeValue(value);
 		static if (op == "-") {
 			if (!value.type.isInt) {
 				error("= only works Signed Ints", pos);
@@ -498,7 +573,7 @@ void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
 			assignHeap(value, trace);
 
 			auto ptr = new Pointer();
-			ptr.type = value.type;
+			ptr.node = value.type;
 			type = ptr;
 			ispure = value.ispure;
 		} else static if (op == "!") {
@@ -517,19 +592,23 @@ void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
 
 void semantic1Impl(ScopeVar that, Trace* trace) {
 	with (that) {
-		semantic1(def, trace);
-		ispure = def.ispure;
+		semantic1(definition, trace);
+		checkRuntimeValue(definition);
+		ispure = definition.ispure;
 	}
 }
 
 void semantic1Impl(Scope that, Trace* trace) {
 	with (that) {
 		ispure = true;
-		foreach (type; aliases) {
+		foreach (type; symbols) {
 			semantic1(type, trace);
 		}
 		foreach (state; states) {
 			semantic1(state, trace);
+			if (auto expression = cast(Expression) state) {
+				checkRuntimeValue(expression);
+			}
 			trace.context.pass(state);
 			ispure = ispure && state.ispure;
 		}
@@ -543,24 +622,26 @@ void semantic1Impl(Scope that, Trace* trace) {
 
 void semantic1Impl(FuncLit that, Trace* trace) {
 	with (that) {
-		auto ftype = new Function();
+		auto ftype = new FCall();
 		semantic1(argument, trace);
+		checkType(argument);
 		ftype.arg = argument;
 
 		if (explict_return) {
 			semantic1(explict_return, trace);
-			ftype.ret = explict_return;
+			checkType(explict_return);
+			ftype.fptr = explict_return;
 			type = ftype;
 		}
 		semantic1(text, trace);
-
+		checkRuntimeValue(text);
 		if (explict_return) {
 			if (!sameType(explict_return, text.type)) {
 				error("Explict return doesn't match actual return", pos);
 			}
 		}
-		ftype.ret = text.type;
-		ftype.ispure = text.ispure;
+		ftype.fptr = text.type;
+		//ftype.ispure = text.ispure; todo fix me
 		type = ftype;
 		ispure = true;
 	}
@@ -568,8 +649,9 @@ void semantic1Impl(FuncLit that, Trace* trace) {
 
 void semantic1Impl(StringLit that, Trace* trace) {
 	with (that) {
-		auto array = new Array;
-		array.type = new Char;
+		auto array = new ArrayIndex;
+		array.array = new Char;
+		array.index = new StructLit();
 		type = array;
 		ispure = true;
 	}
@@ -579,18 +661,20 @@ void semantic1Impl(ArrayLit that, Trace* trace) {
 	with (that) {
 		foreach (value; values) {
 			semantic1(value, trace);
+			checkRuntimeValue(value);
 		}
 		if (values.length == 0) {
 			error("Array Literals must contain at least one element", pos);
 		}
-		Type current = values[0].type;
+		auto current = values[0].type;
 		foreach (value; values[1 .. $]) {
 			if (!sameType(current, value.type)) {
 				error("All elements of an array literal must be of the same type", pos);
 			}
 		}
-		auto array = new Array;
-		array.type = current;
+		auto array = new ArrayIndex;
+		array.array = current;
+		array.index = new StructLit();
 		type = array;
 		ispure = true;
 		foreach (value; values) {
@@ -602,25 +686,31 @@ void semantic1Impl(ArrayLit that, Trace* trace) {
 void semantic1Impl(ExternJS that, Trace* trace) {
 	with (that) {
 		semantic1(type, trace);
+		checkType(type);
 		ispure = true;
 	}
 }
 
 //modifys value's type
 //returns if converted
-bool implicitConvertInt(Value value, Type type) {
+bool implicitConvertInt(Expression value, Expression type) {
+	value = value.unalias;
+	type = type.unalias;
+	assert(isRuntimeValue(value));
+	assert(isType(type));
+
 	if (cast(IntLit) value && (type.isUInt || type.isInt)) {
 		value.type = type;
 		return true;
 	}
-	if (cast(StructLit) value && cast(Struct)(type)) {
+	if (cast(StructLit) value && cast(StructLit)(type)) {
 		auto str = cast(StructLit) value;
-		auto target = cast(Struct) type;
+		auto target = cast(StructLit) type;
 		foreach (c, ref sub; str.values) {
-			if (sameType(sub.type, target.types[c])) {
+			if (sameType(sub.type, target.values[c])) {
 				continue;
 			}
-			if (implicitConvertInt(sub, target.types[c])) {
+			if (implicitConvertInt(sub, target.values[c])) {
 				continue;
 			}
 			return false;
@@ -630,14 +720,16 @@ bool implicitConvertInt(Value value, Type type) {
 	return false;
 }
 
-bool implicitConvertIntDual(Value left, Value right) {
+bool implicitConvertIntDual(Expression left, Expression right) {
 	return implicitConvertInt(left, right.type) || implicitConvertInt(right, left.type);
 }
 
-bool sameType(Type a, Type b) {
-	alias Types = AliasSeq!(Char, Int, UInt, Struct, Pointer, Array, Function);
+bool sameType(Expression a, Expression b) {
+	assert(a.isType);
+	assert(b.isType);
+	alias Types = AliasSeq!(Metaclass, Char, Int, UInt, StructLit, Pointer, ArrayIndex, FCall);
 	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(
-			a.actual, b.actual);
+			a.unalias, b.unalias);
 }
 
 bool sameTypeImpl(T1, T2)(T1 a, T2 b) {
@@ -645,38 +737,40 @@ bool sameTypeImpl(T1, T2)(T1 a, T2 b) {
 		return false;
 	} else {
 		alias T = T1;
-		static if (is(T == Bool) || is(T == Char)) {
+		static if (is(T == Bool) || is(T == Char) || is(T == Metaclass)) {
 			return true;
 		} else static if (is(T == UInt) || is(T == Int)) {
 			return a.size == b.size;
-		} else static if (is(T == Struct)) {
-			if (a.types.length != b.types.length) {
+		} else static if (is(T == StructLit)) {
+			if (a.values.length != b.values.length) {
 				return false;
 			}
-			foreach (c, t; a.types) {
-				if (!sameType(t, b.types[c])) {
+			foreach (c, t; a.values) {
+				if (!sameType(t, b.values[c])) {
 					return false;
 				}
 			}
 			return true;
-		} else static if (is(T == Pointer) || is(T == Array)) {
-			return sameType(a.type, b.type);
-		} else static if (is(T == Function)) {
-			return sameType(a.ret, b.ret) && sameType(a.arg, b.arg);
+		} else static if (is(T == Pointer)) {
+			return sameType(a.node, b.node);
+		} else static if (is(T == ArrayIndex)) {
+			return sameType(a.array, b.array);
+		} else static if (is(T == FCall)) {
+			return sameType(a.fptr, b.fptr) && sameType(a.arg, b.arg);
 		}
 	}
 }
 
-bool castable(Type tar, Type want) {
-	tar = tar.actual;
-	want = want.actual;
-	if (sameType(tar, want)) {
+bool castable(Expression target, Expression want) {
+	target = target.unalias;
+	want = want.unalias;
+	if (sameType(target, want)) {
 		return true;
 	}
-	if (sameType(tar, new Struct())) {
+	if (sameType(target, new StructLit())) {
 		return true;
 	}
-	if ((cast(Int) tar || cast(UInt) tar) && (cast(Int) want || cast(UInt) want)) { //casting between int types
+	if ((cast(Int) target || cast(UInt) target) && (cast(Int) want || cast(UInt) want)) { //casting between int types
 		return true;
 	}
 	return false;

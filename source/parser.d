@@ -27,12 +27,9 @@ import lexer;
 struct Parser {
 	Lexer lexer;
 	Module delegate(string[]) onImport;
+	//todo rework parsing rules
 
-	/++
-	 + Types
-	 +/
-
-	Type parseType(bool nullable = false) {
+	Expression parseType() {
 		with (lexer) {
 			foreach (fun; AliasSeq!(parseTypeBasic, parseTypeFunc,
 					parseTypeStruct, parseTypeUnknown)) {
@@ -41,17 +38,12 @@ struct Parser {
 					return parseTypePostfix(type);
 				}
 			}
-
-			if (nullable) {
-				return null;
-			} else {
-				error("Expected Type", front.pos);
-				assert(0);
-			}
+			error("Expected Type", front.pos);
+			assert(0);
 		}
 	}
 
-	Type parseTypeBasic() {
+	Expression parseTypeBasic() {
 		with (lexer) {
 			uint parseDotFix() {
 				if (front == oper!".") {
@@ -63,7 +55,7 @@ struct Parser {
 				return 0;
 			}
 
-			Type ret;
+			Expression ret;
 			auto pos = front.pos;
 			scope (exit) {
 				if (ret) {
@@ -87,7 +79,7 @@ struct Parser {
 		}
 	}
 
-	Type parseTypePostfix(Type current) {
+	Expression parseTypePostfix(Expression current) {
 		with (lexer) {
 			auto pos = current.pos;
 			if (front == oper!"*") {
@@ -97,11 +89,12 @@ struct Parser {
 				ret.pos = pos.join(front.pos);
 				return parseTypePostfix(ret);
 			} else if (front == oper!"[") {
-				auto ret = new Array();
+				auto ret = new ArrayIndex();
 				popFront;
 				front.expect(oper!"]");
 				popFront;
-				ret.type = current;
+				ret.array = current;
+				ret.index = new StructLit();
 				ret.pos = pos.join(front.pos);
 				return parseTypePostfix(ret);
 			}
@@ -109,16 +102,16 @@ struct Parser {
 		}
 	}
 
-	Type parseTypeFunc() {
+	Expression parseTypeFunc() {
 		with (lexer) {
 			if (front == oper!"$") {
-				auto ret = new Function();
+				auto ret = new FCall();
 				auto pos = front.pos;
 				scope (exit) {
 					ret.pos = pos.join(front.pos);
 				}
 				popFront;
-				ret.ret = parseType();
+				ret.fptr = parseType();
 				front.expect(oper!":");
 				popFront;
 				ret.arg = parseType();
@@ -128,10 +121,10 @@ struct Parser {
 		}
 	}
 
-	Type parseTypeStruct() {
+	Expression parseTypeStruct() {
 		with (lexer) {
 			if (front == oper!"{") {
-				auto ret = new Struct();
+				auto ret = new StructLit();
 				auto pos = front.pos;
 				scope (exit) {
 					ret.pos = pos.join(front.pos);
@@ -140,7 +133,7 @@ struct Parser {
 				if (front != oper!"}") {
 					uint count;
 					while (true) {
-						ret.types ~= parseType();
+						ret.values ~= parseType();
 						if (front.peek!Identifier) {
 							ret.names[front.get!(Identifier).name] = count;
 							popFront;
@@ -154,8 +147,8 @@ struct Parser {
 					front.expect(oper!"}");
 				}
 				popFront;
-				if (ret.types.length == 1 && ret.names.length == 0) {
-					return ret.types[0];
+				if (ret.values.length == 1 && ret.names.length == 0) {
+					return ret.values[0];
 				}
 				return ret;
 			}
@@ -163,10 +156,10 @@ struct Parser {
 		}
 	}
 
-	Type parseTypeUnknown() {
+	Expression parseTypeUnknown() {
 		with (lexer) {
 			if (front.peek!Identifier) {
-				auto ret = new UnknownType();
+				auto ret = new Variable();
 				auto pos = front.pos;
 				scope (exit) {
 					ret.pos = pos.join(front.pos);
@@ -187,7 +180,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValue(bool nullable = false) {
+	Expression parseValue(bool nullable = false) {
 		with (lexer) {
 			return parseBinary!("=", parseBinary!("&&", "||", parseBinary!("==",
 					"!=", "<=", ">=", "<", ">", parseBinary!("+", "-", "~",
@@ -195,7 +188,7 @@ struct Parser {
 		}
 	}
 
-	Value parseBinary(args...)() {
+	Expression parseBinary(args...)() {
 		with (lexer) {
 			alias opers = args[0 .. $ - 1];
 			alias sub = args[$ - 1];
@@ -215,7 +208,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValuePrefix(opers...)() {
+	Expression parseValuePrefix(opers...)() {
 		with (lexer) {
 			auto pos = front.pos;
 			foreach (o; opers) {
@@ -242,13 +235,10 @@ struct Parser {
 			return parseValueCore;
 		}
 	}
-	/++
-	 + Values
-	 +/
 
-	Value parseValueCore(bool nullable = false) {
+	Expression parseValueCore(bool nullable = false) {
 		with (lexer) {
-			Value val;
+			Expression val;
 			foreach (fun; AliasSeq!(parseValueBasic, parseValueCast,
 					parseValueStruct!(oper!"(", oper!")"), parseValueVar, parseValueIf,
 					parseValueWhile, parseValueNew, parseValueScope,
@@ -269,7 +259,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValueBasic() {
+	Expression parseValueBasic() {
 		with (lexer) {
 			auto pos = front.pos;
 			auto intL = parseValueIntLit;
@@ -303,7 +293,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValueIntLit(bool posi = false, bool nega = false) {
+	Expression parseValueIntLit(bool posi = false, bool nega = false) {
 		with (lexer) {
 			if (front.peek!IntLiteral) {
 				auto ret = new IntLit;
@@ -319,7 +309,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValueCast() {
+	Expression parseValueCast() {
 		with (lexer) {
 			auto pos = front.pos;
 			if (front == key!"cast") {
@@ -338,7 +328,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValueStructimp() {
+	Expression parseValueStructimp() {
 		with (lexer) {
 			auto ret = new StructLit();
 			while (true) {
@@ -355,9 +345,9 @@ struct Parser {
 		}
 	}
 
-	Value parseValueStruct(alias Front = oper!"(", alias End = oper!")")() {
+	Expression parseValueStruct(alias Front = oper!"(", alias End = oper!")")() {
 		with (lexer) {
-			Value val;
+			Expression val;
 			auto pos = front.pos;
 			if (front == Front) {
 				popFront;
@@ -374,7 +364,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValueFuncArgument() {
+	Expression parseValueFuncArgument() {
 		with (lexer) {
 			if (front == oper!"$@") {
 				auto ret = new FuncArgument();
@@ -387,7 +377,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValueVar() {
+	Expression parseValueVar() {
 		with (lexer) {
 			auto pos = front.pos;
 			if (front.peek!Identifier) {
@@ -408,7 +398,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValueIf() {
+	Expression parseValueIf() {
 		with (lexer) {
 			auto pos = front.pos;
 			if (front == key!"if") {
@@ -431,7 +421,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValueWhile() {
+	Expression parseValueWhile() {
 		with (lexer) {
 			auto pos = front.pos;
 			if (front == key!"while") {
@@ -451,7 +441,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValueNew() {
+	Expression parseValueNew() {
 		with (lexer) {
 			auto pos = front.pos;
 			if (front == key!"new") {
@@ -474,7 +464,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValuePostfix(Value current) {
+	Expression parseValuePostfix(Expression current) {
 		with (lexer) {
 			auto pos = current.pos;
 			if (front == oper!".") {
@@ -542,7 +532,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValueScope() {
+	Expression parseValueScope() {
 		with (lexer) {
 			auto pos = front.pos;
 			if (front == oper!"{") {
@@ -555,7 +545,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValueScopeimp(alias end = oper!"}")() {
+	Expression parseValueScopeimp(alias end = oper!"}")() {
 		with (lexer) {
 			auto ret = new Scope();
 			while (true) {
@@ -595,14 +585,18 @@ struct Parser {
 					}
 
 				} else if (front == key!"alias") {
+					auto var = new ScopeVar();
+					auto pos = front.pos;
 					popFront;
 					front.expectT!Identifier;
 					auto name = front.get!(Identifier).name;
+					var.manifest = true;
+					var.name = name;
 					popFront;
 					front.expect(oper!"=");
 					popFront;
-					auto ty = parseType;
-					ret.aliases[name] = ty;
+					var.definition = parseType;
+					ret.symbols[name] = var;
 				} else if (front == key!"auto" || front == key!"enum") {
 					auto var = new ScopeVar();
 					auto pos = front.pos;
@@ -613,7 +607,7 @@ struct Parser {
 					popFront;
 					front.expect(oper!"=");
 					popFront;
-					var.def = parseValue;
+					var.definition = parseValue;
 					var.pos = pos.join(front.pos);
 					ret.states ~= var;
 				} else if (front == key!"of") {
@@ -627,7 +621,7 @@ struct Parser {
 					popFront;
 					auto val = new Cast();
 					val.wanted = ty;
-					var.def = val;
+					var.definition = val;
 					if (front == oper!"=") {
 						popFront;
 						val.value = parseValue;
@@ -657,7 +651,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValueFuncLit() {
+	Expression parseValueFuncLit() {
 		with (lexer) {
 			auto pos = front.pos;
 			if (front == oper!"$") {
@@ -679,7 +673,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValueStringLit() {
+	Expression parseValueStringLit() {
 		with (lexer) {
 			if (front.peek!StringLiteral) {
 				auto ret = new StringLit;
@@ -693,7 +687,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValueArrayLit() {
+	Expression parseValueArrayLit() {
 		with (lexer) {
 			auto val = parseValueStruct!(oper!"[", oper!"]");
 			if (val) {
@@ -706,7 +700,7 @@ struct Parser {
 		}
 	}
 
-	Value parseValueExtern() {
+	Expression parseValueExtern() {
 		with (lexer) {
 			if (front == key!"extern") {
 				auto ret = new ExternJS;
@@ -733,27 +727,34 @@ struct Parser {
 		}
 	}
 
+	//todo this is ugly remove it
 	Module parseModule(string[] namespace) {
 		with (lexer) {
 			auto ret = new Module();
 			auto base = cast(Scope) parseValueScopeimp!(Eof());
-			ret.aliases = base.aliases;
+			foreach (name, symbol; base.symbols) {
+				ret.symbols[name] = new ModuleVar();
+				ret.symbols[name].name = symbol.name;
+				ret.symbols[name].heap = symbol.heap;
+				ret.symbols[name].manifest = symbol.manifest;
+				ret.symbols[name].definition = symbol.definition;
+			}
 			ret.imports = base.imports;
 			ret.staticimports = base.staticimports;
 			ret.namespace = namespace;
 			foreach (state; base.states) {
-				if (auto value = cast(Value) state) {
+				if (auto value = cast(Expression) state) {
 					error("Executable code not allow at global scope", value.pos);
 					return null;
 				}
 				auto var = cast(ScopeVar) state;
 				auto mvar = new ModuleVar;
-				mvar.def = var.def;
+				mvar.definition = var.definition;
 				mvar.pos = var.pos;
 				mvar.name = var.name;
 				mvar.manifest = var.manifest;
 				mvar.namespace = namespace;
-				ret.vars[mvar.name] = mvar;
+				ret.symbols[mvar.name] = mvar;
 			}
 			return ret;
 		}

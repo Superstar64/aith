@@ -68,54 +68,30 @@ mixin template autoChildren(T...) {
 }
 
 interface SearchContext {
-	Var searchVar(string name, string[] namespace, ref Trace); //trace is an out variable with is by default the current trace
-	Type searchType(string name, string[] namespace, ref Trace);
+	Var search(string name, string[] namespace, ref Trace); //trace is an out variable with is by default the current trace
 	//for some types(scopes) looping over children changes the searchcontext
 	void pass(Node child);
 }
 
-template SearchContextImpl(alias imports, alias staticimports, alias aliases) {
-	Var searchVar(string name, string[] namespace, ref Trace trace) {
+template SearchContextImpl(alias imports, alias staticimports, alias symbols) {
+	Var search(string name, string[] namespace, ref Trace trace) {
 		if (namespace is null) {
+			if (name in symbols) {
+				return symbols[name];
+			}
 			foreach (mod; imports) {
-				if (name in mod.vars) {
+				if (name in mod.symbols) {
 					trace = Trace(mod, null);
-					return mod.vars[name];
+					return mod.symbols[name];
 				}
 			}
 		} else {
 			if (namespace in staticimports) {
 				auto mods = staticimports[namespace];
 				foreach (mod; mods) {
-					if (name in mod.vars) {
+					if (name in mod.symbols) {
 						trace = Trace(mod, null);
-						return mod.vars[name];
-					}
-				}
-			}
-		}
-		return null;
-	}
-
-	Type searchType(string name, string[] namespace, ref Trace trace) {
-		if (namespace is null) {
-			auto type = name in aliases;
-			if (type) {
-				return *type;
-			}
-			foreach (mod; imports) {
-				if (name in mod.aliases) {
-					trace = Trace(mod, null);
-					return mod.aliases[name];
-				}
-			}
-		} else {
-			if (namespace in staticimports) {
-				auto mods = staticimports[namespace];
-				foreach (mod; mods) {
-					if (name in mod.aliases) {
-						trace = Trace(mod, null);
-						return mod.aliases[name];
+						return mod.symbols[name];
 					}
 				}
 			}
@@ -135,39 +111,24 @@ struct Trace {
 		this.upper = upper;
 	}
 
-	Var searchVar(string name, string[] namespace) {
+	Var search(string name, string[] namespace) {
 		Trace trace;
-		return searchVar(name, namespace, trace);
+		return search(name, namespace, trace);
 	}
 
-	Var searchVar(string name, string[] namespace, ref Trace trace) {
+	Var search(string name, string[] namespace, ref Trace trace)
+	out (node) {
+		assert(node is null || cast(Expression) node || cast(Var) node);
+	}
+	body {
 		trace = this;
 		if (context) {
-			if (auto result = context.searchVar(name, namespace, trace)) {
+			if (auto result = context.search(name, namespace, trace)) {
 				return result;
 			}
 		}
 		if (upper) {
-			return upper.searchVar(name, namespace, trace);
-		} else {
-			return null;
-		}
-	}
-
-	Type searchType(string name, string[] namespace) {
-		Trace trace;
-		return searchType(name, namespace, trace);
-	}
-
-	Type searchType(string name, string[] namespace, ref Trace trace) {
-		trace = this;
-		if (context) {
-			if (auto result = context.searchType(name, namespace, trace)) {
-				return result;
-			}
-		}
-		if (upper) {
-			return upper.searchType(name, namespace, trace);
+			return upper.search(name, namespace, trace);
 		} else {
 			return null;
 		}
@@ -204,58 +165,32 @@ bool cycle(Node node, Trace* trace) {
 abstract class Node { //base class for all ast nodes
 	Position pos;
 	Children children();
+	//used when check for cycles for variables and aliases
+	bool process;
 	SearchContext context() {
 		return null;
 	}
 }
 
-abstract class Type : Node {
-	@property Type actual() {
-		return this;
-	}
-
-	Bool isBool() {
-		return cast(Bool) actual;
-	}
-
-	Char isChar() {
-		return cast(Char) actual;
-	}
-
-	Int isInt() {
-		return cast(Int) actual;
-	}
-
-	UInt isUInt() {
-		return cast(UInt) actual;
-	}
-
-	Struct isStruct() {
-		return cast(Struct) actual;
-	}
-
-	Pointer isPointer() {
-		return cast(Pointer) actual;
-	}
-
-	Array isArray() {
-		return cast(Array) actual;
-	}
-
-	Function isFunction() {
-		return cast(Function) actual;
-	}
+abstract class Statement : Node {
+	bool ispure;
 }
 
-class Bool : Type {
+//either a type or a value
+abstract class Expression : Statement {
+	Expression type;
+	bool lvalue;
+}
+
+class Bool : Expression {
 	mixin autoChildren!();
 }
 
-class Char : Type {
+class Char : Expression {
 	mixin autoChildren!();
 }
 
-class Int : Type {
+class Int : Expression {
 	uint size;
 	this(uint _) {
 		size = _;
@@ -264,7 +199,7 @@ class Int : Type {
 	mixin autoChildren!();
 }
 
-class UInt : Type {
+class UInt : Expression {
 	uint size;
 	this(uint _) {
 		size = _;
@@ -273,19 +208,23 @@ class UInt : Type {
 	mixin autoChildren!();
 }
 
-class Struct : Type {
+/*class Struct : Type {
 	Type[] types;
 	size_t[string] names;
 
 	mixin autoChildren!types;
-}
+}*/
 
-class Pointer : Type {
-	Type type;
+class Pointer : Expression {
+	Expression node;
 	mixin autoChildren!type;
 }
 
-class Array : Type {
+class Metaclass : Expression {
+	mixin autoChildren!();
+}
+
+/*class Array : Type {
 	Type type;
 	mixin autoChildren!type;
 }
@@ -297,48 +236,33 @@ class Function : Type {
 	mixin autoChildren!(ret, arg);
 }
 
-abstract class IndirectType : Type {
+class UnknownType : Type {
 	Type actual_;
-override:
-	@property Type actual() {
-		return actual_.actual;
-	}
-}
-
-class UnknownType : IndirectType {
 	string name;
 	string[] namespace;
 	mixin autoChildren!();
-}
-
-//for position dependant statements
-abstract class Statement : Node {
-	bool ispure;
-}
+}*/
 
 abstract class Var : Statement {
 	string name;
-	bool manifest;
 	bool heap; //has the address of the variable been taken,does not apply to closures
-	@property abstract ref Type getType();
+	bool manifest;
+	Expression definition;
+	@property Expression type() {
+		return definition.type;
+	}
+
+	mixin autoChildren!definition;
 }
 
 class ModuleVar : Var {
-	Value def;
-	bool process;
 	string[] namespace;
-	mixin autoChildren!def;
-override:
-	@property ref Type getType() {
-		return def.type;
-	}
 }
 
 class Module : Node, SearchContext {
-	Type[string] aliases;
+	ModuleVar[string] symbols;
 	Module[] imports;
 	Module[][string[]] staticimports;
-	ModuleVar[string] vars;
 	string[] namespace;
 
 override:
@@ -346,178 +270,152 @@ override:
 		return this;
 	}
 
-	Var searchVar(string name, string[] namespace, ref Trace trace) {
-		if (namespace is null && name in vars) {
-			return vars[name];
-		}
-		return SearchContextImpl!(imports, staticimports, aliases).searchVar(name,
-				namespace, trace);
-	}
-
-	Type searchType(string name, string[] namespace, ref Trace trace) {
-		return SearchContextImpl!(imports, staticimports, aliases).searchType(name,
-				namespace, trace);
+	Var search(string name, string[] namespace, ref Trace trace) {
+		return SearchContextImpl!(imports, staticimports, symbols).search(name, namespace, trace);
 	}
 
 	void pass(Node) {
 	}
 
-	mixin autoChildren!(aliases, vars);
+	mixin autoChildren!(symbols);
 }
 
-abstract class Value : Statement {
-	Type type;
-	bool lvalue;
-}
-
-class IntLit : Value {
+class IntLit : Expression {
 	BigInt value;
 	bool usigned;
 	mixin autoChildren!();
 }
 
-class CharLit : Value {
+class CharLit : Expression {
 	dchar value;
 	mixin autoChildren!();
 }
 
-class BoolLit : Value {
+class BoolLit : Expression {
 	bool yes;
 	mixin autoChildren!();
 }
 
-class StructLit : Value {
-	Value[] values;
+class StructLit : Expression {
+	Expression[] values;
 	size_t[string] names;
 	mixin autoChildren!values;
 }
 
-class Variable : Value {
+class Variable : Expression {
 	string name;
 	string[] namespace;
 	Var definition;
 	mixin autoChildren!();
 }
 
-class FuncArgument : Value {
+class FuncArgument : Expression {
 	FuncLit func;
 	mixin autoChildren!();
 }
 
-class If : Value {
-	Value cond;
-	Value yes;
-	Value no;
+class If : Expression {
+	Expression cond;
+	Expression yes;
+	Expression no;
 	mixin autoChildren!(cond, yes, no);
 }
 
-class While : Value {
-	Value cond;
-	Value state;
+class While : Expression {
+	Expression cond;
+	Expression state;
 	mixin autoChildren!(cond, state);
 }
 
-class New : Value {
-	Value value;
+class New : Expression {
+	Expression value;
 	mixin autoChildren!value;
 }
 
-class NewArray : Value {
-	Value length;
-	Value value;
+class NewArray : Expression {
+	Expression length;
+	Expression value;
 	mixin autoChildren!(length, value);
 }
 
-class Cast : Value {
-	Value value;
-	Type wanted;
+class Cast : Expression {
+	Expression value;
+	Expression wanted;
 	mixin autoChildren!(value, wanted);
 }
 
-class Dot : Value {
-	Value value;
+class Dot : Expression {
+	Expression value;
 	Index index;
 	mixin autoChildren!value;
 }
 
-class ArrayIndex : Value {
-	Value array;
-	Value index;
+//if array is a type and index is an empty struct then this is a type
+class ArrayIndex : Expression {
+	Expression array;
+	Expression index;
 	mixin autoChildren!(array, index);
 }
 
-class FCall : Value {
-	Value fptr;
-	Value arg;
+//if fptr and arg are types then this is a type
+class FCall : Expression {
+	Expression fptr;
+	Expression arg;
+	//todo ispure for type
 	mixin autoChildren!(fptr, arg);
 }
 
-class Slice : Value {
-	Value array;
-	Value left;
-	Value right;
+class Slice : Expression {
+	Expression array;
+	Expression left;
+	Expression right;
 	mixin autoChildren!(array, left, right);
 }
 
-class Binary(string T) : Value 
+class Binary(string T) : Expression 
 		if (["*", "/", "%", "+", "-", "~", "==", "!=",
 			"<=", ">=", "<", ">", "&&", "||", "="].canFind(T)) {
-	Value left;
-	Value right;
+	Expression left;
+	Expression right;
 	mixin autoChildren!(left, right);
 }
 
-class Prefix(string T) : Value if (["+", "-", "*", "/", "&", "!"].canFind(T)) {
-	Value value;
+class Prefix(string T) : Expression if (["+", "-", "*", "/", "&", "!"].canFind(T)) {
+	Expression value;
 	mixin autoChildren!value;
 }
 
 class ScopeVar : Var {
-	Value def;
-	mixin autoChildren!def;
-override:
-	@property ref Type getType() {
-		return def.type;
-	}
 }
 
-class Scope : Value {
-	Type[string] aliases;
+class Scope : Expression {
+	//includes alias = for now
+	//duped with iterating over context
+	ScopeVar[string] symbols;
 	Module[] imports;
 	Module[][string[]] staticimports;
 	Statement[] states;
-	Value last;
+	Expression last;
 
 	static class ScopeContext : SearchContext {
 		Scope that;
-		ScopeVar[string] vars;
+		ScopeVar[string] symbols;
 
 		this(Scope that) {
 			this.that = that;
+			symbols = that.symbols.dup;
 		}
 
-		Var searchVar(string name, string[] namespace, ref Trace trace) {
-			if (namespace is null && name in vars) {
-				return vars[name];
-			}
+		Var search(string name, string[] namespace, ref Trace trace) {
 			auto imports = that.imports;
 			auto staticimports = that.staticimports;
-			auto aliases = that.aliases;
-			return SearchContextImpl!(imports, staticimports, aliases).searchVar(name,
-					namespace, trace);
-		}
-
-		Type searchType(string name, string[] namespace, ref Trace trace) {
-			auto imports = that.imports;
-			auto staticimports = that.staticimports;
-			auto aliases = that.aliases;
-			return SearchContextImpl!(imports, staticimports, aliases).searchType(name,
+			return SearchContextImpl!(imports, staticimports, symbols).search(name,
 					namespace, trace);
 		}
 
 		void pass(Node node) {
 			if (auto var = cast(ScopeVar) node) {
-				vars[var.name] = var;
+				symbols[var.name] = var;
 			}
 		}
 	}
@@ -527,28 +425,28 @@ override:
 		return new ScopeContext(this);
 	}
 
-	mixin autoChildren!(aliases, states);
+	mixin autoChildren!(symbols, states);
 }
 
-class FuncLit : Value {
-	Type argument;
-	Value text;
-	Type explict_return; //maybe null
+class FuncLit : Expression {
+	Expression explict_return; //maybe null
+	Expression argument;
+	Expression text;
 
 	mixin autoChildren!(argument, text, explict_return);
 }
 
-class StringLit : Value {
+class StringLit : Expression {
 	string str;
 	mixin autoChildren!();
 }
 
-class ArrayLit : Value {
-	Value[] values;
+class ArrayLit : Expression {
+	Expression[] values;
 	mixin autoChildren!values;
 }
 
-class ExternJS : Value {
+class ExternJS : Expression {
 	string external;
 	mixin autoChildren!type;
 }
