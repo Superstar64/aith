@@ -5,7 +5,7 @@ Typi's types:
 	"int_t.x": Signed Integer type, where x is replace with the number of bytes wanted.0 is size_t.x must be a power of 2.(as of now only 4 or lower is supported)
 	"uint_t.x": Unsigned Integer type
 	"{optional_name1 x1,optional_name x2,x3...}": Struct Type, where there is a variable list of types inside the parentheses where any of them can have names. if the number of types in the struct is 1 and it has no name the struct type get replace with it's one subtype
-	"x*": Pointer type,where x is any other type
+	"x(*)": Pointer type,where x is any other type
 	"x[]": Array type,where x is any other type
 	"$x1:x2": Function type, where x1 is the return type and x2 is the argument type
 Typi's Expressions:

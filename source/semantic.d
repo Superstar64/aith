@@ -56,8 +56,8 @@ UInt isUInt(Expression type) {
 	return cast(UInt) type.unalias;
 }
 
-Pointer isPointer(Expression type) {
-	return cast(Pointer) type.unalias;
+Postfix!"(*)" isPointer(Expression type) {
+	return cast(Postfix!"(*)") type.unalias;
 }
 
 //todo remove these
@@ -142,14 +142,14 @@ void semantic1(Node that, Trace* trace) {
 	that.process = true;
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
-	dispatch!(semantic1Impl, Metaclass, Bool, Char, Int, UInt, Pointer, ModuleVar,
-			Module, IntLit, CharLit, BoolLit, StructLit, Variable, FuncArgument, If,
-			While, New, NewArray, Cast, Dot, ArrayIndex, FCall, Slice, ScopeVar,
-			Scope, FuncLit, StringLit, ArrayLit, ExternJS, Binary!"*",
-			Binary!"/", Binary!"%", Binary!"+", Binary!"-", Binary!"~",
-			Binary!"==", Binary!"!=", Binary!"<=", Binary!">=", Binary!"<",
-			Binary!">", Binary!"&&", Binary!"||", Binary!"=", Prefix!"+",
-			Prefix!"-", Prefix!"*", Prefix!"/", Prefix!"&", Prefix!"!")(that, trace);
+	dispatch!(semantic1Impl, Metaclass, Bool, Char, Int, UInt, Postfix!"(*)",
+			ModuleVar, Module, IntLit, CharLit, BoolLit, StructLit, Variable,
+			FuncArgument, If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall,
+			Slice, ScopeVar, Scope, FuncLit, StringLit, ArrayLit, ExternJS,
+			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
+			Binary!"~", Binary!"==", Binary!"!=", Binary!"<=", Binary!">=",
+			Binary!"<", Binary!">", Binary!"&&", Binary!"||", Binary!"=",
+			Prefix!"+", Prefix!"-", Prefix!"*", Prefix!"/", Prefix!"&", Prefix!"!")(that, trace);
 }
 
 void semantic1Impl(Module that, Trace* trace) {
@@ -191,11 +191,11 @@ void semantic1Impl(T)(T that, Trace* trace) if (is(T == Int) || is(T == UInt)) {
 	}
 }
 
-void semantic1Impl(T)(T that, Trace* trace) if (is(T == Pointer)) {
+void semantic1Impl(T)(T that, Trace* trace) if (is(T == Postfix!"(*)")) {
 	with (that) {
 		//todo reorder
-		semantic1(node, trace);
-		checkType(node);
+		semantic1(value, trace);
+		checkType(value);
 		type = metaclass;
 		that.ispure = true;
 	}
@@ -276,15 +276,15 @@ void semantic1Impl(Variable that, Trace* trace) {
 }
 
 void semantic1Impl(FuncArgument that, Trace* trace) {
-	with (that) {
-		foreach (node; trace.range.map!(a => a.node)) {
-			if (auto func = cast(FuncLit) node) {
-				that.func = func;
-				that.type = func.argument;
-				//todo make lvalue-able
-			}
+	foreach (node; trace.range.map!(a => a.node)) {
+		if (auto func = cast(FuncLit) node) {
+			that.func = func;
+			that.type = func.argument;
+			//todo make lvalue-able
+			return;
 		}
 	}
+	error("$@ without function", that.pos);
 }
 
 void semantic1Impl(If that, Trace* trace) {
@@ -324,8 +324,8 @@ void semantic1Impl(New that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
 		checkRuntimeValue(value);
-		auto ptr = new Pointer();
-		ptr.node = value.type;
+		auto ptr = new Postfix!"(*)"();
+		ptr.value = value.type;
 		type = ptr;
 		ispure = value.ispure;
 	}
@@ -547,7 +547,7 @@ void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
 			if (!value.type.isPointer) {
 				error("* only works on pointers", pos);
 			}
-			type = value.type.isPointer.type;
+			type = value.type.isPointer.value;
 			lvalue = true;
 			ispure = value.ispure;
 		} else static if (op == "&") {
@@ -572,8 +572,8 @@ void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
 
 			assignHeap(value, trace);
 
-			auto ptr = new Pointer();
-			ptr.node = value.type;
+			auto ptr = new Postfix!"(*)"();
+			ptr.value = value.type;
 			type = ptr;
 			ispure = value.ispure;
 		} else static if (op == "!") {
@@ -727,7 +727,8 @@ bool implicitConvertIntDual(Expression left, Expression right) {
 bool sameType(Expression a, Expression b) {
 	assert(a.isType);
 	assert(b.isType);
-	alias Types = AliasSeq!(Metaclass, Char, Int, UInt, StructLit, Pointer, ArrayIndex, FCall);
+	alias Types = AliasSeq!(Metaclass, Char, Int, UInt, StructLit,
+			Postfix!"(*)", ArrayIndex, FCall);
 	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(
 			a.unalias, b.unalias);
 }
@@ -751,8 +752,8 @@ bool sameTypeImpl(T1, T2)(T1 a, T2 b) {
 				}
 			}
 			return true;
-		} else static if (is(T == Pointer)) {
-			return sameType(a.node, b.node);
+		} else static if (is(T == Postfix!"(*)")) {
+			return sameType(a.value, b.value);
 		} else static if (is(T == ArrayIndex)) {
 			return sameType(a.array, b.array);
 		} else static if (is(T == FCall)) {

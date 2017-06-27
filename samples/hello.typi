@@ -1,13 +1,13 @@
 #/Copyright (C) 2015  Freddy Angel Cubas "Superstar64"
  Boost License
 /#
-enum write=extern "js" of ${}:char[] = 
+enum write=extern "js" of ()(char[]) = 
 "
 	function(arg){
 		console.log(libtypi.typiStringtoJSString(arg));
 	}
 ";
 
-enum main=${} {
+enum main=$() {
 	write("hello world");
 };

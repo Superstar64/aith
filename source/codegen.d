@@ -97,13 +97,13 @@ JsExpr indexPointer(JsExpr pointer) {
 }
 
 JsExpr copy(JsExpr expr, Expression type) {
-	return dispatch!(copyImpl, Bool, Char, Int, UInt, Pointer, ArrayIndex, FCall, StructLit)(
-			type.unalias, expr);
+	return dispatch!(copyImpl, Bool, Char, Int, UInt, Postfix!"(*)",
+			ArrayIndex, FCall, StructLit)(type.unalias, expr);
 }
 
 JsExpr copyImpl(T)(T that, JsExpr expr) {
 	static if (is(T == Bool) || is(T == Char) || is(T == Int) || is(T == UInt)
-			|| is(T == Pointer) || is(T == ArrayIndex) || is(T == FCall)) {
+			|| is(T == Postfix!"(*)") || is(T == ArrayIndex) || is(T == FCall)) {
 		return expr;
 	} else static if (is(T == StructLit)) {
 		auto ret = new JsArray();
@@ -117,13 +117,13 @@ JsExpr copyImpl(T)(T that, JsExpr expr) {
 }
 
 JsExpr onceCopy(JsExpr expr, Expression type, JsState[] depend, ref uint uuid) {
-	return dispatch!(onceCopyImpl, Bool, Char, Int, UInt, Pointer, ArrayIndex, FCall, StructLit)(
-			type.unalias, expr, depend, uuid);
+	return dispatch!(onceCopyImpl, Bool, Char, Int, UInt, Postfix!"(*)",
+			ArrayIndex, FCall, StructLit)(type.unalias, expr, depend, uuid);
 }
 
 JsExpr onceCopyImpl(T)(T that, JsExpr expr, JsState[] depend, ref uint uuid) {
 	static if (is(T == Bool) || is(T == Char) || is(T == Int) || is(T == UInt)
-			|| is(T == Pointer) || is(T == ArrayIndex) || is(T == FCall)) {
+			|| is(T == Postfix!"(*)") || is(T == ArrayIndex) || is(T == FCall)) {
 		return expr;
 	} else static if (is(T == StructLit)) {
 		auto ret = genTmp(null, expr, depend, uuid);
@@ -134,7 +134,7 @@ JsExpr onceCopyImpl(T)(T that, JsExpr expr, JsState[] depend, ref uint uuid) {
 }
 
 JsExpr defaultValue(Expression type) {
-	return dispatch!(defaultValueImpl, Bool, Char, Int, UInt, Pointer,
+	return dispatch!(defaultValueImpl, Bool, Char, Int, UInt, Postfix!"(*)",
 			ArrayIndex, FCall, StructLit)(type.unalias);
 }
 
@@ -151,7 +151,7 @@ JsExpr defaultValueImpl(T)(T that) {
 			ret.exprs ~= defaultValue(subType);
 		}
 		return ret;
-	} else static if (is(T == Pointer) || is(T == FCall)) {
+	} else static if (is(T == Postfix!"(*)") || is(T == FCall)) {
 		return new JsLit("undefined");
 	} else static if (is(T == ArrayIndex)) {
 		return new JsArray();
@@ -192,14 +192,14 @@ JsExpr castInt(JsExpr expr, Expression type) {
 }
 
 JsExpr compare(JsExpr left, JsExpr right, Expression type, JsState[] depend, ref uint uuid) {
-	return dispatch!(compareImpl, Bool, Char, Int, UInt, FCall, Pointer, ArrayIndex, StructLit)(
-			type.unalias, left, right, depend, uuid);
+	return dispatch!(compareImpl, Bool, Char, Int, UInt, FCall, Postfix!"(*)",
+			ArrayIndex, StructLit)(type.unalias, left, right, depend, uuid);
 }
 
 JsExpr compareImpl(T)(T that, JsExpr left, JsExpr right, JsState[] depend, ref uint uuid) {
 	static if (is(T == Bool) || is(T == Char) || is(T == Int) || is(T == UInt) || is(T == FCall)) {
 		return new JsBinary!"=="(left, right);
-	} else static if (is(T == Pointer)) {
+	} else static if (is(T == Postfix!"(*)")) {
 		return new JsBinary!"&&"(new JsBinary!"=="(internalArray(left),
 				internalArray(right)), new JsBinary!"=="(arrayStart(left), arrayStart(right)));
 	} else static if (is(T == ArrayIndex)) {

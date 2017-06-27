@@ -2,10 +2,10 @@
  Boost License
 /#
 
-enum qsort=${} -> int_t.4[] {
+enum qsort=$() -> int_t.4[] {
 	auto array = $@;
 	if array.length < 2 then {
-		cast({})()
+		cast(())()
 	} else {
 		auto pivot = array[array.length - 1];
 		of uint_t.0 middle = 0;

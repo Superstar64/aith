@@ -208,40 +208,9 @@ class UInt : Expression {
 	mixin autoChildren!();
 }
 
-/*class Struct : Type {
-	Type[] types;
-	size_t[string] names;
-
-	mixin autoChildren!types;
-}*/
-
-class Pointer : Expression {
-	Expression node;
-	mixin autoChildren!type;
-}
-
 class Metaclass : Expression {
 	mixin autoChildren!();
 }
-
-/*class Array : Type {
-	Type type;
-	mixin autoChildren!type;
-}
-
-class Function : Type {
-	Type ret;
-	Type arg;
-	bool ispure;
-	mixin autoChildren!(ret, arg);
-}
-
-class UnknownType : Type {
-	Type actual_;
-	string name;
-	string[] namespace;
-	mixin autoChildren!();
-}*/
 
 abstract class Var : Statement {
 	string name;
@@ -381,6 +350,11 @@ class Binary(string T) : Expression
 }
 
 class Prefix(string T) : Expression if (["+", "-", "*", "/", "&", "!"].canFind(T)) {
+	Expression value;
+	mixin autoChildren!value;
+}
+
+class Postfix(string T) : Expression if (["(*)"].canFind(T)) {
 	Expression value;
 	mixin autoChildren!value;
 }
