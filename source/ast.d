@@ -310,6 +310,7 @@ class NewArray : Expression {
 class Cast : Expression {
 	Expression value;
 	Expression wanted;
+	bool implicit;
 	mixin autoChildren!(value, wanted);
 }
 

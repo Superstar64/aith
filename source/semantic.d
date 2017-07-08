@@ -298,7 +298,7 @@ void semantic1Impl(If that, Trace* trace) {
 		if (!cond.type.isBool) {
 			error("Boolean expected in if expression", cond.pos);
 		}
-		if (!(sameType(yes.type, no.type) || implicitConvertIntDual(yes, no))) {
+		if (!sameTypeValueValue(yes,no)) {
 			error("If expression with the true and false parts having different types", pos);
 		}
 		type = yes.type;
@@ -337,7 +337,7 @@ void semantic1Impl(NewArray that, Trace* trace) {
 		checkRuntimeValue(length);
 		semantic1(value, trace);
 		checkRuntimeValue(value);
-		if (!(sameType(length.type, new UInt(0)) || implicitConvertInt(length, new UInt(0)))) {
+		if (!sameTypeValueType(length, new UInt(0))) {
 			error("Can only create an array with length of UInts", length.pos);
 		}
 		auto array = new ArrayIndex();
@@ -427,7 +427,7 @@ void semantic1Impl(ArrayIndex that, Trace* trace) {
 			if (!array.type.isArray) {
 				error("Unable able to index", pos);
 			}
-			if (!(sameType(index.type, new UInt(0)) || implicitConvertInt(index, new UInt(0)))) {
+			if (!sameTypeValueType(index, new UInt(0))) {
 				error("Can only index an array with UInts", pos);
 			}
 			auto arrayType = array.type.isArray;
@@ -449,8 +449,7 @@ void semantic1Impl(FCall that, Trace* trace) {
 			if (!fun) {
 				error("Not a function", pos);
 			}
-			if (!(sameType(fun.arg, arg.type) || ((fun.arg.isInt
-					|| fun.arg.isUInt) && implicitConvertInt(arg, fun.arg)))) {
+			if (!(sameTypeValueType(arg,fun.arg))) {
 				error("Unable to call function with the  argument's type", pos);
 			}
 			type = fun.fptr;
@@ -470,9 +469,7 @@ void semantic1Impl(Slice that, Trace* trace) {
 		if (!array.type.isArray) {
 			error("Not an array", pos);
 		}
-		if (!(sameType(right.type, new UInt(0)) || implicitConvertInt(left,
-				new UInt(0))) || !(sameType(right.type, new UInt(0))
-				|| implicitConvertInt(right, new UInt(0)))) {
+		if (!(sameTypeValueType(right, new UInt(0)) && sameTypeValueType(left, new UInt(0)))) {
 			error("Can only index an array with UInts", pos);
 		}
 		type = array.type;
@@ -488,8 +485,7 @@ void semantic1Impl(string op)(Binary!op that, Trace* trace) {
 		checkRuntimeValue(right);
 		static if (["*", "/", "%", "+", "-", "<=", ">=", ">", "<"].canFind(op)) {
 			auto ty = left.type;
-			if (!((ty.isUInt || ty.isInt) && (sameType(ty, right.type)
-					|| implicitConvertIntDual(left, right)))) {
+			if (!((ty.isUInt || ty.isInt) && (sameTypeValueValue(left, right)))) {
 				error(op ~ " only works on Ints or UInts of the same Type", pos);
 			}
 			static if (["<=", ">=", ">", "<"].canFind(op)) {
@@ -506,7 +502,7 @@ void semantic1Impl(string op)(Binary!op that, Trace* trace) {
 			type = ty;
 			ispure = left.ispure && right.ispure;
 		} else static if (["==", "!="].canFind(op)) {
-			if (!(sameType(left.type, right.type) || implicitConvertIntDual(left, right))) {
+			if (!(sameTypeValueValue(left, right))) {
 				error(op ~ " only works on the same Type", pos);
 			}
 			type = new Bool();
@@ -519,7 +515,7 @@ void semantic1Impl(string op)(Binary!op that, Trace* trace) {
 			type = new Bool();
 			ispure = left.ispure && right.ispure;
 		} else static if (op == "=") {
-			if (!(sameType(left.type, right.type) || implicitConvertInt(right, left.type))) {
+			if (!(sameType(left.type, right.type) || implicitConvert(right, left.type))) {
 				error("= only works on the same type", pos);
 			}
 			if (!left.lvalue) {
@@ -691,39 +687,21 @@ void semantic1Impl(ExternJS that, Trace* trace) {
 	}
 }
 
-//modifys value's type
-//returns if converted
-bool implicitConvertInt(Expression value, Expression type) {
-	value = value.unalias;
-	type = type.unalias;
-	assert(isRuntimeValue(value));
-	assert(isType(type));
-
-	if (cast(IntLit) value && (type.isUInt || type.isInt)) {
-		value.type = type;
-		return true;
-	}
-	if (cast(StructLit) value && cast(StructLit)(type)) {
-		auto str = cast(StructLit) value;
-		auto target = cast(StructLit) type;
-		foreach (c, ref sub; str.values) {
-			if (sameType(sub.type, target.values[c])) {
-				continue;
-			}
-			if (implicitConvertInt(sub, target.values[c])) {
-				continue;
-			}
-			return false;
-		}
-		return true;
-	}
-	return false;
+//check if a value's is equal to another type factering in implict coversions
+bool sameTypeValueType(ref Expression value,Expression type){
+	assert(value.isRuntimeValue);
+	assert(type.isType);
+	return sameType(value.type,type) || implicitConvert(value,type);
 }
 
-bool implicitConvertIntDual(Expression left, Expression right) {
-	return implicitConvertInt(left, right.type) || implicitConvertInt(right, left.type);
+bool sameTypeValueValue(ref Expression left,ref Expression right){
+	assert(left.isRuntimeValue);
+	assert(right.isRuntimeValue);
+	return sameType(left.type,right.type) || implicitConvertDual(left,right);;
 }
 
+
+//checks if two types are the same
 bool sameType(Expression a, Expression b) {
 	assert(a.isType);
 	assert(b.isType);
@@ -760,6 +738,45 @@ bool sameTypeImpl(T1, T2)(T1 a, T2 b) {
 			return sameType(a.fptr, b.fptr) && sameType(a.arg, b.arg);
 		}
 	}
+}
+//modifys value's type
+//returns if converted
+bool implicitConvert(ref Expression value, Expression type) {
+	value = value.unalias;
+	type = type.unalias;
+	assert(isRuntimeValue(value));
+	assert(isType(type));
+
+	if (cast(IntLit) value && (type.isUInt || type.isInt)) {
+		auto result = new Cast();
+		result.implicit = true;
+		result.wanted = type;
+		result.type = type;
+		result.value = value;
+		result.process = true;
+		value = result;
+		return true;
+	}
+	if (cast(StructLit) value && cast(StructLit)(type)) {
+		auto str = cast(StructLit) value;
+		auto target = cast(StructLit) type;
+		foreach (c, ref sub; str.values) {
+			if (sameType(sub.type, target.values[c])) {
+				continue;
+			}
+			if (implicitConvert(sub, target.values[c])) {
+				continue;
+			}
+			return false;
+		}
+		return true;
+	}
+	return false;
+}
+
+//check if two values can convert implictly into each other
+bool implicitConvertDual(ref Expression left,ref Expression right) {
+	return implicitConvert(left, right.type) || implicitConvert(right, left.type);
 }
 
 bool castable(Expression target, Expression want) {
