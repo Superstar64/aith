@@ -88,10 +88,9 @@ struct IntLiteral {
 struct Keyword {
 	enum list = [
 			"alias", //"assume"
-			"auto", "bool_t", //"catch",
+			"let", "bool_t", //"catch",
 			"cast", "char", "else", //"end",
-			"enum", "extern",
-			"false", //"float_t",
+			"extern", "false", //"float_t",
 			//"function",
 			"if", "import", "int_t", //"is",
 			//"label",

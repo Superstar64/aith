@@ -204,9 +204,13 @@ void semantic1Impl(T)(T that, Trace* trace) if (is(T == Postfix!"(*)")) {
 void semantic1Impl(ModuleVar that, Trace* trace) {
 	with (that) {
 		semantic1(definition, trace);
-		//todo metaclasses
 		checkRuntimeValue(definition);
 		ispure = definition.ispure;
+		if (explicitType) {
+			if (!sameTypeValueType(definition, explicitType)) {
+				error("types don't match", pos);
+			}
+		}
 	}
 }
 
@@ -298,7 +302,7 @@ void semantic1Impl(If that, Trace* trace) {
 		if (!cond.type.isBool) {
 			error("Boolean expected in if expression", cond.pos);
 		}
-		if (!sameTypeValueValue(yes,no)) {
+		if (!sameTypeValueValue(yes, no)) {
 			error("If expression with the true and false parts having different types", pos);
 		}
 		type = yes.type;
@@ -449,7 +453,7 @@ void semantic1Impl(FCall that, Trace* trace) {
 			if (!fun) {
 				error("Not a function", pos);
 			}
-			if (!(sameTypeValueType(arg,fun.arg))) {
+			if (!(sameTypeValueType(arg, fun.arg))) {
 				error("Unable to call function with the  argument's type", pos);
 			}
 			type = fun.fptr;
@@ -591,6 +595,11 @@ void semantic1Impl(ScopeVar that, Trace* trace) {
 		semantic1(definition, trace);
 		checkRuntimeValue(definition);
 		ispure = definition.ispure;
+		if (explicitType) {
+			if (!sameTypeValueType(definition, explicitType)) {
+				error("types don't match", pos);
+			}
+		}
 	}
 }
 
@@ -688,18 +697,17 @@ void semantic1Impl(ExternJS that, Trace* trace) {
 }
 
 //check if a value's is equal to another type factering in implict coversions
-bool sameTypeValueType(ref Expression value,Expression type){
+bool sameTypeValueType(ref Expression value, Expression type) {
 	assert(value.isRuntimeValue);
 	assert(type.isType);
-	return sameType(value.type,type) || implicitConvert(value,type);
+	return sameType(value.type, type) || implicitConvert(value, type);
 }
 
-bool sameTypeValueValue(ref Expression left,ref Expression right){
+bool sameTypeValueValue(ref Expression left, ref Expression right) {
 	assert(left.isRuntimeValue);
 	assert(right.isRuntimeValue);
-	return sameType(left.type,right.type) || implicitConvertDual(left,right);;
+	return sameType(left.type, right.type) || implicitConvertDual(left, right);
 }
-
 
 //checks if two types are the same
 bool sameType(Expression a, Expression b) {
@@ -775,7 +783,7 @@ bool implicitConvert(ref Expression value, Expression type) {
 }
 
 //check if two values can convert implictly into each other
-bool implicitConvertDual(ref Expression left,ref Expression right) {
+bool implicitConvertDual(ref Expression left, ref Expression right) {
 	return implicitConvert(left, right.type) || implicitConvert(right, left.type);
 }
 

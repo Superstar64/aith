@@ -217,6 +217,7 @@ abstract class Var : Statement {
 	bool heap; //has the address of the variable been taken,does not apply to closures
 	bool manifest;
 	Expression definition;
+	Expression explicitType;
 	@property Expression type() {
 		return definition.type;
 	}

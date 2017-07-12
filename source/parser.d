@@ -470,50 +470,29 @@ struct Parser {
 						ret.imports ~= onImport(namespace);
 					}
 
-				} else if (front == key!"alias") {
+				} else if (front == key!"let" || front == key!"alias") {
 					auto var = new ScopeVar();
 					auto pos = front.pos;
+					var.manifest = front == key!"alias";
 					popFront;
-					front.expectT!Identifier;
-					auto name = front.get!(Identifier).name;
-					var.manifest = true;
-					var.name = name;
-					popFront;
-					front.expect(oper!"=");
-					popFront;
-					var.definition = parseExpression;
-					ret.symbols[name] = var;
-				} else if (front == key!"auto" || front == key!"enum") {
-					auto var = new ScopeVar();
-					auto pos = front.pos;
-					var.manifest = front == key!"enum";
-					popFront;
-					front.expectT!Identifier;
-					var.name = front.get!(Identifier).name;
-					popFront;
-					front.expect(oper!"=");
-					popFront;
-					var.definition = parseExpression();
-					var.pos = pos.join(front.pos);
-					ret.states ~= var;
-				} else if (front == key!"of") {
-					auto var = new ScopeVar();
-					auto pos = front.pos;
-					var.manifest = false;
-					popFront;
-					auto ty = parseExpression;
-					front.expectT!Identifier;
-					var.name = front.get!(Identifier).name;
-					popFront;
-					auto val = new Cast();
-					val.wanted = ty;
-					var.definition = val;
-					if (front == oper!"=") {
+					auto type = parseCore();
+					if (front != oper!"=") {
+						front.expectT!Identifier;
+						var.name = front.get!(Identifier).name;
 						popFront;
-						val.value = parseExpression;
+						front.expect(oper!"=");
+						popFront;
+						var.explicitType = type;
 					} else {
-						val.value = new StructLit();
+						assert(front == oper!"=");
+						auto expr = cast(Variable) type;
+						if (!expr || expr.namespace.length != 0) {
+							error("expected identifier", pos);
+						}
+						var.name = expr.name;
+						popFront;
 					}
+					var.definition = parseExpression();
 					var.pos = pos.join(front.pos);
 					ret.states ~= var;
 				} else {

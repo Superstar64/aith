@@ -38,11 +38,12 @@ Typi's Expressions:
 	"$@": Function Argument
 Typi's Statements:
 	"alias x1=x2": Alias Statement, alias identifer x1 to type x2.
-	"auto x1=x2": Variable Decleration,declare variable x1,and assign x2 to it.
-	"enum x1=x2": Compile Time Variable Declarition,declare compile time variable x1 and assign x2 to it.This varable acts like a named literal(cannot assign,cannot take address of)
+	"alias x1=x2": Compile Time Variable Declarition,declare compile time variable x1 and assign x2 to it.This varable acts like a named literal(cannot assign,cannot take address of)
+	"alias type x1 = x2"
+	"let x1=x2": Variable Decleration,declare variable x1,and assign x2 to it.
+	"let type x1 = x2"
 	"import x1::x2::x3": Import Statement,Import "x1::x2::x3" in to current scope
 	"import x4::x5=x1::x2::x3": Import Statment,Import "x1::x2::x3" in to current scope and refer to it only by "x4::x5"
-	"of x1 x2=x3": Pretty Variable Declaration, Equivalent to "auto x2=x3:x1"
 	any expresion
 Typi's Modules only allow:alias,auto,enum,import statments at global scope
 # is used for single line comments
