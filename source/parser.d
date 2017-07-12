@@ -440,60 +440,17 @@ struct Parser {
 					return ret;
 				}
 				if (front == key!"import") {
-					popFront;
+					string[] name;
 					string[] namespace;
-					while (front.expectT!(Identifier)) {
-						namespace ~= front.get!(Identifier).name;
-						popFront;
-						if (front == oper!"::") {
-							popFront;
-							continue;
-						}
-						break;
-					}
-					if (front == oper!"=") {
-						popFront;
-						string[] name;
-						name = namespace;
-						namespace = null;
-						while (front.expectT!(Identifier)) {
-							namespace ~= front.get!(Identifier).name;
-							popFront;
-							if (front == oper!"::") {
-								popFront;
-								continue;
-							}
-							break;
-						}
-						ret.staticimports[name.idup] ~= onImport(namespace);
+					auto mod = parseImport(namespace, name);
+					if (name.length == 0) {
+						ret.imports ~= mod;
 					} else {
-						ret.imports ~= onImport(namespace);
+						ret.staticimports[name.idup] ~= mod;
 					}
-
 				} else if (front == key!"let" || front == key!"alias") {
 					auto var = new ScopeVar();
-					auto pos = front.pos;
-					var.manifest = front == key!"alias";
-					popFront;
-					auto type = parseCore();
-					if (front != oper!"=") {
-						front.expectT!Identifier;
-						var.name = front.get!(Identifier).name;
-						popFront;
-						front.expect(oper!"=");
-						popFront;
-						var.explicitType = type;
-					} else {
-						assert(front == oper!"=");
-						auto expr = cast(Variable) type;
-						if (!expr || expr.namespace.length != 0) {
-							error("expected identifier", pos);
-						}
-						var.name = expr.name;
-						popFront;
-					}
-					var.definition = parseExpression();
-					var.pos = pos.join(front.pos);
+					parseVarDef(var, front == key!"alias");
 					ret.states ~= var;
 				} else {
 					auto pos = front.pos;
@@ -517,6 +474,67 @@ struct Parser {
 				front.expect(oper!";");
 				popFront;
 			}
+		}
+	}
+
+	void parseVarDef(Var var, bool manifest) {
+		with (lexer) {
+			auto pos = front.pos;
+			var.manifest = manifest;
+			popFront;
+			auto type = parseCore();
+			if (front != oper!"=") {
+				front.expectT!Identifier;
+				var.name = front.get!(Identifier).name;
+				popFront;
+				front.expect(oper!"=");
+				popFront;
+				var.explicitType = type;
+			} else {
+				assert(front == oper!"=");
+				auto expr = cast(Variable) type;
+				if (!expr || expr.namespace.length != 0) {
+					error("expected identifier", pos);
+				}
+				var.name = expr.name;
+				popFront;
+			}
+
+			var.definition = parseExpression();
+			var.pos = pos.join(front.pos);
+		}
+	}
+
+	//namespace is the actual name of the module, name is the name given
+	Module parseImport(ref string[] namespace, ref string[] name) {
+		with (lexer) {
+			popFront;
+			while (true) {
+				front.expectT!(Identifier);
+				namespace ~= front.get!(Identifier).name;
+				popFront;
+				if (front == oper!"::") {
+					popFront;
+					continue;
+				}
+				break;
+			}
+			if (front == oper!"=") {
+				popFront;
+				name = namespace;
+				namespace = null;
+				while (true) {
+					front.expectT!(Identifier);
+					namespace ~= front.get!(Identifier).name;
+					popFront;
+					if (front == oper!"::") {
+						popFront;
+						continue;
+					}
+					break;
+				}
+			}
+			return onImport(namespace);
 		}
 	}
 
@@ -597,35 +615,33 @@ struct Parser {
 	}
 
 	//todo this is ugly remove it
-	Module parseModule(string[] namespace) {
+	Module parseModule(string[] thisNamespace) {
 		with (lexer) {
 			auto ret = new Module();
-			auto base = cast(Scope) parseScopeImpl!(Eof());
-			foreach (name, symbol; base.symbols) {
-				ret.symbols[name] = new ModuleVar();
-				ret.symbols[name].name = symbol.name;
-				ret.symbols[name].heap = symbol.heap;
-				ret.symbols[name].manifest = symbol.manifest;
-				ret.symbols[name].definition = symbol.definition;
-			}
-			ret.imports = base.imports;
-			ret.staticimports = base.staticimports;
-			ret.namespace = namespace;
-			foreach (state; base.states) {
-				if (auto value = cast(Expression) state) {
-					error("Executable code not allow at global scope", value.pos);
-					return null;
+			ret.namespace = thisNamespace;
+			while (true) {
+				if (front == Eof()) {
+					popFront;
+					return ret;
 				}
-				auto var = cast(ScopeVar) state;
-				auto mvar = new ModuleVar;
-				mvar.definition = var.definition;
-				mvar.pos = var.pos;
-				mvar.name = var.name;
-				mvar.manifest = var.manifest;
-				mvar.namespace = namespace;
-				ret.symbols[mvar.name] = mvar;
+				if (front == key!"import") {
+					string[] name;
+					string[] namespace;
+					auto mod = parseImport(namespace, name);
+					if (name.length == 0) {
+						ret.imports ~= mod;
+					} else {
+						ret.staticimports[name.idup] ~= mod;
+					}
+				} else if (front == key!"let" || front == key!"alias") {
+					auto var = new ModuleVar();
+					parseVarDef(var, front == key!"alias");
+					var.namespace = thisNamespace;
+					ret.symbols[var.name] = var;
+				}
+				front.expect(oper!";");
+				popFront;
 			}
-			return ret;
 		}
 	}
 }

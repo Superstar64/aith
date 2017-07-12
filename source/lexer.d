@@ -333,12 +333,12 @@ struct Token {
 				static if (T.length == 1) {
 					return value.get!T;
 				} else {
-					return 0;
+					return;
 				}
 			}
 		}
 		error("Expected " ~ T.stringof, pos);
-		return typeof(return).init;
+		assert(0);
 	}
 
 	@property void expect(T)(T t) {
