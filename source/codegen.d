@@ -22,6 +22,7 @@ import std.conv : to;
 import std.meta : AliasSeq;
 import std.range : chain, drop, enumerate, only;
 import std.stdio : write;
+import std.string : front, popFront;
 import std.typecons : Tuple, tuple;
 import std.utf : encode;
 
@@ -35,16 +36,16 @@ import jsast;
 //pointers are arrays
 //functions are native js functions
 
-JsState[] generateJSModule(Module mod, string jsname = "") {
+JsState[] generateJSModule(Module mod) {
 	JsState[] result;
 	auto name = mod.namespace;
 	JsExpr var;
 	foreach (c, _; name) {
-		if (c == 0 && jsname == "") {
+		if (c == 0) {
 			result ~= new JsVarDef(name[0], new JsBinary!"||"(new JsLit(name[0]), new JsObject()));
 			var = new JsLit(name[0]);
 		} else {
-			auto namespace = only(jsname).chain(name[0 .. c + 1]);
+			auto namespace = name[0 .. c + 1];
 			var = new JsLit(namespace.front);
 			namespace.popFront;
 			foreach (n; namespace) {

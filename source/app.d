@@ -74,7 +74,6 @@ enum Help = `typi {optional arguments} [files to compile]
 --Generate-All|-a : generate code for all imported files, default is to only generate code for command line files
 --Add-Search-Dir|-I : add search directory for imports
 --Output|-o : output file, - is the default and means stdout
---Namespace|-n : namespace to compile the javascript to default is global
 The TYPI_CONFIG enviroment Variable is looked at for a config file(extra arguments sperated by lines)
 Any .js files in [files to compile] are interpeted as runtime files and will be included after the output
 
@@ -90,10 +89,9 @@ void main(string[] args) {
 	bool genAll;
 	string[] searchDirs = ["."];
 	string outputFile = "-";
-	string jsname = "";
 	void opt(ref string[] s) {
 		getopt(s, "Generate-All|a", &genAll, "Add-Search-Dir|I", &searchDirs,
-				"Output|o", &outputFile, "Namespace|n", &jsname);
+				"Output|o", &outputFile);
 	}
 
 	string configFile = environment.get("TYPI_CONFIG");
@@ -132,7 +130,7 @@ void main(string[] args) {
 	auto writer = &output.write!(const(char)[]);
 	if (genAll) {
 		foreach (mod; all.values) {
-			generateJSModule(mod, jsname).each!((a) {
+			generateJSModule(mod).each!((a) {
 				a.toStateString(writer, 0);
 				output.writeln;
 			});
@@ -146,11 +144,8 @@ void main(string[] args) {
 	} else {
 		foreach (file; args) {
 			if (file.endsWith(".typi")) {
-				generateJSModule(wanted[file[0 .. $ - ".typi".length].split(dirSeparator)
-						.array], jsname).each!((a) {
-					a.toStateString(writer, 0);
-					output.writeln;
-				});
+				generateJSModule(wanted[file[0 .. $ - ".typi".length].split(dirSeparator).array]).each!(
+						(a) { a.toStateString(writer, 0); output.writeln; });
 			} else {
 				File(file, "r").byChunk(4096).map!(a => cast(const(char)[]) a).copy(writer);
 			}
