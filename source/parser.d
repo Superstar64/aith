@@ -22,11 +22,11 @@ import std.utf : decodeFront;
 import error : error, Position;
 
 import ast;
+import app : findAndReadModule;
 import lexer;
 
 struct Parser {
 	Lexer lexer;
-	Module delegate(string[]) onImport;
 
 	Expression parseExpression() {
 		with (lexer) {
@@ -89,7 +89,7 @@ struct Parser {
 			Expression val;
 			foreach (fun; AliasSeq!(parseBasic, parseCast, parseStruct!(oper!"(",
 					oper!")"), parseVariable, parseIf, parseWhile,
-					parseNew, parseScope, parseFuncArgument, parseFuncLit,
+					parseNew, parseScope, parseImport, parseFuncArgument, parseFuncLit,
 					parseStringLit, parseArrayLit, parseExtern, parseBasicType)) {
 				auto value = fun;
 				if (value) {
@@ -263,15 +263,8 @@ struct Parser {
 			auto pos = front.pos;
 			if (front.peek!Identifier) {
 				auto ret = new Variable();
-				while (true) {
-					ret.name = front.get!(Identifier).name;
-					popFront;
-					if (front != oper!"::") {
-						break;
-					}
-					popFront;
-					ret.namespace ~= ret.name;
-				}
+				ret.name = front.get!(Identifier).name;
+				popFront;
 				ret.pos = pos.join(front.pos);
 				return ret;
 			}
@@ -439,16 +432,7 @@ struct Parser {
 					popFront;
 					return ret;
 				}
-				if (front == key!"import") {
-					string[] name;
-					string[] namespace;
-					auto mod = parseImport(namespace, name);
-					if (name.length == 0) {
-						ret.imports ~= mod;
-					} else {
-						ret.staticimports[name.idup] ~= mod;
-					}
-				} else if (front == key!"let" || front == key!"alias") {
+				if (front == key!"let" || front == key!"alias") {
 					auto var = new ScopeVar();
 					parseVarDef(var, front == key!"alias");
 					ret.states ~= var;
@@ -493,7 +477,7 @@ struct Parser {
 			} else {
 				assert(front == oper!"=");
 				auto expr = cast(Variable) type;
-				if (!expr || expr.namespace.length != 0) {
+				if (!expr) {
 					error("expected identifier", pos);
 				}
 				var.name = expr.name;
@@ -505,36 +489,20 @@ struct Parser {
 		}
 	}
 
-	//namespace is the actual name of the module, name is the name given
-	Module parseImport(ref string[] namespace, ref string[] name) {
+	Expression parseImport() {
 		with (lexer) {
-			popFront;
-			while (true) {
-				front.expectT!(Identifier);
-				namespace ~= front.get!(Identifier).name;
+			auto pos = front.pos;
+			if (front == key!"import") {
+				auto ret = new Import();
 				popFront;
-				if (front == oper!"::") {
-					popFront;
-					continue;
-				}
-				break;
+				front.expectT!StringLiteral;
+				auto file = front.get!StringLiteral.data;
+				popFront();
+				ret.mod = findAndReadModule(file);
+				ret.pos = pos.join(front.pos);
+				return ret;
 			}
-			if (front == oper!"=") {
-				popFront;
-				name = namespace;
-				namespace = null;
-				while (true) {
-					front.expectT!(Identifier);
-					namespace ~= front.get!(Identifier).name;
-					popFront;
-					if (front == oper!"::") {
-						popFront;
-						continue;
-					}
-					break;
-				}
-			}
-			return onImport(namespace);
+			return null;
 		}
 	}
 
@@ -615,28 +583,17 @@ struct Parser {
 	}
 
 	//todo this is ugly remove it
-	Module parseModule(string[] thisNamespace) {
+	Module parseModule(Module ret) {
 		with (lexer) {
-			auto ret = new Module();
-			ret.namespace = thisNamespace;
 			while (true) {
 				if (front == Eof()) {
 					popFront;
 					return ret;
 				}
-				if (front == key!"import") {
-					string[] name;
-					string[] namespace;
-					auto mod = parseImport(namespace, name);
-					if (name.length == 0) {
-						ret.imports ~= mod;
-					} else {
-						ret.staticimports[name.idup] ~= mod;
-					}
-				} else if (front == key!"let" || front == key!"alias") {
+				if (front == key!"let" || front == key!"alias") {
 					auto var = new ModuleVar();
 					parseVarDef(var, front == key!"alias");
-					var.namespace = thisNamespace;
+					var.namespace = ret.namespace;
 					ret.symbols[var.name] = var;
 				}
 				front.expect(oper!";");

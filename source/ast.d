@@ -68,36 +68,9 @@ mixin template autoChildren(T...) {
 }
 
 interface SearchContext {
-	Var search(string name, string[] namespace, ref Trace); //trace is an out variable with is by default the current trace
+	Var search(string name, ref Trace); //trace is an out variable with is by default the current trace
 	//for some types(scopes) looping over children changes the searchcontext
 	void pass(Node child);
-}
-
-template SearchContextImpl(alias imports, alias staticimports, alias symbols) {
-	Var search(string name, string[] namespace, ref Trace trace) {
-		if (namespace is null) {
-			if (name in symbols) {
-				return symbols[name];
-			}
-			foreach (mod; imports) {
-				if (name in mod.symbols) {
-					trace = Trace(mod, null);
-					return mod.symbols[name];
-				}
-			}
-		} else {
-			if (namespace in staticimports) {
-				auto mods = staticimports[namespace];
-				foreach (mod; mods) {
-					if (name in mod.symbols) {
-						trace = Trace(mod, null);
-						return mod.symbols[name];
-					}
-				}
-			}
-		}
-		return null;
-	}
 }
 
 struct Trace {
@@ -111,24 +84,20 @@ struct Trace {
 		this.upper = upper;
 	}
 
-	Var search(string name, string[] namespace) {
+	Var search(string name) {
 		Trace trace;
-		return search(name, namespace, trace);
+		return search(name, trace);
 	}
 
-	Var search(string name, string[] namespace, ref Trace trace)
-	out (node) {
-		assert(node is null || cast(Expression) node || cast(Var) node);
-	}
-	body {
+	Var search(string name, ref Trace trace) {
 		trace = this;
 		if (context) {
-			if (auto result = context.search(name, namespace, trace)) {
+			if (auto result = context.search(name, trace)) {
 				return result;
 			}
 		}
 		if (upper) {
-			return upper.search(name, namespace, trace);
+			return upper.search(name, trace);
 		} else {
 			return null;
 		}
@@ -231,8 +200,6 @@ class ModuleVar : Var {
 
 class Module : Node, SearchContext {
 	ModuleVar[string] symbols;
-	Module[] imports;
-	Module[][string[]] staticimports;
 	string[] namespace;
 
 override:
@@ -240,14 +207,26 @@ override:
 		return this;
 	}
 
-	Var search(string name, string[] namespace, ref Trace trace) {
-		return SearchContextImpl!(imports, staticimports, symbols).search(name, namespace, trace);
+	Var search(string name, ref Trace trace) {
+		if (name in symbols) {
+			return symbols[name];
+		}
+		return null;
 	}
 
 	void pass(Node) {
 	}
 
 	mixin autoChildren!(symbols);
+}
+
+class Import : Expression {
+	Module mod;
+	mixin autoChildren!();
+}
+
+class ImportType : Expression {
+	mixin autoChildren!();
 }
 
 class IntLit : Expression {
@@ -274,7 +253,6 @@ class StructLit : Expression {
 
 class Variable : Expression {
 	string name;
-	string[] namespace;
 	Var definition;
 	mixin autoChildren!();
 }
@@ -318,6 +296,7 @@ class Cast : Expression {
 class Dot : Expression {
 	Expression value;
 	Index index;
+	Variable variable; //if value is a module, used when unaliasing
 	mixin autoChildren!value;
 }
 
@@ -368,8 +347,6 @@ class Scope : Expression {
 	//includes alias = for now
 	//duped with iterating over context
 	ScopeVar[string] symbols;
-	Module[] imports;
-	Module[][string[]] staticimports;
 	Statement[] states;
 	Expression last;
 
@@ -382,11 +359,11 @@ class Scope : Expression {
 			symbols = that.symbols.dup;
 		}
 
-		Var search(string name, string[] namespace, ref Trace trace) {
-			auto imports = that.imports;
-			auto staticimports = that.staticimports;
-			return SearchContextImpl!(imports, staticimports, symbols).search(name,
-					namespace, trace);
+		Var search(string name, ref Trace trace) {
+			if (name in symbols) {
+				return symbols[name];
+			}
+			return null;
 		}
 
 		void pass(Node node) {

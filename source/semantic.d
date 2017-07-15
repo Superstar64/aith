@@ -37,6 +37,11 @@ Expression unalias(Expression expression) {
 			return unknown.definition.definition;
 		}
 	}
+	if (auto dot = cast(Dot) expression) {
+		if (dot.variable) {
+			return dot.variable.unalias;
+		}
+	}
 	return expression;
 }
 
@@ -104,7 +109,7 @@ bool isRuntimeValue(Expression expression) {
 			return true;
 		}
 	}
-	return !expression.isType;
+	return !(expression.isType || cast(Import) expression);
 }
 
 void checkRuntimeValue(Expression expression) {
@@ -143,7 +148,7 @@ void semantic1(Node that, Trace* trace) {
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
 	dispatch!(semantic1Impl, Metaclass, Bool, Char, Int, UInt, Postfix!"(*)",
-			ModuleVar, Module, IntLit, CharLit, BoolLit, StructLit, Variable,
+			ModuleVar, Module, Import, IntLit, CharLit, BoolLit, StructLit, Variable,
 			FuncArgument, If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall,
 			Slice, ScopeVar, Scope, FuncLit, StringLit, ArrayLit, ExternJS,
 			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
@@ -173,7 +178,11 @@ static this() {
 }
 
 void semantic1Impl(Metaclass that, Trace* trace) {
+}
 
+void semantic1Impl(Import that, Trace* trace) {
+	that.type = new ImportType();
+	that.ispure = true;
 }
 
 void semantic1Impl(T)(T that, Trace* trace) if (is(T == Bool) || is(T == Char)) {
@@ -204,7 +213,6 @@ void semantic1Impl(T)(T that, Trace* trace) if (is(T == Postfix!"(*)")) {
 void semantic1Impl(ModuleVar that, Trace* trace) {
 	with (that) {
 		semantic1(definition, trace);
-		checkRuntimeValue(definition);
 		ispure = definition.ispure;
 		if (explicitType) {
 			if (!sameTypeValueType(definition, explicitType)) {
@@ -263,19 +271,25 @@ void semantic1Impl(StructLit that, Trace* trace) {
 void semantic1Impl(Variable that, Trace* trace) {
 	with (that) {
 		Trace subTrace;
-		auto source = trace.search(name, namespace, subTrace);
+		auto source = trace.search(name, subTrace);
 		if (source is null) {
 			error("Unknown variable", pos);
 		}
-		if (source.type is null) {
-			semantic1(source, &subTrace);
-		}
-		assert(source.type);
-		that.definition = source;
-		type = source.type;
-		lvalue = !source.manifest;
-		ispure = source.manifest;
+		definition = source;
+		processVariable(that, &subTrace);
+	}
+}
 
+void processVariable(Variable that, Trace* definitionTrace) {
+	with (that) {
+		if (definition.type is null) {
+			semantic1(definition, definitionTrace);
+		}
+		assert(definition.type);
+
+		type = definition.type;
+		lvalue = !definition.manifest;
+		ispure = definition.manifest;
 	}
 }
 
@@ -369,14 +383,14 @@ void semantic1Impl(Cast that, Trace* trace) {
 void semantic1Impl(Dot that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
-		checkRuntimeValue(value);
 		semantic1Dot(value.type, trace, that);
 		ispure = value.ispure;
 	}
 }
 
 void semantic1Dot(Expression that, Trace* trace, Dot dot) {
-	dispatch!(semantic1DotImpl, StructLit, ArrayIndex, Expression)(that.unalias, trace, dot);
+	dispatch!(semantic1DotImpl, StructLit, ArrayIndex, ImportType, Expression)(
+			that.unalias, trace, dot);
 }
 
 void semantic1DotImpl(T)(T that, Trace* trace, Dot dot) {
@@ -385,7 +399,7 @@ void semantic1DotImpl(T)(T that, Trace* trace, Dot dot) {
 	}
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
-	with (that)
+	with (that) {
 		static if (is(T == StructLit)) {
 			auto index = dot.index;
 			if (index.peek!string) {
@@ -409,12 +423,31 @@ void semantic1DotImpl(T)(T that, Trace* trace, Dot dot) {
 				return;
 			}
 			dot.type = new UInt(0);
+		} else static if (is(T == ImportType)) {
+			if (dot.index.peek!BigInt) {
+				error("attempting to index a module with an integer", pos);
+			}
+			auto imp = cast(Import) dot.value.unalias;
+			auto name = dot.index.get!string;
+			if (!(name in imp.mod.symbols)) {
+				error(name ~ " doesn't exist in module", pos);
+			}
+			auto definition = imp.mod.symbols[name];
+			dot.variable = new Variable();
+			dot.variable.name = name;
+			dot.variable.definition = definition;
+			auto definitionTrace = Trace(imp.mod, null);
+			processVariable(dot.variable, &definitionTrace);
+			dot.type = dot.variable.type;
+			dot.lvalue = dot.variable.lvalue;
+			dot.ispure = dot.variable.ispure;
 		} else static if (is(T == Expression)) {
 			error("Unable to dot", pos);
 		} else {
 			pragma(msg, T);
 			static assert(0);
 		}
+	}
 }
 
 void semantic1Impl(ArrayIndex that, Trace* trace) {

@@ -8,6 +8,6 @@ alias write=extern "js" of ()(char[]) =
 	}
 ";
 
-alias main=$() {
+alias main=$() -> () {
 	write("hello world");
 };

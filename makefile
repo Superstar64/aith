@@ -36,7 +36,7 @@ SAMPLES := $(call FIND,samples,typi)
 SAMPLES_OUTPUT := $(SAMPLES:%.typi=$(BUILD_DIR)%.js)
 
 $(SAMPLES_OUTPUT): $(BUILD_DIR)%.js : %.typi %.js lib/typi.js $(APP) | $$(dir $$@)
-	$(APP) -I samples $(notdir $<) lib/typi.js $(word 2,$^) -o $@
+	$(APP) $< lib/typi.js $(word 2,$^) -o $@
 
 $(FORMAT): $(BUILD_DIR)%.format : % | $$(dir $$@)
 	$(DFORMATTER) $<

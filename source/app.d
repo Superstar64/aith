@@ -25,6 +25,8 @@ import std.path;
 import std.mmfile;
 import std.range;
 import std.stdio;
+import std.file : exists, isDir;
+import core.stdc.stdlib : exit;
 
 import error : error;
 import parser;
@@ -34,39 +36,45 @@ import codegen;
 import ast;
 import jsast;
 
+Module[string] all;
+string[] searchDirs = ["."];
 MmFile[] maps;
 
-void readFiles(string[][] imports, string[][] files, out Module[string[]] wanted,
-		out Module[string[]] all) {
-	string openImport(string[] mod) {
-		auto builder = mod.take(mod.length - 1).chain(only(mod[$ - 1] ~ ".typi"));
-		foreach (imp; imports) {
-			try {
-				auto map = new MmFile(buildPath(chain(imp, builder.save)));
-				maps ~= map;
-				return cast(string) map[];
-			}
-			catch (Exception e) {
-
-			}
-		}
-		error("Unable to open file " ~ buildPath(builder.save));
-		return null;
+Module findAndReadModule(string name) {
+	if (name in all) {
+		return all[name];
 	}
-
-	Module loadModule(string[] imp) {
-		auto m = imp in all;
-		if (m) {
-			return *m;
+	foreach (dir; searchDirs) {
+		if (exists(dir ~ "/" ~ name)) {
+			return readModule(dir ~ "/" ~ name);
 		}
-		auto parser = Parser(Lexer(imp.join("::").to!string, openImport(imp)), &loadModule);
-		auto mod = parser.parseModule(imp);
-		all[imp.idup] = mod;
-		return mod;
 	}
+	stderr.writeln("can't find module " ~ name);
+	exit(1);
+	assert(0);
+}
 
-	foreach (f; files) {
-		wanted[f.idup] = loadModule(f);
+Module readModule(string name) {
+	auto mod = new Module();
+	mod.namespace = name.stripExtension.asNormalizedPath.array.split(dirSeparator)
+		.map!(a => a.idup).array;
+	all[name] = mod;
+
+	auto map = new MmFile(name);
+	maps ~= map;
+	auto buffer = cast(string) map[];
+	auto parser = Parser(Lexer(name, buffer));
+	parser.parseModule(mod);
+	return mod;
+}
+
+void readFiles(string[] fileNames, out Module[string] wanted) {
+	foreach (name; fileNames) {
+		if (!exists(name)) {
+			stderr.writeln(name ~ " doesn't exist");
+			exit(1);
+		}
+		wanted[name] = readModule(name);
 	}
 }
 
@@ -87,7 +95,7 @@ void main(string[] args) {
 		return;
 	}
 	bool genAll;
-	string[] searchDirs = ["."];
+
 	string outputFile = "-";
 	void opt(ref string[] s) {
 		getopt(s, "Generate-All|a", &genAll, "Add-Search-Dir|I", &searchDirs,
@@ -103,27 +111,34 @@ void main(string[] args) {
 	}
 	opt(args);
 	args = args[1 .. $];
+	foreach (dir; searchDirs) {
+		if (!exists(dir)) {
+			stderr.writeln(dir ~ "does not exist");
+			exit(1);
+		}
+		if (!isDir(dir)) {
+			stderr.writeln(dir ~ "is not a directory");
+			exit(1);
+		}
+	}
 
-	Module[string[]] wanted;
-	Module[string[]] all;
-
-	string[][] modnames;
+	string[] modFiles;
 	foreach (file; args) {
 		if (!(file.endsWith(".typi") || file.endsWith(".js"))) {
 			writeln(file, " is not a typi file");
 			return;
 		}
 		if (file.endsWith(".typi")) {
-			modnames ~= file[0 .. $ - ".typi".length].split(dirSeparator);
+			modFiles ~= file;
 		}
 	}
-	auto importPaths = searchDirs.split(dirSeparator).filter!(a => a.length)
-		.map!(a => a.array).array;
-	readFiles(importPaths, modnames, wanted, all);
+
+	Module[string] wanted;
+	readFiles(modFiles, wanted);
 	all.each!(a => processModule(a));
 	File output;
 	if (outputFile == "-") {
-		output = stdin;
+		output = stdout;
 	} else {
 		output = File(outputFile, "w");
 	}
@@ -144,8 +159,10 @@ void main(string[] args) {
 	} else {
 		foreach (file; args) {
 			if (file.endsWith(".typi")) {
-				generateJSModule(wanted[file[0 .. $ - ".typi".length].split(dirSeparator).array]).each!(
-						(a) { a.toStateString(writer, 0); output.writeln; });
+				generateJSModule(wanted[file]).each!((a) {
+					a.toStateString(writer, 0);
+					output.writeln;
+				});
 			} else {
 				File(file, "r").byChunk(4096).map!(a => cast(const(char)[]) a).copy(writer);
 			}

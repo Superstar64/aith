@@ -560,6 +560,9 @@ Tuple!(JsExpr, Usage) generateJSImpl(Dot that, Trace* trace, Usage usage,
 		ref JsState[] depend, ref uint uuid) {
 	with (that) {
 		ignoreShare(usage);
+		if (variable) {
+			return generateJSImpl(variable, trace, usage, depend, uuid);
+		}
 		auto val = generateJS(value, trace, usage, depend, uuid);
 		JsExpr result;
 		if (index.peek!string) {
