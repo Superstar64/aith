@@ -38,35 +38,6 @@ template dispatch(alias fun, Types...) {
 
 alias Index = Algebraic!(BigInt, string);
 
-Node[] childrenRange() {
-	return [];
-}
-
-auto childrenRange(T)(ref T node) if (is(T : Node)) {
-	return node is null ? childrenRange : (cast(Node*)&node)[0 .. 1];
-}
-
-auto childrenRange(T)(ref T array) if (isArray!T) {
-	return array.map!(.childrenRange).joiner;
-}
-
-auto childrenRange(T)(ref T array) if (isAssociativeArray!T) {
-	return array.byValue.map!(.childrenRange).joiner;
-}
-
-auto childrenRange(T...)(ref T args) if (T.length > 1) {
-	return childrenRange(args[0]).chain(childrenRange(args[1 .. $]));
-}
-
-alias Children = InputRange!Node;
-
-mixin template autoChildren(T...) {
-	override Children children() {
-		auto range = childrenRange(T);
-		return inputRangeObject(range);
-	}
-}
-
 interface SearchContext {
 	Var search(string name, ref Trace); //trace is an out variable with is by default the current trace
 	//for some types(scopes) looping over children changes the searchcontext
@@ -133,7 +104,6 @@ bool cycle(Node node, Trace* trace) {
 
 abstract class Node { //base class for all ast nodes
 	Position pos;
-	Children children();
 	//used when check for cycles for variables and aliases
 	bool process;
 	SearchContext context() {
@@ -152,11 +122,9 @@ abstract class Expression : Statement {
 }
 
 class Bool : Expression {
-	mixin autoChildren!();
 }
 
 class Char : Expression {
-	mixin autoChildren!();
 }
 
 class Int : Expression {
@@ -165,7 +133,6 @@ class Int : Expression {
 		size = _;
 	}
 
-	mixin autoChildren!();
 }
 
 class UInt : Expression {
@@ -174,11 +141,9 @@ class UInt : Expression {
 		size = _;
 	}
 
-	mixin autoChildren!();
 }
 
 class Metaclass : Expression {
-	mixin autoChildren!();
 }
 
 abstract class Var : Statement {
@@ -190,8 +155,6 @@ abstract class Var : Statement {
 	@property Expression type() {
 		return definition.type;
 	}
-
-	mixin autoChildren!definition;
 }
 
 class ModuleVar : Var {
@@ -216,95 +179,80 @@ override:
 
 	void pass(Node) {
 	}
-
-	mixin autoChildren!(symbols);
 }
 
 class Import : Expression {
 	Module mod;
-	mixin autoChildren!();
 }
 
 class ImportType : Expression {
-	mixin autoChildren!();
 }
 
 class IntLit : Expression {
 	BigInt value;
 	bool usigned;
-	mixin autoChildren!();
 }
 
 class CharLit : Expression {
 	dchar value;
-	mixin autoChildren!();
+
 }
 
 class BoolLit : Expression {
 	bool yes;
-	mixin autoChildren!();
 }
 
 class StructLit : Expression {
 	Expression[] values;
 	size_t[string] names;
-	mixin autoChildren!values;
 }
 
 class Variable : Expression {
 	string name;
 	Var definition;
-	mixin autoChildren!();
 }
 
 class FuncArgument : Expression {
 	FuncLit func;
-	mixin autoChildren!();
 }
 
 class If : Expression {
 	Expression cond;
 	Expression yes;
 	Expression no;
-	mixin autoChildren!(cond, yes, no);
 }
 
 class While : Expression {
 	Expression cond;
 	Expression state;
-	mixin autoChildren!(cond, state);
 }
 
 class New : Expression {
 	Expression value;
-	mixin autoChildren!value;
+
 }
 
 class NewArray : Expression {
 	Expression length;
 	Expression value;
-	mixin autoChildren!(length, value);
 }
 
 class Cast : Expression {
 	Expression value;
 	Expression wanted;
 	bool implicit;
-	mixin autoChildren!(value, wanted);
 }
 
 class Dot : Expression {
 	Expression value;
 	Index index;
 	Variable variable; //if value is a module, used when unaliasing
-	mixin autoChildren!value;
 }
 
 //if array is a type and index is an empty struct then this is a type
 class ArrayIndex : Expression {
 	Expression array;
 	Expression index;
-	mixin autoChildren!(array, index);
 }
 
 //if fptr and arg are types then this is a type
@@ -312,14 +260,12 @@ class FCall : Expression {
 	Expression fptr;
 	Expression arg;
 	//todo ispure for type
-	mixin autoChildren!(fptr, arg);
 }
 
 class Slice : Expression {
 	Expression array;
 	Expression left;
 	Expression right;
-	mixin autoChildren!(array, left, right);
 }
 
 class Binary(string T) : Expression 
@@ -327,17 +273,14 @@ class Binary(string T) : Expression
 			"<=", ">=", "<", ">", "&&", "||", "="].canFind(T)) {
 	Expression left;
 	Expression right;
-	mixin autoChildren!(left, right);
 }
 
 class Prefix(string T) : Expression if (["+", "-", "*", "/", "&", "!"].canFind(T)) {
 	Expression value;
-	mixin autoChildren!value;
 }
 
 class Postfix(string T) : Expression if (["(*)"].canFind(T)) {
 	Expression value;
-	mixin autoChildren!value;
 }
 
 class ScopeVar : Var {
@@ -377,29 +320,22 @@ override:
 	SearchContext context() {
 		return new ScopeContext(this);
 	}
-
-	mixin autoChildren!(symbols, states);
 }
 
 class FuncLit : Expression {
 	Expression explict_return; //maybe null
 	Expression argument;
 	Expression text;
-
-	mixin autoChildren!(argument, text, explict_return);
 }
 
 class StringLit : Expression {
 	string str;
-	mixin autoChildren!();
 }
 
 class ArrayLit : Expression {
 	Expression[] values;
-	mixin autoChildren!values;
 }
 
 class ExternJS : Expression {
 	string external;
-	mixin autoChildren!type;
 }
