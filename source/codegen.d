@@ -406,10 +406,10 @@ JsExpr generateJS(Expression that, Trace* trace, Usage usage, ref JsState[] depe
 	return returnWrap(dispatch!(generateJSImpl, IntLit, BoolLit, CharLit, StructLit,
 			Variable, FuncArgument, If, While, New, NewArray, Cast, Dot, ArrayIndex,
 			FCall, Slice, StringLit, ArrayLit, Binary!"==", Binary!"!=",
-			Binary!"=", Binary!"~", Prefix!"*", Prefix!"&", Scope, FuncLit,
-			ExternJS, Binary!"*", Binary!"/", Binary!"%", Binary!"+",
-			Binary!"-", Binary!"<=", Binary!">=", Binary!"<", Binary!">",
-			Binary!"&&", Binary!"||", Prefix!"-", Prefix!"!")(that, trace, usage, depend, uuid).expand,
+			Binary!"~", Prefix!"*", Prefix!"&", Scope, FuncLit, ExternJS,
+			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
+			Binary!"<=", Binary!">=", Binary!"<", Binary!">", Binary!"&&",
+			Binary!"||", Prefix!"-", Prefix!"!")(that, trace, usage, depend, uuid).expand,
 			usage, that.type, depend, uuid);
 }
 
@@ -657,31 +657,6 @@ Tuple!(JsExpr, Usage) generateJSImpl(Binary!"!=" that, Trace* trace,
 	}
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(Binary!"=" that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
-	with (that) {
-		return generateJSAssign(left, right, trace, usage, depend, uuid);
-	}
-}
-
-Tuple!(JsExpr, Usage) generateJSAssign(Expression value, Expression rightValue,
-		Trace* trace, Usage usage, ref JsState[] depend, ref uint uuid) {
-	JsExpr outvar;
-	ignoreShare(usage);
-	auto right = generateJS(rightValue, trace, Usage.copy, depend, uuid);
-	if (auto var = cast(Variable) value) {
-		outvar = symbolName(var.definition);
-		if (var.definition.heap) {
-			outvar = new JsIndex(outvar, new JsLit("0"));
-		}
-		outvar = new JsBinary!"="(outvar, right);
-	} else {
-		auto sub = generateJS(value, trace, Usage.once, depend, uuid);
-		outvar = new JsBinary!"="(sub, right);
-	}
-	return typeof(return)(outvar, Usage(Unique.same, Eval.once));
-}
-
 Tuple!(JsExpr, Usage) generateJSImpl(Binary!"~" that, Trace* trace, Usage usage,
 		ref JsState[] depend, ref uint uuid) {
 	with (that) {
@@ -766,6 +741,9 @@ Tuple!(JsExpr, Usage) generateJSImpl(Scope that, Trace* trace, Usage usage,
 		foreach (state; states) {
 			if (auto val = cast(Expression) state) {
 				generateJS(val, trace, Usage.none, depend, uuid);
+			} else if (auto assign = cast(Assign) state) {
+				depend ~= generateJSAssign(assign.left, assign.right, trace,
+						Usage.once, depend, uuid);
 			} else if (auto var = cast(ScopeVar) state) {
 				auto val = generateJS(var.definition, trace, Usage(Unique.copy,
 						Eval.once), depend, uuid);
@@ -783,6 +761,24 @@ Tuple!(JsExpr, Usage) generateJSImpl(Scope that, Trace* trace, Usage usage,
 		auto result = generateJS(last, trace, usage, depend, uuid);
 		return typeof(return)(result, usage);
 	}
+}
+
+JsExpr generateJSAssign(Expression value, Expression rightValue, Trace* trace,
+		Usage usage, ref JsState[] depend, ref uint uuid) {
+	JsExpr outvar;
+	ignoreShare(usage);
+	auto right = generateJS(rightValue, trace, Usage.copy, depend, uuid);
+	if (auto var = cast(Variable) value) {
+		outvar = symbolName(var.definition);
+		if (var.definition.heap) {
+			outvar = new JsIndex(outvar, new JsLit("0"));
+		}
+		outvar = new JsBinary!"="(outvar, right);
+	} else {
+		auto sub = generateJS(value, trace, Usage.once, depend, uuid);
+		outvar = new JsBinary!"="(sub, right);
+	}
+	return outvar;
 }
 
 Tuple!(JsExpr, Usage) generateJSImpl(FuncLit that, Trace* trace, Usage usage,

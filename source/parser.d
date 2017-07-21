@@ -446,7 +446,7 @@ struct Parser {
 					} else if (front == oper!"=") {
 						popFront;
 						auto assigner = parseExpression;
-						auto assign = new Binary!"=";
+						auto assign = new Assign;
 						assign.left = val;
 						assign.right = assigner;
 						assign.pos = pos.join(front.pos);

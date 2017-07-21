@@ -115,6 +115,11 @@ abstract class Statement : Node {
 	bool ispure;
 }
 
+class Assign : Statement {
+	Expression left;
+	Expression right;
+}
+
 //either a type or a value
 abstract class Expression : Statement {
 	Expression type;
@@ -270,7 +275,7 @@ class Slice : Expression {
 
 class Binary(string T) : Expression 
 		if (["*", "/", "%", "+", "-", "~", "==", "!=",
-			"<=", ">=", "<", ">", "&&", "||", "="].canFind(T)) {
+			"<=", ">=", "<", ">", "&&", "||"].canFind(T)) {
 	Expression left;
 	Expression right;
 }

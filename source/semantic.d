@@ -153,7 +153,7 @@ void semantic1(Node that, Trace* trace) {
 			Slice, ScopeVar, Scope, FuncLit, StringLit, ArrayLit, ExternJS,
 			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
 			Binary!"~", Binary!"==", Binary!"!=", Binary!"<=", Binary!">=",
-			Binary!"<", Binary!">", Binary!"&&", Binary!"||", Binary!"=",
+			Binary!"<", Binary!">", Binary!"&&", Binary!"||", Assign,
 			Prefix!"+", Prefix!"-", Prefix!"*", Prefix!"/", Prefix!"&", Prefix!"!")(that, trace);
 }
 
@@ -551,18 +551,25 @@ void semantic1Impl(string op)(Binary!op that, Trace* trace) {
 			}
 			type = new Bool();
 			ispure = left.ispure && right.ispure;
-		} else static if (op == "=") {
-			if (!(sameType(left.type, right.type) || implicitConvert(right, left.type))) {
-				error("= only works on the same type", pos);
-			}
-			if (!left.lvalue) {
-				error("= only works on lvalues", pos);
-			}
-			type = left.type;
-			ispure = left.ispure && right.ispure;
 		} else {
 			static assert(0);
 		}
+	}
+}
+
+void semantic1Impl(Assign that, Trace* trace) {
+	with (that) {
+		semantic1(left, trace);
+		checkRuntimeValue(left);
+		semantic1(right, trace);
+		checkRuntimeValue(right);
+		if (!(sameType(left.type, right.type) || implicitConvert(right, left.type))) {
+			error("= only works on the same type", pos);
+		}
+		if (!left.lvalue) {
+			error("= only works on lvalues", pos);
+		}
+		ispure = left.ispure && right.ispure;
 	}
 }
 
@@ -639,8 +646,8 @@ void semantic1Impl(ScopeVar that, Trace* trace) {
 void semantic1Impl(Scope that, Trace* trace) {
 	with (that) {
 		ispure = true;
-		foreach (type; symbols) {
-			semantic1(type, trace);
+		foreach (symbol; symbols) {
+			semantic1(symbol, trace);
 		}
 		foreach (state; states) {
 			semantic1(state, trace);
