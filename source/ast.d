@@ -207,7 +207,7 @@ class BoolLit : Expression {
 	bool yes;
 }
 
-class StructLit : Expression {
+class TupleLit : Expression {
 	Expression[] values;
 	size_t[string] names;
 }

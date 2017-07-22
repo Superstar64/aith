@@ -86,7 +86,7 @@ bool isType(Expression expression) {
 			|| expression.isUInt || expression.isPointer) {
 		return true;
 	}
-	if (auto structlit = cast(StructLit) expression) {
+	if (auto structlit = cast(TupleLit) expression) {
 		return structlit.values.map!isType.all;
 	}
 	if (auto array = cast(ArrayIndex) expression) {
@@ -104,7 +104,7 @@ bool isType(Expression expression) {
 bool isRuntimeValue(Expression expression) {
 	expression = expression.unalias;
 	//todo implement actual check for runtime values
-	if (auto structlit = cast(StructLit) expression) {
+	if (auto structlit = cast(TupleLit) expression) {
 		if (structlit.values.length == 0) {
 			return true;
 		}
@@ -148,7 +148,7 @@ void semantic1(Node that, Trace* trace) {
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
 	dispatch!(semantic1Impl, Metaclass, Bool, Char, Int, UInt, Postfix!"(*)",
-			ModuleVar, Module, Import, IntLit, CharLit, BoolLit, StructLit, Variable,
+			ModuleVar, Module, Import, IntLit, CharLit, BoolLit, TupleLit, Variable,
 			FuncArgument, If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall,
 			Slice, ScopeVar, Scope, FuncLit, StringLit, ArrayLit, ExternJS,
 			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
@@ -247,7 +247,7 @@ void semantic1Impl(BoolLit that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(StructLit that, Trace* trace) {
+void semantic1Impl(TupleLit that, Trace* trace) {
 	with (that) {
 		foreach (value; values) {
 			semantic1(value, trace);
@@ -256,7 +256,7 @@ void semantic1Impl(StructLit that, Trace* trace) {
 		if (that.values.length != 0 && values.map!isType.all) {
 			type = metaclass;
 		} else {
-			auto structType = new StructLit();
+			auto structType = new TupleLit();
 			structType.names = names;
 			structType.values = values.map!(a => a.type).array;
 			type = structType;
@@ -333,7 +333,7 @@ void semantic1Impl(While that, Trace* trace) {
 		if (!cond.type.isBool) {
 			error("Boolean expected in while expression", cond.pos);
 		}
-		type = new StructLit();
+		type = new TupleLit();
 		ispure = cond.ispure && state.ispure;
 	}
 }
@@ -360,7 +360,7 @@ void semantic1Impl(NewArray that, Trace* trace) {
 		}
 		auto array = new ArrayIndex();
 		array.array = value.type;
-		array.index = new StructLit();
+		array.index = new TupleLit();
 		type = array;
 		ispure = length.ispure && value.ispure;
 	}
@@ -389,7 +389,7 @@ void semantic1Impl(Dot that, Trace* trace) {
 }
 
 void semantic1Dot(Expression that, Trace* trace, Dot dot) {
-	dispatch!(semantic1DotImpl, StructLit, ArrayIndex, ImportType, Expression)(
+	dispatch!(semantic1DotImpl, TupleLit, ArrayIndex, ImportType, Expression)(
 			that.unalias, trace, dot);
 }
 
@@ -400,7 +400,7 @@ void semantic1DotImpl(T)(T that, Trace* trace, Dot dot) {
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
 	with (that) {
-		static if (is(T == StructLit)) {
+		static if (is(T == TupleLit)) {
 			auto index = dot.index;
 			if (index.peek!string) {
 				auto str = index.get!string;
@@ -455,7 +455,7 @@ void semantic1Impl(ArrayIndex that, Trace* trace) {
 		semantic1(array, trace);
 		semantic1(index, trace);
 		if (array.isType) {
-			if (!(index.isType && sameType(index, new StructLit()))) {
+			if (!(index.isType && sameType(index, new TupleLit()))) {
 				error("Expected empty type in array type", pos);
 			}
 			type = metaclass;
@@ -658,7 +658,7 @@ void semantic1Impl(Scope that, Trace* trace) {
 			ispure = ispure && state.ispure;
 		}
 		if (last is null) {
-			last = new StructLit();
+			last = new TupleLit();
 		}
 		semantic1(last, trace);
 		type = last.type;
@@ -696,7 +696,7 @@ void semantic1Impl(StringLit that, Trace* trace) {
 	with (that) {
 		auto array = new ArrayIndex;
 		array.array = new Char;
-		array.index = new StructLit();
+		array.index = new TupleLit();
 		type = array;
 		ispure = true;
 	}
@@ -719,7 +719,7 @@ void semantic1Impl(ArrayLit that, Trace* trace) {
 		}
 		auto array = new ArrayIndex;
 		array.array = current;
-		array.index = new StructLit();
+		array.index = new TupleLit();
 		type = array;
 		ispure = true;
 		foreach (value; values) {
@@ -753,7 +753,7 @@ bool sameTypeValueValue(ref Expression left, ref Expression right) {
 bool sameType(Expression a, Expression b) {
 	assert(a.isType);
 	assert(b.isType);
-	alias Types = AliasSeq!(Metaclass, Char, Int, UInt, StructLit,
+	alias Types = AliasSeq!(Metaclass, Char, Int, UInt, TupleLit,
 			Postfix!"(*)", ArrayIndex, FCall);
 	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(
 			a.unalias, b.unalias);
@@ -768,7 +768,7 @@ bool sameTypeImpl(T1, T2)(T1 a, T2 b) {
 			return true;
 		} else static if (is(T == UInt) || is(T == Int)) {
 			return a.size == b.size;
-		} else static if (is(T == StructLit)) {
+		} else static if (is(T == TupleLit)) {
 			if (a.values.length != b.values.length) {
 				return false;
 			}
@@ -805,9 +805,9 @@ bool implicitConvert(ref Expression value, Expression type) {
 		value = result;
 		return true;
 	}
-	if (cast(StructLit) value && cast(StructLit)(type)) {
-		auto str = cast(StructLit) value;
-		auto target = cast(StructLit) type;
+	if (cast(TupleLit) value && cast(TupleLit)(type)) {
+		auto str = cast(TupleLit) value;
+		auto target = cast(TupleLit) type;
 		foreach (c, ref sub; str.values) {
 			if (sameType(sub.type, target.values[c])) {
 				continue;
@@ -833,7 +833,7 @@ bool castable(Expression target, Expression want) {
 	if (sameType(target, want)) {
 		return true;
 	}
-	if (sameType(target, new StructLit())) {
+	if (sameType(target, new TupleLit())) {
 		return true;
 	}
 	if ((cast(Int) target || cast(UInt) target) && (cast(Int) want || cast(UInt) want)) { //casting between int types
