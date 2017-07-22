@@ -87,21 +87,8 @@ struct IntLiteral {
 
 struct Keyword {
 	enum list = [
-			"alias", //"assume"
-			"let", "bool_t", //"catch",
-			"cast", "char", "else", //"end",
-			"extern", "false", //"float_t",
-			//"function",
-			"if", "import", "int_t", //"is",
-			//"label",
-			"new", "of", "return", //"spawn"//thread;
-			"then", //"throw",
-			//"throws",
-			"true", //"typedef",
-			//"type_template",
-			"uint_t", //"union",
-			//"value_template",
-			"while", //"yield
+			"alias", "let", "bool_t", "cast", "char", "else", "extern", "false",
+			"if", "import", "int_t", "new", "of", "return", "then", "true", "uint_t", "while",
 		];
 	size_t index;
 	string toString() {
@@ -132,13 +119,11 @@ template key(string s) {
 }
 
 struct Operator {
-	enum list = [ //todo template syntax
-			"<<=", //must be sorted according to string length
-			">>=", ">>>", "(*)", "==", "!=", "<=", ">=", "<<", ">>",
-			"&&", "||", "+=", "-=", "*=", "/=", "%=", "&=", "^=", "|=", "~=",
-			"::", "$@", "->", "=>", "~>", "~<", "..", "<", ">", "+", "-", "*",
-			"/", "%", "=", "!", "~", "&", "|", "^", ":", "$", "@", "{", "}",
-			"(", ")", "[", "]", ".", ",", ";"
+	enum list = [
+			//must be sorted according to string length
+			"(*)", "==", "!=", "<=", ">=", "&&", "||", "::", "$@", "->", "..",
+			"<", ">", "+", "-", "*", "/", "%", "=", "!", "~", "&", "|", "^",
+			":", "$", "@", "{", "}", "(", ")", "[", "]", ".", ",", ";"
 		];
 	size_t index;
 	string toString() {
