@@ -466,7 +466,7 @@ struct Parser {
 			auto pos = front.pos;
 			var.manifest = manifest;
 			popFront;
-			auto type = parseCore();
+			auto type = parseExpression();
 			if (front != oper!"=") {
 				front.expectT!Identifier;
 				var.name = front.get!(Identifier).name;
