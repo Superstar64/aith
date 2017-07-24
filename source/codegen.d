@@ -97,7 +97,7 @@ JsExpr indexPointer(JsExpr pointer) {
 }
 
 JsExpr copy(JsExpr expr, Expression type) {
-	return dispatch!(copyImpl, Bool, Char, Int, UInt, Postfix!"(*)", ArrayIndex, FCall, TupleLit)(
+	return dispatch!(copyImpl, Bool, Char, Int, UInt, Postfix!"(*)", ArrayIndex, FCall, Struct)(
 			type.unalias, expr);
 }
 
@@ -105,7 +105,7 @@ JsExpr copyImpl(T)(T that, JsExpr expr) {
 	static if (is(T == Bool) || is(T == Char) || is(T == Int) || is(T == UInt)
 			|| is(T == Postfix!"(*)") || is(T == ArrayIndex) || is(T == FCall)) {
 		return expr;
-	} else static if (is(T == TupleLit)) {
+	} else static if (is(T == Struct)) {
 		auto ret = new JsArray();
 		foreach (c, subType; that.values) {
 			ret.exprs ~= copy(indexTuple(expr, c), subType);
@@ -118,14 +118,14 @@ JsExpr copyImpl(T)(T that, JsExpr expr) {
 
 JsExpr onceCopy(JsExpr expr, Expression type, JsState[] depend, ref uint uuid) {
 	return dispatch!(onceCopyImpl, Bool, Char, Int, UInt, Postfix!"(*)",
-			ArrayIndex, FCall, TupleLit)(type.unalias, expr, depend, uuid);
+			ArrayIndex, FCall, Struct)(type.unalias, expr, depend, uuid);
 }
 
 JsExpr onceCopyImpl(T)(T that, JsExpr expr, JsState[] depend, ref uint uuid) {
 	static if (is(T == Bool) || is(T == Char) || is(T == Int) || is(T == UInt)
 			|| is(T == Postfix!"(*)") || is(T == ArrayIndex) || is(T == FCall)) {
 		return expr;
-	} else static if (is(T == TupleLit)) {
+	} else static if (is(T == Struct)) {
 		auto ret = genTmp(null, expr, depend, uuid);
 		return copy(ret, that);
 	} else {
@@ -135,7 +135,7 @@ JsExpr onceCopyImpl(T)(T that, JsExpr expr, JsState[] depend, ref uint uuid) {
 
 JsExpr defaultValue(Expression type) {
 	return dispatch!(defaultValueImpl, Bool, Char, Int, UInt, Postfix!"(*)",
-			ArrayIndex, FCall, TupleLit)(type.unalias);
+			ArrayIndex, FCall, Struct)(type.unalias);
 }
 
 JsExpr defaultValueImpl(T)(T that) {
@@ -145,7 +145,7 @@ JsExpr defaultValueImpl(T)(T that) {
 		return new JsLit("0");
 	} else static if (is(T == Char)) {
 		return new JsLit('"' ~ "\\0" ~ '"');
-	} else static if (is(T == TupleLit)) {
+	} else static if (is(T == Struct)) {
 		auto ret = new JsArray();
 		foreach (subType; that.values) {
 			ret.exprs ~= defaultValue(subType);
@@ -192,8 +192,8 @@ JsExpr castInt(JsExpr expr, Expression type) {
 }
 
 JsExpr compare(JsExpr left, JsExpr right, Expression type, JsState[] depend, ref uint uuid) {
-	return dispatch!(compareImpl, Bool, Char, Int, UInt, FCall, Postfix!"(*)",
-			ArrayIndex, TupleLit)(type.unalias, left, right, depend, uuid);
+	return dispatch!(compareImpl, Bool, Char, Int, UInt, FCall,
+			Postfix!"(*)", ArrayIndex, Struct)(type.unalias, left, right, depend, uuid);
 }
 
 JsExpr compareImpl(T)(T that, JsExpr left, JsExpr right, JsState[] depend, ref uint uuid) {
@@ -213,7 +213,7 @@ JsExpr compareImpl(T)(T that, JsExpr left, JsExpr right, JsState[] depend, ref u
 		loop.states ~= new JsBinary!"="(varLit, new JsBinary!"&&"(varLit,
 				compare(indexArray(left, i), indexArray(right, i), that.array, loop.states, uuid)));
 		return varLit;
-	} else static if (is(T == TupleLit)) {
+	} else static if (is(T == Struct)) {
 		if (that.values.length == 0) {
 			return new JsLit("true");
 		} else if (that.values.length == 1) {
@@ -547,7 +547,7 @@ Tuple!(JsExpr, Usage) generateJSImpl(Cast that, Trace* trace, Usage usage,
 		auto val = generateJS(value, trace, usage, depend, uuid);
 		if (sameType(value.type, wanted)) {
 			return typeof(return)(val, usage);
-		} else if (sameType(value.type, new TupleLit())) {
+		} else if (sameType(value.type, emptyType)) {
 			return typeof(return)(defaultValue(wanted), Usage.literal);
 		} else if (cast(UInt) wanted.unalias || cast(Int) wanted.unalias) {
 			return typeof(return)(castInt(val, wanted), usage);
@@ -569,7 +569,7 @@ Tuple!(JsExpr, Usage) generateJSImpl(Dot that, Trace* trace, Usage usage,
 			if (cast(ArrayIndex) value.type.unalias) {
 				return typeof(return)(new JsDot(val, "length"), usage);
 			}
-			auto stru = cast(TupleLit)(value.type.unalias);
+			auto stru = cast(Struct)(value.type.unalias);
 			result = indexTuple(val, stru.names[index.get!string]);
 		} else {
 			result = indexTuple(val, index.get!BigInt.to!size_t);
@@ -707,7 +707,7 @@ Tuple!(JsExpr, Usage) generateJSAddressOfImpl(T)(T that, Trace* trace,
 			return typeof(return)(outvar, Usage.literal);
 		} else static if (is(T == Dot)) {
 			ignoreShare(usage);
-			auto structType = cast(TupleLit) that.type.unalias;
+			auto structType = cast(Struct) that.type.unalias;
 			assert(structType);
 			//todo bug, can't get address of .length
 			auto structValue = generateJS(value, trace, usage, depend, uuid);

@@ -200,11 +200,15 @@ class IntLit : Expression {
 
 class CharLit : Expression {
 	dchar value;
-
 }
 
 class BoolLit : Expression {
 	bool yes;
+}
+
+class Struct : Expression {
+	Expression value;
+	bool implicit;
 }
 
 class TupleLit : Expression {
@@ -234,7 +238,6 @@ class While : Expression {
 
 class New : Expression {
 	Expression value;
-
 }
 
 class NewArray : Expression {

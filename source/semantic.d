@@ -80,13 +80,25 @@ FCall isFunction(Expression type) {
 	return null;
 }
 
+ref Expression[] values(Struct stru) {
+	auto tuple = cast(TupleLit) stru.value.unalias;
+	assert(tuple);
+	return tuple.values;
+}
+
+ref size_t[string] names(Struct stru) {
+	auto tuple = cast(TupleLit) stru.value.unalias;
+	assert(tuple);
+	return tuple.names;
+}
+
 bool isType(Expression expression) {
 	expression = expression.unalias;
 	if (expression.isBool || expression.isChar || expression.isInt
 			|| expression.isUInt || expression.isPointer) {
 		return true;
 	}
-	if (auto structlit = cast(TupleLit) expression) {
+	if (auto structlit = cast(Struct) expression) {
 		return structlit.values.map!isType.all;
 	}
 	if (auto array = cast(ArrayIndex) expression) {
@@ -99,16 +111,12 @@ bool isType(Expression expression) {
 		return var.definition.manifest && var.unalias.isType;
 	}
 	return !!cast(Metaclass) expression;
+
+	//return !!cast(Metaclass) expression.type; 
 }
 
 bool isRuntimeValue(Expression expression) {
 	expression = expression.unalias;
-	//todo implement actual check for runtime values
-	if (auto structlit = cast(TupleLit) expression) {
-		if (structlit.values.length == 0) {
-			return true;
-		}
-	}
 	return !(expression.isType || cast(Import) expression);
 }
 
@@ -118,10 +126,25 @@ void checkRuntimeValue(Expression expression) {
 	}
 }
 
-void checkType(Expression expression) {
+//makes sure expression is a type or implicitly convert it to a type
+void checkType(ref Expression expression) {
+	if (auto tuple = cast(TupleLit) expression.unalias) {
+		auto structWrap = new Struct;
+		structWrap.value = expression;
+		expression = structWrap;
+		expression.type = metaclass;
+	}
 	if (!isType(expression)) {
 		error("Expected type", expression.pos);
 	}
+}
+
+Expression emptyType() {
+	auto tuple = new TupleLit();
+	auto structWrap = new Struct();
+	structWrap.value = tuple;
+	structWrap.type = metaclass;
+	return structWrap;
 }
 
 void checkIntTypeSize(int size, Position pos) {
@@ -148,9 +171,9 @@ void semantic1(Node that, Trace* trace) {
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
 	dispatch!(semantic1Impl, Metaclass, Bool, Char, Int, UInt, Postfix!"(*)",
-			ModuleVar, Module, Import, IntLit, CharLit, BoolLit, TupleLit, Variable,
-			FuncArgument, If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall,
-			Slice, ScopeVar, Scope, FuncLit, StringLit, ArrayLit, ExternJS,
+			ModuleVar, Module, Import, IntLit, CharLit, BoolLit, Struct, TupleLit,
+			Variable, FuncArgument, If, While, New, NewArray, Cast, Dot, ArrayIndex,
+			FCall, Slice, ScopeVar, Scope, FuncLit, StringLit, ArrayLit, ExternJS,
 			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
 			Binary!"~", Binary!"==", Binary!"!=", Binary!"<=", Binary!">=",
 			Binary!"<", Binary!">", Binary!"&&", Binary!"||", Assign,
@@ -247,21 +270,30 @@ void semantic1Impl(BoolLit that, Trace* trace) {
 	}
 }
 
+void semantic1Impl(Struct that, Trace* trace) {
+	with (that) {
+		semantic1(value, trace);
+		if (!cast(TupleLit) value.unalias) {
+			error("expected tuple lit after struct", pos);
+		}
+		that.values.each!checkType;
+		type = metaclass;
+	}
+}
+
 void semantic1Impl(TupleLit that, Trace* trace) {
 	with (that) {
 		foreach (value; values) {
 			semantic1(value, trace);
 		}
-		//todo fix me, make untypes structs have no type eg.. (())
-		if (that.values.length != 0 && values.map!isType.all) {
-			type = metaclass;
-		} else {
-			auto structType = new TupleLit();
-			structType.names = names;
-			structType.values = values.map!(a => a.type).array;
-			type = structType;
-			values.each!checkRuntimeValue;
-		}
+
+		auto structType = new TupleLit();
+		structType.names = names;
+		structType.values = values.map!(a => a.type).array;
+		auto structWrap = new Struct();
+		structWrap.value = structType;
+		type = structWrap;
+		values.each!checkRuntimeValue;
 		ispure = values.map!(a => a.ispure).all;
 	}
 }
@@ -333,7 +365,7 @@ void semantic1Impl(While that, Trace* trace) {
 		if (!cond.type.isBool) {
 			error("Boolean expected in while expression", cond.pos);
 		}
-		type = new TupleLit();
+		type = emptyType;
 		ispure = cond.ispure && state.ispure;
 	}
 }
@@ -360,7 +392,7 @@ void semantic1Impl(NewArray that, Trace* trace) {
 		}
 		auto array = new ArrayIndex();
 		array.array = value.type;
-		array.index = new TupleLit();
+		array.index = emptyType;
 		type = array;
 		ispure = length.ispure && value.ispure;
 	}
@@ -389,7 +421,7 @@ void semantic1Impl(Dot that, Trace* trace) {
 }
 
 void semantic1Dot(Expression that, Trace* trace, Dot dot) {
-	dispatch!(semantic1DotImpl, TupleLit, ArrayIndex, ImportType, Expression)(
+	dispatch!(semantic1DotImpl, Struct, ArrayIndex, ImportType, Expression)(
 			that.unalias, trace, dot);
 }
 
@@ -400,20 +432,20 @@ void semantic1DotImpl(T)(T that, Trace* trace, Dot dot) {
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
 	with (that) {
-		static if (is(T == TupleLit)) {
+		static if (is(T == Struct)) {
 			auto index = dot.index;
 			if (index.peek!string) {
 				auto str = index.get!string;
-				if (!(str in names)) {
+				if (!(str in that.names)) {
 					error("Unable to find field", dot.pos);
 				}
-				dot.type = values[names[str]];
+				dot.type = that.values[that.names[str]];
 			} else {
 				uint typeIndex = index.get!(BigInt).toInt;
-				if (typeIndex >= values.length) {
+				if (typeIndex >= that.values.length) {
 					error("Index number to high", dot.pos);
 				}
-				dot.type = values[typeIndex];
+				dot.type = that.values[typeIndex];
 			}
 			dot.lvalue = dot.value.lvalue;
 		} else static if (is(T == ArrayIndex)) {
@@ -455,7 +487,8 @@ void semantic1Impl(ArrayIndex that, Trace* trace) {
 		semantic1(array, trace);
 		semantic1(index, trace);
 		if (array.isType) {
-			if (!(index.isType && sameType(index, new TupleLit()))) {
+			checkType(index);
+			if (!sameType(index, emptyType)) {
 				error("Expected empty type in array type", pos);
 			}
 			type = metaclass;
@@ -479,8 +512,11 @@ void semantic1Impl(FCall that, Trace* trace) {
 	with (that) {
 		semantic1(fptr, trace);
 		semantic1(arg, trace);
-		if (fptr.isType) {
-
+		if (fptr.isType || arg.isType) {
+			checkType(fptr);
+			checkType(arg);
+			type = metaclass;
+			ispure = true;
 		} else {
 			auto fun = fptr.type.isFunction;
 			if (!fun) {
@@ -696,7 +732,11 @@ void semantic1Impl(StringLit that, Trace* trace) {
 	with (that) {
 		auto array = new ArrayIndex;
 		array.array = new Char;
-		array.index = new TupleLit();
+		auto structWrap = new Struct();
+		structWrap.value = new TupleLit();
+		array.index = structWrap;
+		array.type = metaclass;
+
 		type = array;
 		ispure = true;
 	}
@@ -719,7 +759,9 @@ void semantic1Impl(ArrayLit that, Trace* trace) {
 		}
 		auto array = new ArrayIndex;
 		array.array = current;
-		array.index = new TupleLit();
+		auto structWrap = new Struct();
+		structWrap.value = new TupleLit();
+		array.index = structWrap;
 		type = array;
 		ispure = true;
 		foreach (value; values) {
@@ -753,8 +795,7 @@ bool sameTypeValueValue(ref Expression left, ref Expression right) {
 bool sameType(Expression a, Expression b) {
 	assert(a.isType);
 	assert(b.isType);
-	alias Types = AliasSeq!(Metaclass, Char, Int, UInt, TupleLit,
-			Postfix!"(*)", ArrayIndex, FCall);
+	alias Types = AliasSeq!(Metaclass, Char, Int, UInt, Struct, Postfix!"(*)", ArrayIndex, FCall);
 	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(
 			a.unalias, b.unalias);
 }
@@ -768,7 +809,7 @@ bool sameTypeImpl(T1, T2)(T1 a, T2 b) {
 			return true;
 		} else static if (is(T == UInt) || is(T == Int)) {
 			return a.size == b.size;
-		} else static if (is(T == TupleLit)) {
+		} else static if (is(T == Struct)) {
 			if (a.values.length != b.values.length) {
 				return false;
 			}
@@ -805,9 +846,9 @@ bool implicitConvert(ref Expression value, Expression type) {
 		value = result;
 		return true;
 	}
-	if (cast(TupleLit) value && cast(TupleLit)(type)) {
+	if (cast(TupleLit) value && cast(Struct)(type)) {
 		auto str = cast(TupleLit) value;
-		auto target = cast(TupleLit) type;
+		auto target = cast(Struct) type;
 		foreach (c, ref sub; str.values) {
 			if (sameType(sub.type, target.values[c])) {
 				continue;
@@ -833,7 +874,7 @@ bool castable(Expression target, Expression want) {
 	if (sameType(target, want)) {
 		return true;
 	}
-	if (sameType(target, new TupleLit())) {
+	if (sameType(target, emptyType)) {
 		return true;
 	}
 	if ((cast(Int) target || cast(UInt) target) && (cast(Int) want || cast(UInt) want)) { //casting between int types

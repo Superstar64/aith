@@ -90,7 +90,7 @@ struct Parser {
 			foreach (fun; AliasSeq!(parseBasic, parseCast, parseTuple!(oper!"(",
 					oper!")"), parseVariable, parseIf, parseWhile,
 					parseNew, parseScope, parseImport, parseFuncArgument, parseFuncLit,
-					parseStringLit, parseArrayLit, parseExtern, parseBasicType)) {
+					parseStringLit, parseArrayLit, parseExtern, parseBasicType, parseStruct)) {
 				auto value = fun;
 				if (value) {
 					return parsePostfix(value);
@@ -99,6 +99,19 @@ struct Parser {
 
 			error("Expected expression", front.pos);
 			assert(0);
+		}
+	}
+
+	Expression parseStruct() {
+		with (lexer) {
+			auto pos = front.pos;
+			if (front == key!"struct") {
+				auto ret = new Struct();
+				popFront;
+				ret.value = parseExpression();
+				ret.pos = pos.join(front.pos);
+			}
+			return null;
 		}
 	}
 

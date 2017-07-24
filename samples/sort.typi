@@ -5,7 +5,7 @@
 alias qsort=$() -> int_t.4[] {
 	let array = $@;
 	if array.length < 2 then {
-		cast(())()
+		()
 	} else {
 		let pivot = array[array.length - 1];
 		let uint_t.0 middle = 0;
