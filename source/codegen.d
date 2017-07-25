@@ -547,7 +547,7 @@ Tuple!(JsExpr, Usage) generateJSImpl(Cast that, Trace* trace, Usage usage,
 		auto val = generateJS(value, trace, usage, depend, uuid);
 		if (sameType(value.type, wanted)) {
 			return typeof(return)(val, usage);
-		} else if (sameType(value.type, emptyType)) {
+		} else if (sameType(value.type, createType!Struct())) {
 			return typeof(return)(defaultValue(wanted), Usage.literal);
 		} else if (cast(UInt) wanted.unalias || cast(Int) wanted.unalias) {
 			return typeof(return)(castInt(val, wanted), usage);

@@ -94,25 +94,7 @@ ref size_t[string] names(Struct stru) {
 
 bool isType(Expression expression) {
 	expression = expression.unalias;
-	if (expression.isBool || expression.isChar || expression.isInt
-			|| expression.isUInt || expression.isPointer) {
-		return true;
-	}
-	if (auto structlit = cast(Struct) expression) {
-		return structlit.values.map!isType.all;
-	}
-	if (auto array = cast(ArrayIndex) expression) {
-		return array.array.isType && array.index.isType;
-	}
-	if (auto func = cast(FCall) expression) {
-		return func.fptr.isType && func.arg.isType;
-	}
-	if (auto var = cast(Variable) expression) {
-		return var.definition.manifest && var.unalias.isType;
-	}
-	return !!cast(Metaclass) expression;
-
-	//return !!cast(Metaclass) expression.type; 
+	return !!cast(Metaclass) expression.type;
 }
 
 bool isRuntimeValue(Expression expression) {
@@ -139,27 +121,140 @@ void checkType(ref Expression expression) {
 	}
 }
 
-Expression emptyType() {
-	auto tuple = new TupleLit();
-	auto structWrap = new Struct();
-	structWrap.value = tuple;
-	structWrap.type = metaclass;
-	return structWrap;
+Expression createType(T, Args...)(Args args) {
+	auto type = createTypeImpl!T(args);
+	semantic1Head(type);
+	return type;
 }
 
-void checkIntTypeSize(int size, Position pos) {
-	if (size == 0) {
-		return;
+T createTypeImpl(T)() if (is(T == Bool) || is(T == Char)) {
+	auto type = new T;
+	semantic1Head(type);
+	return type;
+}
+
+T createTypeImpl(T)(int size) if (is(T == Int) || is(T == UInt)) {
+	auto type = new T;
+	type.size = size;
+	semantic1Head(type);
+	return type;
+}
+
+T createTypeImpl(T)(Expression value) if (is(T == Postfix!"(*)")) {
+	auto type = new T;
+	type.value = value;
+	semantic1Head(type);
+	return type;
+}
+
+T createTypeImpl(T)() if (is(T == ImportType)) {
+	auto type = new T;
+	semantic1Head(type);
+	return type;
+}
+
+T createTypeImpl(T)(Expression[] values = null, size_t[string] names = null)
+		if (is(T == Struct)) {
+	auto type = new T;
+	auto tuple = new TupleLit();
+	tuple.values = values;
+	tuple.names = names;
+	semantic1Head(tuple);
+	type.value = tuple;
+	semantic1Head(type);
+	return type;
+}
+
+T createTypeImpl(T)(Expression fptr, Expression arg) if (is(T == FCall)) {
+	auto type = new T;
+	type.fptr = fptr;
+	type.arg = arg;
+	semantic1Head(type);
+	return type;
+}
+
+T createTypeImpl(T)(Expression array) if (is(T == ArrayIndex)) {
+	auto type = new T;
+	type.array = array;
+	type.index = createType!Struct();
+	semantic1Head(type);
+	return type;
+}
+
+//used in semantic1 and creating types
+//process certain expressions with out recursing
+void semantic1Head(T)(T that) {
+	semantic1HeadImpl(that);
+	that.type = metaclass;
+	that.ispure = true;
+	that.process = true;
+}
+
+void semantic1Head(TupleLit that) {
+	with (that) {
+		if (values.map!(a => !!cast(Metaclass) a.unalias).all) {
+			auto cycle = new Struct();
+			cycle.value = that;
+			semantic1Head(cycle);
+			type = cycle;
+		} else {
+			type = createType!Struct(values.map!(a => a.type).array, names);
+			values.each!checkRuntimeValue;
+		}
+		ispure = values.map!(a => a.ispure).all;
 	}
-	uint check = 1;
-	while (true) {
-		if (check == size) {
+}
+
+void semantic1HeadImpl(T)(T that)
+		if (is(T == Bool) || is(T == Char) || is(T == ImportType)) {
+}
+
+void semantic1HeadImpl(T)(T that) if (is(T == Int) || is(T == UInt)) {
+	with (that) {
+		if (size == 0) {
 			return;
 		}
-		if (check > size) {
-			error("Bad Int Size", pos);
+		uint check = 1;
+		while (true) {
+			if (check == size) {
+				return;
+			}
+			if (check > size) {
+				error("Bad Int Size", pos);
+			}
+			check *= 2;
 		}
-		check *= 2;
+	}
+}
+
+void semantic1HeadImpl(T)(T that) if (is(T == Postfix!"(*)")) {
+	with (that) {
+		checkType(value);
+	}
+}
+
+void semantic1HeadImpl(T)(T that) if (is(T == Struct)) {
+	with (that) {
+		if (!cast(TupleLit) value.unalias) {
+			error("expected tuple lit after struct", pos);
+		}
+		that.values.each!checkType;
+	}
+}
+
+void semantic1HeadImpl(T)(T that) if (is(T == FCall)) {
+	with (that) {
+		checkType(fptr);
+		checkType(arg);
+	}
+}
+
+void semantic1HeadImpl(T)(T that) if (is(T == ArrayIndex)) {
+	with (that) {
+		checkType(index);
+		if (!sameType(index, createType!Struct())) {
+			error("Expected empty type in array type", pos);
+		}
 	}
 }
 
@@ -204,32 +299,19 @@ void semantic1Impl(Metaclass that, Trace* trace) {
 }
 
 void semantic1Impl(Import that, Trace* trace) {
-	that.type = new ImportType();
+	that.type = createType!ImportType;
 	that.ispure = true;
 }
 
-void semantic1Impl(T)(T that, Trace* trace) if (is(T == Bool) || is(T == Char)) {
-	with (that) {
-		that.type = metaclass;
-		that.ispure = true;
-	}
-}
-
-void semantic1Impl(T)(T that, Trace* trace) if (is(T == Int) || is(T == UInt)) {
-	with (that) {
-		checkIntTypeSize(size, pos);
-		that.type = metaclass;
-		that.ispure = true;
-	}
+void semantic1Impl(T)(T that, Trace* trace)
+		if (is(T == Bool) || is(T == Char) || is(T == Int) || is(T == UInt)) {
+	semantic1Head(that);
 }
 
 void semantic1Impl(T)(T that, Trace* trace) if (is(T == Postfix!"(*)")) {
 	with (that) {
-		//todo reorder
 		semantic1(value, trace);
-		checkType(value);
-		type = metaclass;
-		that.ispure = true;
+		semantic1Head(that);
 	}
 }
 
@@ -238,6 +320,8 @@ void semantic1Impl(ModuleVar that, Trace* trace) {
 		semantic1(definition, trace);
 		ispure = definition.ispure;
 		if (explicitType) {
+			semantic1(explicitType, trace);
+			checkType(explicitType);
 			if (!sameTypeValueType(definition, explicitType)) {
 				error("types don't match", pos);
 			}
@@ -248,9 +332,9 @@ void semantic1Impl(ModuleVar that, Trace* trace) {
 void semantic1Impl(IntLit that, Trace* trace) {
 	with (that) {
 		if (usigned) {
-			type = new UInt(0);
+			type = createType!UInt(0);
 		} else {
-			type = new Int(0);
+			type = createType!Int(0);
 		}
 		ispure = true;
 	}
@@ -258,14 +342,14 @@ void semantic1Impl(IntLit that, Trace* trace) {
 
 void semantic1Impl(CharLit that, Trace* trace) {
 	with (that) {
-		type = new Char();
+		type = createType!Char;
 		ispure = true;
 	}
 }
 
 void semantic1Impl(BoolLit that, Trace* trace) {
 	with (that) {
-		type = new Bool();
+		type = createType!Bool;
 		ispure = true;
 	}
 }
@@ -273,11 +357,7 @@ void semantic1Impl(BoolLit that, Trace* trace) {
 void semantic1Impl(Struct that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
-		if (!cast(TupleLit) value.unalias) {
-			error("expected tuple lit after struct", pos);
-		}
-		that.values.each!checkType;
-		type = metaclass;
+		semantic1Head(that);
 	}
 }
 
@@ -287,14 +367,7 @@ void semantic1Impl(TupleLit that, Trace* trace) {
 			semantic1(value, trace);
 		}
 
-		auto structType = new TupleLit();
-		structType.names = names;
-		structType.values = values.map!(a => a.type).array;
-		auto structWrap = new Struct();
-		structWrap.value = structType;
-		type = structWrap;
-		values.each!checkRuntimeValue;
-		ispure = values.map!(a => a.ispure).all;
+		semantic1Head(that);
 	}
 }
 
@@ -365,7 +438,7 @@ void semantic1Impl(While that, Trace* trace) {
 		if (!cond.type.isBool) {
 			error("Boolean expected in while expression", cond.pos);
 		}
-		type = emptyType;
+		type = createType!Struct();
 		ispure = cond.ispure && state.ispure;
 	}
 }
@@ -374,9 +447,7 @@ void semantic1Impl(New that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
 		checkRuntimeValue(value);
-		auto ptr = new Postfix!"(*)"();
-		ptr.value = value.type;
-		type = ptr;
+		type = createType!(Postfix!"(*)")(value.type);
 		ispure = value.ispure;
 	}
 }
@@ -387,13 +458,10 @@ void semantic1Impl(NewArray that, Trace* trace) {
 		checkRuntimeValue(length);
 		semantic1(value, trace);
 		checkRuntimeValue(value);
-		if (!sameTypeValueType(length, new UInt(0))) {
+		if (!sameTypeValueType(length, createType!UInt(0))) {
 			error("Can only create an array with length of UInts", length.pos);
 		}
-		auto array = new ArrayIndex();
-		array.array = value.type;
-		array.index = emptyType;
-		type = array;
+		type = createType!ArrayIndex(value.type);
 		ispure = length.ispure && value.ispure;
 	}
 }
@@ -454,7 +522,7 @@ void semantic1DotImpl(T)(T that, Trace* trace, Dot dot) {
 				semantic1DotImpl!Expression(that, trace, dot);
 				return;
 			}
-			dot.type = new UInt(0);
+			dot.type = createType!UInt(0);
 		} else static if (is(T == ImportType)) {
 			if (dot.index.peek!BigInt) {
 				error("attempting to index a module with an integer", pos);
@@ -487,17 +555,12 @@ void semantic1Impl(ArrayIndex that, Trace* trace) {
 		semantic1(array, trace);
 		semantic1(index, trace);
 		if (array.isType) {
-			checkType(index);
-			if (!sameType(index, emptyType)) {
-				error("Expected empty type in array type", pos);
-			}
-			type = metaclass;
-			ispure = true;
+			semantic1Head(that);
 		} else {
 			if (!array.type.isArray) {
 				error("Unable able to index", pos);
 			}
-			if (!sameTypeValueType(index, new UInt(0))) {
+			if (!sameTypeValueType(index, createType!UInt(0))) {
 				error("Can only index an array with UInts", pos);
 			}
 			auto arrayType = array.type.isArray;
@@ -513,16 +576,13 @@ void semantic1Impl(FCall that, Trace* trace) {
 		semantic1(fptr, trace);
 		semantic1(arg, trace);
 		if (fptr.isType || arg.isType) {
-			checkType(fptr);
-			checkType(arg);
-			type = metaclass;
-			ispure = true;
+			semantic1Head(that);
 		} else {
 			auto fun = fptr.type.isFunction;
 			if (!fun) {
 				error("Not a function", pos);
 			}
-			if (!(sameTypeValueType(arg, fun.arg))) {
+			if (!sameTypeValueType(arg, fun.arg)) {
 				error("Unable to call function with the  argument's type", pos);
 			}
 			type = fun.fptr;
@@ -542,7 +602,8 @@ void semantic1Impl(Slice that, Trace* trace) {
 		if (!array.type.isArray) {
 			error("Not an array", pos);
 		}
-		if (!(sameTypeValueType(right, new UInt(0)) && sameTypeValueType(left, new UInt(0)))) {
+		if (!(sameTypeValueType(right, createType!UInt(0))
+				&& sameTypeValueType(left, createType!UInt(0)))) {
 			error("Can only index an array with UInts", pos);
 		}
 		type = array.type;
@@ -562,7 +623,7 @@ void semantic1Impl(string op)(Binary!op that, Trace* trace) {
 				error(op ~ " only works on Ints or UInts of the same Type", pos);
 			}
 			static if (["<=", ">=", ">", "<"].canFind(op)) {
-				type = new Bool();
+				type = createType!Bool;
 			} else {
 				type = ty;
 			}
@@ -578,14 +639,14 @@ void semantic1Impl(string op)(Binary!op that, Trace* trace) {
 			if (!(sameTypeValueValue(left, right))) {
 				error(op ~ " only works on the same Type", pos);
 			}
-			type = new Bool();
+			type = createType!Bool;
 			ispure = left.ispure && right.ispure;
 		} else static if (["&&", "||"].canFind(op)) {
 			auto ty = left.type;
 			if (!(ty.isBool && sameType(ty, right.type))) {
 				error(op ~ " only works on Bools", pos);
 			}
-			type = new Bool();
+			type = createType!Bool;
 			ispure = left.ispure && right.ispure;
 		} else {
 			static assert(0);
@@ -648,9 +709,7 @@ void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
 
 			assignHeap(value, trace);
 
-			auto ptr = new Postfix!"(*)"();
-			ptr.value = value.type;
-			type = ptr;
+			type = createType!(Postfix!"(*)")(value.type);
 			ispure = value.ispure;
 		} else static if (op == "!") {
 			if (!value.type.isBool) {
@@ -672,6 +731,8 @@ void semantic1Impl(ScopeVar that, Trace* trace) {
 		checkRuntimeValue(definition);
 		ispure = definition.ispure;
 		if (explicitType) {
+			semantic1(explicitType, trace);
+			checkType(explicitType);
 			if (!sameTypeValueType(definition, explicitType)) {
 				error("types don't match", pos);
 			}
@@ -703,41 +764,33 @@ void semantic1Impl(Scope that, Trace* trace) {
 
 void semantic1Impl(FuncLit that, Trace* trace) {
 	with (that) {
-		auto ftype = new FCall();
 		semantic1(argument, trace);
 		checkType(argument);
-		ftype.arg = argument;
 
 		if (explict_return) {
 			semantic1(explict_return, trace);
 			checkType(explict_return);
-			ftype.fptr = explict_return;
-			type = ftype;
+			type = createType!FCall(explict_return, argument);
 		}
 		semantic1(text, trace);
 		checkRuntimeValue(text);
+
 		if (explict_return) {
 			if (!sameType(explict_return, text.type)) {
 				error("Explict return doesn't match actual return", pos);
 			}
 		}
-		ftype.fptr = text.type;
 		//ftype.ispure = text.ispure; todo fix me
-		type = ftype;
+		if (!explict_return) {
+			type = createType!FCall(text.type, argument);
+		}
 		ispure = true;
 	}
 }
 
 void semantic1Impl(StringLit that, Trace* trace) {
 	with (that) {
-		auto array = new ArrayIndex;
-		array.array = new Char;
-		auto structWrap = new Struct();
-		structWrap.value = new TupleLit();
-		array.index = structWrap;
-		array.type = metaclass;
-
-		type = array;
+		type = createType!ArrayIndex(createType!Char);
 		ispure = true;
 	}
 }
@@ -757,16 +810,8 @@ void semantic1Impl(ArrayLit that, Trace* trace) {
 				error("All elements of an array literal must be of the same type", pos);
 			}
 		}
-		auto array = new ArrayIndex;
-		array.array = current;
-		auto structWrap = new Struct();
-		structWrap.value = new TupleLit();
-		array.index = structWrap;
-		type = array;
-		ispure = true;
-		foreach (value; values) {
-			ispure = ispure && value.ispure;
-		}
+		type = createType!ArrayIndex(current);
+		ispure = values.map!(a => a.ispure).all;
 	}
 }
 
@@ -874,7 +919,7 @@ bool castable(Expression target, Expression want) {
 	if (sameType(target, want)) {
 		return true;
 	}
-	if (sameType(target, emptyType)) {
+	if (sameType(target, createType!Struct())) {
 		return true;
 	}
 	if ((cast(Int) target || cast(UInt) target) && (cast(Int) want || cast(UInt) want)) { //casting between int types

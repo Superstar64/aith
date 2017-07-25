@@ -134,18 +134,10 @@ class Char : Expression {
 
 class Int : Expression {
 	uint size;
-	this(uint _) {
-		size = _;
-	}
-
 }
 
 class UInt : Expression {
 	uint size;
-	this(uint _) {
-		size = _;
-	}
-
 }
 
 class Metaclass : Expression {

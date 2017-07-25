@@ -136,10 +136,14 @@ struct Parser {
 			}
 			if (front == key!"int_t") {
 				popFront;
-				ret = new Int(parseDotFix);
+				auto int_t = new Int();
+				int_t.size = parseDotFix;
+				ret = int_t;
 			} else if (front == key!"uint_t") {
 				popFront;
-				ret = new UInt(parseDotFix);
+				auto int_t = new UInt();
+				int_t.size = parseDotFix;
+				ret = int_t;
 			} else if (front == key!"char") {
 				popFront;
 				ret = new Char();
