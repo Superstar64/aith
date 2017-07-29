@@ -45,8 +45,8 @@ Module findAndReadModule(string name) {
 		return all[name];
 	}
 	foreach (dir; searchDirs) {
-		if (exists(dir ~ "/" ~ name)) {
-			return readModule(dir ~ "/" ~ name);
+		if (exists(dir ~ dirSeparator ~ name)) {
+			return readModule(dir ~ dirSeparator ~ name);
 		}
 	}
 	stderr.writeln("can't find module " ~ name);
@@ -56,8 +56,6 @@ Module findAndReadModule(string name) {
 
 Module readModule(string name) {
 	auto mod = new Module();
-	mod.namespace = name.stripExtension.asNormalizedPath.array.split(dirSeparator)
-		.map!(a => a.idup).array;
 	all[name] = mod;
 
 	auto map = new MmFile(name);

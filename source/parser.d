@@ -610,7 +610,6 @@ struct Parser {
 				if (front == key!"let" || front == key!"alias") {
 					auto var = new ModuleVar();
 					parseVarDef(var, front == key!"alias");
-					var.namespace = ret.namespace;
 					ret.symbols[var.name] = var;
 				}
 				front.expect(oper!";");

@@ -1,1 +1,1 @@
-samples.hello.main([]);
+main([]);

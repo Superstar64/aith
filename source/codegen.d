@@ -38,28 +38,12 @@ import jsast;
 
 JsState[] generateJSModule(Module mod) {
 	JsState[] result;
-	auto name = mod.namespace;
-	JsExpr var;
-	foreach (c, _; name) {
-		if (c == 0) {
-			result ~= new JsVarDef(name[0], new JsBinary!"||"(new JsLit(name[0]), new JsObject()));
-			var = new JsLit(name[0]);
-		} else {
-			auto namespace = name[0 .. c + 1];
-			var = new JsLit(namespace.front);
-			namespace.popFront;
-			foreach (n; namespace) {
-				var = new JsDot(var, n);
-			}
-			result ~= new JsBinary!"="(var, new JsBinary!"||"(var, new JsObject()));
-		}
-	}
 	auto modTrace = Trace(mod, null);
 	foreach (symbol; mod.symbols) {
 		uint uuid;
 		if (isRuntimeValue(symbol.definition)) {
-			result ~= new JsBinary!"="(new JsDot(var, symbol.name),
-					generateJS(symbol.definition, &modTrace, Usage.once, result, uuid));
+			result ~= new JsVarDef(symbol.name, generateJS(symbol.definition,
+					&modTrace, Usage.once, result, uuid));
 		}
 	}
 	return result;
@@ -378,25 +362,8 @@ void ignoreShare(ref Usage usage) {
 	usage.share = null;
 }
 
-JsExpr nameOfGlobal(ModuleVar variable) {
-	auto names = variable.namespace.chain(only(variable.name));
-	JsExpr outvar;
-	foreach (c, iden; names.enumerate) {
-		if (c == 0) {
-			outvar = new JsLit(iden);
-		} else {
-			outvar = new JsDot(outvar, iden);
-		}
-	}
-	return outvar;
-}
-
 JsExpr symbolName(Var var) {
-	if (auto global = cast(ModuleVar) var) {
-		return nameOfGlobal(global);
-	} else {
-		return new JsLit(var.name);
-	}
+	return new JsLit(var.name);
 }
 
 JsExpr generateJS(Expression that, Trace* trace, Usage usage, ref JsState[] depend, ref uint uuid) {

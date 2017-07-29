@@ -155,12 +155,10 @@ abstract class Var : Statement {
 }
 
 class ModuleVar : Var {
-	string[] namespace;
 }
 
 class Module : Node, SearchContext {
 	ModuleVar[string] symbols;
-	string[] namespace;
 
 override:
 	SearchContext context() {
