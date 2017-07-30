@@ -1,4 +1,5 @@
 /+
+	Copyright (C) 2015-2017  Freddy Angel Cubas "Superstar64"
 	This file is part of Typi.
 
 	Typi is free software: you can redistribute it and/or modify

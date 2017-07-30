@@ -1,4 +1,5 @@
 /+
+	Copyright (C) 2015-2017  Freddy Angel Cubas "Superstar64"
 	This file is part of Typi.
 
 	Typi is free software: you can redistribute it and/or modify
@@ -78,7 +79,6 @@ enum Help = `typi {optional arguments} [files to compile]
 The TYPI_CONFIG enviroment Variable is looked at for a config file(extra arguments sperated by lines)
 Any .js files in [files to compile] are interpeted as runtime files and will be included after the output
 
-Copyright (C) 2015  Freddy Angel Cubas "Superstar64"
 This software has no warrenty.
 You may distrubute this software under the General Public Licenese Version 3
 `;
