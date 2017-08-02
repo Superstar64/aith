@@ -275,6 +275,10 @@ void semantic1(Node that, Trace* trace) {
 			Binary!"~", Binary!"==", Binary!"!=", Binary!"<=", Binary!">=",
 			Binary!"<", Binary!">", Binary!"&&", Binary!"||", Assign,
 			Prefix!"+", Prefix!"-", Prefix!"*", Prefix!"/", Prefix!"&", Prefix!"!")(that, trace);
+	if (auto expr = cast(Expression) that) {
+		assert(expr.type);
+		assert(expr.type.isType);
+	}
 }
 
 void semantic1Impl(Module that, Trace* trace) {
@@ -541,9 +545,12 @@ void semantic1DotImpl(T)(T that, Trace* trace, Dot dot) {
 			auto imp = cast(Import) dot.value.unalias;
 			auto name = dot.index.get!string;
 			if (!(name in imp.mod.symbols)) {
-				error(name ~ " doesn't exist in module", pos);
+				error(name ~ " doesn't exist in module", dot.pos);
 			}
 			auto definition = imp.mod.symbols[name];
+			if (!definition.visible) {
+				error(name ~ " is not visible", dot.pos);
+			}
 			dot.variable = new Variable();
 			dot.variable.name = name;
 			dot.variable.definition = definition;
@@ -591,6 +598,9 @@ void semantic1Impl(FCall that, Trace* trace) {
 		} else {
 			auto fun = fptr.type.isFunction;
 			if (!fun) {
+				import std.stdio;
+
+				writeln(fptr.type.isType);
 				error("Not a function", pos);
 			}
 			if (!sameTypeValueType(arg, fun.arg)) {

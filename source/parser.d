@@ -24,6 +24,7 @@ import error : error, Position;
 import ast;
 import app : findAndReadModule;
 import lexer;
+import std.algorithm : countUntil;
 
 struct Parser {
 	Lexer lexer;
@@ -585,24 +586,58 @@ struct Parser {
 		}
 	}
 
+	enum modifiersList = ["public", "private"];
+	enum indexModifier(string modifier) = modifiersList.countUntil(modifier);
+	static void applyModifiers(int[] modifiers, ref Modifier output) {
+		foreach (modifier; modifiers) {
+			if (modifier == indexModifier!"public") {
+				output.visible = true;
+			} else if (modifier == indexModifier!"private") {
+				output.visible = false;
+			} else {
+				assert(0);
+			}
+		}
+	}
+
 	//todo this is ugly remove it
-	Module parseModule(Module ret) {
+	void parseModule(Module ret) {
 		with (lexer) {
+			Modifier globalModifiers;
 			while (true) {
 				if (front == Eof()) {
 					popFront;
-					return ret;
+					return;
 				}
-				if (front == key!"let" || front == key!"alias") {
+				int[] modifiersList;
+				while (true) {
+					if (front == key!"public") {
+						modifiersList ~= indexModifier!"public";
+					} else if (front == key!"private") {
+						modifiersList ~= indexModifier!"private";
+					} else {
+						break;
+					}
+					popFront;
+				}
+				if (modifiersList.length > 0 && front == oper!":") {
+					applyModifiers(modifiersList, globalModifiers);
+					popFront;
+				} else if (front == key!"let" || front == key!"alias") {
+					Modifier localModifiers = globalModifiers;
+					applyModifiers(modifiersList, localModifiers);
 					auto var = new ModuleVar();
+					var.modifier = localModifiers;
 					parseVarDef(var, front == key!"alias");
 					ret.symbols[var.name] = var;
 					if (auto ext = cast(ExternJS) var.definition) {
 						ext.symbol = var.name;
 					}
+					front.expect(oper!";");
+					popFront;
+				} else {
+					error("Expected variable or modifiers list", front.pos);
 				}
-				front.expect(oper!";");
-				popFront;
 			}
 		}
 	}

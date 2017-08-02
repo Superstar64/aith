@@ -154,7 +154,14 @@ abstract class Var : Statement {
 	}
 }
 
+struct Modifier {
+	bool visible;
+}
+
 class ModuleVar : Var {
+	Modifier modifier;
+
+	alias modifier this;
 }
 
 class Module : Node, SearchContext {

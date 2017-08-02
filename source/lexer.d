@@ -88,7 +88,8 @@ struct IntLiteral {
 struct Keyword {
 	enum list = [
 			"alias", "let", "bool_t", "cast", "char", "else", "extern", "false",
-			"if", "import", "int_t", "new", "of", "struct", "then", "true", "uint_t", "while",
+			"if", "import", "int_t", "new", "of", "private", "public",
+			"struct", "then", "true", "uint_t", "while",
 		];
 	size_t index;
 	string toString() {
