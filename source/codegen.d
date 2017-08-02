@@ -41,7 +41,7 @@ JsState[] generateJSModule(Module mod) {
 	auto modTrace = Trace(mod, null);
 	foreach (symbol; mod.symbols) {
 		uint uuid;
-		if (isRuntimeValue(symbol.definition)) {
+		if (isRuntimeValue(symbol.definition) && !isExtern(symbol.definition)) {
 			result ~= new JsVarDef(symbol.name, generateJS(symbol.definition,
 					&modTrace, Usage.once, result, uuid));
 		}
@@ -373,10 +373,10 @@ JsExpr generateJS(Expression that, Trace* trace, Usage usage, ref JsState[] depe
 	return returnWrap(dispatch!(generateJSImpl, IntLit, BoolLit, CharLit, TupleLit,
 			Variable, FuncArgument, If, While, New, NewArray, Cast, Dot, ArrayIndex,
 			FCall, Slice, StringLit, ArrayLit, Binary!"==", Binary!"!=",
-			Binary!"~", Prefix!"*", Prefix!"&", Scope, FuncLit, ExternJS,
-			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
-			Binary!"<=", Binary!">=", Binary!"<", Binary!">", Binary!"&&",
-			Binary!"||", Prefix!"-", Prefix!"!")(that, trace, usage, depend, uuid).expand,
+			Binary!"~", Prefix!"*", Prefix!"&", Scope, FuncLit, Binary!"*",
+			Binary!"/", Binary!"%", Binary!"+", Binary!"-", Binary!"<=",
+			Binary!">=", Binary!"<", Binary!">", Binary!"&&", Binary!"||",
+			Prefix!"-", Prefix!"!")(that, trace, usage, depend, uuid).expand,
 			usage, that.type, depend, uuid);
 }
 
@@ -758,13 +758,6 @@ Tuple!(JsExpr, Usage) generateJSImpl(FuncLit that, Trace* trace, Usage usage,
 			result.states ~= new JsReturn(val);
 		}
 		return typeof(return)(result, Usage.literal);
-	}
-}
-
-Tuple!(JsExpr, Usage) generateJSImpl(ExternJS that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
-	with (that) {
-		return typeof(return)(new JsLit(external), Usage.literal);
 	}
 }
 

@@ -80,6 +80,13 @@ FCall isFunction(Expression type) {
 	return null;
 }
 
+bool isExtern(Expression expression) {
+	if (auto ext = cast(Cast) expression.unalias) {
+		return !!cast(ExternJS) ext.value;
+	}
+	return !!cast(ExternJS) expression;
+}
+
 ref Expression[] values(Struct stru) {
 	auto tuple = cast(TupleLit) stru.value.unalias;
 	assert(tuple);
@@ -127,7 +134,8 @@ Expression createType(T, Args...)(Args args) {
 	return type;
 }
 
-T createTypeImpl(T)() if (is(T == Bool) || is(T == Char)) {
+T createTypeImpl(T)()
+		if (is(T == Bool) || is(T == Char) || is(T == ImportType) || is(T == ExternType)) {
 	auto type = new T;
 	semantic1Head(type);
 	return type;
@@ -143,12 +151,6 @@ T createTypeImpl(T)(int size) if (is(T == Int) || is(T == UInt)) {
 T createTypeImpl(T)(Expression value) if (is(T == Postfix!"(*)")) {
 	auto type = new T;
 	type.value = value;
-	semantic1Head(type);
-	return type;
-}
-
-T createTypeImpl(T)() if (is(T == ImportType)) {
-	auto type = new T;
 	semantic1Head(type);
 	return type;
 }
@@ -206,7 +208,7 @@ void semantic1Head(TupleLit that) {
 }
 
 void semantic1HeadImpl(T)(T that)
-		if (is(T == Bool) || is(T == Char) || is(T == ImportType)) {
+		if (is(T == Bool) || is(T == Char) || is(T == ImportType) || is(T == ExternType)) {
 }
 
 void semantic1HeadImpl(T)(T that) if (is(T == Int) || is(T == UInt)) {
@@ -315,10 +317,13 @@ void semantic1Impl(T)(T that, Trace* trace) if (is(T == Postfix!"(*)")) {
 	}
 }
 
-void semantic1Impl(ModuleVar that, Trace* trace) {
+void semantic1Var(Var that, Trace* trace) {
 	with (that) {
 		semantic1(definition, trace);
 		ispure = definition.ispure;
+		if (!that.manifest) {
+			ispure = false;
+		}
 		if (explicitType) {
 			semantic1(explicitType, trace);
 			checkType(explicitType);
@@ -326,6 +331,12 @@ void semantic1Impl(ModuleVar that, Trace* trace) {
 				error("types don't match", pos);
 			}
 		}
+	}
+}
+
+void semantic1Impl(ModuleVar that, Trace* trace) {
+	with (that) {
+		semantic1Var(that, trace);
 	}
 }
 
@@ -727,16 +738,8 @@ void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
 
 void semantic1Impl(ScopeVar that, Trace* trace) {
 	with (that) {
-		semantic1(definition, trace);
+		semantic1Var(that, trace);
 		checkRuntimeValue(definition);
-		ispure = definition.ispure;
-		if (explicitType) {
-			semantic1(explicitType, trace);
-			checkType(explicitType);
-			if (!sameTypeValueType(definition, explicitType)) {
-				error("types don't match", pos);
-			}
-		}
 	}
 }
 
@@ -817,9 +820,11 @@ void semantic1Impl(ArrayLit that, Trace* trace) {
 
 void semantic1Impl(ExternJS that, Trace* trace) {
 	with (that) {
-		semantic1(type, trace);
-		checkType(type);
+		type = createType!ExternType;
 		ispure = true;
+		if (symbol == "") {
+			error("Improper extern", pos);
+		}
 	}
 }
 
@@ -840,13 +845,14 @@ bool sameTypeValueValue(ref Expression left, ref Expression right) {
 bool sameType(Expression a, Expression b) {
 	assert(a.isType);
 	assert(b.isType);
-	alias Types = AliasSeq!(Metaclass, Char, Int, UInt, Struct, Postfix!"(*)", ArrayIndex, FCall);
+	alias Types = AliasSeq!(Metaclass, Char, Int, UInt, Struct, Postfix!"(*)",
+			ArrayIndex, FCall, ImportType, ExternType);
 	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(
 			a.unalias, b.unalias);
 }
 
 bool sameTypeImpl(T1, T2)(T1 a, T2 b) {
-	static if (!is(T1 == T2)) {
+	static if (!is(T1 == T2) || is(T1 == ImportType) || is(T1 == ExternType)) {
 		return false;
 	} else {
 		alias T = T1;
@@ -891,18 +897,14 @@ bool implicitConvert(ref Expression value, Expression type) {
 		value = result;
 		return true;
 	}
-	if (cast(TupleLit) value && cast(Struct)(type)) {
-		auto str = cast(TupleLit) value;
-		auto target = cast(Struct) type;
-		foreach (c, ref sub; str.values) {
-			if (sameType(sub.type, target.values[c])) {
-				continue;
-			}
-			if (implicitConvert(sub, target.values[c])) {
-				continue;
-			}
-			return false;
-		}
+	if (auto ext = cast(ExternJS) value) {
+		auto result = new Cast();
+		result.implicit = true;
+		result.wanted = type;
+		result.type = type;
+		result.value = value;
+		result.process = true;
+		value = result;
 		return true;
 	}
 	return false;

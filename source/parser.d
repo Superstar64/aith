@@ -578,20 +578,6 @@ struct Parser {
 				auto ret = new ExternJS;
 				auto pos = front.pos;
 				popFront;
-				front.expectT!StringLiteral;
-				auto str = front.get!(StringLiteral).data;
-				if (str != "js") {
-					error("Only extern js is supported", front.pos);
-				}
-				popFront;
-				front.expect(key!"of");
-				popFront;
-				ret.type = parseExpression;
-				front.expect(oper!"=");
-				popFront;
-				front.expectT!StringLiteral;
-				ret.external = front.get!(StringLiteral).data;
-				popFront;
 				ret.pos = pos.join(front.pos);
 				return ret;
 			}
@@ -611,6 +597,9 @@ struct Parser {
 					auto var = new ModuleVar();
 					parseVarDef(var, front == key!"alias");
 					ret.symbols[var.name] = var;
+					if (auto ext = cast(ExternJS) var.definition) {
+						ext.symbol = var.name;
+					}
 				}
 				front.expect(oper!";");
 				popFront;

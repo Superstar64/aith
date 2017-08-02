@@ -180,9 +180,6 @@ class Import : Expression {
 	Module mod;
 }
 
-class ImportType : Expression {
-}
-
 class IntLit : Expression {
 	BigInt value;
 	bool usigned;
@@ -335,5 +332,12 @@ class ArrayLit : Expression {
 }
 
 class ExternJS : Expression {
-	string external;
+	string symbol;
+}
+
+//dark corners
+class ImportType : Expression {
+}
+
+class ExternType : Expression {
 }
