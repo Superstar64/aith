@@ -120,29 +120,6 @@ class Assign : Statement {
 	Expression right;
 }
 
-//either a type or a value
-abstract class Expression : Statement {
-	Expression type;
-	bool lvalue;
-}
-
-class Bool : Expression {
-}
-
-class Char : Expression {
-}
-
-class Int : Expression {
-	uint size;
-}
-
-class UInt : Expression {
-	uint size;
-}
-
-class Metaclass : Expression {
-}
-
 abstract class Var : Statement {
 	string name;
 	bool heap; //has the address of the variable been taken,does not apply to closures
@@ -164,9 +141,13 @@ class ModuleVar : Var {
 	alias modifier this;
 }
 
+class ScopeVar : Var {
+	//if this variable is not manifest, points to function literal where it was declared
+	FuncLit func;
+}
+
 class Module : Node, SearchContext {
 	ModuleVar[string] symbols;
-
 override:
 	SearchContext context() {
 		return this;
@@ -181,6 +162,29 @@ override:
 
 	void pass(Node) {
 	}
+}
+
+//either a type or a value
+abstract class Expression : Statement {
+	Expression type;
+	bool lvalue;
+}
+
+class Bool : Expression {
+}
+
+class Char : Expression {
+}
+
+class Int : Expression {
+	uint size;
+}
+
+class UInt : Expression {
+	uint size;
+}
+
+class Metaclass : Expression {
 }
 
 class Import : Expression {
@@ -285,9 +289,6 @@ class Postfix(string T) : Expression if (["(*)"].canFind(T)) {
 	Expression value;
 }
 
-class ScopeVar : Var {
-}
-
 class Scope : Expression {
 	//includes alias = for now
 	//duped with iterating over context
@@ -339,7 +340,7 @@ class ArrayLit : Expression {
 }
 
 class ExternJS : Expression {
-	string symbol;
+	string name;
 }
 
 //dark corners

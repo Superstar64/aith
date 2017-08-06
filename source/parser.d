@@ -631,7 +631,7 @@ struct Parser {
 					parseVarDef(var, front == key!"alias");
 					ret.symbols[var.name] = var;
 					if (auto ext = cast(ExternJS) var.definition) {
-						ext.symbol = var.name;
+						ext.name = var.name;
 					}
 					front.expect(oper!";");
 					popFront;

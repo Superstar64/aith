@@ -201,7 +201,6 @@ void semantic1Head(TupleLit that) {
 			type = cycle;
 		} else {
 			type = createType!Struct(values.map!(a => a.type).array, names);
-			values.each!checkRuntimeValue;
 		}
 		ispure = values.map!(a => a.ispure).all;
 	}
@@ -327,6 +326,7 @@ void semantic1Var(Var that, Trace* trace) {
 		ispure = definition.ispure;
 		if (!that.manifest) {
 			ispure = false;
+			checkRuntimeValue(definition);
 		}
 		if (explicitType) {
 			semantic1(explicitType, trace);
@@ -386,8 +386,6 @@ void semantic1Impl(TupleLit that, Trace* trace) {
 	}
 }
 
-//todo remember to put unalias before doing checks on values
-
 void semantic1Impl(Variable that, Trace* trace) {
 	with (that) {
 		Trace subTrace;
@@ -397,6 +395,7 @@ void semantic1Impl(Variable that, Trace* trace) {
 		}
 		definition = source;
 		processVariable(that, &subTrace);
+		checkNotClosure(that, trace, pos);
 	}
 }
 
@@ -407,9 +406,36 @@ void processVariable(Variable that, Trace* definitionTrace) {
 		}
 		assert(definition.type);
 
-		type = definition.type;
-		lvalue = !definition.manifest;
-		ispure = definition.manifest;
+		if (definition.manifest) {
+			type = that.unalias.type;
+			lvalue = that.unalias.lvalue;
+			ispure = that.unalias.ispure;
+		} else {
+			type = definition.type;
+			lvalue = true;
+			ispure = !!cast(ScopeVar) definition.definition;
+		}
+	}
+}
+
+void checkNotClosure(Variable that, Trace* trace, Position pos) {
+	auto definition = cast(ScopeVar) that.definition;
+	if (!definition) {
+		return;
+	}
+	if (definition.manifest) {
+		if (auto sub = cast(Variable) definition.definition) {
+			checkNotClosure(sub, trace, pos); //unalias
+		}
+	} else {
+		auto funcRange = trace.range.map!(a => a.node)
+			.map!(a => cast(FuncLit) a).filter!(a => !!a);
+		if (funcRange.empty) {
+			assert(0); //this should never happen
+		}
+		if (funcRange.front !is definition.func) {
+			error("Closures not supported", pos);
+		}
 	}
 }
 
@@ -428,11 +454,8 @@ void semantic1Impl(FuncArgument that, Trace* trace) {
 void semantic1Impl(If that, Trace* trace) {
 	with (that) {
 		semantic1(cond, trace);
-		checkRuntimeValue(cond);
 		semantic1(yes, trace);
-		checkRuntimeValue(yes);
 		semantic1(no, trace);
-		checkRuntimeValue(no);
 		if (!cond.type.isBool) {
 			error("Boolean expected in if expression", cond.pos);
 		}
@@ -447,9 +470,7 @@ void semantic1Impl(If that, Trace* trace) {
 void semantic1Impl(While that, Trace* trace) {
 	with (that) {
 		semantic1(cond, trace);
-		checkRuntimeValue(cond);
 		semantic1(state, trace);
-		checkRuntimeValue(state);
 		if (!cond.type.isBool) {
 			error("Boolean expected in while expression", cond.pos);
 		}
@@ -461,7 +482,6 @@ void semantic1Impl(While that, Trace* trace) {
 void semantic1Impl(New that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
-		checkRuntimeValue(value);
 		type = createType!(Postfix!"(*)")(value.type);
 		ispure = value.ispure;
 	}
@@ -470,9 +490,7 @@ void semantic1Impl(New that, Trace* trace) {
 void semantic1Impl(NewArray that, Trace* trace) {
 	with (that) {
 		semantic1(length, trace);
-		checkRuntimeValue(length);
 		semantic1(value, trace);
-		checkRuntimeValue(value);
 		if (!sameTypeValueType(length, createType!UInt(0))) {
 			error("Can only create an array with length of UInts", length.pos);
 		}
@@ -484,7 +502,6 @@ void semantic1Impl(NewArray that, Trace* trace) {
 void semantic1Impl(Cast that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
-		checkRuntimeValue(value);
 		semantic1(wanted, trace);
 		checkType(wanted);
 		if (!castable(value.type, wanted)) {
@@ -509,9 +526,6 @@ void semantic1Dot(Expression that, Trace* trace, Dot dot) {
 }
 
 void semantic1DotImpl(T)(T that, Trace* trace, Dot dot) {
-	if (cycle(that, trace)) {
-		return;
-	}
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
 	with (that) {
@@ -615,11 +629,8 @@ void semantic1Impl(FCall that, Trace* trace) {
 void semantic1Impl(Slice that, Trace* trace) {
 	with (that) {
 		semantic1(array, trace);
-		checkRuntimeValue(array);
 		semantic1(left, trace);
-		checkRuntimeValue(left);
 		semantic1(right, trace);
-		checkRuntimeValue(right);
 		if (!array.type.isArray) {
 			error("Not an array", pos);
 		}
@@ -635,9 +646,7 @@ void semantic1Impl(Slice that, Trace* trace) {
 void semantic1Impl(string op)(Binary!op that, Trace* trace) {
 	with (that) {
 		semantic1(left, trace);
-		checkRuntimeValue(left);
 		semantic1(right, trace);
-		checkRuntimeValue(right);
 		static if (["*", "/", "%", "+", "-", "<=", ">=", ">", "<"].canFind(op)) {
 			auto ty = left.type;
 			if (!((ty.isUInt || ty.isInt) && (sameTypeValueValue(left, right)))) {
@@ -678,9 +687,7 @@ void semantic1Impl(string op)(Binary!op that, Trace* trace) {
 void semantic1Impl(Assign that, Trace* trace) {
 	with (that) {
 		semantic1(left, trace);
-		checkRuntimeValue(left);
 		semantic1(right, trace);
-		checkRuntimeValue(right);
 		if (!(sameType(left.type, right.type) || implicitConvert(right, left.type))) {
 			error("= only works on the same type", pos);
 		}
@@ -694,7 +701,6 @@ void semantic1Impl(Assign that, Trace* trace) {
 void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
-		checkRuntimeValue(value);
 		static if (op == "-") {
 			if (!value.type.isInt) {
 				error("= only works Signed Ints", pos);
@@ -749,7 +755,14 @@ void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
 void semantic1Impl(ScopeVar that, Trace* trace) {
 	with (that) {
 		semantic1Var(that, trace);
-		checkRuntimeValue(definition);
+		if (!manifest) {
+			auto funcRange = trace.range.map!(a => a.node)
+				.map!(a => cast(FuncLit) a).filter!(a => !!a);
+			if (funcRange.empty) {
+				assert(0);
+			}
+			func = funcRange.front;
+		}
 	}
 }
 
@@ -761,9 +774,6 @@ void semantic1Impl(Scope that, Trace* trace) {
 		}
 		foreach (state; states) {
 			semantic1(state, trace);
-			if (auto expression = cast(Expression) state) {
-				checkRuntimeValue(expression);
-			}
 			trace.context.pass(state);
 			ispure = ispure && state.ispure;
 		}
@@ -786,7 +796,6 @@ void semantic1Impl(FuncLit that, Trace* trace) {
 			type = createType!FCall(explict_return, argument);
 		}
 		semantic1(text, trace);
-		checkRuntimeValue(text);
 
 		if (explict_return) {
 			if (!sameType(explict_return, text.type)) {
@@ -812,7 +821,6 @@ void semantic1Impl(ArrayLit that, Trace* trace) {
 	with (that) {
 		foreach (value; values) {
 			semantic1(value, trace);
-			checkRuntimeValue(value);
 		}
 		if (values.length == 0) {
 			error("Array Literals must contain at least one element", pos);
@@ -832,7 +840,7 @@ void semantic1Impl(ExternJS that, Trace* trace) {
 	with (that) {
 		type = createType!ExternType;
 		ispure = true;
-		if (symbol == "") {
+		if (name == "") {
 			error("Improper extern", pos);
 		}
 	}
