@@ -39,7 +39,7 @@ template dispatch(alias fun, Types...) {
 alias Index = Algebraic!(BigInt, string);
 
 interface SearchContext {
-	Var search(string name, ref Trace); //trace is an out variable with is by default the current trace
+	VarDef search(string name, ref Trace); //trace is an out variable with is by default the current trace
 	//for some types(scopes) looping over children changes the searchcontext
 	void pass(Node child);
 }
@@ -55,12 +55,12 @@ struct Trace {
 		this.upper = upper;
 	}
 
-	Var search(string name) {
+	VarDef search(string name) {
 		Trace trace;
 		return search(name, trace);
 	}
 
-	Var search(string name, ref Trace trace) {
+	VarDef search(string name, ref Trace trace) {
 		trace = this;
 		if (context) {
 			if (auto result = context.search(name, trace)) {
@@ -120,7 +120,7 @@ class Assign : Statement {
 	Expression right;
 }
 
-abstract class Var : Statement {
+abstract class VarDef : Statement {
 	string name;
 	bool heap; //has the address of the variable been taken,does not apply to closures
 	bool manifest;
@@ -135,25 +135,25 @@ struct Modifier {
 	bool visible;
 }
 
-class ModuleVar : Var {
+class ModuleVarDef : VarDef {
 	Modifier modifier;
 
 	alias modifier this;
 }
 
-class ScopeVar : Var {
+class ScopeVarDef : VarDef {
 	//if this variable is not manifest, points to function literal where it was declared
 	FuncLit func;
 }
 
 class Module : Node, SearchContext {
-	ModuleVar[string] symbols;
+	ModuleVarDef[string] symbols;
 override:
 	SearchContext context() {
 		return this;
 	}
 
-	Var search(string name, ref Trace trace) {
+	VarDef search(string name, ref Trace trace) {
 		if (name in symbols) {
 			return symbols[name];
 		}
@@ -216,7 +216,7 @@ class TupleLit : Expression {
 
 class Variable : Expression {
 	string name;
-	Var definition;
+	VarDef definition;
 }
 
 class FuncArgument : Expression {
@@ -292,20 +292,20 @@ class Postfix(string T) : Expression if (["(*)"].canFind(T)) {
 class Scope : Expression {
 	//includes alias = for now
 	//duped with iterating over context
-	ScopeVar[string] symbols;
+	ScopeVarDef[string] symbols;
 	Statement[] states;
 	Expression last;
 
 	static class ScopeContext : SearchContext {
 		Scope that;
-		ScopeVar[string] symbols;
+		ScopeVarDef[string] symbols;
 
 		this(Scope that) {
 			this.that = that;
 			symbols = that.symbols.dup;
 		}
 
-		Var search(string name, ref Trace trace) {
+		VarDef search(string name, ref Trace trace) {
 			if (name in symbols) {
 				return symbols[name];
 			}
@@ -313,7 +313,7 @@ class Scope : Expression {
 		}
 
 		void pass(Node node) {
-			if (auto var = cast(ScopeVar) node) {
+			if (auto var = cast(ScopeVarDef) node) {
 				symbols[var.name] = var;
 			}
 		}

@@ -362,7 +362,7 @@ void ignoreShare(ref Usage usage) {
 	usage.share = null;
 }
 
-JsExpr symbolName(Var var) {
+JsExpr symbolName(VarDef var) {
 	return new JsLit(var.name);
 }
 
@@ -711,7 +711,7 @@ Tuple!(JsExpr, Usage) generateJSImpl(Scope that, Trace* trace, Usage usage,
 			} else if (auto assign = cast(Assign) state) {
 				depend ~= generateJSAssign(assign.left, assign.right, trace,
 						Usage.once, depend, uuid);
-			} else if (auto var = cast(ScopeVar) state) {
+			} else if (auto var = cast(ScopeVarDef) state) {
 				auto val = generateJS(var.definition, trace, Usage(Unique.copy,
 						Eval.once), depend, uuid);
 				if (var.heap) {

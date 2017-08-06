@@ -267,9 +267,9 @@ void semantic1(Node that, Trace* trace) {
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
 	dispatch!(semantic1Impl, Metaclass, Bool, Char, Int, UInt, Postfix!"(*)",
-			ModuleVar, Module, Import, IntLit, CharLit, BoolLit, Struct, TupleLit,
-			Variable, FuncArgument, If, While, New, NewArray, Cast, Dot, ArrayIndex,
-			FCall, Slice, ScopeVar, Scope, FuncLit, StringLit, ArrayLit, ExternJS,
+			ModuleVarDef, Module, Import, IntLit, CharLit, BoolLit, Struct, TupleLit,
+			Variable, FuncArgument, If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall,
+			Slice, ScopeVarDef, Scope, FuncLit, StringLit, ArrayLit, ExternJS,
 			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
 			Binary!"~", Binary!"==", Binary!"!=", Binary!"<=", Binary!">=",
 			Binary!"<", Binary!">", Binary!"&&", Binary!"||", Assign,
@@ -320,7 +320,7 @@ void semantic1Impl(T)(T that, Trace* trace) if (is(T == Postfix!"(*)")) {
 	}
 }
 
-void semantic1Var(Var that, Trace* trace) {
+void semantic1Var(VarDef that, Trace* trace) {
 	with (that) {
 		semantic1(definition, trace);
 		ispure = definition.ispure;
@@ -338,7 +338,7 @@ void semantic1Var(Var that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(ModuleVar that, Trace* trace) {
+void semantic1Impl(ModuleVarDef that, Trace* trace) {
 	with (that) {
 		semantic1Var(that, trace);
 	}
@@ -413,13 +413,13 @@ void processVariable(Variable that, Trace* definitionTrace) {
 		} else {
 			type = definition.type;
 			lvalue = true;
-			ispure = !!cast(ScopeVar) definition.definition;
+			ispure = !!cast(ScopeVarDef) definition.definition;
 		}
 	}
 }
 
 void checkNotClosure(Variable that, Trace* trace, Position pos) {
-	auto definition = cast(ScopeVar) that.definition;
+	auto definition = cast(ScopeVarDef) that.definition;
 	if (!definition) {
 		return;
 	}
@@ -752,7 +752,7 @@ void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(ScopeVar that, Trace* trace) {
+void semantic1Impl(ScopeVarDef that, Trace* trace) {
 	with (that) {
 		semantic1Var(that, trace);
 		if (!manifest) {

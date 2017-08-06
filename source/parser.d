@@ -451,7 +451,7 @@ struct Parser {
 					return ret;
 				}
 				if (front == key!"let" || front == key!"alias") {
-					auto var = new ScopeVar();
+					auto var = new ScopeVarDef();
 					parseVarDef(var, front == key!"alias");
 					ret.states ~= var;
 				} else {
@@ -479,7 +479,7 @@ struct Parser {
 		}
 	}
 
-	void parseVarDef(Var var, bool manifest) {
+	void parseVarDef(VarDef var, bool manifest) {
 		with (lexer) {
 			auto pos = front.pos;
 			var.manifest = manifest;
@@ -626,7 +626,7 @@ struct Parser {
 				} else if (front == key!"let" || front == key!"alias") {
 					Modifier localModifiers = globalModifiers;
 					applyModifiers(modifiersList, localModifiers);
-					auto var = new ModuleVar();
+					auto var = new ModuleVarDef();
 					var.modifier = localModifiers;
 					parseVarDef(var, front == key!"alias");
 					ret.symbols[var.name] = var;
