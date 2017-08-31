@@ -32,14 +32,12 @@ void processModule(Module mod) {
 }
 
 Expression unalias(Expression expression) {
-	if (auto unknown = cast(Variable) expression) {
-		if (unknown.definition.manifest) {
-			return unknown.definition.definition;
-		}
+	if (auto variable = cast(Variable) expression) {
+		return variable.thealias.unalias;
 	}
 	if (auto dot = cast(Dot) expression) {
-		if (dot.variable) {
-			return dot.variable.unalias;
+		if (dot.thealias) {
+			return dot.thealias.unalias;
 		}
 	}
 	return expression;
@@ -266,6 +264,14 @@ void semantic1(Node that, Trace* trace) {
 	that.process = true;
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
+	if (auto symbol = cast(Symbol) that) {
+		auto mod = cast(Module) trace.range.reduce!"b".node;
+		assert(mod);
+		if (symbol.name in mod.exports) {
+			error(symbol.name ~ " exported twice", that.pos);
+		}
+		mod.exports[symbol.name] = symbol;
+	}
 	dispatch!(semantic1Impl, Metaclass, Bool, Char, Int, UInt, Postfix!"(*)",
 			ModuleVarDef, Module, Import, IntLit, CharLit, BoolLit, Struct, TupleLit,
 			Variable, FuncArgument, If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall,
@@ -393,49 +399,49 @@ void semantic1Impl(Variable that, Trace* trace) {
 		if (source is null) {
 			error("Unknown variable", pos);
 		}
-		definition = source;
-		processVariable(that, &subTrace);
-		checkNotClosure(that, trace, pos);
-	}
-}
 
-void processVariable(Variable that, Trace* definitionTrace) {
-	with (that) {
-		if (definition.type is null) {
-			semantic1(definition, definitionTrace);
+		if (source.definition.type is null) {
+			semantic1(source.definition, &subTrace);
 		}
-		assert(definition.type);
 
-		if (definition.manifest) {
-			type = that.unalias.type;
-			lvalue = that.unalias.lvalue;
-			ispure = that.unalias.ispure;
+		if (source.manifest) {
+			thealias = source.definition;
 		} else {
-			type = definition.type;
-			lvalue = true;
-			ispure = !!cast(ScopeVarDef) definition.definition;
+			if (auto scopeDef = cast(ScopeVarDef) source) {
+				auto scopeRef = new ScopeVarRef();
+				scopeRef.definition = scopeDef;
+				scopeRef.ispure = true;
+				scopeRef.type = source.type;
+				scopeRef.lvalue = true;
+				thealias = scopeRef;
+			} else if (auto moduleDef = cast(ModuleVarDef) source) {
+				auto moduleRef = new ModuleVarRef();
+				moduleRef.definition = moduleDef;
+				moduleRef.ispure = false;
+				moduleRef.type = source.type;
+				moduleRef.lvalue = true;
+				thealias = moduleRef;
+			} else {
+				assert(0);
+			}
+		}
+		assert(thealias.type);
+		type = thealias.type;
+		lvalue = thealias.lvalue;
+		ispure = thealias.ispure;
+		if (auto scopeVarRef = cast(ScopeVarRef) that.unalias) {
+			checkNotClosure(scopeVarRef, trace, pos);
 		}
 	}
 }
 
-void checkNotClosure(Variable that, Trace* trace, Position pos) {
-	auto definition = cast(ScopeVarDef) that.definition;
-	if (!definition) {
-		return;
+void checkNotClosure(ScopeVarRef that, Trace* trace, Position pos) {
+	auto funcRange = trace.range.map!(a => a.node).map!(a => cast(FuncLit) a).filter!(a => !!a);
+	if (funcRange.empty) {
+		assert(0); //this should never happen
 	}
-	if (definition.manifest) {
-		if (auto sub = cast(Variable) definition.definition) {
-			checkNotClosure(sub, trace, pos); //unalias
-		}
-	} else {
-		auto funcRange = trace.range.map!(a => a.node)
-			.map!(a => cast(FuncLit) a).filter!(a => !!a);
-		if (funcRange.empty) {
-			assert(0); //this should never happen
-		}
-		if (funcRange.front !is definition.func) {
-			error("Closures not supported", pos);
-		}
+	if (funcRange.front !is that.definition.func) {
+		error("Closures not supported", pos);
 	}
 }
 
@@ -565,14 +571,20 @@ void semantic1DotImpl(T)(T that, Trace* trace, Dot dot) {
 			if (!definition.visible) {
 				error(name ~ " is not visible", dot.pos);
 			}
-			dot.variable = new Variable();
-			dot.variable.name = name;
-			dot.variable.definition = definition;
-			auto definitionTrace = Trace(imp.mod, null);
-			processVariable(dot.variable, &definitionTrace);
-			dot.type = dot.variable.type;
-			dot.lvalue = dot.variable.lvalue;
-			dot.ispure = dot.variable.ispure;
+			dot.thealias = new ModuleVarRef();
+			dot.thealias.name = name;
+			dot.thealias.definition = definition;
+			dot.thealias.ispure = false;
+			dot.thealias.type = definition.type;
+			dot.thealias.lvalue = true;
+			if (dot.thealias.definition.type is null) {
+				auto definitionTrace = Trace(imp.mod, null);
+				semantic1(dot.thealias.definition, &definitionTrace);
+			}
+
+			dot.type = dot.thealias.type;
+			dot.lvalue = dot.thealias.lvalue;
+			dot.ispure = dot.thealias.ispure;
 		} else static if (is(T == Expression)) {
 			error("Unable to dot", pos);
 		} else {
@@ -692,6 +704,9 @@ void semantic1Impl(Assign that, Trace* trace) {
 			error("= only works on the same type", pos);
 		}
 		if (!left.lvalue) {
+			import std.stdio;
+
+			writeln(left);
 			error("= only works on lvalues", pos);
 		}
 		ispure = left.ispure && right.ispure;
@@ -722,16 +737,16 @@ void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
 			static void assignHeapImpl(T)(T that, Trace* trace) {
 				auto nextTrace = Trace(that, trace);
 				trace = &nextTrace;
-				static if (is(T == Variable)) {
-
+				static if (is(T == ScopeVarRef) || is(T == ModuleVarRef)) {
 					that.definition.heap = true;
 				} else static if (is(T == Dot)) {
 					assignHeap(that.value, trace);
 				}
 			}
 
-			static void assignHeap(Node that, Trace* trace) {
-				return dispatch!(assignHeapImpl, Variable, Dot, Node)(that, trace);
+			static void assignHeap(Expression that, Trace* trace) {
+				return dispatch!(assignHeapImpl, ScopeVarRef, ModuleVarRef, Dot, Expression)(that.unalias,
+						trace);
 			}
 
 			assignHeap(value, trace);

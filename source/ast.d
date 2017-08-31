@@ -142,12 +142,13 @@ class ModuleVarDef : VarDef {
 }
 
 class ScopeVarDef : VarDef {
-	//if this variable is not manifest, points to function literal where it was declared
+	//points to function literal where it was declared
 	FuncLit func;
 }
 
 class Module : Node, SearchContext {
 	ModuleVarDef[string] symbols;
+	Symbol[string] exports;
 override:
 	SearchContext context() {
 		return this;
@@ -168,6 +169,18 @@ override:
 abstract class Expression : Statement {
 	Expression type;
 	bool lvalue;
+}
+
+abstract class Symbol : Expression {
+	string name;
+}
+
+class ModuleVarRef : Symbol {
+	ModuleVarDef definition;
+}
+
+class ScopeVarRef : Expression {
+	ScopeVarDef definition;
 }
 
 class Bool : Expression {
@@ -216,7 +229,7 @@ class TupleLit : Expression {
 
 class Variable : Expression {
 	string name;
-	VarDef definition;
+	Expression thealias;
 }
 
 class FuncArgument : Expression {
@@ -252,7 +265,7 @@ class Cast : Expression {
 class Dot : Expression {
 	Expression value;
 	Index index;
-	Variable variable; //if value is a module, used when unaliasing
+	ModuleVarRef thealias; //if value is a module, used when unaliasing
 }
 
 //if array is a type and index is an empty struct then this is a type
@@ -325,7 +338,7 @@ override:
 	}
 }
 
-class FuncLit : Expression {
+class FuncLit : Symbol {
 	Expression explict_return; //maybe null
 	Expression argument;
 	Expression text;
