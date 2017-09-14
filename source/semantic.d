@@ -28,7 +28,16 @@ import error : error, Position;
 import parser;
 
 void processModule(Module mod) {
-	semantic1(mod, null);
+	mod.process = true;
+	auto trace = Trace(mod, null);
+	foreach (symbol; mod.symbols) {
+		if (!symbol.process) {
+			semantic1(symbol, &trace);
+		}
+		if (!symbol.ispure) {
+			error("Impure expression in global", symbol.pos);
+		}
+	}
 }
 
 Expression unalias(Expression expression) {
@@ -257,76 +266,13 @@ void semantic1HeadImpl(T)(T that) if (is(T == ArrayIndex)) {
 	}
 }
 
-void semantic1(Node that, Trace* trace) {
-	if (that.process) {
-		error("Cyclic variable", that.pos);
-	}
-	that.process = true;
-	auto nextTrace = Trace(that, trace);
-	trace = &nextTrace;
-	if (auto symbol = cast(Symbol) that) {
-		auto mod = cast(Module) trace.range.reduce!"b".node;
-		assert(mod);
-		if (symbol.name in mod.exports) {
-			error(symbol.name ~ " exported twice", that.pos);
-		}
-		mod.exports[symbol.name] = symbol;
-	}
-	dispatch!(semantic1Impl, Metaclass, Bool, Char, Int, UInt, Postfix!"(*)",
-			ModuleVarDef, Module, Import, IntLit, CharLit, BoolLit, Struct, TupleLit,
-			Variable, FuncArgument, If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall,
-			Slice, ScopeVarDef, Scope, FuncLit, StringLit, ArrayLit, ExternJS,
-			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
-			Binary!"~", Binary!"==", Binary!"!=", Binary!"<=", Binary!">=",
-			Binary!"<", Binary!">", Binary!"&&", Binary!"||", Assign,
-			Prefix!"+", Prefix!"-", Prefix!"*", Prefix!"/", Prefix!"&", Prefix!"!")(that, trace);
-	if (auto expr = cast(Expression) that) {
-		assert(expr.type);
-		assert(expr.type.isType);
-	}
+alias semantic1 = semantic1Statement;
+
+void semantic1Statement(Statement that, Trace* trace) {
+	dispatch!(semantic1StatementImpl, VarDef, Expression, Assign)(that, trace);
 }
 
-void semantic1Impl(Module that, Trace* trace) {
-	with (that) {
-		foreach (symbol; symbols) {
-			if (!symbol.process) {
-				semantic1(symbol, trace);
-			}
-			if (!symbol.ispure) {
-				error("Impure expression in global", symbol.pos);
-			}
-		}
-	}
-}
-
-Metaclass metaclass;
-static this() {
-	metaclass = new Metaclass();
-	metaclass.type = metaclass;
-	metaclass.ispure = true;
-}
-
-void semantic1Impl(Metaclass that, Trace* trace) {
-}
-
-void semantic1Impl(Import that, Trace* trace) {
-	that.type = createType!ImportType;
-	that.ispure = true;
-}
-
-void semantic1Impl(T)(T that, Trace* trace)
-		if (is(T == Bool) || is(T == Char) || is(T == Int) || is(T == UInt)) {
-	semantic1Head(that);
-}
-
-void semantic1Impl(T)(T that, Trace* trace) if (is(T == Postfix!"(*)")) {
-	with (that) {
-		semantic1(value, trace);
-		semantic1Head(that);
-	}
-}
-
-void semantic1Var(VarDef that, Trace* trace) {
+void semantic1StatementImpl(VarDef that, Trace* trace) {
 	with (that) {
 		semantic1(definition, trace);
 		ispure = definition.ispure;
@@ -341,16 +287,101 @@ void semantic1Var(VarDef that, Trace* trace) {
 				error("types don't match", pos);
 			}
 		}
+		if (auto scopeVar = cast(ScopeVarDef) that) {
+			semantic1ScopeVarDefSub(scopeVar, trace);
+		}
 	}
 }
 
-void semantic1Impl(ModuleVarDef that, Trace* trace) {
+void semantic1ScopeVarDefSub(ScopeVarDef that, Trace* trace) {
 	with (that) {
-		semantic1Var(that, trace);
+		if (!manifest) {
+			auto funcRange = trace.range.map!(a => a.node)
+				.map!(a => cast(FuncLit) a).filter!(a => !!a);
+			if (funcRange.empty) {
+				assert(0);
+			}
+			func = funcRange.front;
+		}
 	}
 }
 
-void semantic1Impl(IntLit that, Trace* trace) {
+void semantic1StatementImpl(Assign that, Trace* trace) {
+	with (that) {
+		semantic1(left, trace);
+		semantic1(right, trace);
+		if (!(sameType(left.type, right.type) || implicitConvert(right, left.type))) {
+			error("= only works on the same type", pos);
+		}
+		if (!left.lvalue) {
+			import std.stdio;
+
+			writeln(left);
+			error("= only works on lvalues", pos);
+		}
+		ispure = left.ispure && right.ispure;
+	}
+}
+
+void semantic1StatementImpl(Expression that, Trace* trace) {
+	semantic1Expression(that, trace);
+}
+
+void semantic1Expression(Expression that, Trace* trace) {
+	if (that.process) {
+		error("Cyclic variable", that.pos);
+	}
+	that.process = true;
+	auto nextTrace = Trace(that, trace);
+	trace = &nextTrace;
+	if (auto symbol = cast(Symbol) that) {
+		auto mod = cast(Module) trace.range.reduce!"b".node;
+		assert(mod);
+		if (symbol.name in mod.exports) {
+			error(symbol.name ~ " exported twice", that.pos);
+		}
+		mod.exports[symbol.name] = symbol;
+	}
+	dispatch!(semantic1ExpressionImpl, Metaclass, Bool, Char, Int, UInt, Postfix!"(*)",
+			Import, IntLit, CharLit, BoolLit, Struct, TupleLit, Variable, FuncArgument,
+			If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall, Slice, Scope,
+			FuncLit, StringLit, ArrayLit, ExternJS, Binary!"*", Binary!"/",
+			Binary!"%", Binary!"+", Binary!"-", Binary!"~", Binary!"==",
+			Binary!"!=", Binary!"<=", Binary!">=", Binary!"<", Binary!">",
+			Binary!"&&", Binary!"||", Prefix!"+", Prefix!"-", Prefix!"*",
+			Prefix!"/", Prefix!"&", Prefix!"!")(that, trace);
+	assert(that.type);
+	assert(that.type.isType);
+}
+
+Metaclass metaclass;
+static this() {
+	metaclass = new Metaclass();
+	metaclass.type = metaclass;
+	metaclass.ispure = true;
+}
+
+void semantic1ExpressionImpl(Metaclass that, Trace* trace) {
+}
+
+void semantic1ExpressionImpl(Import that, Trace* trace) {
+	that.type = createType!ImportType;
+	that.ispure = true;
+}
+
+void semantic1ExpressionImpl(T)(T that, Trace* trace)
+		if (is(T == Bool) || is(T == Char) || is(T == Int) || is(T == UInt)) {
+	semantic1Head(that);
+}
+
+void semantic1ExpressionImpl(T)(T that, Trace* trace) if (is(T == Postfix!"(*)")) {
+	with (that) {
+		semantic1(value, trace);
+		semantic1Head(that);
+	}
+}
+
+void semantic1ExpressionImpl(IntLit that, Trace* trace) {
 	with (that) {
 		if (usigned) {
 			type = createType!UInt(0);
@@ -361,28 +392,28 @@ void semantic1Impl(IntLit that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(CharLit that, Trace* trace) {
+void semantic1ExpressionImpl(CharLit that, Trace* trace) {
 	with (that) {
 		type = createType!Char;
 		ispure = true;
 	}
 }
 
-void semantic1Impl(BoolLit that, Trace* trace) {
+void semantic1ExpressionImpl(BoolLit that, Trace* trace) {
 	with (that) {
 		type = createType!Bool;
 		ispure = true;
 	}
 }
 
-void semantic1Impl(Struct that, Trace* trace) {
+void semantic1ExpressionImpl(Struct that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
 		semantic1Head(that);
 	}
 }
 
-void semantic1Impl(TupleLit that, Trace* trace) {
+void semantic1ExpressionImpl(TupleLit that, Trace* trace) {
 	with (that) {
 		foreach (value; values) {
 			semantic1(value, trace);
@@ -392,7 +423,7 @@ void semantic1Impl(TupleLit that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(Variable that, Trace* trace) {
+void semantic1ExpressionImpl(Variable that, Trace* trace) {
 	with (that) {
 		Trace subTrace;
 		auto source = trace.search(name, subTrace);
@@ -445,7 +476,7 @@ void checkNotClosure(ScopeVarRef that, Trace* trace, Position pos) {
 	}
 }
 
-void semantic1Impl(FuncArgument that, Trace* trace) {
+void semantic1ExpressionImpl(FuncArgument that, Trace* trace) {
 	foreach (node; trace.range.map!(a => a.node)) {
 		if (auto func = cast(FuncLit) node) {
 			that.func = func;
@@ -457,7 +488,7 @@ void semantic1Impl(FuncArgument that, Trace* trace) {
 	error("$@ without function", that.pos);
 }
 
-void semantic1Impl(If that, Trace* trace) {
+void semantic1ExpressionImpl(If that, Trace* trace) {
 	with (that) {
 		semantic1(cond, trace);
 		semantic1(yes, trace);
@@ -473,7 +504,7 @@ void semantic1Impl(If that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(While that, Trace* trace) {
+void semantic1ExpressionImpl(While that, Trace* trace) {
 	with (that) {
 		semantic1(cond, trace);
 		semantic1(state, trace);
@@ -485,7 +516,7 @@ void semantic1Impl(While that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(New that, Trace* trace) {
+void semantic1ExpressionImpl(New that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
 		type = createType!(Postfix!"(*)")(value.type);
@@ -493,7 +524,7 @@ void semantic1Impl(New that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(NewArray that, Trace* trace) {
+void semantic1ExpressionImpl(NewArray that, Trace* trace) {
 	with (that) {
 		semantic1(length, trace);
 		semantic1(value, trace);
@@ -505,7 +536,7 @@ void semantic1Impl(NewArray that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(Cast that, Trace* trace) {
+void semantic1ExpressionImpl(Cast that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
 		semantic1(wanted, trace);
@@ -518,7 +549,7 @@ void semantic1Impl(Cast that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(Dot that, Trace* trace) {
+void semantic1ExpressionImpl(Dot that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
 		semantic1Dot(value.type, trace, that);
@@ -594,7 +625,7 @@ void semantic1DotImpl(T)(T that, Trace* trace, Dot dot) {
 	}
 }
 
-void semantic1Impl(ArrayIndex that, Trace* trace) {
+void semantic1ExpressionImpl(ArrayIndex that, Trace* trace) {
 	with (that) {
 		semantic1(array, trace);
 		semantic1(index, trace);
@@ -615,7 +646,7 @@ void semantic1Impl(ArrayIndex that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(FCall that, Trace* trace) {
+void semantic1ExpressionImpl(FCall that, Trace* trace) {
 	with (that) {
 		semantic1(fptr, trace);
 		semantic1(arg, trace);
@@ -638,7 +669,7 @@ void semantic1Impl(FCall that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(Slice that, Trace* trace) {
+void semantic1ExpressionImpl(Slice that, Trace* trace) {
 	with (that) {
 		semantic1(array, trace);
 		semantic1(left, trace);
@@ -655,7 +686,7 @@ void semantic1Impl(Slice that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(string op)(Binary!op that, Trace* trace) {
+void semantic1ExpressionImpl(string op)(Binary!op that, Trace* trace) {
 	with (that) {
 		semantic1(left, trace);
 		semantic1(right, trace);
@@ -696,24 +727,7 @@ void semantic1Impl(string op)(Binary!op that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(Assign that, Trace* trace) {
-	with (that) {
-		semantic1(left, trace);
-		semantic1(right, trace);
-		if (!(sameType(left.type, right.type) || implicitConvert(right, left.type))) {
-			error("= only works on the same type", pos);
-		}
-		if (!left.lvalue) {
-			import std.stdio;
-
-			writeln(left);
-			error("= only works on lvalues", pos);
-		}
-		ispure = left.ispure && right.ispure;
-	}
-}
-
-void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
+void semantic1ExpressionImpl(string op)(Prefix!op that, Trace* trace) {
 	with (that) {
 		semantic1(value, trace);
 		static if (op == "-") {
@@ -767,21 +781,7 @@ void semantic1Impl(string op)(Prefix!op that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(ScopeVarDef that, Trace* trace) {
-	with (that) {
-		semantic1Var(that, trace);
-		if (!manifest) {
-			auto funcRange = trace.range.map!(a => a.node)
-				.map!(a => cast(FuncLit) a).filter!(a => !!a);
-			if (funcRange.empty) {
-				assert(0);
-			}
-			func = funcRange.front;
-		}
-	}
-}
-
-void semantic1Impl(Scope that, Trace* trace) {
+void semantic1ExpressionImpl(Scope that, Trace* trace) {
 	with (that) {
 		ispure = true;
 		foreach (symbol; symbols) {
@@ -800,7 +800,7 @@ void semantic1Impl(Scope that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(FuncLit that, Trace* trace) {
+void semantic1ExpressionImpl(FuncLit that, Trace* trace) {
 	with (that) {
 		semantic1(argument, trace);
 		checkType(argument);
@@ -825,14 +825,14 @@ void semantic1Impl(FuncLit that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(StringLit that, Trace* trace) {
+void semantic1ExpressionImpl(StringLit that, Trace* trace) {
 	with (that) {
 		type = createType!ArrayIndex(createType!Char);
 		ispure = true;
 	}
 }
 
-void semantic1Impl(ArrayLit that, Trace* trace) {
+void semantic1ExpressionImpl(ArrayLit that, Trace* trace) {
 	with (that) {
 		foreach (value; values) {
 			semantic1(value, trace);
@@ -851,7 +851,7 @@ void semantic1Impl(ArrayLit that, Trace* trace) {
 	}
 }
 
-void semantic1Impl(ExternJS that, Trace* trace) {
+void semantic1ExpressionImpl(ExternJS that, Trace* trace) {
 	with (that) {
 		type = createType!ExternType;
 		ispure = true;
