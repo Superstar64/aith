@@ -20,23 +20,27 @@ import std.algorithm : any, canFind, joiner, map;
 import std.bigint : BigInt;
 import std.conv : to;
 import std.range : chain, InputRange, inputRangeObject;
+import std.meta : AliasSeq;
 import std.traits : isArray, isAssociativeArray;
 import std.variant : Algebraic;
 
 import error : error, Position;
 
 template dispatch(alias fun, Types...) {
-	auto dispatch(T...)(auto ref T args) {
+	auto dispatch(Base, T...)(auto ref Base base, auto ref T args) {
 		foreach (Type; Types) {
-			if (auto sub = cast(Type) args[0]) {
-				return fun(sub, args[1 .. $]);
+			if (cast(Type) base) {
+				//can't copy because fun might modify base though a different reference
+				return fun(*cast(Type*)&base, args);
 			}
 		}
-		assert(0, args[0].to!string);
+		assert(0, base.to!string);
 	}
 }
 
 alias Index = Algebraic!(BigInt, string);
+alias SymbolTypes = AliasSeq!(FuncLit, ModuleVarDef);
+alias Symbol = Algebraic!SymbolTypes;
 
 interface SearchContext {
 	VarDef search(string name, ref Trace); //trace is an out variable with is by default the current trace
@@ -171,11 +175,7 @@ abstract class Expression : Statement {
 	bool lvalue;
 }
 
-abstract class Symbol : Expression {
-	string name;
-}
-
-class ModuleVarRef : Symbol {
+class ModuleVarRef : Expression {
 	ModuleVarDef definition;
 }
 
@@ -229,7 +229,6 @@ class TupleLit : Expression {
 
 class Variable : Expression {
 	string name;
-	Expression thealias;
 }
 
 class FuncArgument : Expression {
@@ -265,7 +264,6 @@ class Cast : Expression {
 class Dot : Expression {
 	Expression value;
 	Index index;
-	ModuleVarRef thealias; //if value is a module, used when unaliasing
 }
 
 //if array is a type and index is an empty struct then this is a type
@@ -338,7 +336,8 @@ override:
 	}
 }
 
-class FuncLit : Symbol {
+class FuncLit : Expression {
+	string name;
 	Expression explict_return; //maybe null
 	Expression argument;
 	Expression text;

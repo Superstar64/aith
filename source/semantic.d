@@ -40,79 +40,67 @@ void processModule(Module mod) {
 	}
 }
 
-Expression unalias(Expression expression) {
-	if (auto variable = cast(Variable) expression) {
-		return variable.thealias.unalias;
-	}
-	if (auto dot = cast(Dot) expression) {
-		if (dot.thealias) {
-			return dot.thealias.unalias;
-		}
-	}
-	return expression;
-}
-
 Bool isBool(Expression type) {
-	return cast(Bool) type.unalias;
+	return cast(Bool) type;
 }
 
 Char isChar(Expression type) {
-	return cast(Char) type.unalias;
+	return cast(Char) type;
 }
 
 Int isInt(Expression type) {
-	return cast(Int) type.unalias;
+	return cast(Int) type;
 }
 
 UInt isUInt(Expression type) {
-	return cast(UInt) type.unalias;
+	return cast(UInt) type;
 }
 
 Postfix!"(*)" isPointer(Expression type) {
-	return cast(Postfix!"(*)") type.unalias;
+	return cast(Postfix!"(*)") type;
 }
 
 //todo remove these
 ArrayIndex isArray(Expression type) {
-	if (type.isType && cast(ArrayIndex) type.unalias) {
-		return cast(ArrayIndex) type.unalias;
+	if (type.isType && cast(ArrayIndex) type) {
+		return cast(ArrayIndex) type;
 	}
 	return null;
 }
 
 FCall isFunction(Expression type) {
-	if (type.isType && cast(FCall) type.unalias) {
-		return cast(FCall) type.unalias;
+	if (type.isType && cast(FCall) type) {
+		return cast(FCall) type;
 	}
 	return null;
 }
 
 bool isExtern(Expression expression) {
-	if (auto ext = cast(Cast) expression.unalias) {
+	if (auto ext = cast(Cast) expression) {
 		return !!cast(ExternJS) ext.value;
 	}
 	return !!cast(ExternJS) expression;
 }
 
 ref Expression[] values(Struct stru) {
-	auto tuple = cast(TupleLit) stru.value.unalias;
+	auto tuple = cast(TupleLit) stru.value;
 	assert(tuple);
 	return tuple.values;
 }
 
 ref size_t[string] names(Struct stru) {
-	auto tuple = cast(TupleLit) stru.value.unalias;
+	auto tuple = cast(TupleLit) stru.value;
 	assert(tuple);
 	return tuple.names;
 }
 
 bool isType(Expression expression) {
-	expression = expression.unalias;
+	expression = expression;
 	return !!cast(Metaclass) expression.type;
 }
 
 bool isRuntimeValue(Expression expression) {
-	expression = expression.unalias;
+	expression = expression;
 	return !(expression.isType || cast(Import) expression);
 }
 
@@ -124,7 +112,7 @@ void checkRuntimeValue(Expression expression) {
 
 //makes sure expression is a type or implicitly convert it to a type
 void checkType(ref Expression expression) {
-	if (auto tuple = cast(TupleLit) expression.unalias) {
+	if (auto tuple = cast(TupleLit) expression) {
 		auto structWrap = new Struct;
 		structWrap.value = expression;
 		expression = structWrap;
@@ -201,7 +189,7 @@ void semantic1Head(T)(T that) {
 
 void semantic1Head(TupleLit that) {
 	with (that) {
-		if (values.map!(a => !!cast(Metaclass) a.unalias).all) {
+		if (values.map!(a => !!cast(Metaclass) a).all) {
 			auto cycle = new Struct();
 			cycle.value = that;
 			semantic1Head(cycle);
@@ -243,7 +231,7 @@ void semantic1HeadImpl(T)(T that) if (is(T == Postfix!"(*)")) {
 
 void semantic1HeadImpl(T)(T that) if (is(T == Struct)) {
 	with (that) {
-		if (!cast(TupleLit) value.unalias) {
+		if (!cast(TupleLit) value) {
 			error("expected tuple lit after struct", pos);
 		}
 		that.values.each!checkType;
@@ -266,13 +254,11 @@ void semantic1HeadImpl(T)(T that) if (is(T == ArrayIndex)) {
 	}
 }
 
-alias semantic1 = semantic1Statement;
-
-void semantic1Statement(Statement that, Trace* trace) {
-	dispatch!(semantic1StatementImpl, VarDef, Expression, Assign)(that, trace);
+void semantic1(ref Statement that, Trace* trace) {
+	dispatch!(semantic1, VarDef, Expression, Assign)(that, trace);
 }
 
-void semantic1StatementImpl(VarDef that, Trace* trace) {
+void semantic1(VarDef that, Trace* trace) {
 	with (that) {
 		semantic1(definition, trace);
 		ispure = definition.ispure;
@@ -288,25 +274,21 @@ void semantic1StatementImpl(VarDef that, Trace* trace) {
 			}
 		}
 		if (auto scopeVar = cast(ScopeVarDef) that) {
-			semantic1ScopeVarDefSub(scopeVar, trace);
-		}
-	}
-}
-
-void semantic1ScopeVarDefSub(ScopeVarDef that, Trace* trace) {
-	with (that) {
-		if (!manifest) {
-			auto funcRange = trace.range.map!(a => a.node)
-				.map!(a => cast(FuncLit) a).filter!(a => !!a);
-			if (funcRange.empty) {
-				assert(0);
+			if (!manifest) {
+				scopeVar.func = trace.range.map!(a => a.node)
+					.map!(a => cast(FuncLit) a).filter!(a => !!a).front;
 			}
-			func = funcRange.front;
+		}
+		if (auto moduleVar = cast(ModuleVarDef) that) {
+			if (!that.manifest) {
+				auto mod = cast(Module) trace.range.reduce!"b".node;
+				mod.exports[name] = Symbol(moduleVar);
+			}
 		}
 	}
 }
 
-void semantic1StatementImpl(Assign that, Trace* trace) {
+void semantic1(Assign that, Trace* trace) {
 	with (that) {
 		semantic1(left, trace);
 		semantic1(right, trace);
@@ -314,44 +296,157 @@ void semantic1StatementImpl(Assign that, Trace* trace) {
 			error("= only works on the same type", pos);
 		}
 		if (!left.lvalue) {
-			import std.stdio;
-
-			writeln(left);
 			error("= only works on lvalues", pos);
 		}
 		ispure = left.ispure && right.ispure;
 	}
 }
 
-void semantic1StatementImpl(Expression that, Trace* trace) {
-	semantic1Expression(that, trace);
-}
-
-void semantic1Expression(Expression that, Trace* trace) {
+void semantic1(ref Expression that, Trace* trace) {
 	if (that.process) {
 		error("Cyclic variable", that.pos);
 	}
 	that.process = true;
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
-	if (auto symbol = cast(Symbol) that) {
-		auto mod = cast(Module) trace.range.reduce!"b".node;
-		assert(mod);
-		if (symbol.name in mod.exports) {
-			error(symbol.name ~ " exported twice", that.pos);
-		}
-		mod.exports[symbol.name] = symbol;
-	}
 	dispatch!(semantic1ExpressionImpl, Metaclass, Bool, Char, Int, UInt, Postfix!"(*)",
-			Import, IntLit, CharLit, BoolLit, Struct, TupleLit, Variable, FuncArgument,
-			If, While, New, NewArray, Cast, Dot, ArrayIndex, FCall, Slice, Scope,
-			FuncLit, StringLit, ArrayLit, ExternJS, Binary!"*", Binary!"/",
+			Import, IntLit, CharLit, BoolLit, Struct, TupleLit, FuncArgument, If,
+			While, New, NewArray, Cast, ArrayIndex, FCall, Slice, Scope, FuncLit,
+			StringLit, ArrayLit, ExternJS, Binary!"*", Binary!"/",
 			Binary!"%", Binary!"+", Binary!"-", Binary!"~", Binary!"==",
 			Binary!"!=", Binary!"<=", Binary!">=", Binary!"<", Binary!">",
 			Binary!"&&", Binary!"||", Prefix!"+", Prefix!"-", Prefix!"*",
-			Prefix!"/", Prefix!"&", Prefix!"!")(that, trace);
+			Prefix!"/", Prefix!"&", Prefix!"!", Expression)(that, trace);
 	assert(that.type);
 	assert(that.type.isType);
+	assert(!cast(Variable) that);
+}
+//for types that cases that requre ast modification
+void semantic1ExpressionImpl(ref Expression that, Trace* trace) {
+	dispatch!(semantic1ExpressionImplWritable, Variable, Dot)(that, trace, that);
+}
+//bug variable still in ast after this pass
+void semantic1ExpressionImplWritable(Variable that, Trace* trace, ref Expression output) {
+	with (that) {
+		Trace subTrace;
+		auto source = trace.search(name, subTrace);
+		if (source is null) {
+			error("Unknown variable", pos);
+		}
+
+		if (source.definition.type is null) {
+			semantic1(source.definition, &subTrace);
+		}
+		Expression thealias;
+		if (source.manifest) {
+			thealias = source.definition;
+		} else {
+			if (auto scopeDef = cast(ScopeVarDef) source) {
+				auto scopeRef = new ScopeVarRef();
+				scopeRef.definition = scopeDef;
+				scopeRef.ispure = true;
+				scopeRef.type = source.type;
+				scopeRef.lvalue = true;
+				thealias = scopeRef;
+			} else if (auto moduleDef = cast(ModuleVarDef) source) {
+				auto moduleRef = new ModuleVarRef();
+				moduleRef.definition = moduleDef;
+				moduleRef.ispure = false;
+				moduleRef.type = source.type;
+				moduleRef.lvalue = true;
+				thealias = moduleRef;
+			} else {
+				assert(0);
+			}
+		}
+		assert(thealias.type);
+		if (auto scopeVarRef = cast(ScopeVarRef) thealias) {
+			checkNotClosure(scopeVarRef, trace, pos);
+		}
+		output = thealias;
+	}
+}
+
+void checkNotClosure(ScopeVarRef that, Trace* trace, Position pos) {
+	auto funcRange = trace.range.map!(a => a.node).map!(a => cast(FuncLit) a).filter!(a => !!a);
+	if (funcRange.empty) {
+		assert(0); //this should never happen
+	}
+	if (funcRange.front !is that.definition.func) {
+		error("Closures not supported", pos);
+	}
+}
+
+void semantic1ExpressionImplWritable(Dot that, Trace* trace, ref Expression output) {
+	with (that) {
+		semantic1(value, trace);
+		semantic1Dot(value.type, trace, that, output);
+		ispure = value.ispure;
+	}
+}
+
+void semantic1Dot(Expression that, Trace* trace, Dot dot, ref Expression output) {
+	dispatch!(semantic1DotImpl, Struct, ArrayIndex, ImportType, Expression)(that,
+			trace, dot, output);
+}
+
+void semantic1DotImpl(T)(T that, Trace* trace, Dot dot, ref Expression output) {
+	auto nextTrace = Trace(that, trace);
+	trace = &nextTrace;
+	with (that) {
+		static if (is(T == Struct)) {
+			auto index = dot.index;
+			if (index.peek!string) {
+				auto str = index.get!string;
+				if (!(str in that.names)) {
+					error("Unable to find field", dot.pos);
+				}
+				dot.type = that.values[that.names[str]];
+			} else {
+				uint typeIndex = index.get!(BigInt).toInt;
+				if (typeIndex >= that.values.length) {
+					error("Index number to high", dot.pos);
+				}
+				dot.type = that.values[typeIndex];
+			}
+			dot.lvalue = dot.value.lvalue;
+		} else static if (is(T == ArrayIndex)) {
+			auto index = dot.index;
+			if (!(index.peek!string && index.get!string == "length")) {
+				semantic1DotImpl!Expression(that, trace, dot, output);
+				return;
+			}
+			dot.type = createType!UInt(0);
+		} else static if (is(T == ImportType)) {
+			if (dot.index.peek!BigInt) {
+				error("attempting to index a module with an integer", pos);
+			}
+			auto imp = cast(Import) dot.value;
+			auto name = dot.index.get!string;
+			if (!(name in imp.mod.symbols)) {
+				error(name ~ " doesn't exist in module", dot.pos);
+			}
+			auto definition = imp.mod.symbols[name];
+			if (!definition.visible) {
+				error(name ~ " is not visible", dot.pos);
+			}
+			ModuleVarRef thealias = new ModuleVarRef();
+			thealias.definition = definition;
+			thealias.ispure = false;
+			thealias.type = definition.type;
+			thealias.lvalue = true;
+			if (definition.type is null) {
+				auto definitionTrace = Trace(imp.mod, null);
+				semantic1(thealias.definition, &definitionTrace);
+			}
+			output = thealias;
+		} else static if (is(T == Expression)) {
+			error("Unable to dot", pos);
+		} else {
+			pragma(msg, T);
+			static assert(0);
+		}
+	}
 }
 
 Metaclass metaclass;
@@ -420,59 +515,6 @@ void semantic1ExpressionImpl(TupleLit that, Trace* trace) {
 		}
 
 		semantic1Head(that);
-	}
-}
-
-void semantic1ExpressionImpl(Variable that, Trace* trace) {
-	with (that) {
-		Trace subTrace;
-		auto source = trace.search(name, subTrace);
-		if (source is null) {
-			error("Unknown variable", pos);
-		}
-
-		if (source.definition.type is null) {
-			semantic1(source.definition, &subTrace);
-		}
-
-		if (source.manifest) {
-			thealias = source.definition;
-		} else {
-			if (auto scopeDef = cast(ScopeVarDef) source) {
-				auto scopeRef = new ScopeVarRef();
-				scopeRef.definition = scopeDef;
-				scopeRef.ispure = true;
-				scopeRef.type = source.type;
-				scopeRef.lvalue = true;
-				thealias = scopeRef;
-			} else if (auto moduleDef = cast(ModuleVarDef) source) {
-				auto moduleRef = new ModuleVarRef();
-				moduleRef.definition = moduleDef;
-				moduleRef.ispure = false;
-				moduleRef.type = source.type;
-				moduleRef.lvalue = true;
-				thealias = moduleRef;
-			} else {
-				assert(0);
-			}
-		}
-		assert(thealias.type);
-		type = thealias.type;
-		lvalue = thealias.lvalue;
-		ispure = thealias.ispure;
-		if (auto scopeVarRef = cast(ScopeVarRef) that.unalias) {
-			checkNotClosure(scopeVarRef, trace, pos);
-		}
-	}
-}
-
-void checkNotClosure(ScopeVarRef that, Trace* trace, Position pos) {
-	auto funcRange = trace.range.map!(a => a.node).map!(a => cast(FuncLit) a).filter!(a => !!a);
-	if (funcRange.empty) {
-		assert(0); //this should never happen
-	}
-	if (funcRange.front !is that.definition.func) {
-		error("Closures not supported", pos);
 	}
 }
 
@@ -549,82 +591,6 @@ void semantic1ExpressionImpl(Cast that, Trace* trace) {
 	}
 }
 
-void semantic1ExpressionImpl(Dot that, Trace* trace) {
-	with (that) {
-		semantic1(value, trace);
-		semantic1Dot(value.type, trace, that);
-		ispure = value.ispure;
-	}
-}
-
-void semantic1Dot(Expression that, Trace* trace, Dot dot) {
-	dispatch!(semantic1DotImpl, Struct, ArrayIndex, ImportType, Expression)(
-			that.unalias, trace, dot);
-}
-
-void semantic1DotImpl(T)(T that, Trace* trace, Dot dot) {
-	auto nextTrace = Trace(that, trace);
-	trace = &nextTrace;
-	with (that) {
-		static if (is(T == Struct)) {
-			auto index = dot.index;
-			if (index.peek!string) {
-				auto str = index.get!string;
-				if (!(str in that.names)) {
-					error("Unable to find field", dot.pos);
-				}
-				dot.type = that.values[that.names[str]];
-			} else {
-				uint typeIndex = index.get!(BigInt).toInt;
-				if (typeIndex >= that.values.length) {
-					error("Index number to high", dot.pos);
-				}
-				dot.type = that.values[typeIndex];
-			}
-			dot.lvalue = dot.value.lvalue;
-		} else static if (is(T == ArrayIndex)) {
-			auto index = dot.index;
-			if (!(index.peek!string && index.get!string == "length")) {
-				semantic1DotImpl!Expression(that, trace, dot);
-				return;
-			}
-			dot.type = createType!UInt(0);
-		} else static if (is(T == ImportType)) {
-			if (dot.index.peek!BigInt) {
-				error("attempting to index a module with an integer", pos);
-			}
-			auto imp = cast(Import) dot.value.unalias;
-			auto name = dot.index.get!string;
-			if (!(name in imp.mod.symbols)) {
-				error(name ~ " doesn't exist in module", dot.pos);
-			}
-			auto definition = imp.mod.symbols[name];
-			if (!definition.visible) {
-				error(name ~ " is not visible", dot.pos);
-			}
-			dot.thealias = new ModuleVarRef();
-			dot.thealias.name = name;
-			dot.thealias.definition = definition;
-			dot.thealias.ispure = false;
-			dot.thealias.type = definition.type;
-			dot.thealias.lvalue = true;
-			if (dot.thealias.definition.type is null) {
-				auto definitionTrace = Trace(imp.mod, null);
-				semantic1(dot.thealias.definition, &definitionTrace);
-			}
-
-			dot.type = dot.thealias.type;
-			dot.lvalue = dot.thealias.lvalue;
-			dot.ispure = dot.thealias.ispure;
-		} else static if (is(T == Expression)) {
-			error("Unable to dot", pos);
-		} else {
-			pragma(msg, T);
-			static assert(0);
-		}
-	}
-}
-
 void semantic1ExpressionImpl(ArrayIndex that, Trace* trace) {
 	with (that) {
 		semantic1(array, trace);
@@ -655,9 +621,6 @@ void semantic1ExpressionImpl(FCall that, Trace* trace) {
 		} else {
 			auto fun = fptr.type.isFunction;
 			if (!fun) {
-				import std.stdio;
-
-				writeln(fptr.type.isType);
 				error("Not a function", pos);
 			}
 			if (!sameTypeValueType(arg, fun.arg)) {
@@ -759,7 +722,7 @@ void semantic1ExpressionImpl(string op)(Prefix!op that, Trace* trace) {
 			}
 
 			static void assignHeap(Expression that, Trace* trace) {
-				return dispatch!(assignHeapImpl, ScopeVarRef, ModuleVarRef, Dot, Expression)(that.unalias,
+				return dispatch!(assignHeapImpl, ScopeVarRef, ModuleVarRef, Dot, Expression)(that,
 						trace);
 			}
 
@@ -822,6 +785,8 @@ void semantic1ExpressionImpl(FuncLit that, Trace* trace) {
 			type = createType!FCall(text.type, argument);
 		}
 		ispure = true;
+		auto mod = cast(Module) trace.range.reduce!"b".node;
+		mod.exports[name] = Symbol(that);
 	}
 }
 
@@ -880,8 +845,7 @@ bool sameType(Expression a, Expression b) {
 	assert(b.isType);
 	alias Types = AliasSeq!(Metaclass, Char, Int, UInt, Struct, Postfix!"(*)",
 			ArrayIndex, FCall, ImportType, ExternType);
-	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(
-			a.unalias, b.unalias);
+	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(a, b);
 }
 
 bool sameTypeImpl(T1, T2)(T1 a, T2 b) {
@@ -915,8 +879,8 @@ bool sameTypeImpl(T1, T2)(T1 a, T2 b) {
 //modifys value's type
 //returns if converted
 bool implicitConvert(ref Expression value, Expression type) {
-	value = value.unalias;
-	type = type.unalias;
+	value = value;
+	type = type;
 	assert(isRuntimeValue(value));
 	assert(isType(type));
 
@@ -949,8 +913,8 @@ bool implicitConvertDual(ref Expression left, ref Expression right) {
 }
 
 bool castable(Expression target, Expression want) {
-	target = target.unalias;
-	want = want.unalias;
+	target = target;
+	want = want;
 	if (sameType(target, want)) {
 		return true;
 	}
