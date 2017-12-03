@@ -88,12 +88,6 @@ ref Expression[] values(Struct stru) {
 	return tuple.values;
 }
 
-ref size_t[string] names(Struct stru) {
-	auto tuple = cast(TupleLit) stru.value;
-	assert(tuple);
-	return tuple.names;
-}
-
 bool isType(Expression expression) {
 	expression = expression;
 	return !!cast(Metaclass) expression.type;
@@ -150,12 +144,10 @@ T createTypeImpl(T)(Expression value) if (is(T == Postfix!"(*)")) {
 	return type;
 }
 
-T createTypeImpl(T)(Expression[] values = null, size_t[string] names = null)
-		if (is(T == Struct)) {
+T createTypeImpl(T)(Expression[] values = null) if (is(T == Struct)) {
 	auto type = new T;
 	auto tuple = new TupleLit();
 	tuple.values = values;
-	tuple.names = names;
 	semantic1Head(tuple);
 	type.value = tuple;
 	semantic1Head(type);
@@ -195,7 +187,7 @@ void semantic1Head(TupleLit that) {
 			semantic1Head(cycle);
 			type = cycle;
 		} else {
-			type = createType!Struct(values.map!(a => a.type).array, names);
+			type = createType!Struct(values.map!(a => a.type).array);
 		}
 		ispure = values.map!(a => a.ispure).all;
 	}
@@ -396,19 +388,11 @@ void semantic1DotImpl(T)(T that, Trace* trace, Dot dot, ref Expression output) {
 	with (that) {
 		static if (is(T == Struct)) {
 			auto index = dot.index;
-			if (index.peek!string) {
-				auto str = index.get!string;
-				if (!(str in that.names)) {
-					error("Unable to find field", dot.pos);
-				}
-				dot.type = that.values[that.names[str]];
-			} else {
-				uint typeIndex = index.get!(BigInt).toInt;
-				if (typeIndex >= that.values.length) {
-					error("Index number to high", dot.pos);
-				}
-				dot.type = that.values[typeIndex];
+			uint typeIndex = index.get!(BigInt).toInt;
+			if (typeIndex >= that.values.length) {
+				error("Index number to high", dot.pos);
 			}
+			dot.type = that.values[typeIndex];
 			dot.lvalue = dot.value.lvalue;
 		} else static if (is(T == ArrayIndex)) {
 			auto index = dot.index;

@@ -77,29 +77,29 @@ struct Trace {
 			return null;
 		}
 	}
-}
 
-struct TraceRange {
-	Trace* current;
-	bool empty() {
-		return current is null;
+	static struct TraceRange {
+		Trace* current;
+		bool empty() {
+			return current is null;
+		}
+
+		ref Trace front() {
+			return *current;
+		}
+
+		void popFront() {
+			current = current.upper;
+		}
+
+		auto save() {
+			return this;
+		}
 	}
 
-	ref Trace front() {
-		return *current;
+	auto range() {
+		return TraceRange(&this);
 	}
-
-	void popFront() {
-		current = current.upper;
-	}
-
-	auto save() {
-		return this;
-	}
-}
-
-auto range(Trace* trace) {
-	return TraceRange(trace);
 }
 
 bool cycle(Node node, Trace* trace) {
@@ -224,7 +224,6 @@ class Struct : Expression {
 
 class TupleLit : Expression {
 	Expression[] values;
-	size_t[string] names;
 }
 
 class Variable : Expression {

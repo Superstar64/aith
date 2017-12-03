@@ -558,8 +558,6 @@ Tuple!(JsExpr, Usage) generateJSImpl(Dot that, Trace* trace, Usage usage,
 			if (cast(ArrayIndex) value.type) {
 				return typeof(return)(new JsDot(val, "length"), usage);
 			}
-			auto stru = cast(Struct)(value.type);
-			result = indexTuple(val, stru.names[index.get!string]);
 		} else {
 			result = indexTuple(val, index.get!BigInt.to!size_t);
 		}
@@ -701,11 +699,7 @@ Tuple!(JsExpr, Usage) generateJSAddressOfImpl(T)(T that, Trace* trace,
 			//todo bug, can't get address of .length
 			auto structValue = generateJS(value, trace, usage, depend, uuid);
 			size_t indexValue;
-			if (index.peek!string) {
-				indexValue = structType.names[index.get!string];
-			} else {
-				indexValue = index.get!BigInt.to!size_t;
-			}
+			indexValue = index.get!BigInt.to!size_t;
 			auto expr = new JsObject([Tuple!(string, JsExpr)("data", structValue),
 					Tuple!(string, JsExpr)("start", new JsLit(indexValue.to!string))]);
 			return typeof(return)(expr, Usage.container(usage));

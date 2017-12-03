@@ -235,7 +235,7 @@ struct Parser {
 				}
 				popFront;
 			}
-			if (ret.values.length == 1 && ret.names.length == 0) {
+			if (ret.values.length == 1) {
 				return ret.values[0];
 			}
 			return ret;
