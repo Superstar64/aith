@@ -180,17 +180,15 @@ void semantic1Head(T)(T that) {
 }
 
 void semantic1Head(TupleLit that) {
-	with (that) {
-		if (values.map!(a => !!cast(Metaclass) a).all) {
-			auto cycle = new Struct();
-			cycle.value = that;
-			semantic1Head(cycle);
-			type = cycle;
-		} else {
-			type = createType!Struct(values.map!(a => a.type).array);
-		}
-		ispure = values.map!(a => a.ispure).all;
+	if (that.values.map!(a => !!cast(Metaclass) a).all) {
+		auto cycle = new Struct();
+		cycle.value = that;
+		semantic1Head(cycle);
+		that.type = cycle;
+	} else {
+		that.type = createType!Struct(that.values.map!(a => a.type).array);
 	}
+	that.ispure = that.values.map!(a => a.ispure).all;
 }
 
 void semantic1HeadImpl(T)(T that)
@@ -198,51 +196,41 @@ void semantic1HeadImpl(T)(T that)
 }
 
 void semantic1HeadImpl(T)(T that) if (is(T == Int) || is(T == UInt)) {
-	with (that) {
-		if (size == 0) {
+	if (that.size == 0) {
+		return;
+	}
+	uint check = 1;
+	while (true) {
+		if (check == that.size) {
 			return;
 		}
-		uint check = 1;
-		while (true) {
-			if (check == size) {
-				return;
-			}
-			if (check > size) {
-				error("Bad Int Size", pos);
-			}
-			check *= 2;
+		if (check > that.size) {
+			error("Bad Int Size", that.pos);
 		}
+		check *= 2;
 	}
 }
 
 void semantic1HeadImpl(T)(T that) if (is(T == Postfix!"(*)")) {
-	with (that) {
-		checkType(value);
-	}
+	checkType(that.value);
 }
 
 void semantic1HeadImpl(T)(T that) if (is(T == Struct)) {
-	with (that) {
-		if (!cast(TupleLit) value) {
-			error("expected tuple lit after struct", pos);
-		}
-		that.values.each!checkType;
+	if (!cast(TupleLit) that.value) {
+		error("expected tuple lit after struct", that.pos);
 	}
+	that.values.each!checkType;
 }
 
 void semantic1HeadImpl(T)(T that) if (is(T == FCall)) {
-	with (that) {
-		checkType(fptr);
-		checkType(arg);
-	}
+	checkType(that.fptr);
+	checkType(that.arg);
 }
 
 void semantic1HeadImpl(T)(T that) if (is(T == ArrayIndex)) {
-	with (that) {
-		checkType(index);
-		if (!sameType(index, createType!Struct())) {
-			error("Expected empty type in array type", pos);
-		}
+	checkType(that.index);
+	if (!sameType(that.index, createType!Struct())) {
+		error("Expected empty type in array type", that.pos);
 	}
 }
 
@@ -251,47 +239,43 @@ void semantic1(ref Statement that, Trace* trace) {
 }
 
 void semantic1(VarDef that, Trace* trace) {
-	with (that) {
-		semantic1(definition, trace);
-		ispure = definition.ispure;
+	semantic1(that.definition, trace);
+	that.ispure = that.definition.ispure;
+	if (!that.manifest) {
+		that.ispure = false;
+		checkRuntimeValue(that.definition);
+	}
+	if (that.explicitType) {
+		semantic1(that.explicitType, trace);
+		checkType(that.explicitType);
+		if (!sameTypeValueType(that.definition, that.explicitType)) {
+			error("types don't match", that.pos);
+		}
+	}
+	if (auto scopeVar = cast(ScopeVarDef) that) {
 		if (!that.manifest) {
-			ispure = false;
-			checkRuntimeValue(definition);
+			scopeVar.func = trace.range.map!(a => a.node)
+				.map!(a => cast(FuncLit) a).filter!(a => !!a).front;
 		}
-		if (explicitType) {
-			semantic1(explicitType, trace);
-			checkType(explicitType);
-			if (!sameTypeValueType(definition, explicitType)) {
-				error("types don't match", pos);
-			}
-		}
-		if (auto scopeVar = cast(ScopeVarDef) that) {
-			if (!manifest) {
-				scopeVar.func = trace.range.map!(a => a.node)
-					.map!(a => cast(FuncLit) a).filter!(a => !!a).front;
-			}
-		}
-		if (auto moduleVar = cast(ModuleVarDef) that) {
-			if (!that.manifest) {
-				auto mod = cast(Module) trace.range.reduce!"b".node;
-				mod.exports[name] = Symbol(moduleVar);
-			}
+	}
+	if (auto moduleVar = cast(ModuleVarDef) that) {
+		if (!that.manifest) {
+			auto mod = cast(Module) trace.range.reduce!"b".node;
+			mod.exports[that.name] = Symbol(moduleVar);
 		}
 	}
 }
 
 void semantic1(Assign that, Trace* trace) {
-	with (that) {
-		semantic1(left, trace);
-		semantic1(right, trace);
-		if (!(sameType(left.type, right.type) || implicitConvert(right, left.type))) {
-			error("= only works on the same type", pos);
-		}
-		if (!left.lvalue) {
-			error("= only works on lvalues", pos);
-		}
-		ispure = left.ispure && right.ispure;
+	semantic1(that.left, trace);
+	semantic1(that.right, trace);
+	if (!(sameType(that.left.type, that.right.type) || implicitConvert(that.right, that.left.type))) {
+		error("= only works on the same type", that.pos);
 	}
+	if (!that.left.lvalue) {
+		error("= only works on lvalues", that.pos);
+	}
+	that.ispure = that.left.ispure && that.right.ispure;
 }
 
 void semantic1(ref Expression that, Trace* trace) {
@@ -319,44 +303,42 @@ void semantic1ExpressionImpl(ref Expression that, Trace* trace) {
 }
 //bug variable still in ast after this pass
 void semantic1ExpressionImplWritable(Variable that, Trace* trace, ref Expression output) {
-	with (that) {
-		Trace subTrace;
-		auto source = trace.search(name, subTrace);
-		if (source is null) {
-			error("Unknown variable", pos);
-		}
-
-		if (source.definition.type is null) {
-			semantic1(source.definition, &subTrace);
-		}
-		Expression thealias;
-		if (source.manifest) {
-			thealias = source.definition;
-		} else {
-			if (auto scopeDef = cast(ScopeVarDef) source) {
-				auto scopeRef = new ScopeVarRef();
-				scopeRef.definition = scopeDef;
-				scopeRef.ispure = true;
-				scopeRef.type = source.type;
-				scopeRef.lvalue = true;
-				thealias = scopeRef;
-			} else if (auto moduleDef = cast(ModuleVarDef) source) {
-				auto moduleRef = new ModuleVarRef();
-				moduleRef.definition = moduleDef;
-				moduleRef.ispure = false;
-				moduleRef.type = source.type;
-				moduleRef.lvalue = true;
-				thealias = moduleRef;
-			} else {
-				assert(0);
-			}
-		}
-		assert(thealias.type);
-		if (auto scopeVarRef = cast(ScopeVarRef) thealias) {
-			checkNotClosure(scopeVarRef, trace, pos);
-		}
-		output = thealias;
+	Trace subTrace;
+	auto source = trace.search(that.name, subTrace);
+	if (source is null) {
+		error("Unknown variable", that.pos);
 	}
+
+	if (source.definition.type is null) {
+		semantic1(source.definition, &subTrace);
+	}
+	Expression thealias;
+	if (source.manifest) {
+		thealias = source.definition;
+	} else {
+		if (auto scopeDef = cast(ScopeVarDef) source) {
+			auto scopeRef = new ScopeVarRef();
+			scopeRef.definition = scopeDef;
+			scopeRef.ispure = true;
+			scopeRef.type = source.type;
+			scopeRef.lvalue = true;
+			thealias = scopeRef;
+		} else if (auto moduleDef = cast(ModuleVarDef) source) {
+			auto moduleRef = new ModuleVarRef();
+			moduleRef.definition = moduleDef;
+			moduleRef.ispure = false;
+			moduleRef.type = source.type;
+			moduleRef.lvalue = true;
+			thealias = moduleRef;
+		} else {
+			assert(0);
+		}
+	}
+	assert(thealias.type);
+	if (auto scopeVarRef = cast(ScopeVarRef) thealias) {
+		checkNotClosure(scopeVarRef, trace, that.pos);
+	}
+	output = thealias;
 }
 
 void checkNotClosure(ScopeVarRef that, Trace* trace, Position pos) {
@@ -370,11 +352,9 @@ void checkNotClosure(ScopeVarRef that, Trace* trace, Position pos) {
 }
 
 void semantic1ExpressionImplWritable(Dot that, Trace* trace, ref Expression output) {
-	with (that) {
-		semantic1(value, trace);
-		semantic1Dot(value.type, trace, that, output);
-		ispure = value.ispure;
-	}
+	semantic1(that.value, trace);
+	semantic1Dot(that.value.type, trace, that, output);
+	that.ispure = that.value.ispure;
 }
 
 void semantic1Dot(Expression that, Trace* trace, Dot dot, ref Expression output) {
@@ -385,51 +365,49 @@ void semantic1Dot(Expression that, Trace* trace, Dot dot, ref Expression output)
 void semantic1DotImpl(T)(T that, Trace* trace, Dot dot, ref Expression output) {
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
-	with (that) {
-		static if (is(T == Struct)) {
-			auto index = dot.index;
-			uint typeIndex = index.get!(BigInt).toInt;
-			if (typeIndex >= that.values.length) {
-				error("Index number to high", dot.pos);
-			}
-			dot.type = that.values[typeIndex];
-			dot.lvalue = dot.value.lvalue;
-		} else static if (is(T == ArrayIndex)) {
-			auto index = dot.index;
-			if (!(index.peek!string && index.get!string == "length")) {
-				semantic1DotImpl!Expression(that, trace, dot, output);
-				return;
-			}
-			dot.type = createType!UInt(0);
-		} else static if (is(T == ImportType)) {
-			if (dot.index.peek!BigInt) {
-				error("attempting to index a module with an integer", pos);
-			}
-			auto imp = cast(Import) dot.value;
-			auto name = dot.index.get!string;
-			if (!(name in imp.mod.symbols)) {
-				error(name ~ " doesn't exist in module", dot.pos);
-			}
-			auto definition = imp.mod.symbols[name];
-			if (!definition.visible) {
-				error(name ~ " is not visible", dot.pos);
-			}
-			ModuleVarRef thealias = new ModuleVarRef();
-			thealias.definition = definition;
-			thealias.ispure = false;
-			thealias.type = definition.type;
-			thealias.lvalue = true;
-			if (definition.type is null) {
-				auto definitionTrace = Trace(imp.mod, null);
-				semantic1(thealias.definition, &definitionTrace);
-			}
-			output = thealias;
-		} else static if (is(T == Expression)) {
-			error("Unable to dot", pos);
-		} else {
-			pragma(msg, T);
-			static assert(0);
+	static if (is(T == Struct)) {
+		auto index = dot.index;
+		uint typeIndex = index.get!(BigInt).toInt;
+		if (typeIndex >= that.values.length) {
+			error("Index number to high", dot.pos);
 		}
+		dot.type = that.values[typeIndex];
+		dot.lvalue = dot.value.lvalue;
+	} else static if (is(T == ArrayIndex)) {
+		auto index = dot.index;
+		if (!(index.peek!string && index.get!string == "length")) {
+			semantic1DotImpl!Expression(that, trace, dot, output);
+			return;
+		}
+		dot.type = createType!UInt(0);
+	} else static if (is(T == ImportType)) {
+		if (dot.index.peek!BigInt) {
+			error("attempting to index a module with an integer", that.pos);
+		}
+		auto imp = cast(Import) dot.value;
+		auto name = dot.index.get!string;
+		if (!(name in imp.mod.symbols)) {
+			error(name ~ " doesn't exist in module", dot.pos);
+		}
+		auto definition = imp.mod.symbols[name];
+		if (!definition.visible) {
+			error(name ~ " is not visible", dot.pos);
+		}
+		ModuleVarRef thealias = new ModuleVarRef();
+		thealias.definition = definition;
+		thealias.ispure = false;
+		thealias.type = definition.type;
+		thealias.lvalue = true;
+		if (definition.type is null) {
+			auto definitionTrace = Trace(imp.mod, null);
+			semantic1(thealias.definition, &definitionTrace);
+		}
+		output = thealias;
+	} else static if (is(T == Expression)) {
+		error("Unable to dot", that.pos);
+	} else {
+		pragma(msg, T);
+		static assert(0);
 	}
 }
 
@@ -454,52 +432,40 @@ void semantic1ExpressionImpl(T)(T that, Trace* trace)
 }
 
 void semantic1ExpressionImpl(T)(T that, Trace* trace) if (is(T == Postfix!"(*)")) {
-	with (that) {
-		semantic1(value, trace);
-		semantic1Head(that);
-	}
+	semantic1(that.value, trace);
+	semantic1Head(that);
 }
 
 void semantic1ExpressionImpl(IntLit that, Trace* trace) {
-	with (that) {
-		if (usigned) {
-			type = createType!UInt(0);
-		} else {
-			type = createType!Int(0);
-		}
-		ispure = true;
+	if (that.usigned) {
+		that.type = createType!UInt(0);
+	} else {
+		that.type = createType!Int(0);
 	}
+	that.ispure = true;
 }
 
 void semantic1ExpressionImpl(CharLit that, Trace* trace) {
-	with (that) {
-		type = createType!Char;
-		ispure = true;
-	}
+	that.type = createType!Char;
+	that.ispure = true;
 }
 
 void semantic1ExpressionImpl(BoolLit that, Trace* trace) {
-	with (that) {
-		type = createType!Bool;
-		ispure = true;
-	}
+	that.type = createType!Bool;
+	that.ispure = true;
 }
 
 void semantic1ExpressionImpl(Struct that, Trace* trace) {
-	with (that) {
-		semantic1(value, trace);
-		semantic1Head(that);
-	}
+	semantic1(that.value, trace);
+	semantic1Head(that);
 }
 
 void semantic1ExpressionImpl(TupleLit that, Trace* trace) {
-	with (that) {
-		foreach (value; values) {
-			semantic1(value, trace);
-		}
-
-		semantic1Head(that);
+	foreach (value; that.values) {
+		semantic1(value, trace);
 	}
+
+	semantic1Head(that);
 }
 
 void semantic1ExpressionImpl(FuncArgument that, Trace* trace) {
@@ -515,298 +481,268 @@ void semantic1ExpressionImpl(FuncArgument that, Trace* trace) {
 }
 
 void semantic1ExpressionImpl(If that, Trace* trace) {
-	with (that) {
-		semantic1(cond, trace);
-		semantic1(yes, trace);
-		semantic1(no, trace);
-		if (!cond.type.isBool) {
-			error("Boolean expected in if expression", cond.pos);
-		}
-		if (!sameTypeValueValue(yes, no)) {
-			error("If expression with the true and false parts having different types", pos);
-		}
-		type = yes.type;
-		ispure = cond.ispure && yes.ispure && no.ispure;
+	semantic1(that.cond, trace);
+	semantic1(that.yes, trace);
+	semantic1(that.no, trace);
+	if (!that.cond.type.isBool) {
+		error("Boolean expected in if expression", that.cond.pos);
 	}
+	if (!sameTypeValueValue(that.yes, that.no)) {
+		error("If expression with the true and false parts having different types", that.pos);
+	}
+	that.type = that.yes.type;
+	that.ispure = that.cond.ispure && that.yes.ispure && that.no.ispure;
 }
 
 void semantic1ExpressionImpl(While that, Trace* trace) {
-	with (that) {
-		semantic1(cond, trace);
-		semantic1(state, trace);
-		if (!cond.type.isBool) {
-			error("Boolean expected in while expression", cond.pos);
-		}
-		type = createType!Struct();
-		ispure = cond.ispure && state.ispure;
+	semantic1(that.cond, trace);
+	semantic1(that.state, trace);
+	if (!that.cond.type.isBool) {
+		error("Boolean expected in while expression", that.cond.pos);
 	}
+	that.type = createType!Struct();
+	that.ispure = that.cond.ispure && that.state.ispure;
 }
 
 void semantic1ExpressionImpl(New that, Trace* trace) {
-	with (that) {
-		semantic1(value, trace);
-		type = createType!(Postfix!"(*)")(value.type);
-		ispure = value.ispure;
-	}
+	semantic1(that.value, trace);
+	that.type = createType!(Postfix!"(*)")(that.value.type);
+	that.ispure = that.value.ispure;
 }
 
 void semantic1ExpressionImpl(NewArray that, Trace* trace) {
-	with (that) {
-		semantic1(length, trace);
-		semantic1(value, trace);
-		if (!sameTypeValueType(length, createType!UInt(0))) {
-			error("Can only create an array with length of UInts", length.pos);
-		}
-		type = createType!ArrayIndex(value.type);
-		ispure = length.ispure && value.ispure;
+	semantic1(that.length, trace);
+	semantic1(that.value, trace);
+	if (!sameTypeValueType(that.length, createType!UInt(0))) {
+		error("Can only create an array with length of UInts", that.length.pos);
 	}
+	that.type = createType!ArrayIndex(that.value.type);
+	that.ispure = that.length.ispure && that.value.ispure;
 }
 
 void semantic1ExpressionImpl(Cast that, Trace* trace) {
-	with (that) {
-		semantic1(value, trace);
-		semantic1(wanted, trace);
-		checkType(wanted);
-		if (!castable(value.type, wanted)) {
-			error("Unable to cast", pos);
-		}
-		type = wanted;
-		ispure = value.ispure;
+	semantic1(that.value, trace);
+	semantic1(that.wanted, trace);
+	checkType(that.wanted);
+	if (!castable(that.value.type, that.wanted)) {
+		error("Unable to cast", that.pos);
 	}
+	that.type = that.wanted;
+	that.ispure = that.value.ispure;
 }
 
 void semantic1ExpressionImpl(ArrayIndex that, Trace* trace) {
-	with (that) {
-		semantic1(array, trace);
-		semantic1(index, trace);
-		if (array.isType) {
-			semantic1Head(that);
-		} else {
-			if (!array.type.isArray) {
-				error("Unable able to index", pos);
-			}
-			if (!sameTypeValueType(index, createType!UInt(0))) {
-				error("Can only index an array with UInts", pos);
-			}
-			auto arrayType = array.type.isArray;
-			type = arrayType.array;
-			lvalue = true;
-			ispure = array.ispure && index.ispure;
+	semantic1(that.array, trace);
+	semantic1(that.index, trace);
+	if (that.array.isType) {
+		semantic1Head(that);
+	} else {
+		if (!that.array.type.isArray) {
+			error("Unable able to index", that.pos);
 		}
+		if (!sameTypeValueType(that.index, createType!UInt(0))) {
+			error("Can only index an array with UInts", that.pos);
+		}
+		auto arrayType = that.array.type.isArray;
+		that.type = arrayType.array;
+		that.lvalue = true;
+		that.ispure = that.array.ispure && that.index.ispure;
 	}
 }
 
 void semantic1ExpressionImpl(FCall that, Trace* trace) {
-	with (that) {
-		semantic1(fptr, trace);
-		semantic1(arg, trace);
-		if (fptr.isType || arg.isType) {
-			semantic1Head(that);
-		} else {
-			auto fun = fptr.type.isFunction;
-			if (!fun) {
-				error("Not a function", pos);
-			}
-			if (!sameTypeValueType(arg, fun.arg)) {
-				error("Unable to call function with the  argument's type", pos);
-			}
-			type = fun.fptr;
-			ispure = fptr.ispure && arg.ispure /* todo fix me && fun.ispure*/ ;
+	semantic1(that.fptr, trace);
+	semantic1(that.arg, trace);
+	if (that.fptr.isType || that.arg.isType) {
+		semantic1Head(that);
+	} else {
+		auto fun = that.fptr.type.isFunction;
+		if (!fun) {
+			error("Not a function", that.pos);
 		}
+		if (!sameTypeValueType(that.arg, fun.arg)) {
+			error("Unable to call function with the  argument's type", that.pos);
+		}
+		that.type = fun.fptr;
+		that.ispure = that.fptr.ispure && that.arg.ispure /* todo fix me && fun.ispure*/ ;
 	}
 }
 
 void semantic1ExpressionImpl(Slice that, Trace* trace) {
-	with (that) {
-		semantic1(array, trace);
-		semantic1(left, trace);
-		semantic1(right, trace);
-		if (!array.type.isArray) {
-			error("Not an array", pos);
-		}
-		if (!(sameTypeValueType(right, createType!UInt(0))
-				&& sameTypeValueType(left, createType!UInt(0)))) {
-			error("Can only index an array with UInts", pos);
-		}
-		type = array.type;
-		ispure = array.ispure && left.ispure && right.ispure;
+	semantic1(that.array, trace);
+	semantic1(that.left, trace);
+	semantic1(that.right, trace);
+	if (!that.array.type.isArray) {
+		error("Not an array", that.pos);
 	}
+	if (!(sameTypeValueType(that.right, createType!UInt(0))
+			&& sameTypeValueType(that.left, createType!UInt(0)))) {
+		error("Can only index an array with UInts", that.pos);
+	}
+	that.type = that.array.type;
+	that.ispure = that.array.ispure && that.left.ispure && that.right.ispure;
 }
 
 void semantic1ExpressionImpl(string op)(Binary!op that, Trace* trace) {
-	with (that) {
-		semantic1(left, trace);
-		semantic1(right, trace);
-		static if (["*", "/", "%", "+", "-", "<=", ">=", ">", "<"].canFind(op)) {
-			auto ty = left.type;
-			if (!((ty.isUInt || ty.isInt) && (sameTypeValueValue(left, right)))) {
-				error(op ~ " only works on Ints or UInts of the same Type", pos);
-			}
-			static if (["<=", ">=", ">", "<"].canFind(op)) {
-				type = createType!Bool;
-			} else {
-				type = ty;
-			}
-			ispure = left.ispure && right.ispure;
-		} else static if (op == "~") {
-			auto ty = left.type;
-			if (!ty.isArray && sameType(ty, right.type)) {
-				error("~ only works on Arrays of the same Type", pos);
-			}
-			type = ty;
-			ispure = left.ispure && right.ispure;
-		} else static if (["==", "!="].canFind(op)) {
-			if (!(sameTypeValueValue(left, right))) {
-				error(op ~ " only works on the same Type", pos);
-			}
-			type = createType!Bool;
-			ispure = left.ispure && right.ispure;
-		} else static if (["&&", "||"].canFind(op)) {
-			auto ty = left.type;
-			if (!(ty.isBool && sameType(ty, right.type))) {
-				error(op ~ " only works on Bools", pos);
-			}
-			type = createType!Bool;
-			ispure = left.ispure && right.ispure;
-		} else {
-			static assert(0);
+	semantic1(that.left, trace);
+	semantic1(that.right, trace);
+	static if (["*", "/", "%", "+", "-", "<=", ">=", ">", "<"].canFind(op)) {
+		auto ty = that.left.type;
+		if (!((ty.isUInt || ty.isInt) && (sameTypeValueValue(that.left, that.right)))) {
+			error(op ~ " only works on Ints or UInts of the same Type", that.pos);
 		}
+		static if (["<=", ">=", ">", "<"].canFind(op)) {
+			that.type = createType!Bool;
+		} else {
+			that.type = ty;
+		}
+		that.ispure = that.left.ispure && that.right.ispure;
+	} else static if (op == "~") {
+		auto ty = that.left.type;
+		if (!ty.isArray && sameType(ty, that.right.type)) {
+			error("~ only works on Arrays of the same Type", that.pos);
+		}
+		that.type = ty;
+		that.ispure = that.left.ispure && that.right.ispure;
+	} else static if (["==", "!="].canFind(op)) {
+		if (!(sameTypeValueValue(that.left, that.right))) {
+			error(op ~ " only works on the same Type", that.pos);
+		}
+		that.type = createType!Bool;
+		that.ispure = that.left.ispure && that.right.ispure;
+	} else static if (["&&", "||"].canFind(op)) {
+		auto ty = that.left.type;
+		if (!(ty.isBool && sameType(ty, that.right.type))) {
+			error(op ~ " only works on Bools", that.pos);
+		}
+		that.type = createType!Bool;
+		that.ispure = that.left.ispure && that.right.ispure;
+	} else {
+		static assert(0);
 	}
 }
 
 void semantic1ExpressionImpl(string op)(Prefix!op that, Trace* trace) {
-	with (that) {
-		semantic1(value, trace);
-		static if (op == "-") {
-			if (!value.type.isInt) {
-				error("= only works Signed Ints", pos);
-			}
-			type = value.type;
-			ispure = value.ispure;
-		} else static if (op == "*") {
-			if (!value.type.isPointer) {
-				error("* only works on pointers", pos);
-			}
-			type = value.type.isPointer.value;
-			lvalue = true;
-			ispure = value.ispure;
-		} else static if (op == "&") {
-			if (!value.lvalue) {
-				error("& only works lvalues", pos);
-			}
-
-			static void assignHeapImpl(T)(T that, Trace* trace) {
-				auto nextTrace = Trace(that, trace);
-				trace = &nextTrace;
-				static if (is(T == ScopeVarRef) || is(T == ModuleVarRef)) {
-					that.definition.heap = true;
-				} else static if (is(T == Dot)) {
-					assignHeap(that.value, trace);
-				}
-			}
-
-			static void assignHeap(Expression that, Trace* trace) {
-				return dispatch!(assignHeapImpl, ScopeVarRef, ModuleVarRef, Dot, Expression)(that,
-						trace);
-			}
-
-			assignHeap(value, trace);
-
-			type = createType!(Postfix!"(*)")(value.type);
-			ispure = value.ispure;
-		} else static if (op == "!") {
-			if (!value.type.isBool) {
-				error("! only works on Bools", pos);
-			}
-			type = value.type;
-			ispure = value.ispure;
-		} else static if (["+", "/"].canFind(op)) {
-			error(op ~ " not supported", pos);
-		} else {
-			static assert(0);
+	semantic1(that.value, trace);
+	static if (op == "-") {
+		if (!that.value.type.isInt) {
+			error("= only works Signed Ints", that.pos);
 		}
+		that.type = that.value.type;
+		that.ispure = that.value.ispure;
+	} else static if (op == "*") {
+		if (!that.value.type.isPointer) {
+			error("* only works on pointers", that.pos);
+		}
+		that.type = that.value.type.isPointer.value;
+		that.lvalue = true;
+		that.ispure = that.value.ispure;
+	} else static if (op == "&") {
+		if (!that.value.lvalue) {
+			error("& only works lvalues", that.pos);
+		}
+
+		static void assignHeapImpl(T)(T that, Trace* trace) {
+			auto nextTrace = Trace(that, trace);
+			trace = &nextTrace;
+			static if (is(T == ScopeVarRef) || is(T == ModuleVarRef)) {
+				that.definition.heap = true;
+			} else static if (is(T == Dot)) {
+				assignHeap(that.value, trace);
+			}
+		}
+
+		static void assignHeap(Expression that, Trace* trace) {
+			return dispatch!(assignHeapImpl, ScopeVarRef, ModuleVarRef, Dot, Expression)(that,
+					trace);
+		}
+
+		assignHeap(that.value, trace);
+
+		that.type = createType!(Postfix!"(*)")(that.value.type);
+		that.ispure = that.value.ispure;
+	} else static if (op == "!") {
+		if (!that.value.type.isBool) {
+			error("! only works on Bools", that.pos);
+		}
+		that.type = that.value.type;
+		that.ispure = that.value.ispure;
+	} else static if (["+", "/"].canFind(op)) {
+		error(op ~ " not supported", that.pos);
+	} else {
+		static assert(0);
 	}
 }
 
 void semantic1ExpressionImpl(Scope that, Trace* trace) {
-	with (that) {
-		ispure = true;
-		foreach (symbol; symbols) {
-			semantic1(symbol, trace);
-		}
-		foreach (state; states) {
-			semantic1(state, trace);
-			trace.context.pass(state);
-			ispure = ispure && state.ispure;
-		}
-		if (last is null) {
-			last = new TupleLit();
-		}
-		semantic1(last, trace);
-		type = last.type;
+	that.ispure = true;
+	foreach (symbol; that.symbols) {
+		semantic1(symbol, trace);
 	}
+	foreach (state; that.states) {
+		semantic1(state, trace);
+		trace.context.pass(state);
+		that.ispure = that.ispure && state.ispure;
+	}
+	if (that.last is null) {
+		that.last = new TupleLit();
+	}
+	semantic1(that.last, trace);
+	that.type = that.last.type;
 }
 
 void semantic1ExpressionImpl(FuncLit that, Trace* trace) {
-	with (that) {
-		semantic1(argument, trace);
-		checkType(argument);
+	semantic1(that.argument, trace);
+	checkType(that.argument);
 
-		if (explict_return) {
-			semantic1(explict_return, trace);
-			checkType(explict_return);
-			type = createType!FCall(explict_return, argument);
-		}
-		semantic1(text, trace);
-
-		if (explict_return) {
-			if (!sameType(explict_return, text.type)) {
-				error("Explict return doesn't match actual return", pos);
-			}
-		}
-		//ftype.ispure = text.ispure; todo fix me
-		if (!explict_return) {
-			type = createType!FCall(text.type, argument);
-		}
-		ispure = true;
-		auto mod = cast(Module) trace.range.reduce!"b".node;
-		mod.exports[name] = Symbol(that);
+	if (that.explict_return) {
+		semantic1(that.explict_return, trace);
+		checkType(that.explict_return);
+		that.type = createType!FCall(that.explict_return, that.argument);
 	}
+	semantic1(that.text, trace);
+
+	if (that.explict_return) {
+		if (!sameType(that.explict_return, that.text.type)) {
+			error("Explict return doesn't match actual return", that.pos);
+		}
+	}
+	//ftype.ispure = text.ispure; todo fix me
+	if (!that.explict_return) {
+		that.type = createType!FCall(that.text.type, that.argument);
+	}
+	that.ispure = true;
+	auto mod = cast(Module) trace.range.reduce!"b".node;
+	mod.exports[that.name] = Symbol(that);
 }
 
 void semantic1ExpressionImpl(StringLit that, Trace* trace) {
-	with (that) {
-		type = createType!ArrayIndex(createType!Char);
-		ispure = true;
-	}
+	that.type = createType!ArrayIndex(createType!Char);
+	that.ispure = true;
 }
 
 void semantic1ExpressionImpl(ArrayLit that, Trace* trace) {
-	with (that) {
-		foreach (value; values) {
-			semantic1(value, trace);
-		}
-		if (values.length == 0) {
-			error("Array Literals must contain at least one element", pos);
-		}
-		auto current = values[0].type;
-		foreach (value; values[1 .. $]) {
-			if (!sameType(current, value.type)) {
-				error("All elements of an array literal must be of the same type", pos);
-			}
-		}
-		type = createType!ArrayIndex(current);
-		ispure = values.map!(a => a.ispure).all;
+	foreach (value; that.values) {
+		semantic1(value, trace);
 	}
+	if (that.values.length == 0) {
+		error("Array Literals must contain at least one element", that.pos);
+	}
+	auto current = that.values[0].type;
+	foreach (value; that.values[1 .. $]) {
+		if (!sameType(current, value.type)) {
+			error("All elements of an array literal must be of the same type", that.pos);
+		}
+	}
+	that.type = createType!ArrayIndex(current);
+	that.ispure = that.values.map!(a => a.ispure).all;
 }
 
 void semantic1ExpressionImpl(ExternJS that, Trace* trace) {
-	with (that) {
-		type = createType!ExternType;
-		ispure = true;
-		if (name == "") {
-			error("Improper extern", pos);
-		}
+	that.type = createType!ExternType;
+	that.ispure = true;
+	if (that.name == "") {
+		error("Improper extern", that.pos);
 	}
 }
 
