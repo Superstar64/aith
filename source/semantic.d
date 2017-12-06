@@ -89,7 +89,6 @@ ref Expression[] values(Struct stru) {
 }
 
 bool isType(Expression expression) {
-	expression = expression;
 	return !!cast(Metaclass) expression.type;
 }
 
@@ -125,22 +124,18 @@ Expression createType(T, Args...)(Args args) {
 
 T createTypeImpl(T)()
 		if (is(T == Bool) || is(T == Char) || is(T == ImportType) || is(T == ExternType)) {
-	auto type = new T;
-	semantic1Head(type);
-	return type;
+	return new T;
 }
 
 T createTypeImpl(T)(int size) if (is(T == Int) || is(T == UInt)) {
 	auto type = new T;
 	type.size = size;
-	semantic1Head(type);
 	return type;
 }
 
 T createTypeImpl(T)(Expression value) if (is(T == Postfix!"(*)")) {
 	auto type = new T;
 	type.value = value;
-	semantic1Head(type);
 	return type;
 }
 
@@ -150,7 +145,6 @@ T createTypeImpl(T)(Expression[] values = null) if (is(T == Struct)) {
 	tuple.values = values;
 	semantic1Head(tuple);
 	type.value = tuple;
-	semantic1Head(type);
 	return type;
 }
 
@@ -158,7 +152,6 @@ T createTypeImpl(T)(Expression fptr, Expression arg) if (is(T == FCall)) {
 	auto type = new T;
 	type.fptr = fptr;
 	type.arg = arg;
-	semantic1Head(type);
 	return type;
 }
 
@@ -174,64 +167,7 @@ T createTypeImpl(T)(Expression array) if (is(T == ArrayIndex)) {
 //process certain expressions with out recursing
 void semantic1Head(T)(T that) {
 	semantic1HeadImpl(that);
-	that.type = metaclass;
-	that.ispure = true;
 	that.process = true;
-}
-
-void semantic1Head(TupleLit that) {
-	if (that.values.map!(a => !!cast(Metaclass) a).all) {
-		auto cycle = new Struct();
-		cycle.value = that;
-		semantic1Head(cycle);
-		that.type = cycle;
-	} else {
-		that.type = createType!Struct(that.values.map!(a => a.type).array);
-	}
-	that.ispure = that.values.map!(a => a.ispure).all;
-}
-
-void semantic1HeadImpl(T)(T that)
-		if (is(T == Bool) || is(T == Char) || is(T == ImportType) || is(T == ExternType)) {
-}
-
-void semantic1HeadImpl(T)(T that) if (is(T == Int) || is(T == UInt)) {
-	if (that.size == 0) {
-		return;
-	}
-	uint check = 1;
-	while (true) {
-		if (check == that.size) {
-			return;
-		}
-		if (check > that.size) {
-			error("Bad Int Size", that.pos);
-		}
-		check *= 2;
-	}
-}
-
-void semantic1HeadImpl(T)(T that) if (is(T == Postfix!"(*)")) {
-	checkType(that.value);
-}
-
-void semantic1HeadImpl(T)(T that) if (is(T == Struct)) {
-	if (!cast(TupleLit) that.value) {
-		error("expected tuple lit after struct", that.pos);
-	}
-	that.values.each!checkType;
-}
-
-void semantic1HeadImpl(T)(T that) if (is(T == FCall)) {
-	checkType(that.fptr);
-	checkType(that.arg);
-}
-
-void semantic1HeadImpl(T)(T that) if (is(T == ArrayIndex)) {
-	checkType(that.index);
-	if (!sameType(that.index, createType!Struct())) {
-		error("Expected empty type in array type", that.pos);
-	}
 }
 
 void semantic1(ref Statement that, Trace* trace) {
@@ -426,9 +362,40 @@ void semantic1ExpressionImpl(Import that, Trace* trace) {
 	that.ispure = true;
 }
 
+void semantic1HeadImpl(T)(T that)
+		if (is(T == Bool) || is(T == Char) || is(T == ImportType) || is(T == ExternType)) {
+	that.type = metaclass;
+	that.ispure = true;
+}
+
+void semantic1HeadImpl(T)(T that) if (is(T == Int) || is(T == UInt)) {
+	that.type = metaclass;
+	that.ispure = true;
+	if (that.size == 0) {
+		return;
+	}
+	uint check = 1;
+	while (true) {
+		if (check == that.size) {
+			return;
+		}
+		if (check > that.size) {
+			error("Bad Int Size", that.pos);
+		}
+		check *= 2;
+	}
+
+}
+
 void semantic1ExpressionImpl(T)(T that, Trace* trace)
 		if (is(T == Bool) || is(T == Char) || is(T == Int) || is(T == UInt)) {
 	semantic1Head(that);
+}
+
+void semantic1HeadImpl(T)(T that) if (is(T == Postfix!"(*)")) {
+	checkType(that.value);
+	that.type = metaclass;
+	that.ispure = true;
 }
 
 void semantic1ExpressionImpl(T)(T that, Trace* trace) if (is(T == Postfix!"(*)")) {
@@ -455,9 +422,30 @@ void semantic1ExpressionImpl(BoolLit that, Trace* trace) {
 	that.ispure = true;
 }
 
+void semantic1HeadImpl(T)(T that) if (is(T == Struct)) {
+	if (!cast(TupleLit) that.value) {
+		error("expected tuple lit after struct", that.pos);
+	}
+	that.values.each!checkType;
+	that.type = metaclass;
+	that.ispure = true;
+}
+
 void semantic1ExpressionImpl(Struct that, Trace* trace) {
 	semantic1(that.value, trace);
 	semantic1Head(that);
+}
+
+void semantic1Head(TupleLit that) {
+	if (that.values.map!(a => !!cast(Metaclass) a).all) {
+		auto cycle = new Struct();
+		cycle.value = that;
+		semantic1Head(cycle);
+		that.type = cycle;
+	} else {
+		that.type = createType!Struct(that.values.map!(a => a.type).array);
+	}
+	that.ispure = that.values.map!(a => a.ispure).all;
 }
 
 void semantic1ExpressionImpl(TupleLit that, Trace* trace) {
@@ -531,6 +519,15 @@ void semantic1ExpressionImpl(Cast that, Trace* trace) {
 	that.ispure = that.value.ispure;
 }
 
+void semantic1HeadImpl(T)(T that) if (is(T == ArrayIndex)) {
+	checkType(that.index);
+	if (!sameType(that.index, createType!Struct())) {
+		error("Expected empty type in array type", that.pos);
+	}
+	that.type = metaclass;
+	that.ispure = true;
+}
+
 void semantic1ExpressionImpl(ArrayIndex that, Trace* trace) {
 	semantic1(that.array, trace);
 	semantic1(that.index, trace);
@@ -548,6 +545,13 @@ void semantic1ExpressionImpl(ArrayIndex that, Trace* trace) {
 		that.lvalue = true;
 		that.ispure = that.array.ispure && that.index.ispure;
 	}
+}
+
+void semantic1HeadImpl(T)(T that) if (is(T == FCall)) {
+	checkType(that.fptr);
+	checkType(that.arg);
+	that.type = metaclass;
+	that.ispure = true;
 }
 
 void semantic1ExpressionImpl(FCall that, Trace* trace) {
