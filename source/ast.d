@@ -300,8 +300,6 @@ class Postfix(string T) : Expression if (["(*)"].canFind(T)) {
 }
 
 class Scope : Expression {
-	//includes alias = for now
-	//duped with iterating over context
 	ScopeVarDef[string] symbols;
 	Statement[] states;
 	Expression last;

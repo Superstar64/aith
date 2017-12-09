@@ -27,6 +27,10 @@ import ast;
 import error : error, Position;
 import parser;
 
+T castTo(T, Base)(Base node) {
+	return cast(T) node;
+}
+
 void processModule(Module mod) {
 	mod.process = true;
 	auto trace = Trace(mod, null);
@@ -40,61 +44,16 @@ void processModule(Module mod) {
 	}
 }
 
-Bool isBool(Expression type) {
-	return cast(Bool) type;
-}
-
-Char isChar(Expression type) {
-	return cast(Char) type;
-}
-
-Int isInt(Expression type) {
-	return cast(Int) type;
-}
-
-UInt isUInt(Expression type) {
-	return cast(UInt) type;
-}
-
-Postfix!"(*)" isPointer(Expression type) {
-	return cast(Postfix!"(*)") type;
-}
-
-//todo remove these
-ArrayIndex isArray(Expression type) {
-	if (type.isType && cast(ArrayIndex) type) {
-		return cast(ArrayIndex) type;
-	}
-	return null;
-}
-
-FCall isFunction(Expression type) {
-	if (type.isType && cast(FCall) type) {
-		return cast(FCall) type;
-	}
-	return null;
-}
-
-bool isExtern(Expression expression) {
-	if (auto ext = cast(Cast) expression) {
-		return !!cast(ExternJS) ext.value;
-	}
-	return !!cast(ExternJS) expression;
-}
-
 ref Expression[] values(Struct stru) {
-	auto tuple = cast(TupleLit) stru.value;
-	assert(tuple);
-	return tuple.values;
+	return stru.value.castTo!TupleLit.values;
 }
 
 bool isType(Expression expression) {
-	return !!cast(Metaclass) expression.type;
+	return !!expression.type.castTo!Metaclass;
 }
 
 bool isRuntimeValue(Expression expression) {
-	expression = expression;
-	return !(expression.isType || cast(Import) expression);
+	return !(expression.isType || expression.castTo!Import);
 }
 
 void checkRuntimeValue(Expression expression) {
@@ -105,7 +64,7 @@ void checkRuntimeValue(Expression expression) {
 
 //makes sure expression is a type or implicitly convert it to a type
 void checkType(ref Expression expression) {
-	if (auto tuple = cast(TupleLit) expression) {
+	if (auto tuple = expression.castTo!TupleLit) {
 		auto structWrap = new Struct;
 		structWrap.value = expression;
 		expression = structWrap;
@@ -188,15 +147,15 @@ void semantic1(VarDef that, Trace* trace) {
 			error("types don't match", that.pos);
 		}
 	}
-	if (auto scopeVar = cast(ScopeVarDef) that) {
+	if (auto scopeVar = that.castTo!ScopeVarDef) {
 		if (!that.manifest) {
 			scopeVar.func = trace.range.map!(a => a.node)
-				.map!(a => cast(FuncLit) a).filter!(a => !!a).front;
+				.map!(a => a.castTo!FuncLit).filter!(a => !!a).front;
 		}
 	}
-	if (auto moduleVar = cast(ModuleVarDef) that) {
+	if (auto moduleVar = that.castTo!ModuleVarDef) {
 		if (!that.manifest) {
-			auto mod = cast(Module) trace.range.reduce!"b".node;
+			auto mod = trace.range.reduce!"b".node.castTo!Module;
 			mod.exports[that.name] = Symbol(moduleVar);
 		}
 	}
@@ -252,14 +211,14 @@ void semantic1ExpressionImplWritable(Variable that, Trace* trace, ref Expression
 	if (source.manifest) {
 		thealias = source.definition;
 	} else {
-		if (auto scopeDef = cast(ScopeVarDef) source) {
+		if (auto scopeDef = source.castTo!ScopeVarDef) {
 			auto scopeRef = new ScopeVarRef();
 			scopeRef.definition = scopeDef;
 			scopeRef.ispure = true;
 			scopeRef.type = source.type;
 			scopeRef.lvalue = true;
 			thealias = scopeRef;
-		} else if (auto moduleDef = cast(ModuleVarDef) source) {
+		} else if (auto moduleDef = source.castTo!ModuleVarDef) {
 			auto moduleRef = new ModuleVarRef();
 			moduleRef.definition = moduleDef;
 			moduleRef.ispure = false;
@@ -271,17 +230,14 @@ void semantic1ExpressionImplWritable(Variable that, Trace* trace, ref Expression
 		}
 	}
 	assert(thealias.type);
-	if (auto scopeVarRef = cast(ScopeVarRef) thealias) {
+	if (auto scopeVarRef = thealias.castTo!ScopeVarRef) {
 		checkNotClosure(scopeVarRef, trace, that.pos);
 	}
 	output = thealias;
 }
 
 void checkNotClosure(ScopeVarRef that, Trace* trace, Position pos) {
-	auto funcRange = trace.range.map!(a => a.node).map!(a => cast(FuncLit) a).filter!(a => !!a);
-	if (funcRange.empty) {
-		assert(0); //this should never happen
-	}
+	auto funcRange = trace.range.map!(a => a.node).map!(a => a.castTo!FuncLit).filter!(a => !!a);
 	if (funcRange.front !is that.definition.func) {
 		error("Closures not supported", pos);
 	}
@@ -320,7 +276,7 @@ void semantic1DotImpl(T)(T that, Trace* trace, Dot dot, ref Expression output) {
 		if (dot.index.peek!BigInt) {
 			error("attempting to index a module with an integer", that.pos);
 		}
-		auto imp = cast(Import) dot.value;
+		auto imp = dot.value.castTo!Import;
 		auto name = dot.index.get!string;
 		if (!(name in imp.mod.symbols)) {
 			error(name ~ " doesn't exist in module", dot.pos);
@@ -416,7 +372,7 @@ void semantic1ExpressionImpl(BoolLit that, Trace* trace) {
 }
 
 void semantic1HeadImpl(T)(T that) if (is(T == Struct)) {
-	if (!cast(TupleLit) that.value) {
+	if (!that.value.castTo!TupleLit) {
 		error("expected tuple lit after struct", that.pos);
 	}
 	that.values.each!checkType;
@@ -430,7 +386,7 @@ void semantic1ExpressionImpl(Struct that, Trace* trace) {
 }
 
 void semantic1Head(TupleLit that) {
-	if (that.values.map!(a => !!cast(Metaclass) a).all) {
+	if (that.values.map!(a => !!a.castTo!Metaclass).all) {
 		auto cycle = new Struct();
 		cycle.value = that;
 		semantic1Head(cycle);
@@ -451,7 +407,7 @@ void semantic1ExpressionImpl(TupleLit that, Trace* trace) {
 
 void semantic1ExpressionImpl(FuncArgument that, Trace* trace) {
 	foreach (node; trace.range.map!(a => a.node)) {
-		if (auto func = cast(FuncLit) node) {
+		if (auto func = node.castTo!FuncLit) {
 			that.func = func;
 			that.type = func.argument;
 			//todo make lvalue-able
@@ -465,7 +421,7 @@ void semantic1ExpressionImpl(If that, Trace* trace) {
 	semantic1(that.cond, trace);
 	semantic1(that.yes, trace);
 	semantic1(that.no, trace);
-	if (!that.cond.type.isBool) {
+	if (!that.cond.type.castTo!Bool) {
 		error("Boolean expected in if expression", that.cond.pos);
 	}
 	if (!sameTypeValueValue(that.yes, that.no)) {
@@ -478,7 +434,7 @@ void semantic1ExpressionImpl(If that, Trace* trace) {
 void semantic1ExpressionImpl(While that, Trace* trace) {
 	semantic1(that.cond, trace);
 	semantic1(that.state, trace);
-	if (!that.cond.type.isBool) {
+	if (!that.cond.type.castTo!Bool) {
 		error("Boolean expected in while expression", that.cond.pos);
 	}
 	that.type = createType!Struct();
@@ -527,13 +483,13 @@ void semantic1ExpressionImpl(ArrayIndex that, Trace* trace) {
 	if (that.array.isType) {
 		semantic1Head(that);
 	} else {
-		if (!that.array.type.isArray) {
+		if (!that.array.type.castTo!ArrayIndex) {
 			error("Unable able to index", that.pos);
 		}
 		if (!sameTypeValueType(that.index, createType!UInt(0))) {
 			error("Can only index an array with UInts", that.pos);
 		}
-		auto arrayType = that.array.type.isArray;
+		auto arrayType = that.array.type.castTo!ArrayIndex;
 		that.type = arrayType.array;
 		that.lvalue = true;
 		that.ispure = that.array.ispure && that.index.ispure;
@@ -553,7 +509,7 @@ void semantic1ExpressionImpl(FCall that, Trace* trace) {
 	if (that.fptr.isType || that.arg.isType) {
 		semantic1Head(that);
 	} else {
-		auto fun = that.fptr.type.isFunction;
+		auto fun = that.fptr.type.castTo!FCall;
 		if (!fun) {
 			error("Not a function", that.pos);
 		}
@@ -569,7 +525,7 @@ void semantic1ExpressionImpl(Slice that, Trace* trace) {
 	semantic1(that.array, trace);
 	semantic1(that.left, trace);
 	semantic1(that.right, trace);
-	if (!that.array.type.isArray) {
+	if (!that.array.type.castTo!ArrayIndex) {
 		error("Not an array", that.pos);
 	}
 	if (!(sameTypeValueType(that.right, createType!UInt(0))
@@ -585,7 +541,7 @@ void semantic1ExpressionImpl(string op)(Binary!op that, Trace* trace) {
 	semantic1(that.right, trace);
 	static if (["*", "/", "%", "+", "-", "<=", ">=", ">", "<"].canFind(op)) {
 		auto ty = that.left.type;
-		if (!((ty.isUInt || ty.isInt) && (sameTypeValueValue(that.left, that.right)))) {
+		if (!((ty.castTo!UInt || ty.castTo!Int) && (sameTypeValueValue(that.left, that.right)))) {
 			error(op ~ " only works on Ints or UInts of the same Type", that.pos);
 		}
 		static if (["<=", ">=", ">", "<"].canFind(op)) {
@@ -596,7 +552,7 @@ void semantic1ExpressionImpl(string op)(Binary!op that, Trace* trace) {
 		that.ispure = that.left.ispure && that.right.ispure;
 	} else static if (op == "~") {
 		auto ty = that.left.type;
-		if (!ty.isArray && sameType(ty, that.right.type)) {
+		if (!ty.castTo!ArrayIndex && sameType(ty, that.right.type)) {
 			error("~ only works on Arrays of the same Type", that.pos);
 		}
 		that.type = ty;
@@ -609,7 +565,7 @@ void semantic1ExpressionImpl(string op)(Binary!op that, Trace* trace) {
 		that.ispure = that.left.ispure && that.right.ispure;
 	} else static if (["&&", "||"].canFind(op)) {
 		auto ty = that.left.type;
-		if (!(ty.isBool && sameType(ty, that.right.type))) {
+		if (!(ty.castTo!Bool && sameType(ty, that.right.type))) {
 			error(op ~ " only works on Bools", that.pos);
 		}
 		that.type = createType!Bool;
@@ -622,16 +578,16 @@ void semantic1ExpressionImpl(string op)(Binary!op that, Trace* trace) {
 void semantic1ExpressionImpl(string op)(Prefix!op that, Trace* trace) {
 	semantic1(that.value, trace);
 	static if (op == "-") {
-		if (!that.value.type.isInt) {
+		if (!that.value.type.castTo!Int) {
 			error("= only works Signed Ints", that.pos);
 		}
 		that.type = that.value.type;
 		that.ispure = that.value.ispure;
 	} else static if (op == "*") {
-		if (!that.value.type.isPointer) {
+		if (!that.value.type.castTo!(Postfix!"(*)")) {
 			error("* only works on pointers", that.pos);
 		}
-		that.type = that.value.type.isPointer.value;
+		that.type = that.value.type.castTo!(Postfix!"(*)").value;
 		that.lvalue = true;
 		that.ispure = that.value.ispure;
 	} else static if (op == "&") {
@@ -659,7 +615,7 @@ void semantic1ExpressionImpl(string op)(Prefix!op that, Trace* trace) {
 		that.type = createType!(Postfix!"(*)")(that.value.type);
 		that.ispure = that.value.ispure;
 	} else static if (op == "!") {
-		if (!that.value.type.isBool) {
+		if (!that.value.type.castTo!Bool) {
 			error("! only works on Bools", that.pos);
 		}
 		that.type = that.value.type;
@@ -709,7 +665,7 @@ void semantic1ExpressionImpl(FuncLit that, Trace* trace) {
 		that.type = createType!FCall(that.text.type, that.argument);
 	}
 	that.ispure = true;
-	auto mod = cast(Module) trace.range.reduce!"b".node;
+	auto mod = trace.range.reduce!"b".node.castTo!Module;
 	mod.exports[that.name] = Symbol(that);
 }
 
@@ -801,7 +757,7 @@ bool implicitConvert(ref Expression value, Expression type) {
 	assert(isRuntimeValue(value));
 	assert(isType(type));
 
-	if (cast(IntLit) value && (type.isUInt || type.isInt)) {
+	if (value.castTo!IntLit && (type.castTo!UInt || type.castTo!Int)) {
 		auto result = new Cast();
 		result.implicit = true;
 		result.wanted = type;
@@ -811,7 +767,7 @@ bool implicitConvert(ref Expression value, Expression type) {
 		value = result;
 		return true;
 	}
-	if (auto ext = cast(ExternJS) value) {
+	if (auto ext = value.castTo!ExternJS) {
 		auto result = new Cast();
 		result.implicit = true;
 		result.wanted = type;
@@ -838,7 +794,7 @@ bool castable(Expression target, Expression want) {
 	if (sameType(target, createType!Struct())) {
 		return true;
 	}
-	if ((cast(Int) target || cast(UInt) target) && (cast(Int) want || cast(UInt) want)) { //casting between int types
+	if ((target.castTo!Int || target.castTo!UInt) && (want.castTo!Int || want.castTo!UInt)) { //casting between int types
 		return true;
 	}
 	return false;

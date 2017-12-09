@@ -32,6 +32,10 @@ import error : error;
 import semantic;
 import jsast;
 
+T castTo(T, Base)(Base node) {
+	return cast(T) node;
+}
+
 //structs are repesented as native arrays
 //arrays are either a native array or an object with a data, start, length, 
 //pointers are arrays
@@ -165,7 +169,7 @@ JsExpr defaultValueImpl(T)(T that) {
 
 JsExpr castInt(JsExpr expr, Expression type) {
 	type = type;
-	if (auto i = cast(Int) type) {
+	if (auto i = type.castTo!Int) {
 		if (i.size == 1) {
 			error("todo support size" ~ i.size.to!string);
 			assert(0);
@@ -178,7 +182,7 @@ JsExpr castInt(JsExpr expr, Expression type) {
 			error("todo support size" ~ i.size.to!string);
 			assert(0);
 		}
-	} else if (auto i = cast(UInt) type) {
+	} else if (auto i = type.castTo!UInt) {
 		if (i.size == 1) {
 			return new JsBinary!"&"(expr, new JsLit("0xff"));
 		} else if (i.size == 2) {
@@ -515,9 +519,9 @@ Tuple!(JsExpr, Usage) generateJSImpl(Cast that, Trace* trace, Usage usage,
 		return typeof(return)(val, usage);
 	} else if (sameType(that.value.type, createType!Struct())) {
 		return typeof(return)(defaultValue(that.wanted), Usage.literal);
-	} else if (cast(UInt) that.wanted || cast(Int) that.wanted) {
+	} else if (that.wanted.castTo!UInt || that.wanted.castTo!Int) {
 		return typeof(return)(castInt(val, that.wanted), usage);
-	} else if (cast(ExternJS) that.value) {
+	} else if (that.value.castTo!ExternJS) {
 		return typeof(return)(val, usage);
 	}
 	assert(0);
@@ -529,7 +533,7 @@ Tuple!(JsExpr, Usage) generateJSImpl(Dot that, Trace* trace, Usage usage,
 	auto val = generateJS(that.value, trace, usage, depend, uuid);
 	JsExpr result;
 	if (that.index.peek!string) {
-		if (cast(ArrayIndex) that.value.type) {
+		if (that.value.type.castTo!ArrayIndex) {
 			return typeof(return)(new JsDot(val, "length"), usage);
 		}
 	} else {
@@ -613,13 +617,13 @@ Tuple!(JsExpr, Usage) generateJSImpl(Binary!"~" that, Trace* trace, Usage usage,
 			new JsBinary!"<"(i, arrayLength(left)), new JsPostfix!"++"(i), []);
 	depend ~= loop;
 	loop.states ~= new JsBinary!"="(new JsIndex(lit, i), copy(indexArray(left,
-			i), (cast(ArrayIndex) that.left.type).array));
+			i), that.left.type.castTo!ArrayIndex.array));
 	auto loop2 = new JsFor(new JsVarDef(i.value, arrayLength(left)),
 			new JsBinary!"<"(i, new JsBinary!"+"(arrayLength(left), arrayLength(right))),
 			new JsPostfix!"++"(i), []);
 	depend ~= loop;
 	loop2.states ~= new JsBinary!"="(new JsIndex(lit, i), copy(indexArray(right,
-			new JsBinary!"-"(i, arrayLength(left))), (cast(ArrayIndex) that.left.type).array));
+			new JsBinary!"-"(i, arrayLength(left))), that.left.type.castTo!ArrayIndex.array));
 	return typeof(return)(lit, Usage.variable);
 }
 
@@ -645,7 +649,7 @@ Tuple!(JsExpr, Usage) generateJSAddressOfImpl(T)(T that, Trace* trace,
 		return typeof(return)(outvar, Usage.literal);
 	} else static if (is(T == Dot)) {
 		ignoreShare(usage);
-		auto structType = cast(Struct) that.type;
+		auto structType = that.type.castTo!Struct;
 		assert(structType);
 		//todo bug, can't get address of .length
 		auto structValue = generateJS(that.value, trace, usage, depend, uuid);
@@ -672,11 +676,11 @@ Tuple!(JsExpr, Usage) generateJSAddressOfImpl(T)(T that, Trace* trace,
 Tuple!(JsExpr, Usage) generateJSImpl(Scope that, Trace* trace, Usage usage,
 		ref JsState[] depend, ref uint uuid) {
 	foreach (state; that.states) {
-		if (auto val = cast(Expression) state) {
+		if (auto val = state.castTo!Expression) {
 			generateJS(val, trace, Usage.none, depend, uuid);
-		} else if (auto assign = cast(Assign) state) {
+		} else if (auto assign = state.castTo!Assign) {
 			depend ~= generateJSAssign(assign.left, assign.right, trace, Usage.once, depend, uuid);
-		} else if (auto var = cast(ScopeVarDef) state) {
+		} else if (auto var = state.castTo!ScopeVarDef) {
 			auto val = generateJS(var.definition, trace, Usage(Unique.copy,
 					Eval.once), depend, uuid);
 			if (var.heap) {
