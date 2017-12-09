@@ -21,7 +21,7 @@ import std.bigint : BigInt;
 import std.conv : to;
 import std.file : read;
 import std.meta : AliasSeq;
-import std.range : drop, take;
+import std.range : recurrence, drop, take;
 
 import ast;
 import error : error, Position;
@@ -374,15 +374,8 @@ void semantic1HeadImpl(T)(T that) if (is(T == Int) || is(T == UInt)) {
 	if (that.size == 0) {
 		return;
 	}
-	uint check = 1;
-	while (true) {
-		if (check == that.size) {
-			return;
-		}
-		if (check > that.size) {
-			error("Bad Int Size", that.pos);
-		}
-		check *= 2;
+	if (!recurrence!((a, n) => a[n - 1] / 2)(that.size).until(1).map!(a => a % 2 == 0).all) {
+		error("Bad Int Size", that.pos);
 	}
 
 }
