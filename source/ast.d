@@ -271,7 +271,7 @@ class ArrayIndex : Expression {
 }
 
 //if fptr and arg are types then this is a type
-class FCall : Expression {
+class FuncCall : Expression {
 	Expression fptr;
 	Expression arg;
 	//todo ispure for type

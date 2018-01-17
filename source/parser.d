@@ -410,7 +410,7 @@ struct Parser {
 			} else if (front == oper!"(") {
 				auto argument = parseTupleImpl;
 				assert(argument);
-				auto ret = new FCall();
+				auto ret = new FuncCall();
 				ret.fptr = current;
 				ret.arg = argument;
 				ret.pos = pos.join(front.pos);

@@ -105,7 +105,7 @@ T createTypeImpl(T)(Expression[] values = null) if (is(T == Struct)) {
 	return type;
 }
 
-T createTypeImpl(T)(Expression fptr, Expression arg) if (is(T == FCall)) {
+T createTypeImpl(T)(Expression fptr, Expression arg) if (is(T == FuncCall)) {
 	auto type = new T;
 	type.fptr = fptr;
 	type.arg = arg;
@@ -180,8 +180,8 @@ void semantic1(ref Expression that, Trace* trace) {
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
 	dispatch!(semantic1ExpressionImpl, Metaclass, Bool, Char, Int, UInt, Postfix!"(*)",
-			Import, IntLit, CharLit, BoolLit, Struct, TupleLit, FuncArgument, If,
-			While, New, NewArray, Cast, ArrayIndex, FCall, Slice, Scope, FuncLit,
+			Import, IntLit, CharLit, BoolLit, Struct, TupleLit, FuncArgument, If, While,
+			New, NewArray, Cast, ArrayIndex, FuncCall, Slice, Scope, FuncLit,
 			StringLit, ArrayLit, ExternJS, Binary!"*", Binary!"/",
 			Binary!"%", Binary!"+", Binary!"-", Binary!"~", Binary!"==",
 			Binary!"!=", Binary!"<=", Binary!">=", Binary!"<", Binary!">",
@@ -512,20 +512,20 @@ void semantic1ArrayImpl(Expression type, ArrayIndex that, Trace* trace) {
 	error("Unable able to index", that.pos);
 }
 
-void semantic1HeadImpl(T)(T that) if (is(T == FCall)) {
+void semantic1HeadImpl(T)(T that) if (is(T == FuncCall)) {
 	checkType(that.fptr);
 	checkType(that.arg);
 	that.type = metaclass;
 	that.ispure = true;
 }
 
-void semantic1ExpressionImpl(FCall that, Trace* trace) {
+void semantic1ExpressionImpl(FuncCall that, Trace* trace) {
 	semantic1(that.fptr, trace);
 	semantic1(that.arg, trace);
 	if (that.fptr.isType || that.arg.isType) {
 		semantic1Head(that);
 	} else {
-		auto fun = that.fptr.type.castTo!FCall;
+		auto fun = that.fptr.type.castTo!FuncCall;
 		if (!fun) {
 			error("Not a function", that.pos);
 		}
@@ -667,7 +667,7 @@ void semantic1ExpressionImpl(FuncLit that, Trace* trace) {
 	if (that.explict_return) {
 		semantic1(that.explict_return, trace);
 		checkType(that.explict_return);
-		that.type = createType!FCall(that.explict_return, that.argument);
+		that.type = createType!FuncCall(that.explict_return, that.argument);
 	}
 	semantic1(that.text, trace);
 
@@ -678,7 +678,7 @@ void semantic1ExpressionImpl(FuncLit that, Trace* trace) {
 	}
 	//ftype.ispure = text.ispure; todo fix me
 	if (!that.explict_return) {
-		that.type = createType!FCall(that.text.type, that.argument);
+		that.type = createType!FuncCall(that.text.type, that.argument);
 	}
 	that.ispure = true;
 	auto mod = trace.range.reduce!"b".node.castTo!Module;
@@ -733,7 +733,7 @@ bool sameType(Expression a, Expression b) {
 	assert(a.isType);
 	assert(b.isType);
 	alias Types = AliasSeq!(Metaclass, Char, Int, UInt, Struct, Postfix!"(*)",
-			ArrayIndex, FCall, ImportType, ExternType);
+			ArrayIndex, FuncCall, ImportType, ExternType);
 	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(a, b);
 }
 
@@ -760,7 +760,7 @@ bool sameTypeImpl(T1, T2)(T1 a, T2 b) {
 			return sameType(a.value, b.value);
 		} else static if (is(T == ArrayIndex)) {
 			return sameType(a.array, b.array);
-		} else static if (is(T == FCall)) {
+		} else static if (is(T == FuncCall)) {
 			return sameType(a.fptr, b.fptr) && sameType(a.arg, b.arg);
 		}
 	}
