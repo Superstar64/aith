@@ -38,7 +38,6 @@ template dispatch(alias fun, Types...) {
 	}
 }
 
-alias Index = Algebraic!(BigInt, string);
 alias SymbolTypes = AliasSeq!(FuncLit, ModuleVarDef);
 alias Symbol = Algebraic!SymbolTypes;
 
@@ -262,7 +261,7 @@ class Cast : Expression {
 
 class Dot : Expression {
 	Expression value;
-	Index index;
+	string index;
 }
 
 //if array is a type and index is an empty struct then this is a type

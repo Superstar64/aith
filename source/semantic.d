@@ -35,9 +35,7 @@ void processModule(Module mod) {
 	mod.process = true;
 	auto trace = Trace(mod, null);
 	foreach (symbol; mod.symbols) {
-		if (!symbol.process) {
-			semantic1(symbol, &trace);
-		}
+		semantic1(symbol, &trace);
 		if (!symbol.ispure) {
 			error("Impure expression in global", symbol.pos);
 		}
@@ -175,7 +173,8 @@ void semantic1(Assign that, Trace* trace) {
 
 void semantic1(ref Expression that, Trace* trace) {
 	if (that.process) {
-		error("Cyclic variable", that.pos);
+		//todo check for cycles
+		return;
 	}
 	that.process = true;
 	auto nextTrace = Trace(that, trace);
@@ -250,57 +249,42 @@ void semantic1ExpressionImplWritable(Dot that, Trace* trace, ref Expression outp
 }
 
 void semantic1Dot(Expression that, Trace* trace, Dot dot, ref Expression output) {
-	dispatch!(semantic1DotImpl, Struct, ArrayIndex, ImportType, Expression)(that,
-			trace, dot, output);
-}
-
-void semantic1DotImpl(T)(T that, Trace* trace, Dot dot, ref Expression output) {
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
-	static if (is(T == Struct)) {
-		auto index = dot.index;
-		uint typeIndex = index.get!(BigInt).toInt;
-		if (typeIndex >= that.values.length) {
-			error("Index number to high", dot.pos);
-		}
-		dot.type = that.values[typeIndex];
-		dot.lvalue = dot.value.lvalue;
-	} else static if (is(T == ArrayIndex)) {
-		auto index = dot.index;
-		if (!(index.peek!string && index.get!string == "length")) {
-			semantic1DotImpl!Expression(that, trace, dot, output);
-			return;
-		}
-		dot.type = createType!UInt(0);
-	} else static if (is(T == ImportType)) {
-		if (dot.index.peek!BigInt) {
-			error("attempting to index a module with an integer", that.pos);
-		}
-		auto imp = dot.value.castTo!Import;
-		auto name = dot.index.get!string;
-		if (!(name in imp.mod.symbols)) {
-			error(name ~ " doesn't exist in module", dot.pos);
-		}
-		auto definition = imp.mod.symbols[name];
-		if (!definition.visible) {
-			error(name ~ " is not visible", dot.pos);
-		}
-		ModuleVarRef thealias = new ModuleVarRef();
-		thealias.definition = definition;
-		thealias.ispure = false;
-		thealias.type = definition.type;
-		thealias.lvalue = true;
-		if (definition.type is null) {
-			auto definitionTrace = Trace(imp.mod, null);
-			semantic1(thealias.definition, &definitionTrace);
-		}
-		output = thealias;
-	} else static if (is(T == Expression)) {
-		error("Unable to dot", that.pos);
-	} else {
-		pragma(msg, T);
-		static assert(0);
+	dispatch!(semantic1DotImpl, ArrayIndex, ImportType, Expression)(that, trace, dot, output);
+}
+
+void semantic1DotImpl(ArrayIndex that, Trace* trace, Dot dot, ref Expression output) {
+	if (dot.index != "length") {
+		semantic1DotImpl(that.castTo!Expression, trace, dot, output);
+		return;
 	}
+	dot.type = createType!UInt(0);
+}
+
+void semantic1DotImpl(ImportType that, Trace* trace, Dot dot, ref Expression output) {
+	auto imp = dot.value.castTo!Import;
+	if (dot.index !in imp.mod.symbols) {
+		error(dot.index ~ " doesn't exist in module", dot.pos);
+	}
+	auto definition = imp.mod.symbols[dot.index];
+	if (!definition.visible) {
+		error(dot.index ~ " is not visible", dot.pos);
+	}
+	ModuleVarRef thealias = new ModuleVarRef();
+	thealias.definition = definition;
+	thealias.ispure = false;
+	thealias.type = definition.type;
+	thealias.lvalue = true;
+	if (definition.type is null) {
+		auto definitionTrace = Trace(imp.mod, null);
+		semantic1(thealias.definition, &definitionTrace);
+	}
+	output = thealias;
+}
+
+void semantic1DotImpl(Expression that, Trace* trace, Dot dot, ref Expression output) {
+	error("Unable to dot", that.pos);
 }
 
 Metaclass metaclass;
@@ -468,6 +452,21 @@ void semantic1ExpressionImpl(Cast that, Trace* trace) {
 	that.ispure = that.value.ispure;
 }
 
+bool castable(Expression target, Expression want) {
+	target = target;
+	want = want;
+	if (sameType(target, want)) {
+		return true;
+	}
+	if (sameType(target, createType!Struct())) {
+		return true;
+	}
+	if ((target.castTo!Int || target.castTo!UInt) && (want.castTo!Int || want.castTo!UInt)) { //casting between int types
+		return true;
+	}
+	return false;
+}
+
 void semantic1HeadImpl(T)(T that) if (is(T == ArrayIndex)) {
 	checkType(that.index);
 	if (!sameType(that.index, createType!Struct())) {
@@ -483,17 +482,34 @@ void semantic1ExpressionImpl(ArrayIndex that, Trace* trace) {
 	if (that.array.isType) {
 		semantic1Head(that);
 	} else {
-		if (!that.array.type.castTo!ArrayIndex) {
-			error("Unable able to index", that.pos);
-		}
-		if (!sameTypeValueType(that.index, createType!UInt(0))) {
-			error("Can only index an array with UInts", that.pos);
-		}
-		auto arrayType = that.array.type.castTo!ArrayIndex;
-		that.type = arrayType.array;
-		that.lvalue = true;
-		that.ispure = that.array.ispure && that.index.ispure;
+		dispatch!(semantic1ArrayImpl, ArrayIndex, Struct, Expression)(that.array.type, that, trace);
 	}
+}
+
+void semantic1ArrayImpl(ArrayIndex type, ArrayIndex that, Trace* trace) {
+	if (!sameTypeValueType(that.index, createType!UInt(0))) {
+		error("Can only index an array with UInts", that.pos);
+	}
+	that.type = type.array;
+	that.lvalue = true;
+	that.ispure = that.array.ispure && that.index.ispure;
+}
+
+void semantic1ArrayImpl(Struct type, ArrayIndex that, Trace* trace) {
+	auto indexLit = that.index.castTo!IntLit;
+	if (!indexLit) {
+		error("Expected integer when indexing struct", that.index.pos);
+	}
+	uint index = indexLit.value.to!uint;
+	if (index >= type.values.length) {
+		error("Index number to high", that.pos);
+	}
+	that.type = type.values[index];
+	that.lvalue = that.array.lvalue;
+}
+
+void semantic1ArrayImpl(Expression type, ArrayIndex that, Trace* trace) {
+	error("Unable able to index", that.pos);
 }
 
 void semantic1HeadImpl(T)(T that) if (is(T == FCall)) {
@@ -783,19 +799,4 @@ bool implicitConvert(ref Expression value, Expression type) {
 //check if two values can convert implictly into each other
 bool implicitConvertDual(ref Expression left, ref Expression right) {
 	return implicitConvert(left, right.type) || implicitConvert(right, left.type);
-}
-
-bool castable(Expression target, Expression want) {
-	target = target;
-	want = want;
-	if (sameType(target, want)) {
-		return true;
-	}
-	if (sameType(target, createType!Struct())) {
-		return true;
-	}
-	if ((target.castTo!Int || target.castTo!UInt) && (want.castTo!Int || want.castTo!UInt)) { //casting between int types
-		return true;
-	}
-	return false;
 }

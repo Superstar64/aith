@@ -123,12 +123,12 @@ JsExpr copyImpl(T)(T that, JsExpr expr) {
 	}
 }
 
-JsExpr onceCopy(JsExpr expr, Expression type, JsState[] depend, ref uint uuid) {
+JsExpr onceCopy(JsExpr expr, Expression type, ref JsState[] depend, ref uint uuid) {
 	return dispatch!(onceCopyImpl, Bool, Char, Int, UInt, Postfix!"(*)",
 			ArrayIndex, FCall, Struct)(type, expr, depend, uuid);
 }
 
-JsExpr onceCopyImpl(T)(T that, JsExpr expr, JsState[] depend, ref uint uuid) {
+JsExpr onceCopyImpl(T)(T that, JsExpr expr, ref JsState[] depend, ref uint uuid) {
 	static if (is(T == Bool) || is(T == Char) || is(T == Int) || is(T == UInt)
 			|| is(T == Postfix!"(*)") || is(T == ArrayIndex) || is(T == FCall)) {
 		return expr;
@@ -198,12 +198,12 @@ JsExpr castInt(JsExpr expr, Expression type) {
 	}
 }
 
-JsExpr compare(JsExpr left, JsExpr right, Expression type, JsState[] depend, ref uint uuid) {
+JsExpr compare(JsExpr left, JsExpr right, Expression type, ref JsState[] depend, ref uint uuid) {
 	return dispatch!(compareImpl, Bool, Char, Int, UInt, FCall,
 			Postfix!"(*)", ArrayIndex, Struct)(type, left, right, depend, uuid);
 }
 
-JsExpr compareImpl(T)(T that, JsExpr left, JsExpr right, JsState[] depend, ref uint uuid) {
+JsExpr compareImpl(T)(T that, JsExpr left, JsExpr right, ref JsState[] depend, ref uint uuid) {
 	static if (is(T == Bool) || is(T == Char) || is(T == Int) || is(T == UInt) || is(T == FCall)) {
 		return new JsBinary!"=="(left, right);
 	} else static if (is(T == Postfix!"(*)")) {
@@ -531,24 +531,25 @@ Tuple!(JsExpr, Usage) generateJSImpl(Dot that, Trace* trace, Usage usage,
 		ref JsState[] depend, ref uint uuid) {
 	ignoreShare(usage);
 	auto val = generateJS(that.value, trace, usage, depend, uuid);
-	JsExpr result;
-	if (that.index.peek!string) {
-		if (that.value.type.castTo!ArrayIndex) {
-			return typeof(return)(new JsDot(val, "length"), usage);
-		}
-	} else {
-		result = indexTuple(val, that.index.get!BigInt.to!size_t);
-	}
-	return typeof(return)(result, usage);
+	assert(that.value.type.castTo!ArrayIndex);
+	assert(that.index == "length");
+	return typeof(return)(new JsDot(val, "length"), usage);
 }
 
 Tuple!(JsExpr, Usage) generateJSImpl(ArrayIndex that, Trace* trace, Usage usage,
 		ref JsState[] depend, ref uint uuid) {
 	ignoreShare(usage);
 	auto array = generateJS(that.array, trace, Usage.copy, depend, uuid);
-	auto index = generateJS(that.index, trace, usage, depend, uuid);
-	auto result = indexArray(array, index);
-	return typeof(return)(result, Usage.container(usage));
+	if (that.array.type.castTo!ArrayIndex) {
+		auto index = generateJS(that.index, trace, usage, depend, uuid);
+		auto result = indexArray(array, index);
+		return typeof(return)(result, Usage.container(usage));
+	} else {
+		assert(that.array.type.castTo!Struct);
+		auto index = that.index.castTo!IntLit.value.to!uint;
+		auto result = indexTuple(array, index);
+		return typeof(return)(result, usage);
+	}
 }
 
 Tuple!(JsExpr, Usage) generateJSImpl(FCall that, Trace* trace, Usage usage,
@@ -648,24 +649,27 @@ Tuple!(JsExpr, Usage) generateJSAddressOfImpl(T)(T that, Trace* trace,
 		JsExpr outvar = symbolName(that.definition);
 		return typeof(return)(outvar, Usage.literal);
 	} else static if (is(T == Dot)) {
+		error("trying to take address of .length", that.pos);
+		assert(0);
 		ignoreShare(usage);
-		auto structType = that.type.castTo!Struct;
-		assert(structType);
-		//todo bug, can't get address of .length
-		auto structValue = generateJS(that.value, trace, usage, depend, uuid);
-		size_t indexValue;
-		indexValue = that.index.get!BigInt.to!size_t;
-		auto expr = new JsObject([Tuple!(string, JsExpr)("data", structValue),
-				Tuple!(string, JsExpr)("start", new JsLit(indexValue.to!string))]);
-		return typeof(return)(expr, Usage.container(usage));
+
 	} else static if (is(T == ArrayIndex)) {
-		ignoreShare(usage);
-		auto arr = generateJS(that.array, trace, Usage.copy, depend, uuid);
-		auto index = generateJS(that.index, trace, usage, depend, uuid);
-		auto expr = new JsObject([Tuple!(string, JsExpr)("data",
-				internalArray(arr)), Tuple!(string, JsExpr)("start",
-				new JsBinary!"+"(arrayStart(arr), index))]);
-		return typeof(return)(expr, Usage.container(usage));
+		if (that.array.type.castTo!ArrayIndex) {
+			auto arr = generateJS(that.array, trace, Usage.copy, depend, uuid);
+			auto index = generateJS(that.index, trace, usage, depend, uuid);
+			auto expr = new JsObject([Tuple!(string, JsExpr)("data",
+					internalArray(arr)), Tuple!(string, JsExpr)("start",
+					new JsBinary!"+"(arrayStart(arr), index))]);
+			return typeof(return)(expr, Usage.container(usage));
+		} else {
+			auto structType = that.type.castTo!Struct;
+			assert(structType);
+			auto structValue = generateJS(that.array, trace, usage, depend, uuid);
+			size_t indexValue = that.index.castTo!IntLit.value.to!uint;
+			auto expr = new JsObject([Tuple!(string, JsExpr)("data", structValue),
+					Tuple!(string, JsExpr)("start", new JsLit(indexValue.to!string))]);
+			return typeof(return)(expr, Usage.container(usage));
+		}
 	} else static if (is(T == Prefix!"*")) {
 		return typeof(return)(generateJS(that.value, trace, usage, depend, uuid), usage);
 	} else {

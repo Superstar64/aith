@@ -111,6 +111,7 @@ struct Parser {
 				popFront;
 				ret.value = parseExpression();
 				ret.pos = pos.join(front.pos);
+				return ret;
 			}
 			return null;
 		}
@@ -363,12 +364,8 @@ struct Parser {
 				auto ret = new Dot();
 				ret.value = current;
 				popFront;
-				front.expectT!(IntLiteral, Identifier);
-				if (front.peek!Identifier) {
-					ret.index = front.get!(Identifier).name;
-				} else {
-					ret.index = front.get!(IntLiteral).num;
-				}
+				front.expectT!(Identifier);
+				ret.index = front.get!(Identifier).name;
 				popFront;
 				ret.pos = pos.join(front.pos);
 				return parsePostfix(ret);
