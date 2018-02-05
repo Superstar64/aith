@@ -30,13 +30,13 @@ $(LINK_HASH): | $$(dir $$@)
 	touch $@
 
 $(APP): $(LINK_HASH) $(SOURCES) | $$(dir $$@)
-	$(DC) $(DFLAGS) $(DLDFLAGS) -of$@ $(filter-out $<,$^)
+	$(DC) $(DFLAGS) $(DLDFLAGS) -of$@ $(SOURCES)
 
 SAMPLES := $(call FIND,samples,typi)
 SAMPLES_OUTPUT := $(SAMPLES:%.typi=$(BUILD_DIR)%.js)
 
-$(SAMPLES_OUTPUT): $(BUILD_DIR)%.js : %.typi %.js lib/typi.js $(APP) | $$(dir $$@)
-	$(APP) $< lib/typi.js $(word 2,$^) -o $@
+$(SAMPLES_OUTPUT): $(BUILD_DIR)%.js : %.typi %.js $(APP) | $$(dir $$@)
+	$(APP) $< $(word 2,$^) -o $@
 
 $(FORMAT): $(BUILD_DIR)%.format : % | $$(dir $$@)
 	$(DFORMATTER) $<

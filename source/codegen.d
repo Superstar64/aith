@@ -20,7 +20,7 @@ import std.array : join;
 import std.bigint : BigInt;
 import std.conv : to;
 import std.meta : AliasSeq;
-import std.range : chain, drop, enumerate, only;
+import std.range : array, chain, drop, enumerate, only;
 import std.stdio : write;
 import std.string : front, popFront;
 import std.typecons : Tuple, tuple;
@@ -557,13 +557,8 @@ Tuple!(JsExpr, Usage) generateJSImpl(Slice that, Usage usage, ref JsState[] depe
 }
 
 Tuple!(JsExpr, Usage) generateJSImpl(StringLit that, Usage usage, ref JsState[] depend, ref uint uuid) {
-	string result;
-	foreach (c; that.str) {
-		result ~= escape(c);
-	}
-	auto expr = new JsCall(new JsDot(new JsLit("libtypi"),
-			"jsStringToTypiString"), [new JsLit('"' ~ result ~ '"')]);
-	return typeof(return)(expr, Usage.literal);
+	return typeof(return)(new JsArray(that.str.map!(a => new JsLit('"' ~ [a].to!string ~ '"'))
+			.map!(a => a.castTo!JsExpr).array), Usage.literal);
 }
 
 Tuple!(JsExpr, Usage) generateJSImpl(ArrayLit that, Usage usage, ref JsState[] depend, ref uint uuid) {
