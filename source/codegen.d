@@ -679,7 +679,7 @@ Tuple!(JsExpr, Usage) generateJSAddressOfImpl(T)(T that, Trace* trace,
 
 Tuple!(JsExpr, Usage) generateJSImpl(Scope that, Trace* trace, Usage usage,
 		ref JsState[] depend, ref uint uuid) {
-	foreach (state; that.states) {
+	foreach (state; that.children(trace)) {
 		if (auto val = state.castTo!Expression) {
 			generateJS(val, trace, Usage.none, depend, uuid);
 		} else if (auto assign = state.castTo!Assign) {
@@ -695,7 +695,6 @@ Tuple!(JsExpr, Usage) generateJSImpl(Scope that, Trace* trace, Usage usage,
 		} else {
 			assert(0);
 		}
-		trace.context.pass(state);
 	}
 	ignoreShare(usage);
 	auto result = generateJS(that.last, trace, usage, depend, uuid);

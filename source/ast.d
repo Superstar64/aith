@@ -16,12 +16,13 @@
 +/
 module ast;
 
-import std.algorithm : any, canFind, joiner, map;
+import std.algorithm : any, canFind, filter, joiner, map;
 import std.bigint : BigInt;
 import std.conv : to;
-import std.range : chain, InputRange, inputRangeObject;
+import std.range : chain, generate, tee;
 import std.meta : AliasSeq;
 import std.traits : isArray, isAssociativeArray;
+import std.typecons : tuple;
 import std.variant : Algebraic;
 
 import error : error, Position;
@@ -38,13 +39,12 @@ template dispatch(alias fun, Types...) {
 	}
 }
 
+//D doesn't support multiple inheritance :<
 alias SymbolTypes = AliasSeq!(FuncLit, ModuleVarDef);
 alias Symbol = Algebraic!SymbolTypes;
 
 interface SearchContext {
-	VarDef search(string name, ref Trace); //trace is an out variable with is by default the current trace
-	//for some types(scopes) looping over children changes the searchcontext
-	void pass(Node child);
+	VarDef search(string name);
 }
 
 struct Trace {
@@ -57,52 +57,40 @@ struct Trace {
 		this.context = node.context();
 		this.upper = upper;
 	}
+}
 
-	VarDef search(string name) {
-		Trace trace;
-		return search(name, trace);
-	}
-
-	VarDef search(string name, ref Trace trace) {
-		trace = this;
-		if (context) {
-			if (auto result = context.search(name, trace)) {
-				return result;
-			}
-		}
-		if (upper) {
-			return upper.search(name, trace);
-		} else {
-			return null;
-		}
-	}
-
-	static struct TraceRange {
-		Trace* current;
+auto range(Trace* trace) {
+	static struct Range {
+		Trace* front;
 		bool empty() {
-			return current is null;
-		}
-
-		ref Trace front() {
-			return *current;
+			return !front;
 		}
 
 		void popFront() {
-			current = current.upper;
-		}
-
-		auto save() {
-			return this;
+			front = front.upper;
 		}
 	}
 
-	auto range() {
-		return TraceRange(&this);
-	}
+	return Range(trace);
 }
 
 bool cycle(Node node, Trace* trace) {
 	return trace.range.any!(a => a.node == node);
+}
+
+VarDef search(Trace* trace, string name) {
+	Trace* variableScope;
+	return search(trace, name, variableScope);
+}
+
+VarDef search(Trace* trace, string name, ref Trace* variableScope) {
+	auto range = trace.range.filter!(a => !!a.context).map!(a => tuple(a,
+			a.context.search(name))).filter!(a => !!a[1]);
+	if (!range.empty) {
+		variableScope = range.front[0];
+		return range.front[1];
+	}
+	return null;
 }
 
 abstract class Node { //base class for all ast nodes
@@ -157,14 +145,11 @@ override:
 		return this;
 	}
 
-	VarDef search(string name, ref Trace trace) {
+	VarDef search(string name) {
 		if (name in symbols) {
 			return symbols[name];
 		}
 		return null;
-	}
-
-	void pass(Node) {
 	}
 }
 
@@ -299,36 +284,36 @@ class Postfix(string T) : Expression if (["(*)"].canFind(T)) {
 }
 
 class Scope : Expression {
-	ScopeVarDef[string] symbols;
 	Statement[] states;
 	Expression last;
 
 	static class ScopeContext : SearchContext {
-		Scope that;
 		ScopeVarDef[string] symbols;
 
-		this(Scope that) {
-			this.that = that;
-			symbols = that.symbols.dup;
-		}
-
-		VarDef search(string name, ref Trace trace) {
+		VarDef search(string name) {
 			if (name in symbols) {
 				return symbols[name];
 			}
 			return null;
 		}
+	}
 
-		void pass(Node node) {
-			if (auto var = cast(ScopeVarDef) node) {
-				symbols[var.name] = var;
+	//use this when iterating with a trace
+	//variable definitions might change the search context
+	final auto children(Trace* trace) {
+		auto context = cast(ScopeContext) trace.context;
+		void pass(Statement state) {
+			if (auto var = cast(ScopeVarDef) state) {
+				context.symbols[var.name] = var;
 			}
 		}
+
+		return states.tee!(pass);
 	}
 
 override:
 	SearchContext context() {
-		return new ScopeContext(this);
+		return new ScopeContext();
 	}
 }
 

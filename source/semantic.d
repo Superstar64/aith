@@ -131,6 +131,14 @@ void semantic1(ref Statement that, Trace* trace) {
 	dispatch!(semantic1, VarDef, Expression, Assign)(that, trace);
 }
 
+Module upperModule(Trace* trace) {
+	return trace.range.reduce!"b".node.castTo!Module;
+}
+
+FuncLit upperFunc(Trace* trace) {
+	return trace.range.map!(a => a.node).map!(a => a.castTo!FuncLit).filter!(a => !!a).front;
+}
+
 void semantic1(VarDef that, Trace* trace) {
 	semantic1(that.definition, trace);
 	that.ispure = that.definition.ispure;
@@ -145,15 +153,12 @@ void semantic1(VarDef that, Trace* trace) {
 			error("types don't match", that.pos);
 		}
 	}
-	if (auto scopeVar = that.castTo!ScopeVarDef) {
-		if (!that.manifest) {
-			scopeVar.func = trace.range.map!(a => a.node)
-				.map!(a => a.castTo!FuncLit).filter!(a => !!a).front;
+	if (!that.manifest) {
+		if (auto scopeVar = that.castTo!ScopeVarDef) {
+			scopeVar.func = trace.upperFunc;
 		}
-	}
-	if (auto moduleVar = that.castTo!ModuleVarDef) {
-		if (!that.manifest) {
-			auto mod = trace.range.reduce!"b".node.castTo!Module;
+		if (auto moduleVar = that.castTo!ModuleVarDef) {
+			auto mod = trace.upperModule;
 			mod.exports[that.name] = Symbol(moduleVar);
 		}
 	}
@@ -197,14 +202,14 @@ void semantic1ExpressionImpl(ref Expression that, Trace* trace) {
 }
 //bug variable still in ast after this pass
 void semantic1ExpressionImplWritable(Variable that, Trace* trace, ref Expression output) {
-	Trace subTrace;
+	Trace* subTrace;
 	auto source = trace.search(that.name, subTrace);
 	if (source is null) {
 		error("Unknown variable", that.pos);
 	}
 
 	if (source.definition.type is null) {
-		semantic1(source.definition, &subTrace);
+		semantic1(source.definition, subTrace);
 	}
 	Expression thealias;
 	if (source.manifest) {
@@ -236,8 +241,7 @@ void semantic1ExpressionImplWritable(Variable that, Trace* trace, ref Expression
 }
 
 void checkNotClosure(ScopeVarRef that, Trace* trace, Position pos) {
-	auto funcRange = trace.range.map!(a => a.node).map!(a => a.castTo!FuncLit).filter!(a => !!a);
-	if (funcRange.front !is that.definition.func) {
+	if (trace.upperFunc !is that.definition.func) {
 		error("Closures not supported", pos);
 	}
 }
@@ -645,12 +649,8 @@ void semantic1ExpressionImpl(string op)(Prefix!op that, Trace* trace) {
 
 void semantic1ExpressionImpl(Scope that, Trace* trace) {
 	that.ispure = true;
-	foreach (symbol; that.symbols) {
-		semantic1(symbol, trace);
-	}
-	foreach (state; that.states) {
+	foreach (state; that.children(trace)) {
 		semantic1(state, trace);
-		trace.context.pass(state);
 		that.ispure = that.ispure && state.ispure;
 	}
 	if (that.last is null) {
@@ -681,7 +681,7 @@ void semantic1ExpressionImpl(FuncLit that, Trace* trace) {
 		that.type = createType!FuncCall(that.text.type, that.argument);
 	}
 	that.ispure = true;
-	auto mod = trace.range.reduce!"b".node.castTo!Module;
+	auto mod = trace.upperModule;
 	mod.exports[that.name] = Symbol(that);
 }
 
