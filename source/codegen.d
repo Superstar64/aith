@@ -43,12 +43,11 @@ T castTo(T, Base)(Base node) {
 
 JsState[] generateJSModule(Module mod) {
 	JsState[] result;
-	auto modTrace = Trace(mod, null);
 	foreach (symbol; mod.exports) {
 		foreach (Type; SymbolTypes) {
 			if (symbol.peek!Type) {
 				auto that = *symbol.peek!Type;
-				result ~= new JsVarDef(that.name, generateSymbol(that, &modTrace, result));
+				result ~= new JsVarDef(that.name, generateSymbol(that, result));
 			}
 		}
 	}
@@ -61,19 +60,19 @@ string genName(ref uint uuid) {
 	return vname;
 }
 
-JsExpr generateSymbol(ModuleVarDef that, Trace* trace, ref JsState[] depend) {
+JsExpr generateSymbol(ModuleVarDef that, ref JsState[] depend) {
 	uint uuid;
 	if (that.heap) {
-		return new JsArray([generateJS(that.definition, trace, Usage.once, depend, uuid)]);
+		return new JsArray([generateJS(that.definition, Usage.once, depend, uuid)]);
 	} else {
-		return generateJS(that.definition, trace, Usage.once, depend, uuid);
+		return generateJS(that.definition, Usage.once, depend, uuid);
 	}
 }
 
-JsExpr generateSymbol(FuncLit that, Trace* trace, ref JsState[] depend) {
+JsExpr generateSymbol(FuncLit that, ref JsState[] depend) {
 	uint uuid;
 	auto result = new JsFuncLit(["$argument"], []);
-	auto val = generateJS(that.text, trace, Usage(Unique.copy, Eval.once), result.states, uuid);
+	auto val = generateJS(that.text, Usage(Unique.copy, Eval.once), result.states, uuid);
 	result.states ~= new JsReturn(val);
 	return result;
 }
@@ -389,27 +388,23 @@ JsExpr symbolName(VarDef var) {
 	return new JsLit(var.name);
 }
 
-JsExpr generateJS(Expression that, Trace* trace, Usage usage, ref JsState[] depend, ref uint uuid) {
+JsExpr generateJS(Expression that, Usage usage, ref JsState[] depend, ref uint uuid) {
 	assert(isRuntimeValue(that));
-	auto nextTrace = Trace(that, trace);
-	trace = &nextTrace;
 	return returnWrap(dispatch!(generateJSImpl, IntLit, BoolLit, CharLit, TupleLit,
 			ScopeVarRef, ModuleVarRef, FuncArgument, If, While, New, NewArray, Cast, Dot,
 			ArrayIndex, FuncCall, Slice, StringLit, ArrayLit, Binary!"==",
 			Binary!"!=", Binary!"~", Prefix!"*", Prefix!"&", Scope, FuncLit,
 			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
 			Binary!"<=", Binary!">=", Binary!"<", Binary!">", Binary!"&&",
-			Binary!"||", Prefix!"-", Prefix!"!", ExternJS)(that, trace, usage, depend, uuid).expand,
+			Binary!"||", Prefix!"-", Prefix!"!", ExternJS)(that, usage, depend, uuid).expand,
 			usage, that.type, depend, uuid);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(IntLit that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(IntLit that, Usage usage, ref JsState[] depend, ref uint uuid) {
 	return typeof(return)(new JsLit(that.value.to!string), Usage.literal);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(BoolLit that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(BoolLit that, Usage usage, ref JsState[] depend, ref uint uuid) {
 	if (that.yes) {
 		return typeof(return)(new JsLit("true"), Usage.literal);
 	} else {
@@ -417,24 +412,21 @@ Tuple!(JsExpr, Usage) generateJSImpl(BoolLit that, Trace* trace, Usage usage,
 	}
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(CharLit that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(CharLit that, Usage usage, ref JsState[] depend, ref uint uuid) {
 	return typeof(return)(new JsLit('"' ~ escape(that.value) ~ '"'), Usage.literal);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(TupleLit that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(TupleLit that, Usage usage, ref JsState[] depend, ref uint uuid) {
 	ignoreShare(usage);
 	JsExpr[] exprs;
 	exprs.length = that.values.length;
 	foreach (i, field; that.values) {
-		exprs[i] = generateJS(field, trace, Usage.container(usage), depend, uuid);
+		exprs[i] = generateJS(field, Usage.container(usage), depend, uuid);
 	}
 	return typeof(return)(new JsArray(exprs), Usage.container(usage));
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(T)(T that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid)
+Tuple!(JsExpr, Usage) generateJSImpl(T)(T that, Usage usage, ref JsState[] depend, ref uint uuid)
 		if (is(T == ScopeVarRef) || is(T == ModuleVarRef)) {
 	JsExpr outvar = symbolName(that.definition);
 	if (that.definition.heap) {
@@ -443,26 +435,25 @@ Tuple!(JsExpr, Usage) generateJSImpl(T)(T that, Trace* trace, Usage usage,
 	return typeof(return)(outvar, Usage.variable);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(FuncArgument that, Trace* trace,
-		Usage usage, ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(FuncArgument that, Usage usage,
+		ref JsState[] depend, ref uint uuid) {
 	return typeof(return)(new JsLit("$argument"), Usage.variable);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(If that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(If that, Usage usage, ref JsState[] depend, ref uint uuid) {
 	auto state = new JsIf();
-	state.cond = generateJS(that.cond, trace, Usage.once, depend, uuid);
+	state.cond = generateJS(that.cond, Usage.once, depend, uuid);
 	if (usage.eval == Eval.none) {
-		auto yes = generateJS(that.yes, trace, Usage.none, state.yes, uuid);
-		auto no = generateJS(that.no, trace, Usage.none, state.no, uuid);
+		auto yes = generateJS(that.yes, Usage.none, state.yes, uuid);
+		auto no = generateJS(that.no, Usage.none, state.no, uuid);
 		depend ~= state;
 		return typeof(return)(null, Usage.none);
 	}
 
 	auto tmp = genTmp(usage.share, null, depend, uuid);
 
-	auto yesjs = generateJS(that.yes, trace, Usage.shareUsage(tmp), state.yes, uuid);
-	auto nojs = generateJS(that.no, trace, Usage.shareUsage(tmp), state.no, uuid);
+	auto yesjs = generateJS(that.yes, Usage.shareUsage(tmp), state.yes, uuid);
+	auto nojs = generateJS(that.no, Usage.shareUsage(tmp), state.no, uuid);
 
 	if (that.yes) {
 		state.yes ~= new JsBinary!"="(tmp, yesjs);
@@ -474,34 +465,31 @@ Tuple!(JsExpr, Usage) generateJSImpl(If that, Trace* trace, Usage usage,
 	return typeof(return)(tmp, Usage.variable);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(While that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(While that, Usage usage, ref JsState[] depend, ref uint uuid) {
 	JsState[] condStates;
-	auto cond = generateJS(that.cond, trace, Usage.once, condStates, uuid);
+	auto cond = generateJS(that.cond, Usage.once, condStates, uuid);
 	auto state = new JsWhile();
 	if (condStates.length == 0) {
 		state.cond = cond;
-		generateJS(that.state, trace, Usage.none, state.states, uuid);
+		generateJS(that.state, Usage.none, state.states, uuid);
 	} else {
 		state.cond = new JsLit("true");
 		state.states ~= condStates;
 		state.states ~= new JsIf(new JsPrefix!"!"(cond), [new JsBreak()], []);
-		generateJS(that.state, trace, Usage.none, state.states, uuid);
+		generateJS(that.state, Usage.none, state.states, uuid);
 	}
 	depend ~= state;
 	return typeof(return)(new JsArray([]), Usage.literal);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(New that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
-	auto ptr = new JsArray([generateJS(that.value, trace, Usage.container(usage), depend, uuid)]);
+Tuple!(JsExpr, Usage) generateJSImpl(New that, Usage usage, ref JsState[] depend, ref uint uuid) {
+	auto ptr = new JsArray([generateJS(that.value, Usage.container(usage), depend, uuid)]);
 	return typeof(return)(ptr, Usage.container(usage));
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(NewArray that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
-	auto len = generateJS(that.length, trace, Usage.copy, depend, uuid);
-	auto val = generateJS(that.value, trace, Usage.copy, depend, uuid);
+Tuple!(JsExpr, Usage) generateJSImpl(NewArray that, Usage usage, ref JsState[] depend, ref uint uuid) {
+	auto len = generateJS(that.length, Usage.copy, depend, uuid);
+	auto val = generateJS(that.value, Usage.copy, depend, uuid);
 	auto lit = genTmp(usage.share, new JsArray(), depend, uuid);
 	auto loopInc = genName(uuid);
 	auto incLit = new JsLit(loopInc);
@@ -511,10 +499,9 @@ Tuple!(JsExpr, Usage) generateJSImpl(NewArray that, Trace* trace, Usage usage,
 	return typeof(return)(lit, Usage.variable);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(Cast that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(Cast that, Usage usage, ref JsState[] depend, ref uint uuid) {
 	ignoreShare(usage);
-	auto val = generateJS(that.value, trace, usage, depend, uuid);
+	auto val = generateJS(that.value, usage, depend, uuid);
 	if (sameType(that.value.type, that.wanted)) {
 		return typeof(return)(val, usage);
 	} else if (sameType(that.value.type, createType!Struct())) {
@@ -527,21 +514,20 @@ Tuple!(JsExpr, Usage) generateJSImpl(Cast that, Trace* trace, Usage usage,
 	assert(0);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(Dot that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(Dot that, Usage usage, ref JsState[] depend, ref uint uuid) {
 	ignoreShare(usage);
-	auto val = generateJS(that.value, trace, usage, depend, uuid);
+	auto val = generateJS(that.value, usage, depend, uuid);
 	assert(that.value.type.castTo!ArrayIndex);
 	assert(that.index == "length");
 	return typeof(return)(new JsDot(val, "length"), usage);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(ArrayIndex that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(ArrayIndex that, Usage usage, ref JsState[] depend,
+		ref uint uuid) {
 	ignoreShare(usage);
-	auto array = generateJS(that.array, trace, Usage.copy, depend, uuid);
+	auto array = generateJS(that.array, Usage.copy, depend, uuid);
 	if (that.array.type.castTo!ArrayIndex) {
-		auto index = generateJS(that.index, trace, usage, depend, uuid);
+		auto index = generateJS(that.index, usage, depend, uuid);
 		auto result = indexArray(array, index);
 		return typeof(return)(result, Usage.container(usage));
 	} else {
@@ -552,19 +538,17 @@ Tuple!(JsExpr, Usage) generateJSImpl(ArrayIndex that, Trace* trace, Usage usage,
 	}
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(FuncCall that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
-	auto funcPtr = generateJS(that.fptr, trace, Usage.once, depend, uuid);
-	auto arg = generateJS(that.arg, trace, Usage.copy, depend, uuid);
+Tuple!(JsExpr, Usage) generateJSImpl(FuncCall that, Usage usage, ref JsState[] depend, ref uint uuid) {
+	auto funcPtr = generateJS(that.fptr, Usage.once, depend, uuid);
+	auto arg = generateJS(that.arg, Usage.copy, depend, uuid);
 	auto expr = new JsCall(funcPtr, [arg]);
 	return typeof(return)(expr, Usage.once);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(Slice that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
-	auto array = generateJS(that.array, trace, Usage.copy, depend, uuid);
-	auto left = generateJS(that.left, trace, Usage.copy, depend, uuid);
-	auto right = generateJS(that.right, trace, Usage.copy, depend, uuid);
+Tuple!(JsExpr, Usage) generateJSImpl(Slice that, Usage usage, ref JsState[] depend, ref uint uuid) {
+	auto array = generateJS(that.array, Usage.copy, depend, uuid);
+	auto left = generateJS(that.left, Usage.copy, depend, uuid);
+	auto right = generateJS(that.right, Usage.copy, depend, uuid);
 	auto expr = new JsObject([Tuple!(string, JsExpr)("data",
 			internalArray(array)), Tuple!(string, JsExpr)("start",
 			new JsBinary!"+"(arrayStart(array), left)), Tuple!(string,
@@ -572,8 +556,7 @@ Tuple!(JsExpr, Usage) generateJSImpl(Slice that, Trace* trace, Usage usage,
 	return typeof(return)(expr, Usage.literal);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(StringLit that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(StringLit that, Usage usage, ref JsState[] depend, ref uint uuid) {
 	string result;
 	foreach (c; that.str) {
 		result ~= escape(c);
@@ -583,35 +566,34 @@ Tuple!(JsExpr, Usage) generateJSImpl(StringLit that, Trace* trace, Usage usage,
 	return typeof(return)(expr, Usage.literal);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(ArrayLit that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(ArrayLit that, Usage usage, ref JsState[] depend, ref uint uuid) {
 	auto ret = new JsArray();
 	foreach (val; that.values) {
-		ret.exprs ~= generateJS(val, trace, Usage.copy, depend, uuid);
+		ret.exprs ~= generateJS(val, Usage.copy, depend, uuid);
 	}
 	return typeof(return)(ret, Usage.literal);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(Binary!"==" that, Trace* trace,
-		Usage usage, ref JsState[] depend, ref uint uuid) {
-	auto left = generateJS(that.left, trace, Usage.copy, depend, uuid);
-	auto right = generateJS(that.right, trace, Usage.copy, depend, uuid);
+Tuple!(JsExpr, Usage) generateJSImpl(Binary!"==" that, Usage usage,
+		ref JsState[] depend, ref uint uuid) {
+	auto left = generateJS(that.left, Usage.copy, depend, uuid);
+	auto right = generateJS(that.right, Usage.copy, depend, uuid);
 	auto expr = compare(left, right, that.left.type, depend, uuid);
 	return typeof(return)(expr, Usage.literal);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(Binary!"!=" that, Trace* trace,
-		Usage usage, ref JsState[] depend, ref uint uuid) {
-	auto left = generateJS(that.left, trace, Usage.copy, depend, uuid);
-	auto right = generateJS(that.right, trace, Usage.copy, depend, uuid);
+Tuple!(JsExpr, Usage) generateJSImpl(Binary!"!=" that, Usage usage,
+		ref JsState[] depend, ref uint uuid) {
+	auto left = generateJS(that.left, Usage.copy, depend, uuid);
+	auto right = generateJS(that.right, Usage.copy, depend, uuid);
 	auto expr = new JsPrefix!"!"(compare(left, right, that.left.type, depend, uuid));
 	return typeof(return)(expr, Usage.literal);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(Binary!"~" that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
-	auto left = generateJS(that.left, trace, Usage.copy, depend, uuid);
-	auto right = generateJS(that.right, trace, Usage.copy, depend, uuid);
+Tuple!(JsExpr, Usage) generateJSImpl(Binary!"~" that, Usage usage, ref JsState[] depend,
+		ref uint uuid) {
+	auto left = generateJS(that.left, Usage.copy, depend, uuid);
+	auto right = generateJS(that.right, Usage.copy, depend, uuid);
 	auto lit = genTmp(usage.share, new JsArray(), depend, uuid);
 	auto i = new JsLit(genName(uuid));
 	auto loop = new JsFor(new JsVarDef(i.value, new JsLit("0")),
@@ -628,23 +610,21 @@ Tuple!(JsExpr, Usage) generateJSImpl(Binary!"~" that, Trace* trace, Usage usage,
 	return typeof(return)(lit, Usage.variable);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(Prefix!"*" that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(Prefix!"*" that, Usage usage, ref JsState[] depend,
+		ref uint uuid) {
 	ignoreShare(usage);
-	auto val = generateJS(that.value, trace, usage, depend, uuid);
+	auto val = generateJS(that.value, usage, depend, uuid);
 	return typeof(return)(indexPointer(val), usage);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(Prefix!"&" that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(Prefix!"&" that, Usage usage, ref JsState[] depend,
+		ref uint uuid) {
 	return dispatch!(generateJSAddressOfImpl, ScopeVarRef, ModuleVarRef, Dot,
-			ArrayIndex, Prefix!"*")(that.value, trace, usage, depend, uuid, that.type);
+			ArrayIndex, Prefix!"*")(that.value, usage, depend, uuid, that.type);
 }
 
-Tuple!(JsExpr, Usage) generateJSAddressOfImpl(T)(T that, Trace* trace,
-		Usage usage, ref JsState[] depend, ref uint uuid, Expression type) {
-	auto nextTrace = Trace(that, trace);
-	trace = &nextTrace;
+Tuple!(JsExpr, Usage) generateJSAddressOfImpl(T)(T that, Usage usage,
+		ref JsState[] depend, ref uint uuid, Expression type) {
 	static if (is(T == ScopeVarRef) || is(T == ModuleVarRef)) {
 		JsExpr outvar = symbolName(that.definition);
 		return typeof(return)(outvar, Usage.literal);
@@ -655,8 +635,8 @@ Tuple!(JsExpr, Usage) generateJSAddressOfImpl(T)(T that, Trace* trace,
 
 	} else static if (is(T == ArrayIndex)) {
 		if (that.array.type.castTo!ArrayIndex) {
-			auto arr = generateJS(that.array, trace, Usage.copy, depend, uuid);
-			auto index = generateJS(that.index, trace, usage, depend, uuid);
+			auto arr = generateJS(that.array, Usage.copy, depend, uuid);
+			auto index = generateJS(that.index, usage, depend, uuid);
 			auto expr = new JsObject([Tuple!(string, JsExpr)("data",
 					internalArray(arr)), Tuple!(string, JsExpr)("start",
 					new JsBinary!"+"(arrayStart(arr), index))]);
@@ -664,29 +644,27 @@ Tuple!(JsExpr, Usage) generateJSAddressOfImpl(T)(T that, Trace* trace,
 		} else {
 			auto structType = that.type.castTo!Struct;
 			assert(structType);
-			auto structValue = generateJS(that.array, trace, usage, depend, uuid);
+			auto structValue = generateJS(that.array, usage, depend, uuid);
 			size_t indexValue = that.index.castTo!IntLit.value.to!uint;
 			auto expr = new JsObject([Tuple!(string, JsExpr)("data", structValue),
 					Tuple!(string, JsExpr)("start", new JsLit(indexValue.to!string))]);
 			return typeof(return)(expr, Usage.container(usage));
 		}
 	} else static if (is(T == Prefix!"*")) {
-		return typeof(return)(generateJS(that.value, trace, usage, depend, uuid), usage);
+		return typeof(return)(generateJS(that.value, usage, depend, uuid), usage);
 	} else {
 		static assert(0);
 	}
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(Scope that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
-	foreach (state; that.children(trace)) {
+Tuple!(JsExpr, Usage) generateJSImpl(Scope that, Usage usage, ref JsState[] depend, ref uint uuid) {
+	foreach (state; that.states) {
 		if (auto val = state.castTo!Expression) {
-			generateJS(val, trace, Usage.none, depend, uuid);
+			generateJS(val, Usage.none, depend, uuid);
 		} else if (auto assign = state.castTo!Assign) {
-			depend ~= generateJSAssign(assign.left, assign.right, trace, Usage.once, depend, uuid);
+			depend ~= generateJSAssign(assign.left, assign.right, Usage.once, depend, uuid);
 		} else if (auto var = state.castTo!ScopeVarDef) {
-			auto val = generateJS(var.definition, trace, Usage(Unique.copy,
-					Eval.once), depend, uuid);
+			auto val = generateJS(var.definition, Usage(Unique.copy, Eval.once), depend, uuid);
 			if (var.heap) {
 				depend ~= new JsVarDef(var.name, new JsArray([val]));
 			} else {
@@ -697,51 +675,48 @@ Tuple!(JsExpr, Usage) generateJSImpl(Scope that, Trace* trace, Usage usage,
 		}
 	}
 	ignoreShare(usage);
-	auto result = generateJS(that.last, trace, usage, depend, uuid);
+	auto result = generateJS(that.last, usage, depend, uuid);
 	return typeof(return)(result, usage);
 }
 
-JsExpr generateJSAssign(Expression value, Expression rightValue, Trace* trace,
-		Usage usage, ref JsState[] depend, ref uint uuid) {
+JsExpr generateJSAssign(Expression value, Expression rightValue, Usage usage,
+		ref JsState[] depend, ref uint uuid) {
 	JsExpr outvar;
 	ignoreShare(usage);
-	auto right = generateJS(rightValue, trace, Usage.copy, depend, uuid);
-	auto sub = generateJS(value, trace, Usage.once, depend, uuid);
+	auto right = generateJS(rightValue, Usage.copy, depend, uuid);
+	auto sub = generateJS(value, Usage.once, depend, uuid);
 	outvar = new JsBinary!"="(sub, right);
 	return outvar;
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(FuncLit that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(FuncLit that, Usage usage, ref JsState[] depend, ref uint uuid) {
 	return typeof(return)(new JsLit(that.name), Usage.variable);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(string op)(Binary!op that, Trace* trace,
-		Usage usage, ref JsState[] depend, ref uint uuid)
+Tuple!(JsExpr, Usage) generateJSImpl(string op)(Binary!op that, Usage usage,
+		ref JsState[] depend, ref uint uuid)
 		if (["*", "/", "%", "+", "-"].canFind(op)) {
 	ignoreShare(usage);
-	auto left = generateJS(that.left, trace, usage, depend, uuid);
-	auto right = generateJS(that.right, trace, usage, depend, uuid);
+	auto left = generateJS(that.left, usage, depend, uuid);
+	auto right = generateJS(that.right, usage, depend, uuid);
 	return typeof(return)(castInt(new JsBinary!op(left, right), that.type), usage);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(string op)(Binary!op that, Trace* trace,
-		Usage usage, ref JsState[] depend, ref uint uuid)
+Tuple!(JsExpr, Usage) generateJSImpl(string op)(Binary!op that, Usage usage,
+		ref JsState[] depend, ref uint uuid)
 		if (["<=", ">=", "<", ">", "&&", "||"].canFind(op)) {
 	ignoreShare(usage);
-	auto left = generateJS(that.left, trace, usage, depend, uuid);
-	auto right = generateJS(that.right, trace, usage, depend, uuid);
+	auto left = generateJS(that.left, usage, depend, uuid);
+	auto right = generateJS(that.right, usage, depend, uuid);
 	return typeof(return)(new JsBinary!op(left, right), usage);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(string op)(Prefix!op that, Trace* trace,
-		Usage usage, ref JsState[] depend, ref uint uuid) if (["-", "!"].canFind(op)) {
+Tuple!(JsExpr, Usage) generateJSImpl(string op)(Prefix!op that, Usage usage,
+		ref JsState[] depend, ref uint uuid) if (["-", "!"].canFind(op)) {
 	ignoreShare(usage);
-	return typeof(return)(new JsPrefix!op(generateJS(that.value, trace, usage,
-			depend, uuid)), usage);
+	return typeof(return)(new JsPrefix!op(generateJS(that.value, usage, depend, uuid)), usage);
 }
 
-Tuple!(JsExpr, Usage) generateJSImpl(ExternJS that, Trace* trace, Usage usage,
-		ref JsState[] depend, ref uint uuid) {
+Tuple!(JsExpr, Usage) generateJSImpl(ExternJS that, Usage usage, ref JsState[] depend, ref uint uuid) {
 	return typeof(return)(new JsLit(that.name), Usage.variable);
 }
