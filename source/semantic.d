@@ -136,7 +136,11 @@ Module upperModule(Trace* trace) {
 }
 
 FuncLit upperFunc(Trace* trace) {
-	return trace.range.map!(a => a.node).map!(a => a.castTo!FuncLit).filter!(a => !!a).front;
+	auto range = trace.range.map!(a => a.node).map!(a => a.castTo!FuncLit).filter!(a => !!a);
+	if (!range.empty) {
+		return range.front;
+	}
+	return null;
 }
 
 void semantic1(VarDef that, Trace* trace) {
@@ -394,15 +398,10 @@ void semantic1ExpressionImpl(TupleLit that, Trace* trace) {
 }
 
 void semantic1ExpressionImpl(FuncArgument that, Trace* trace) {
-	foreach (node; trace.range.map!(a => a.node)) {
-		if (auto func = node.castTo!FuncLit) {
-			that.func = func;
-			that.type = func.argument;
-			//todo make lvalue-able
-			return;
-		}
+	that.type = trace.upperFunc.argument;
+	if (that.type is null) {
+		error("$@ without function", that.pos);
 	}
-	error("$@ without function", that.pos);
 }
 
 void semantic1ExpressionImpl(If that, Trace* trace) {

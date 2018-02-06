@@ -215,7 +215,6 @@ class Variable : Expression {
 }
 
 class FuncArgument : Expression {
-	FuncLit func;
 }
 
 class If : Expression {

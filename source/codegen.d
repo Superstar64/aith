@@ -626,7 +626,6 @@ Tuple!(JsExpr, Usage) generateJSAddressOfImpl(T)(T that, Usage usage,
 	} else static if (is(T == Dot)) {
 		error("trying to take address of .length", that.pos);
 		assert(0);
-		ignoreShare(usage);
 
 	} else static if (is(T == ArrayIndex)) {
 		if (that.array.type.castTo!ArrayIndex) {
