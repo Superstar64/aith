@@ -213,7 +213,7 @@ void semantic1ExpressionImplWritable(Variable that, Trace* trace, ref Expression
 	}
 
 	if (source.definition.type is null) {
-		semantic1(source.definition, subTrace);
+		semantic1(source,subTrace);
 	}
 	Expression thealias;
 	if (source.manifest) {
@@ -613,7 +613,6 @@ void semantic1ExpressionImpl(string op)(Prefix!op that, Trace* trace) {
 		if (!that.value.lvalue) {
 			error("& only works lvalues", that.pos);
 		}
-
 		static void assignHeapImpl(T)(T that, Trace* trace) {
 			auto nextTrace = Trace(that, trace);
 			trace = &nextTrace;
@@ -630,7 +629,6 @@ void semantic1ExpressionImpl(string op)(Prefix!op that, Trace* trace) {
 		}
 
 		assignHeap(that.value, trace);
-
 		that.type = createType!(Postfix!"(*)")(that.value.type);
 		that.ispure = that.value.ispure;
 	} else static if (op == "!") {
@@ -696,13 +694,13 @@ void semantic1ExpressionImpl(ArrayLit that, Trace* trace) {
 	if (that.values.length == 0) {
 		error("Array Literals must contain at least one element", that.pos);
 	}
-	auto current = that.values[0].type;
+	auto head = that.values[0].type;
 	foreach (value; that.values[1 .. $]) {
-		if (!sameType(current, value.type)) {
+		if (!sameTypeValueType(value, head)) {
 			error("All elements of an array literal must be of the same type", that.pos);
 		}
 	}
-	that.type = createType!ArrayIndex(current);
+	that.type = createType!ArrayIndex(head);
 	that.ispure = that.values.map!(a => a.ispure).all;
 }
 
@@ -731,7 +729,7 @@ bool sameTypeValueValue(ref Expression left, ref Expression right) {
 bool sameType(Expression a, Expression b) {
 	assert(a.isType);
 	assert(b.isType);
-	alias Types = AliasSeq!(Metaclass, Char, Int, UInt, Struct, Postfix!"(*)",
+	alias Types = AliasSeq!(Metaclass, Bool,Char, Int, UInt, Struct, Postfix!"(*)",
 			ArrayIndex, FuncCall, ImportType, ExternType);
 	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(a, b);
 }
@@ -779,6 +777,7 @@ bool implicitConvert(ref Expression value, Expression type) {
 		result.type = type;
 		result.value = value;
 		result.process = true;
+		result.ispure = value.ispure;
 		value = result;
 		return true;
 	}
@@ -789,6 +788,7 @@ bool implicitConvert(ref Expression value, Expression type) {
 		result.type = type;
 		result.value = value;
 		result.process = true;
+		result.ispure = value.ispure;
 		value = result;
 		return true;
 	}
