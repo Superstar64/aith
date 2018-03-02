@@ -1,10 +1,15 @@
 .SECONDEXPANSION:
 
-DC ?= ldc2
+DC ?= gdc
 DFLAGS ?=
 DLDFLAGS ?=
 DFORMATTER ?= dfmt --inplace --brace_style=otbs --indent_style=tab
 
+ifeq ($(DC),gdc)
+OUTPUT_FLAG = -o 
+else
+OUTPUT_FLAG = -of
+endif
 BUILD_DIR ?= build/
 
 APP := $(BUILD_DIR)typi
@@ -30,21 +35,26 @@ $(LINK_HASH): | $$(dir $$@)
 	touch $@
 
 $(APP): $(LINK_HASH) $(SOURCES) | $$(dir $$@)
-	$(DC) $(DFLAGS) $(DLDFLAGS) -of$@ $(SOURCES)
+	$(DC) $(DFLAGS) $(DLDFLAGS) $(OUTPUT_FLAG)$@ $(SOURCES)
 
-SAMPLES := $(call FIND,samples,typi)
-SAMPLES_OUTPUT := $(SAMPLES:%.typi=$(BUILD_DIR)%.js)
-
-$(SAMPLES_OUTPUT): $(BUILD_DIR)%.js : %.typi %.js $(APP) | $$(dir $$@)
+UNITTEST := $(call FIND,unittest,typi)
+UNITTEST_OUTPUT := $(UNITTEST:%.typi=$(BUILD_DIR)%.js)
+UNITTEST_RUN := $(UNITTEST_OUTPUT:%=%.run)
+$(UNITTEST_OUTPUT): $(BUILD_DIR)%.js : %.typi unittest/runtime.js $(APP) | $$(dir $$@)
 	$(APP) $< $(word 2,$^) -o $@
 
+$(UNITTEST_RUN): %.run : %
+	node $<
+	touch $@
 $(FORMAT): $(BUILD_DIR)%.format : % | $$(dir $$@)
 	$(DFORMATTER) $<
 	touch $@
 
-samples: $(SAMPLES_OUTPUT)
+build_unittest: $(UNITTEST_OUTPUT)
+
+run_unittest: $(UNITTEST_RUN)
 
 format: $(FORMAT)
 
-.PHONY: samples format
+.PHONY: unittest format
 

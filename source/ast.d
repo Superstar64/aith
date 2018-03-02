@@ -113,7 +113,6 @@ class Assign : Statement {
 
 abstract class VarDef : Statement {
 	string name;
-	bool heap; //has the address of the variable been taken,does not apply to closures
 	bool manifest;
 	Expression definition;
 	Expression explicitType;
@@ -331,7 +330,7 @@ class ArrayLit : Expression {
 	Expression[] values;
 }
 
-class ExternJS : Expression {
+class ExternJs : Expression {
 	string name;
 }
 

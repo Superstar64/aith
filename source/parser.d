@@ -573,7 +573,7 @@ struct Parser {
 	Expression parseExtern() {
 		with (lexer) {
 			if (front == key!"extern") {
-				auto ret = new ExternJS;
+				auto ret = new ExternJs;
 				auto pos = front.pos;
 				popFront;
 				ret.pos = pos.join(front.pos);
@@ -627,7 +627,7 @@ struct Parser {
 					var.modifier = localModifiers;
 					parseVarDef(var, front == key!"alias");
 					ret.symbols[var.name] = var;
-					if (auto ext = cast(ExternJS) var.definition) {
+					if (auto ext = cast(ExternJs) var.definition) {
 						if (var.manifest) {
 							ext.name = var.name;
 						}

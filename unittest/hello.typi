@@ -1,8 +1,10 @@
 #/Copyright (C) 2015  Freddy Angel Cubas "Superstar64"
  Boost License
 /#
-alias ()(char[]) write=extern;
 
 alias main=$() -> () {
 	write("hello world");
 };
+
+alias ()(char[]) write=extern;
+

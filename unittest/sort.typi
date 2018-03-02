@@ -4,9 +4,7 @@
 
 alias qsort=$() -> int_t.4[] {
 	let array = $@;
-	if array.length < 2 then {
-		()
-	} else {
+	if array.length > 1 then {
 		let pivot = array[array.length - 1];
 		let uint_t.0 middle = 0;
 		let uint_t.0 end = 0;
@@ -29,3 +27,11 @@ alias qsort=$() -> int_t.4[] {
 		qsort(array[middle..array.length]);
 	}
 };
+
+alias main = $() -> () {
+	let array = [cast(int_t.4)0,7,9,3,8,6,5,1,4,2];
+	qsort(array);
+	assert(array == [cast(int_t.4)0,1,2,3,4,5,6,7,8,9]); 
+};
+
+alias ()(bool_t) assert = extern;

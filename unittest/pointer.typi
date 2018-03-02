@@ -1,0 +1,61 @@
+#/Copyright (C) 2018  Freddy Angel Cubas "Superstar64"
+ Boost License
+/#
+
+alias increment = $() -> int_t.4(*) {
+	*$@ = *$@ + 1;
+};
+
+alias newPointer = $() -> (){
+	let pointer = new cast(int_t.4)5;
+	assert(*pointer == 5);
+	increment(pointer);
+	assert(*pointer == 6);
+	
+	assert(pointer == pointer);
+};
+
+alias localPointer = $() -> (){
+	let number = cast(int_t.4)(4);
+	assert(number == 4);
+	increment(&number);
+	assert(number == 5);
+	increment(&number);
+	assert(number == 6);
+	assert(&number == &number); 
+};
+
+alias arrayPointer = $() -> (){
+	let array = [cast(int_t.4)0,10,20];
+	let index = &array[1];
+	assert(array[1] == 10);
+	increment(index);
+	assert(array[1] == 11);
+	assert(&array[1] == &array[1]);
+	assert(&array[1] != &array[2]);
+};
+
+alias tuplePointer = $() -> (){
+	let pair = (cast(int_t.4)(4),cast(int_t.4)(10));
+	assert(pair[0] == 4);
+	increment(&pair[0]);
+	assert(pair[0] == 5);
+	
+	assert(pair[1] == 10);
+	increment(&pair[1]);
+	assert(pair[1] == 11);
+	
+	
+	assert(&pair[0] == &pair[0]);
+	assert(&pair[0] != &pair[1]);
+	assert(&pair == &pair);
+};
+
+alias main = $() -> () {
+	newPointer();
+	localPointer();
+	arrayPointer();
+	tuplePointer();
+};
+
+alias ()(bool_t) assert = extern;

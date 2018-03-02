@@ -20,15 +20,7 @@ import std.algorithm : any, canFind, filter, map;
 import std.range : enumerate;
 import std.typecons : Tuple;
 
-bool returns(JsState[] states) {
-	return states.map!(a => a.returns).any;
-}
-
 abstract class JsState {
-	bool returns() {
-		return false;
-	}
-
 	void toStateString(scope void delegate(const(char)[]) result, uint indent);
 	override string toString() {
 		string result;
@@ -66,15 +58,13 @@ abstract class JsLabel : JsState {
 
 class JsScope : JsLabel {
 	JsState[] states;
+	alias states this;
+
 	this() {
 	}
 
 	this(JsState[] states) {
 		this.states = states;
-	}
-
-	override bool returns() {
-		return states.map!(a => a.returns).any;
 	}
 
 	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
@@ -91,99 +81,86 @@ class JsScope : JsLabel {
 	}
 }
 
+class JsImplictScope : JsScope {
+	alias states this;
+	this() {
+	}
+
+	this(JsState[] states) {
+		super(states);
+	}
+
+	invariant() {
+		assert(label == "");
+	}
+}
+
 class JsIf : JsLabel {
 	JsExpr cond;
-	JsState[] yes;
-	JsState[] no;
+	JsImplictScope yes;
+	JsImplictScope no;
 	this() {
+		yes = new JsImplictScope();
+		no = new JsImplictScope();
 	}
 
 	this(JsExpr cond, JsState[] yes, JsState[] no) {
 		this.cond = cond;
-		this.yes = yes;
-		this.no = no;
-	}
-
-	override bool returns() {
-		return yes.map!(a => a.returns).any && no.map!(a => a.returns).any;
+		this.yes = new JsImplictScope(yes);
+		this.no = new JsImplictScope(no);
 	}
 
 	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
 		super.toStateString(result, indent);
 		result("if (");
 		cond.toExprString(result, indent);
-		result(") {");
-		increase(indent);
-		foreach (state; yes) {
-			line(result, indent);
-			state.toStateString(result, indent);
-		}
-		decrease(indent);
-		line(result, indent);
-		result("}");
+		result(")");
+		yes.toStateString(result, indent);
 		if (no.length > 0) {
-			result(" else {");
-			increase(indent);
-			foreach (state; no) {
-				line(result, indent);
-				state.toStateString(result, indent);
-			}
-			decrease(indent);
-			line(result, indent);
-			result("}");
+			result(" else ");
+			no.toStateString(result, indent);
 		}
 	}
 }
 
 class JsWhile : JsLabel {
 	JsExpr cond;
-	JsState[] states;
+	JsImplictScope states;
 	this() {
+		states = new JsImplictScope();
 	}
 
 	this(JsExpr cond, JsState[] states) {
 		this.cond = cond;
-		this.states = states;
+		this.states = new JsImplictScope(states);
 	}
 
 	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
 		super.toStateString(result, indent);
 		result("while (");
 		cond.toExprString(result, indent);
-		result(") {");
-		increase(indent);
-		foreach (state; states) {
-			line(result, indent);
-			state.toStateString(result, indent);
-		}
-		decrease(indent);
-		line(result, indent);
-		result("}");
+		result(")");
+		states.toStateString(result, indent);
 	}
 }
 
 class JsDoWhile : JsLabel {
-	JsState[] states;
+	JsImplictScope states;
 	JsExpr cond;
 	this() {
+		states = new JsImplictScope();
 	}
 
 	this(JsState[] states, JsExpr cond) {
-		this.states = states;
+		this.states = new JsImplictScope(states);
 		this.cond = cond;
 	}
 
 	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
 		super.toStateString(result, indent);
-		result("do {");
-		increase(indent);
-		foreach (state; states) {
-			line(result, indent);
-			state.toStateString(result, indent);
-		}
-		decrease(indent);
-		line(result, indent);
-		result("} while (");
+		result("do ");
+		states.toStateString(result, indent);
+		result("while (");
 		cond.toExprString(result, indent);
 		result(");");
 	}
@@ -193,15 +170,16 @@ class JsFor : JsLabel {
 	JsVarDef vardef; //maybe null
 	JsExpr cond; //maybe null
 	JsExpr inc; //maybe null
-	JsState[] states;
+	JsImplictScope states;
 	this() {
+		states = new JsImplictScope();
 	}
 
 	this(JsVarDef vardef, JsExpr cond, JsExpr inc, JsState[] states) {
 		this.vardef = vardef;
 		this.cond = cond;
 		this.inc = inc;
-		this.states = states;
+		this.states = new JsImplictScope(states);
 	}
 
 	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
@@ -219,15 +197,8 @@ class JsFor : JsLabel {
 		if (inc) {
 			inc.toExprString(result, indent);
 		}
-		result(") {");
-		increase(indent);
-		foreach (state; states) {
-			line(result, indent);
-			state.toStateString(result, indent);
-		}
-		decrease(indent);
-		line(result, indent);
-		result("}");
+		result(")");
+		states.toStateString(result, indent);
 	}
 }
 
@@ -258,10 +229,6 @@ class JsReturn : JsState {
 
 	this(JsExpr expr) {
 		this.expr = expr;
-	}
-
-	override bool returns() {
-		return true;
 	}
 
 	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
@@ -454,13 +421,14 @@ class JsCall : JsExpr {
 
 class JsFuncLit : JsExpr {
 	string[] args;
-	JsState[] states;
+	JsImplictScope states;
 	this() {
+		states = new JsImplictScope();
 	}
 
 	this(string[] args, JsState[] states) {
 		this.args = args;
-		this.states = states;
+		this.states = new JsImplictScope(states);
 	}
 
 	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
@@ -471,15 +439,8 @@ class JsFuncLit : JsExpr {
 				result(", ");
 			}
 		}
-		result(") {");
-		increase(indent);
-		foreach (state; states) {
-			line(result, indent);
-			state.toStateString(result, indent);
-		}
-		decrease(indent);
-		line(result, indent);
-		result("}");
+		result(")");
+		states.toStateString(result, indent);
 	}
 
 	override uint pred() {
@@ -588,11 +549,12 @@ class JsIndex : JsExpr {
 	}
 }
 
-string stringCode(JsState[] states) {
-	string result;
-	foreach (state; states) {
-		state.toStateString((const(char)[] str) { result ~= str; }, 0);
-		JsState.line((const(char)[] str) { result ~= str; }, 0);
+class JsModule : JsImplictScope {
+	alias states this;
+	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
+		foreach (state; states) {
+			state.toStateString(result, indent);
+			result("\n");
+		}
 	}
-	return result;
 }

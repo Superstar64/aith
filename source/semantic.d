@@ -25,7 +25,6 @@ import std.range : recurrence, drop, take;
 
 import ast;
 import error : error, Position;
-import parser;
 
 T castTo(T, Base)(Base node) {
 	return cast(T) node;
@@ -191,7 +190,7 @@ void semantic1(ref Expression that, Trace* trace) {
 	dispatch!(semantic1ExpressionImpl, Metaclass, Bool, Char, Int, UInt, Postfix!"(*)",
 			Import, IntLit, CharLit, BoolLit, Struct, TupleLit, FuncArgument, If, While,
 			New, NewArray, Cast, ArrayIndex, FuncCall, Slice, Scope, FuncLit,
-			StringLit, ArrayLit, ExternJS, Binary!"*", Binary!"/",
+			StringLit, ArrayLit, ExternJs, Binary!"*", Binary!"/",
 			Binary!"%", Binary!"+", Binary!"-", Binary!"~", Binary!"==",
 			Binary!"!=", Binary!"<=", Binary!">=", Binary!"<", Binary!">",
 			Binary!"&&", Binary!"||", Prefix!"+", Prefix!"-", Prefix!"*",
@@ -213,7 +212,7 @@ void semantic1ExpressionImplWritable(Variable that, Trace* trace, ref Expression
 	}
 
 	if (source.definition.type is null) {
-		semantic1(source,subTrace);
+		semantic1(source, subTrace);
 	}
 	Expression thealias;
 	if (source.manifest) {
@@ -613,22 +612,6 @@ void semantic1ExpressionImpl(string op)(Prefix!op that, Trace* trace) {
 		if (!that.value.lvalue) {
 			error("& only works lvalues", that.pos);
 		}
-		static void assignHeapImpl(T)(T that, Trace* trace) {
-			auto nextTrace = Trace(that, trace);
-			trace = &nextTrace;
-			static if (is(T == ScopeVarRef) || is(T == ModuleVarRef)) {
-				that.definition.heap = true;
-			} else static if (is(T == Dot)) {
-				assignHeap(that.value, trace);
-			}
-		}
-
-		static void assignHeap(Expression that, Trace* trace) {
-			return dispatch!(assignHeapImpl, ScopeVarRef, ModuleVarRef, Dot, Expression)(that,
-					trace);
-		}
-
-		assignHeap(that.value, trace);
 		that.type = createType!(Postfix!"(*)")(that.value.type);
 		that.ispure = that.value.ispure;
 	} else static if (op == "!") {
@@ -704,7 +687,7 @@ void semantic1ExpressionImpl(ArrayLit that, Trace* trace) {
 	that.ispure = that.values.map!(a => a.ispure).all;
 }
 
-void semantic1ExpressionImpl(ExternJS that, Trace* trace) {
+void semantic1ExpressionImpl(ExternJs that, Trace* trace) {
 	that.type = createType!ExternType;
 	that.ispure = true;
 	if (that.name == "") {
@@ -729,8 +712,8 @@ bool sameTypeValueValue(ref Expression left, ref Expression right) {
 bool sameType(Expression a, Expression b) {
 	assert(a.isType);
 	assert(b.isType);
-	alias Types = AliasSeq!(Metaclass, Bool,Char, Int, UInt, Struct, Postfix!"(*)",
-			ArrayIndex, FuncCall, ImportType, ExternType);
+	alias Types = AliasSeq!(Metaclass, Bool, Char, Int, UInt, Struct,
+			Postfix!"(*)", ArrayIndex, FuncCall, ImportType, ExternType);
 	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(a, b);
 }
 
@@ -781,7 +764,7 @@ bool implicitConvert(ref Expression value, Expression type) {
 		value = result;
 		return true;
 	}
-	if (auto ext = value.castTo!ExternJS) {
+	if (auto ext = value.castTo!ExternJs) {
 		auto result = new Cast();
 		result.implicit = true;
 		result.wanted = type;
