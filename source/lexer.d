@@ -292,7 +292,7 @@ struct Eof {
 }
 
 struct Token {
-	Position pos;
+	Position position;
 	Algebraic!(Identifier, IntLiteral, Keyword, Operator, CharLiteral, StringLiteral, Eof) value;
 	alias value this;
 	bool opEquals(Token other) {
@@ -309,7 +309,7 @@ struct Token {
 	}
 
 	auto opAssign(T : Token)(T token) {
-		pos = token.pos;
+		position = token.positionition;
 		value = token.value;
 	}
 
@@ -323,13 +323,13 @@ struct Token {
 				}
 			}
 		}
-		error("Expected " ~ T.stringof, pos);
+		error("Expected " ~ T.stringof, position);
 		assert(0);
 	}
 
 	@property void expect(T)(T t) {
 		if (value != t) {
-			error("Expected " ~ t.to!string, pos);
+			error("Expected " ~ t.to!string, position);
 		}
 	}
 }
@@ -401,10 +401,10 @@ struct Lexer {
 			file.removeComment();
 			diff(original);
 		}
-		auto pos = Position(file_name, cline, file_org, cindex);
+		auto position = Position(file_name, cline, file_org, cindex);
 		scope (success) {
-			pos.indexe = cindex;
-			front.pos = pos;
+			position.indexe = cindex;
+			front.position = position;
 		}
 
 		auto original = file;

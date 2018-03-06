@@ -93,8 +93,15 @@ VarDef search(Trace* trace, string name, ref Trace* variableScope) {
 	return null;
 }
 
+struct Replaceable(T) {
+	T _value;
+	//ordered from old .. new
+	T[] _original;
+	alias _value this;
+}
+
 abstract class Node { //base class for all ast nodes
-	Position pos;
+	Position position;
 	//used when check for cycles for variables and aliases
 	bool process;
 	SearchContext context() {
@@ -107,15 +114,15 @@ abstract class Statement : Node {
 }
 
 class Assign : Statement {
-	Expression left;
-	Expression right;
+	Replaceable!Expression left;
+	Replaceable!Expression right;
 }
 
 abstract class VarDef : Statement {
 	string name;
 	bool manifest;
-	Expression definition;
-	Expression explicitType;
+	Replaceable!Expression definition;
+	Replaceable!Expression explicitType;
 	@property Expression type() {
 		return definition.type;
 	}
@@ -154,7 +161,7 @@ override:
 
 //either a type or a value
 abstract class Expression : Statement {
-	Expression type;
+	Replaceable!Expression type;
 	bool lvalue;
 }
 
@@ -201,12 +208,12 @@ class BoolLit : Expression {
 }
 
 class Struct : Expression {
-	Expression value;
+	Replaceable!Expression value;
 	bool implicit;
 }
 
 class TupleLit : Expression {
-	Expression[] values;
+	Replaceable!Expression[] values;
 }
 
 class Variable : Expression {
@@ -217,73 +224,73 @@ class FuncArgument : Expression {
 }
 
 class If : Expression {
-	Expression cond;
-	Expression yes;
-	Expression no;
+	Replaceable!Expression cond;
+	Replaceable!Expression yes;
+	Replaceable!Expression no;
 }
 
 class While : Expression {
-	Expression cond;
-	Expression state;
+	Replaceable!Expression cond;
+	Replaceable!Expression state;
 }
 
 class New : Expression {
-	Expression value;
+	Replaceable!Expression value;
 }
 
 class NewArray : Expression {
-	Expression length;
-	Expression value;
+	Replaceable!Expression length;
+	Replaceable!Expression value;
 }
 
 class Cast : Expression {
-	Expression value;
-	Expression wanted;
+	Replaceable!Expression value;
+	Replaceable!Expression wanted;
 	bool implicit;
 }
 
 class Dot : Expression {
-	Expression value;
+	Replaceable!Expression value;
 	string index;
 }
 
 //if array is a type and index is an empty struct then this is a type
 class ArrayIndex : Expression {
-	Expression array;
-	Expression index;
+	Replaceable!Expression array;
+	Replaceable!Expression index;
 }
 
 //if fptr and arg are types then this is a type
 class FuncCall : Expression {
-	Expression fptr;
-	Expression arg;
+	Replaceable!Expression fptr;
+	Replaceable!Expression arg;
 	//todo ispure for type
 }
 
 class Slice : Expression {
-	Expression array;
-	Expression left;
-	Expression right;
+	Replaceable!Expression array;
+	Replaceable!Expression left;
+	Replaceable!Expression right;
 }
 
 class Binary(string T) : Expression 
 		if (["*", "/", "%", "+", "-", "~", "==", "!=",
 			"<=", ">=", "<", ">", "&&", "||"].canFind(T)) {
-	Expression left;
-	Expression right;
+	Replaceable!Expression left;
+	Replaceable!Expression right;
 }
 
 class Prefix(string T) : Expression if (["+", "-", "*", "/", "&", "!"].canFind(T)) {
-	Expression value;
+	Replaceable!Expression value;
 }
 
 class Postfix(string T) : Expression if (["(*)"].canFind(T)) {
-	Expression value;
+	Replaceable!Expression value;
 }
 
 class Scope : Expression {
-	Statement[] states;
-	Expression last;
+	Replaceable!Statement[] states;
+	Replaceable!Expression last;
 
 	static class ScopeContext : SearchContext {
 		ScopeVarDef[string] symbols;
@@ -317,9 +324,9 @@ override:
 
 class FuncLit : Expression {
 	string name;
-	Expression explict_return; //maybe null
-	Expression argument;
-	Expression text;
+	Replaceable!Expression explict_return; //maybe null
+	Replaceable!Expression argument;
+	Replaceable!Expression text;
 }
 
 class StringLit : Expression {
@@ -327,7 +334,7 @@ class StringLit : Expression {
 }
 
 class ArrayLit : Expression {
-	Expression[] values;
+	Replaceable!Expression[] values;
 }
 
 class ExternJs : Expression {
