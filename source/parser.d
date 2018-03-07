@@ -374,7 +374,7 @@ struct Parser {
 				popFront;
 				if (front == oper!"]") {
 					popFront;
-					auto ret = new ArrayIndex;
+					auto ret = new Index;
 					ret.array = current;
 					ret.index = new TupleLit();
 					ret.index.position = pos2.join(front.position);
@@ -400,7 +400,7 @@ struct Parser {
 				} else {
 					assert(front == oper!"]");
 					popFront;
-					auto ret = new ArrayIndex;
+					auto ret = new Index;
 					ret.array = current;
 					ret.index = val;
 					ret.index.position = pos2.join(front.position);
@@ -410,7 +410,7 @@ struct Parser {
 			} else if (front == oper!"(") {
 				auto argument = parseTupleImpl;
 				assert(argument);
-				auto ret = new FuncCall();
+				auto ret = new Call();
 				ret.fptr = current;
 				ret.arg = argument;
 				ret.position = position.join(front.position);

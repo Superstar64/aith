@@ -255,13 +255,13 @@ class Dot : Expression {
 }
 
 //if array is a type and index is an empty struct then this is a type
-class ArrayIndex : Expression {
+class Index : Expression {
 	Replaceable!Expression array;
 	Replaceable!Expression index;
 }
 
 //if fptr and arg are types then this is a type
-class FuncCall : Expression {
+class Call : Expression {
 	Replaceable!Expression fptr;
 	Replaceable!Expression arg;
 	//todo ispure for type

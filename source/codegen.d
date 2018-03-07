@@ -171,7 +171,7 @@ JsExpr createLocalPointer(JsExpr variable) {
 
 string mangle(Expression type) {
 	return dispatch!(mangleImpl, Bool, Char, Int, UInt, Struct, Postfix!"(*)",
-			ArrayIndex, FuncCall)(type);
+			Index, Call)(type);
 }
 
 string mangleImpl(Bool type) {
@@ -198,21 +198,21 @@ string mangleImpl(Postfix!"(*)" type) {
 	return type.value.mangle ~ "_pointer";
 }
 
-string mangleImpl(ArrayIndex type) {
+string mangleImpl(Index type) {
 	return type.array.mangle ~ "_array";
 }
 
-string mangleImpl(FuncCall type) {
+string mangleImpl(Call type) {
 	return "function$" ~ type.fptr.mangle ~ "$" ~ type.arg.mangle ~ "$";
 }
 
 JsExpr copy(JsExpr expr, Expression type, Extra* extra) {
 	return dispatch!(copyImpl, Bool, Char, Int, UInt, Struct, Postfix!"(*)",
-			ArrayIndex, FuncCall)(type, expr, extra);
+			Index, Call)(type, expr, extra);
 }
 
 JsExpr copyImpl(T)(T, JsExpr expr, Extra*)
-		if (staticIndexOf!(T, Bool, Char, Int, UInt, Postfix!"(*)", ArrayIndex, FuncCall) >= 0) {
+		if (staticIndexOf!(T, Bool, Char, Int, UInt, Postfix!"(*)", Index, Call) >= 0) {
 	return expr;
 }
 
@@ -238,7 +238,7 @@ JsFuncLit createCopy(Expression type, Extra* extra) {
 
 JsExpr defaultValue(Expression type) {
 	return dispatch!(defaultValueImpl, Bool, Char, Int, UInt, Postfix!"(*)",
-			ArrayIndex, FuncCall, Struct)(type);
+			Index, Call, Struct)(type);
 }
 
 JsExpr defaultValueImpl(T)(T that) {
@@ -254,9 +254,9 @@ JsExpr defaultValueImpl(T)(T that) {
 			ret.exprs ~= defaultValue(subType);
 		}
 		return ret;
-	} else static if (is(T == Postfix!"(*)") || is(T == FuncCall)) {
+	} else static if (is(T == Postfix!"(*)") || is(T == Call)) {
 		return new JsLit("undefined");
-	} else static if (is(T == ArrayIndex)) {
+	} else static if (is(T == Index)) {
 		return new JsArray();
 	} else {
 		static assert(0);
@@ -295,17 +295,17 @@ JsExpr castInt(JsExpr expr, Expression type) {
 }
 
 JsExpr compare(JsExpr left, JsExpr right, Expression type, Extra* extra) {
-	return dispatch!(compareImpl, Bool, Char, Int, UInt, FuncCall,
-			Postfix!"(*)", ArrayIndex, Struct)(type, left, right, extra);
+	return dispatch!(compareImpl, Bool, Char, Int, UInt, Call,
+			Postfix!"(*)", Index, Struct)(type, left, right, extra);
 }
 
 JsExpr compareImpl(T)(T that, JsExpr left, JsExpr right, Extra* extra)
-		if (staticIndexOf!(T, Bool, Char, Int, UInt, FuncCall) >= 0) {
+		if (staticIndexOf!(T, Bool, Char, Int, UInt, Call) >= 0) {
 	return new JsBinary!"=="(left, right);
 }
 
 JsExpr compareImpl(T)(T that, JsExpr left, JsExpr right, Extra* extra)
-		if (staticIndexOf!(T, Postfix!"(*)", ArrayIndex, Struct) >= 0) {
+		if (staticIndexOf!(T, Postfix!"(*)", Index, Struct) >= 0) {
 	auto range = extra.compareFunctions.find!sameType(that);
 	if (range.empty) {
 		extra.compareFunctions ~= that;
@@ -315,7 +315,7 @@ JsExpr compareImpl(T)(T that, JsExpr left, JsExpr right, Extra* extra)
 
 JsFuncLit createCompare(Expression that, Extra* extra) {
 	auto Function = new JsFuncLit(["left", "right"], []);
-	dispatch!(createCompareImpl, Postfix!"(*)", ArrayIndex, Struct)(that,
+	dispatch!(createCompareImpl, Postfix!"(*)", Index, Struct)(that,
 			new JsLit("left"), new JsLit("right"), Function.states, extra);
 	return Function;
 }
@@ -341,7 +341,7 @@ void createCompareImpl(Postfix!"(*)" that, JsExpr left, JsExpr right, JsScope de
 	arrayIf.no ~= tupleIf;
 }
 
-void createCompareImpl(ArrayIndex that, JsExpr left, JsExpr right, JsScope depend, Extra* extra) {
+void createCompareImpl(Index that, JsExpr left, JsExpr right, JsScope depend, Extra* extra) {
 	auto lengthCompare = new JsBinary!"!="(arrayLength(left), arrayLength(right));
 	depend.states ~= new JsIf(lengthCompare, [new JsReturn(new JsLit("false"))], []);
 
@@ -397,7 +397,7 @@ JsExpr maybeCopy(JsExpr expression, Expression type, Usage usage, Extra* extra) 
 }
 
 alias Nodes = AliasSeq!(IntLit, BoolLit, CharLit, TupleLit, ScopeVarRef, ModuleVarRef,
-		FuncArgument, If, While, New, NewArray, Cast, Dot, ArrayIndex, FuncCall,
+		FuncArgument, If, While, New, NewArray, Cast, Dot, Index, Call,
 		Slice, StringLit, ArrayLit, Binary!"==", Binary!"!=", Binary!"~",
 		Prefix!"*", Prefix!"&", Scope, FuncLit, Binary!"*", Binary!"/",
 		Binary!"%", Binary!"+", Binary!"-", Binary!"<=", Binary!">=",
@@ -586,13 +586,13 @@ JsExpr generateJsImpl(Cast that, Usage usage, JsScope depend, Extra* extra) {
 
 JsExpr generateJsImpl(Dot that, Usage usage, JsScope depend, Extra* extra) {
 	auto value = generateJs(that.value, usage, depend, extra);
-	assert(that.value.type.castTo!ArrayIndex);
+	assert(that.value.type.castTo!Index);
 	assert(that.index == "length");
 	return arrayLength(value);
 }
 
-JsExpr generateJsImpl(ArrayIndex that, Usage usage, JsScope depend, Extra* extra) {
-	if (that.array.type.castTo!ArrayIndex) {
+JsExpr generateJsImpl(Index that, Usage usage, JsScope depend, Extra* extra) {
+	if (that.array.type.castTo!Index) {
 		auto array = generateJs(that.array, Usage(false), depend, extra);
 		auto index = generateJs(that.index, Usage(false), depend, extra);
 		return indexArray(array, index);
@@ -604,12 +604,12 @@ JsExpr generateJsImpl(ArrayIndex that, Usage usage, JsScope depend, Extra* extra
 	}
 }
 
-void generateJsEffectsOnlyImpl(ArrayIndex that, JsScope depend, Extra* extra) {
+void generateJsEffectsOnlyImpl(Index that, JsScope depend, Extra* extra) {
 	generateJsEffectsOnly(that.array, depend, extra);
 	generateJsEffectsOnly(that.index, depend, extra);
 }
 
-JsExpr generateJsImpl(FuncCall that, Usage usage, JsScope depend, Extra* extra) {
+JsExpr generateJsImpl(Call that, Usage usage, JsScope depend, Extra* extra) {
 	if (usage.sideEffects) {
 		auto functionPointer = generateJs(that.fptr, Usage(true), depend, extra);
 		auto argument = generateJs(that.arg, Usage(true, Case.copyObject), depend, extra);
@@ -620,7 +620,7 @@ JsExpr generateJsImpl(FuncCall that, Usage usage, JsScope depend, Extra* extra) 
 	}
 }
 
-void generateJsEffectsOnlyImpl(FuncCall that, JsScope depend, Extra* extra) {
+void generateJsEffectsOnlyImpl(Call that, JsScope depend, Extra* extra) {
 	auto functionPointer = generateJs(that.fptr, Usage(true), depend, extra);
 	auto argument = generateJs(that.arg, Usage(true, Case.copyObject), depend, extra);
 	depend ~= new JsCall(functionPointer, [argument]);
@@ -680,7 +680,7 @@ JsExpr generateJsImpl(Prefix!"*" that, Usage usage, JsScope depend, Extra* extra
 }
 
 JsExpr generateJsImpl(Prefix!"&" that, Usage usage, JsScope depend, Extra* extra) {
-	return dispatch!(generateJsAddressOfImpl, ScopeVarRef, ModuleVarRef, ArrayIndex, Prefix!"*")(
+	return dispatch!(generateJsAddressOfImpl, ScopeVarRef, ModuleVarRef, Index, Prefix!"*")(
 			that.value, usage, depend, extra);
 }
 
@@ -699,9 +699,9 @@ JsExpr generateJsAddressOfImpl(ModuleVarRef that, Usage usage, JsScope depend, E
 	assert(0, "todo implement module pointers");
 }
 
-JsExpr generateJsAddressOfImpl(ArrayIndex that, Usage usage, JsScope depend, Extra* extra) {
+JsExpr generateJsAddressOfImpl(Index that, Usage usage, JsScope depend, Extra* extra) {
 	enum dotThis = (string expression) => new JsDot(new JsLit("this"), expression);
-	if (that.array.type.castTo!ArrayIndex) {
+	if (that.array.type.castTo!Index) {
 		auto array = generateJs(that.array, usage, depend, extra);
 		auto index = generateJs(that.index, usage, depend, extra);
 
@@ -716,7 +716,7 @@ JsExpr generateJsAddressOfImpl(ArrayIndex that, Usage usage, JsScope depend, Ext
 		auto structType = that.array.type.castTo!Struct;
 		assert(structType);
 		auto tuplePointer = dispatch!(generateJsAddressOfImpl, ScopeVarRef,
-				ModuleVarRef, ArrayIndex, Prefix!"*")(that.array, usage, depend, extra);
+				ModuleVarRef, Index, Prefix!"*")(that.array, usage, depend, extra);
 		auto index = generateJs(that.index, usage, depend, extra);
 		return new JsObject([Tuple!(string, JsExpr)("type", new JsLit("'tuple'")),
 				Tuple!(string, JsExpr)("pointer", tuplePointer), Tuple!(string,

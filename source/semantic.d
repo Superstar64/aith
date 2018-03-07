@@ -104,14 +104,14 @@ T createTypeImpl(T)(Replaceable!Expression[] values = null) if (is(T == Struct))
 	return type;
 }
 
-T createTypeImpl(T)(Expression fptr, Expression arg) if (is(T == FuncCall)) {
+T createTypeImpl(T)(Expression fptr, Expression arg) if (is(T == Call)) {
 	auto type = new T;
 	type.fptr = fptr;
 	type.arg = arg;
 	return type;
 }
 
-T createTypeImpl(T)(Expression array) if (is(T == ArrayIndex)) {
+T createTypeImpl(T)(Expression array) if (is(T == Index)) {
 	auto type = new T;
 	type.array = array;
 	type.index = createType!Struct();
@@ -194,7 +194,7 @@ void semantic1(ref Replaceable!Expression that, Trace* trace) {
 	auto current = that._value;
 	dispatch!(semantic1ExpressionImpl, Metaclass, Bool, Char, Int, UInt, Postfix!"(*)",
 			Import, IntLit, CharLit, BoolLit, Struct, TupleLit, FuncArgument, If, While,
-			New, NewArray, Cast, ArrayIndex, FuncCall, Slice, Scope, FuncLit,
+			New, NewArray, Cast, Index, Call, Slice, Scope, FuncLit,
 			StringLit, ArrayLit, ExternJs, Binary!"*", Binary!"/",
 			Binary!"%", Binary!"+", Binary!"-", Binary!"~", Binary!"==",
 			Binary!"!=", Binary!"<=", Binary!">=", Binary!"<", Binary!">",
@@ -266,10 +266,10 @@ void semantic1ExpressionImplWritable(Dot that, Trace* trace, ref Expression outp
 void semantic1Dot(Expression that, Trace* trace, Dot dot, ref Expression output) {
 	auto nextTrace = Trace(that, trace);
 	trace = &nextTrace;
-	dispatch!(semantic1DotImpl, ArrayIndex, ImportType, Expression)(that, trace, dot, output);
+	dispatch!(semantic1DotImpl, Index, ImportType, Expression)(that, trace, dot, output);
 }
 
-void semantic1DotImpl(ArrayIndex that, Trace* trace, Dot dot, ref Expression output) {
+void semantic1DotImpl(Index that, Trace* trace, Dot dot, ref Expression output) {
 	if (dot.index != "length") {
 		semantic1DotImpl(that.castTo!Expression, trace, dot, output);
 		return;
@@ -447,7 +447,7 @@ void semantic1ExpressionImpl(NewArray that, Trace* trace) {
 	if (!sameTypeValueType(that.length, createType!UInt(0))) {
 		error("Can only create an array with length of UInts", that.length.position);
 	}
-	that.type = createType!ArrayIndex(that.value.type);
+	that.type = createType!Index(that.value.type);
 	that.ispure = that.length.ispure && that.value.ispure;
 }
 
@@ -477,7 +477,7 @@ bool castable(Expression target, Expression want) {
 	return false;
 }
 
-void semantic1HeadImpl(T)(T that) if (is(T == ArrayIndex)) {
+void semantic1HeadImpl(T)(T that) if (is(T == Index)) {
 	checkType(that.index);
 	if (!sameType(that.index, createType!Struct())) {
 		error("Expected empty type in array type", that.position);
@@ -486,17 +486,17 @@ void semantic1HeadImpl(T)(T that) if (is(T == ArrayIndex)) {
 	that.ispure = true;
 }
 
-void semantic1ExpressionImpl(ArrayIndex that, Trace* trace) {
+void semantic1ExpressionImpl(Index that, Trace* trace) {
 	semantic1(that.array, trace);
 	semantic1(that.index, trace);
 	if (that.array.isType) {
 		semantic1Head(that);
 	} else {
-		dispatch!(semantic1ArrayImpl, ArrayIndex, Struct, Expression)(that.array.type, that, trace);
+		dispatch!(semantic1ArrayImpl, Index, Struct, Expression)(that.array.type, that, trace);
 	}
 }
 
-void semantic1ArrayImpl(ArrayIndex type, ArrayIndex that, Trace* trace) {
+void semantic1ArrayImpl(Index type, Index that, Trace* trace) {
 	if (!sameTypeValueType(that.index, createType!UInt(0))) {
 		error("Can only index an array with UInts", that.position);
 	}
@@ -505,7 +505,7 @@ void semantic1ArrayImpl(ArrayIndex type, ArrayIndex that, Trace* trace) {
 	that.ispure = that.array.ispure && that.index.ispure;
 }
 
-void semantic1ArrayImpl(Struct type, ArrayIndex that, Trace* trace) {
+void semantic1ArrayImpl(Struct type, Index that, Trace* trace) {
 	auto indexLit = that.index.castTo!IntLit;
 	if (!indexLit) {
 		error("Expected integer when indexing struct", that.index.position);
@@ -518,24 +518,24 @@ void semantic1ArrayImpl(Struct type, ArrayIndex that, Trace* trace) {
 	that.lvalue = that.array.lvalue;
 }
 
-void semantic1ArrayImpl(Expression type, ArrayIndex that, Trace* trace) {
+void semantic1ArrayImpl(Expression type, Index that, Trace* trace) {
 	error("Unable able to index", that.position);
 }
 
-void semantic1HeadImpl(T)(T that) if (is(T == FuncCall)) {
+void semantic1HeadImpl(T)(T that) if (is(T == Call)) {
 	checkType(that.fptr);
 	checkType(that.arg);
 	that.type = metaclass;
 	that.ispure = true;
 }
 
-void semantic1ExpressionImpl(FuncCall that, Trace* trace) {
+void semantic1ExpressionImpl(Call that, Trace* trace) {
 	semantic1(that.fptr, trace);
 	semantic1(that.arg, trace);
 	if (that.fptr.isType || that.arg.isType) {
 		semantic1Head(that);
 	} else {
-		auto fun = that.fptr.type.castTo!FuncCall;
+		auto fun = that.fptr.type.castTo!Call;
 		if (!fun) {
 			error("Not a function", that.position);
 		}
@@ -551,7 +551,7 @@ void semantic1ExpressionImpl(Slice that, Trace* trace) {
 	semantic1(that.array, trace);
 	semantic1(that.left, trace);
 	semantic1(that.right, trace);
-	if (!that.array.type.castTo!ArrayIndex) {
+	if (!that.array.type.castTo!Index) {
 		error("Not an array", that.position);
 	}
 	if (!(sameTypeValueType(that.right, createType!UInt(0))
@@ -578,7 +578,7 @@ void semantic1ExpressionImpl(string op)(Binary!op that, Trace* trace) {
 		that.ispure = that.left.ispure && that.right.ispure;
 	} else static if (op == "~") {
 		auto ty = that.left.type;
-		if (!ty.castTo!ArrayIndex && sameType(ty, that.right.type)) {
+		if (!ty.castTo!Index && sameType(ty, that.right.type)) {
 			error("~ only works on Arrays of the same Type", that.position);
 		}
 		that.type = ty;
@@ -655,7 +655,7 @@ void semantic1ExpressionImpl(FuncLit that, Trace* trace) {
 	if (that.explict_return) {
 		semantic1(that.explict_return, trace);
 		checkType(that.explict_return);
-		that.type = createType!FuncCall(that.explict_return, that.argument);
+		that.type = createType!Call(that.explict_return, that.argument);
 	}
 	semantic1(that.text, trace);
 
@@ -666,7 +666,7 @@ void semantic1ExpressionImpl(FuncLit that, Trace* trace) {
 	}
 	//ftype.ispure = text.ispure; todo fix me
 	if (!that.explict_return) {
-		that.type = createType!FuncCall(that.text.type, that.argument);
+		that.type = createType!Call(that.text.type, that.argument);
 	}
 	that.ispure = true;
 	auto mod = trace.upperModule;
@@ -674,7 +674,7 @@ void semantic1ExpressionImpl(FuncLit that, Trace* trace) {
 }
 
 void semantic1ExpressionImpl(StringLit that, Trace* trace) {
-	that.type = createType!ArrayIndex(createType!Char);
+	that.type = createType!Index(createType!Char);
 	that.ispure = true;
 }
 
@@ -691,7 +691,7 @@ void semantic1ExpressionImpl(ArrayLit that, Trace* trace) {
 			error("All elements of an array literal must be of the same type", that.position);
 		}
 	}
-	that.type = createType!ArrayIndex(head);
+	that.type = createType!Index(head);
 	that.ispure = that.values.map!(a => a.ispure).all;
 }
 
@@ -721,7 +721,7 @@ bool sameType(Expression a, Expression b) {
 	assert(a.isType);
 	assert(b.isType);
 	alias Types = AliasSeq!(Metaclass, Bool, Char, Int, UInt, Struct,
-			Postfix!"(*)", ArrayIndex, FuncCall, ImportType, ExternType);
+			Postfix!"(*)", Index, Call, ImportType, ExternType);
 	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(a, b);
 }
 
@@ -746,9 +746,9 @@ bool sameTypeImpl(T1, T2)(T1 a, T2 b) {
 			return true;
 		} else static if (is(T == Postfix!"(*)")) {
 			return sameType(a.value, b.value);
-		} else static if (is(T == ArrayIndex)) {
+		} else static if (is(T == Index)) {
 			return sameType(a.array, b.array);
-		} else static if (is(T == FuncCall)) {
+		} else static if (is(T == Call)) {
 			return sameType(a.fptr, b.fptr) && sameType(a.arg, b.arg);
 		}
 	}
