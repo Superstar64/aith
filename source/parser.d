@@ -107,7 +107,7 @@ struct Parser {
 		with (lexer) {
 			auto position = front.position;
 			if (front == key!"struct") {
-				auto ret = new Struct();
+				auto ret = new TypeTemporaryStruct();
 				popFront;
 				ret.value = parseExpression();
 				ret.position = position.join(front.position);
@@ -138,20 +138,20 @@ struct Parser {
 			}
 			if (front == key!"int_t") {
 				popFront;
-				auto int_t = new Int();
+				auto int_t = new TypeInt();
 				int_t.size = parseDotFix;
 				ret = int_t;
 			} else if (front == key!"uint_t") {
 				popFront;
-				auto int_t = new UInt();
+				auto int_t = new TypeUInt();
 				int_t.size = parseDotFix;
 				ret = int_t;
 			} else if (front == key!"char") {
 				popFront;
-				ret = new Char();
+				ret = new TypeChar();
 			} else if (front == key!"bool_t") {
 				popFront;
-				ret = new Bool();
+				ret = new TypeBool();
 			}
 			return ret;
 		}
@@ -181,7 +181,7 @@ struct Parser {
 				auto str = front.get!(CharLiteral).data;
 				ret.value = decodeFront(str);
 				if (str.length != 0) {
-					error("Char Lit to big", front.position);
+					error("TypeChar Lit to big", front.position);
 				}
 				popFront;
 				ret.position = position.join(front.position);
@@ -530,7 +530,7 @@ struct Parser {
 				auto type = parseExpression;
 				if (front == oper!"->") {
 					popFront;
-					ret.explict_return = type;
+					ret.explicit_return = type;
 					type = parseExpression;
 				}
 				ret.argument = type;

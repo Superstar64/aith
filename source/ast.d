@@ -123,7 +123,7 @@ abstract class VarDef : Statement {
 	bool manifest;
 	Replaceable!Expression definition;
 	Replaceable!Expression explicitType;
-	@property Expression type() {
+	@property Type type() {
 		return definition.type;
 	}
 }
@@ -161,8 +161,15 @@ override:
 
 //either a type or a value
 abstract class Expression : Statement {
-	Replaceable!Expression type;
+	Type type;
 	bool lvalue;
+}
+
+abstract class Type : Expression {
+	this() {
+		this.type = metaclass;
+		this.ispure = true;
+	}
 }
 
 class ModuleVarRef : Expression {
@@ -173,21 +180,42 @@ class ScopeVarRef : Expression {
 	ScopeVarDef definition;
 }
 
-class Bool : Expression {
+class TypeBool : Type {
+	this() {
+		super();
+	}
 }
 
-class Char : Expression {
+class TypeChar : Type {
+	this() {
+		super();
+	}
 }
 
-class Int : Expression {
+class TypeInt : Type {
 	uint size;
+	this() {
+		super();
+	}
 }
 
-class UInt : Expression {
+class TypeUInt : Type {
 	uint size;
+	this() {
+		super();
+	}
 }
 
-class Metaclass : Expression {
+class TypeMetaclass : Type {
+	this() {
+	}
+}
+
+TypeMetaclass metaclass;
+static this() {
+	metaclass = new TypeMetaclass();
+	metaclass.type = metaclass;
+	metaclass.ispure = true;
 }
 
 class Import : Expression {
@@ -207,9 +235,17 @@ class BoolLit : Expression {
 	bool yes;
 }
 
-class Struct : Expression {
+class TypeTemporaryStruct : Type {
 	Replaceable!Expression value;
-	bool implicit;
+	this() {
+	}
+}
+
+class TypeStruct : Type {
+	Type[] values;
+	this() {
+		super();
+	}
 }
 
 class TupleLit : Expression {
@@ -254,17 +290,32 @@ class Dot : Expression {
 	string index;
 }
 
-//if array is a type and index is an empty struct then this is a type
+//if array is a type and index is an empty struct then this gets converted to TypeArray
 class Index : Expression {
 	Replaceable!Expression array;
 	Replaceable!Expression index;
 }
 
-//if fptr and arg are types then this is a type
+class TypeArray : Type {
+	Type array;
+	this() {
+		super();
+	}
+}
+
+//if fptr and arg are types then this gets converted to TypeFunction
 class Call : Expression {
 	Replaceable!Expression fptr;
 	Replaceable!Expression arg;
 	//todo ispure for type
+}
+
+class TypeFunction : Type {
+	Type fptr;
+	Type arg;
+	this() {
+		super();
+	}
 }
 
 class Slice : Expression {
@@ -284,8 +335,15 @@ class Prefix(string T) : Expression if (["+", "-", "*", "/", "&", "!"].canFind(T
 	Replaceable!Expression value;
 }
 
-class Postfix(string T) : Expression if (["(*)"].canFind(T)) {
+class Postfix(string T) : Type if (["(*)"].canFind(T)) {
 	Replaceable!Expression value;
+}
+
+class TypePointer : Type {
+	Type value;
+	this() {
+		super();
+	}
 }
 
 class Scope : Expression {
@@ -324,7 +382,7 @@ override:
 
 class FuncLit : Expression {
 	string name;
-	Replaceable!Expression explict_return; //maybe null
+	Replaceable!Expression explicit_return; //maybe null
 	Replaceable!Expression argument;
 	Replaceable!Expression text;
 }
@@ -342,8 +400,14 @@ class ExternJs : Expression {
 }
 
 //dark corners
-class ImportType : Expression {
+class TypeImport : Type {
+	this() {
+		super();
+	}
 }
 
-class ExternType : Expression {
+class TypeExtern : Type {
+	this() {
+		super();
+	}
 }

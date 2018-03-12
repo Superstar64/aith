@@ -60,7 +60,7 @@ JsModule generateJsModule(Module mod) {
 }
 
 void applyGlobalRequests(JsScope depend, Extra* extra) {
-	void applyRequest(ref Expression[] array, JsFuncLit function(Expression,
+	void applyRequest(ref Type[] array, JsFuncLit function(Expression,
 			Extra*) create, string prefix) {
 		while (array.length) {
 			depend ~= new JsVarDef(prefix ~ mangle(array[$ - 1]), create(array[$ - 1], extra));
@@ -81,7 +81,7 @@ JsExpr generateSymbol(FuncLit that, JsScope depend, Extra* extra) {
 	extra.context = FunctionContext();
 	extra.context.argumentName = genName(extra);
 	auto result = new JsFuncLit([extra.context.argumentName], []);
-	if (!sameType(that.text.type, createType!Struct())) {
+	if (!sameType(that.text.type, createType!TypeStruct())) {
 		auto val = generateJs(that.text, Usage(true, Case.copyObject), result.states, extra);
 		result.states ~= new JsReturn(val);
 	} else {
@@ -120,9 +120,9 @@ struct Extra {
 	//todo make types usable in hash maps
 
 	//expression is the type
-	Expression[] copyFunctions;
+	Type[] copyFunctions;
 
-	Expression[] compareFunctions;
+	Type[] compareFunctions;
 }
 
 JsExpr symbolName(VarDef var, Extra* extra) {
@@ -170,53 +170,54 @@ JsExpr createLocalPointer(JsExpr variable) {
 }
 
 string mangle(Expression type) {
-	return dispatch!(mangleImpl, Bool, Char, Int, UInt, Struct, Postfix!"(*)",
-			Index, Call)(type);
+	return dispatch!(mangleImpl, TypeBool, TypeChar, TypeInt, TypeUInt,
+			TypeStruct, TypePointer, TypeArray, TypeFunction)(type);
 }
 
-string mangleImpl(Bool type) {
+string mangleImpl(TypeBool type) {
 	return "bool";
 }
 
-string mangleImpl(Char type) {
+string mangleImpl(TypeChar type) {
 	return "char";
 }
 
-string mangleImpl(Int type) {
+string mangleImpl(TypeInt type) {
 	return "int" ~ type.size.to!string;
 }
 
-string mangleImpl(UInt type) {
+string mangleImpl(TypeUInt type) {
 	return "uint" ~ type.size.to!string;
 }
 
-string mangleImpl(Struct type) {
+string mangleImpl(TypeStruct type) {
 	return "struct$" ~ type.values.map!mangle.map!(a => a ~ "_").joiner.array.to!string ~ "$";
 }
 
-string mangleImpl(Postfix!"(*)" type) {
+string mangleImpl(TypePointer type) {
 	return type.value.mangle ~ "_pointer";
 }
 
-string mangleImpl(Index type) {
+string mangleImpl(TypeArray type) {
 	return type.array.mangle ~ "_array";
 }
 
-string mangleImpl(Call type) {
+string mangleImpl(TypeFunction type) {
 	return "function$" ~ type.fptr.mangle ~ "$" ~ type.arg.mangle ~ "$";
 }
 
 JsExpr copy(JsExpr expr, Expression type, Extra* extra) {
-	return dispatch!(copyImpl, Bool, Char, Int, UInt, Struct, Postfix!"(*)",
-			Index, Call)(type, expr, extra);
+	return dispatch!(copyImpl, TypeBool, TypeChar, TypeInt, TypeUInt,
+			TypeStruct, TypePointer, TypeArray, TypeFunction)(type, expr, extra);
 }
 
 JsExpr copyImpl(T)(T, JsExpr expr, Extra*)
-		if (staticIndexOf!(T, Bool, Char, Int, UInt, Postfix!"(*)", Index, Call) >= 0) {
+		if (staticIndexOf!(T, TypeBool, TypeChar, TypeInt, TypeUInt,
+			TypePointer, TypeArray, TypeFunction) >= 0) {
 	return expr;
 }
 
-JsExpr copyImpl(Struct that, JsExpr expr, Extra* extra) {
+JsExpr copyImpl(TypeStruct that, JsExpr expr, Extra* extra) {
 	if (that.values.length == 0) {
 		return expr;
 	}
@@ -228,35 +229,35 @@ JsExpr copyImpl(Struct that, JsExpr expr, Extra* extra) {
 }
 
 JsFuncLit createCopy(Expression type, Extra* extra) {
-	assert(type.castTo!Struct);
-	auto Struct = type.castTo!Struct;
+	assert(type.castTo!TypeStruct);
+	auto TypeStruct = type.castTo!TypeStruct;
 	auto argumentName = genName(extra);
 	return new JsFuncLit([argumentName],
-			[new JsReturn(new JsArray(Struct.values.enumerate.map!(a => copy(indexTuple(new JsLit(argumentName),
-				a[0]), a[1], extra)).array))]);
+			[new JsReturn(new JsArray(TypeStruct.values.enumerate.map!(
+				a => copy(indexTuple(new JsLit(argumentName), a[0]), a[1], extra)).array))]);
 }
 
 JsExpr defaultValue(Expression type) {
-	return dispatch!(defaultValueImpl, Bool, Char, Int, UInt, Postfix!"(*)",
-			Index, Call, Struct)(type);
+	return dispatch!(defaultValueImpl, TypeBool, TypeChar, TypeInt, TypeUInt,
+			TypePointer, TypeArray, TypeFunction, TypeStruct)(type);
 }
 
 JsExpr defaultValueImpl(T)(T that) {
-	static if (is(T == Bool)) {
+	static if (is(T == TypeBool)) {
 		return new JsLit("false");
-	} else static if (is(T == UInt) || is(T == Int)) {
+	} else static if (is(T == TypeUInt) || is(T == TypeInt)) {
 		return new JsLit("0");
-	} else static if (is(T == Char)) {
+	} else static if (is(T == TypeChar)) {
 		return new JsLit('"' ~ "\\0" ~ '"');
-	} else static if (is(T == Struct)) {
+	} else static if (is(T == TypeStruct)) {
 		auto ret = new JsArray();
 		foreach (subType; that.values) {
 			ret.exprs ~= defaultValue(subType);
 		}
 		return ret;
-	} else static if (is(T == Postfix!"(*)") || is(T == Call)) {
+	} else static if (is(T == TypePointer) || is(T == TypeArray)) {
 		return new JsLit("undefined");
-	} else static if (is(T == Index)) {
+	} else static if (is(T == TypeFunction)) {
 		return new JsArray();
 	} else {
 		static assert(0);
@@ -265,7 +266,7 @@ JsExpr defaultValueImpl(T)(T that) {
 
 JsExpr castInt(JsExpr expr, Expression type) {
 	type = type;
-	if (auto i = type.castTo!Int) {
+	if (auto i = type.castTo!TypeInt) {
 		if (i.size == 1) {
 			error("todo support size" ~ i.size.to!string);
 			assert(0);
@@ -278,7 +279,7 @@ JsExpr castInt(JsExpr expr, Expression type) {
 			error("todo support size" ~ i.size.to!string);
 			assert(0);
 		}
-	} else if (auto i = type.castTo!UInt) {
+	} else if (auto i = type.castTo!TypeUInt) {
 		if (i.size == 1) {
 			return new JsBinary!"&"(expr, new JsLit("0xff"));
 		} else if (i.size == 2) {
@@ -295,17 +296,17 @@ JsExpr castInt(JsExpr expr, Expression type) {
 }
 
 JsExpr compare(JsExpr left, JsExpr right, Expression type, Extra* extra) {
-	return dispatch!(compareImpl, Bool, Char, Int, UInt, Call,
-			Postfix!"(*)", Index, Struct)(type, left, right, extra);
+	return dispatch!(compareImpl, TypeBool, TypeChar, TypeInt, TypeUInt,
+			TypeFunction, TypePointer, TypeArray, TypeStruct)(type, left, right, extra);
 }
 
 JsExpr compareImpl(T)(T that, JsExpr left, JsExpr right, Extra* extra)
-		if (staticIndexOf!(T, Bool, Char, Int, UInt, Call) >= 0) {
+		if (staticIndexOf!(T, TypeBool, TypeChar, TypeInt, TypeUInt, TypeFunction) >= 0) {
 	return new JsBinary!"=="(left, right);
 }
 
 JsExpr compareImpl(T)(T that, JsExpr left, JsExpr right, Extra* extra)
-		if (staticIndexOf!(T, Postfix!"(*)", Index, Struct) >= 0) {
+		if (staticIndexOf!(T, TypePointer, TypeArray, TypeStruct) >= 0) {
 	auto range = extra.compareFunctions.find!sameType(that);
 	if (range.empty) {
 		extra.compareFunctions ~= that;
@@ -315,12 +316,12 @@ JsExpr compareImpl(T)(T that, JsExpr left, JsExpr right, Extra* extra)
 
 JsFuncLit createCompare(Expression that, Extra* extra) {
 	auto Function = new JsFuncLit(["left", "right"], []);
-	dispatch!(createCompareImpl, Postfix!"(*)", Index, Struct)(that,
+	dispatch!(createCompareImpl, TypePointer, TypeArray, TypeStruct)(that,
 			new JsLit("left"), new JsLit("right"), Function.states, extra);
 	return Function;
 }
 
-void createCompareImpl(Postfix!"(*)" that, JsExpr left, JsExpr right, JsScope depend, Extra* extra) {
+void createCompareImpl(TypePointer that, JsExpr left, JsExpr right, JsScope depend, Extra* extra) {
 	auto If = new JsIf(new JsBinary!"!="(new JsDot(left, "type"),
 			new JsDot(right, "type")), [new JsReturn(new JsLit("false"))], []);
 	depend ~= If;
@@ -341,7 +342,7 @@ void createCompareImpl(Postfix!"(*)" that, JsExpr left, JsExpr right, JsScope de
 	arrayIf.no ~= tupleIf;
 }
 
-void createCompareImpl(Index that, JsExpr left, JsExpr right, JsScope depend, Extra* extra) {
+void createCompareImpl(TypeArray that, JsExpr left, JsExpr right, JsScope depend, Extra* extra) {
 	auto lengthCompare = new JsBinary!"!="(arrayLength(left), arrayLength(right));
 	depend.states ~= new JsIf(lengthCompare, [new JsReturn(new JsLit("false"))], []);
 
@@ -358,15 +359,15 @@ void createCompareImpl(Index that, JsExpr left, JsExpr right, JsScope depend, Ex
 	depend ~= new JsReturn(new JsLit("true"));
 }
 
-void createCompareImpl(Struct that, JsExpr left, JsExpr right, JsScope depend, Extra* extra) {
+void createCompareImpl(TypeStruct that, JsExpr left, JsExpr right, JsScope depend, Extra* extra) {
 	if (that.values.length == 0) {
 		depend ~= new JsReturn(new JsLit("true"));
 	}
 	depend ~= new JsReturn(createCompareImplStruct(0, that, left, right, depend, extra));
 }
 
-JsExpr createCompareImplStruct(uint index, Struct that, JsExpr left, JsExpr right,
-		JsScope depend, Extra* extra) {
+JsExpr createCompareImplStruct(uint index, TypeStruct that, JsExpr left,
+		JsExpr right, JsScope depend, Extra* extra) {
 	auto head = compare(indexTuple(left, index), indexTuple(right, index),
 			that.values[index], extra);
 	if (index + 1 == that.values.length) {
@@ -397,8 +398,8 @@ JsExpr maybeCopy(JsExpr expression, Expression type, Usage usage, Extra* extra) 
 }
 
 alias Nodes = AliasSeq!(IntLit, BoolLit, CharLit, TupleLit, ScopeVarRef, ModuleVarRef,
-		FuncArgument, If, While, New, NewArray, Cast, Dot, Index, Call,
-		Slice, StringLit, ArrayLit, Binary!"==", Binary!"!=", Binary!"~",
+		FuncArgument, If, While, New, NewArray, Cast, Dot, Index, Call, Slice,
+		StringLit, ArrayLit, Binary!"==", Binary!"!=", Binary!"~",
 		Prefix!"*", Prefix!"&", Scope, FuncLit, Binary!"*", Binary!"/",
 		Binary!"%", Binary!"+", Binary!"-", Binary!"<=", Binary!">=",
 		Binary!"<", Binary!">", Binary!"&&", Binary!"||", Prefix!"-", Prefix!"!", ExternJs);
@@ -569,11 +570,11 @@ void generateJsEffectsOnlyImpl(NewArray that, JsScope depend, Extra* extra) {
 
 JsExpr generateJsImpl(Cast that, Usage usage, JsScope depend, Extra* extra) {
 	auto value = generateJs(that.value, usage, depend, extra);
-	if (sameType(that.value.type, that.wanted)) {
+	if (sameType(that.value.type, that.wanted.castTo!Type)) {
 		return value;
-	} else if (sameType(that.value.type, createType!Struct())) {
+	} else if (sameType(that.value.type, createType!TypeStruct())) {
 		return maybeCopy(defaultValue(that.wanted), that.wanted, usage, extra);
-	} else if (that.wanted.castTo!UInt || that.wanted.castTo!Int) {
+	} else if (that.wanted.castTo!TypeUInt || that.wanted.castTo!TypeInt) {
 		if (that.implicit) {
 			return value;
 		}
@@ -586,19 +587,19 @@ JsExpr generateJsImpl(Cast that, Usage usage, JsScope depend, Extra* extra) {
 
 JsExpr generateJsImpl(Dot that, Usage usage, JsScope depend, Extra* extra) {
 	auto value = generateJs(that.value, usage, depend, extra);
-	assert(that.value.type.castTo!Index);
+	assert(that.value.type.castTo!TypeArray);
 	assert(that.index == "length");
 	return arrayLength(value);
 }
 
 JsExpr generateJsImpl(Index that, Usage usage, JsScope depend, Extra* extra) {
-	if (that.array.type.castTo!Index) {
+	if (that.array.type.castTo!TypeArray) {
 		auto array = generateJs(that.array, Usage(false), depend, extra);
 		auto index = generateJs(that.index, Usage(false), depend, extra);
 		return indexArray(array, index);
 	} else {
 		auto array = generateJs(that.array, usage, depend, extra);
-		assert(that.array.type.castTo!Struct);
+		assert(that.array.type.castTo!TypeStruct);
 		auto index = that.index.castTo!IntLit.value.to!uint;
 		return indexTuple(array, index);
 	}
@@ -701,7 +702,7 @@ JsExpr generateJsAddressOfImpl(ModuleVarRef that, Usage usage, JsScope depend, E
 
 JsExpr generateJsAddressOfImpl(Index that, Usage usage, JsScope depend, Extra* extra) {
 	enum dotThis = (string expression) => new JsDot(new JsLit("this"), expression);
-	if (that.array.type.castTo!Index) {
+	if (that.array.type.castTo!TypeArray) {
 		auto array = generateJs(that.array, usage, depend, extra);
 		auto index = generateJs(that.index, usage, depend, extra);
 
@@ -713,8 +714,7 @@ JsExpr generateJsAddressOfImpl(Index that, Usage usage, JsScope depend, Extra* e
 					[new JsBinary!"="(indexArray(dotThis("array"),
 					dotThis("index")), new JsLit("value"))]))]);
 	} else {
-		auto structType = that.array.type.castTo!Struct;
-		assert(structType);
+		auto structType = that.array.type.castTo!TypeStruct;
 		auto tuplePointer = dispatch!(generateJsAddressOfImpl, ScopeVarRef,
 				ModuleVarRef, Index, Prefix!"*")(that.array, usage, depend, extra);
 		auto index = generateJs(that.index, usage, depend, extra);
