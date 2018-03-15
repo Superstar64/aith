@@ -54,7 +54,7 @@ void checkRuntimeValue(Expression expression) {
 Type tryType(ref Replaceable!Expression expression) {
 	if (auto tuple = expression.castTo!TupleLit) {
 		expression._original ~= expression._value;
-		auto structWrap = createType!TypeStruct(tuple.values.map!checkType.array);
+		auto structWrap = new TypeStruct(tuple.values.map!checkType.array);
 		expression._value = structWrap;
 		return structWrap;
 	}
@@ -71,48 +71,6 @@ Type checkType(ref Replaceable!Expression expression) {
 		error("Expected type", expression.position);
 		assert(0);
 	}
-	return type;
-}
-
-Type createType(T, Args...)(Args args) {
-	auto type = createTypeImpl!T(args);
-	type.process = true;
-	return type;
-}
-
-T createTypeImpl(T)()
-		if (is(T == TypeBool) || is(T == TypeChar) || is(T == TypeImport) || is(T == TypeExtern)) {
-	return new T;
-}
-
-T createTypeImpl(T)(int size) if (is(T == TypeInt) || is(T == TypeUInt)) {
-	auto type = new T;
-	type.size = size;
-	return type;
-}
-
-T createTypeImpl(T)(Type value) if (is(T == TypePointer)) {
-	auto type = new T;
-	type.value = value;
-	return type;
-}
-
-T createTypeImpl(T)(Type[] values = null) if (is(T == TypeStruct)) {
-	auto type = new T;
-	type.values = values;
-	return type;
-}
-
-T createTypeImpl(T)(Type fptr, Type arg) if (is(T == TypeFunction)) {
-	auto type = new T;
-	type.fptr = fptr;
-	type.arg = arg;
-	return type;
-}
-
-T createTypeImpl(T)(Type array) if (is(T == TypeArray)) {
-	auto type = new T;
-	type.array = array;
 	return type;
 }
 
@@ -248,7 +206,7 @@ void semantic1ExpressionImplWritable(TypeTemporaryStruct that, Trace* trace, ref
 		error("expected tuple lit after struct", that.position);
 	}
 	auto tuple = that.value.castTo!TupleLit;
-	auto result = createType!TypeStruct(tuple.values.map!checkType.array);
+	auto result = new TypeStruct(tuple.values.map!checkType.array);
 	output = result;
 }
 
@@ -275,7 +233,7 @@ void semantic1DotImpl(TypeArray that, Trace* trace, Dot dot, ref Expression outp
 		semantic1DotImpl(that.castTo!Type, trace, dot, output);
 		return;
 	}
-	dot.type = createType!TypeUInt(0);
+	dot.type = new TypeUInt(0);
 }
 
 void semantic1DotImpl(TypeImport that, Trace* trace, Dot dot, ref Expression output) {
@@ -307,7 +265,7 @@ void semantic1ExpressionImpl(TypeMetaclass that, Trace* trace) {
 }
 
 void semantic1ExpressionImpl(Import that, Trace* trace) {
-	that.type = createType!TypeImport;
+	that.type = new TypeImport;
 	that.ispure = true;
 }
 
@@ -327,25 +285,25 @@ void semantic1ExpressionImpl(T)(T that, Trace* trace)
 
 void semantic1ExpressionImplWritable(Postfix!"(*)" that, Trace* trace, ref Expression output) {
 	semantic1(that.value, trace);
-	output = createType!TypePointer(that.value.checkType);
+	output = new TypePointer(that.value.checkType);
 }
 
 void semantic1ExpressionImpl(IntLit that, Trace* trace) {
 	if (that.usigned) {
-		that.type = createType!TypeUInt(0);
+		that.type = new TypeUInt(0);
 	} else {
-		that.type = createType!TypeInt(0);
+		that.type = new TypeInt(0);
 	}
 	that.ispure = true;
 }
 
 void semantic1ExpressionImpl(CharLit that, Trace* trace) {
-	that.type = createType!TypeChar;
+	that.type = new TypeChar;
 	that.ispure = true;
 }
 
 void semantic1ExpressionImpl(BoolLit that, Trace* trace) {
-	that.type = createType!TypeBool;
+	that.type = new TypeBool;
 	that.ispure = true;
 }
 
@@ -353,7 +311,7 @@ void semantic1ExpressionImpl(TupleLit that, Trace* trace) {
 	foreach (value; that.values) {
 		semantic1(value, trace);
 	}
-	that.type = createType!TypeStruct(that.values.map!(a => a.type).array);
+	that.type = new TypeStruct(that.values.map!(a => a.type).array);
 	that.ispure = that.values.map!(a => a.ispure).all;
 }
 
@@ -384,23 +342,23 @@ void semantic1ExpressionImpl(While that, Trace* trace) {
 	if (!that.cond.type.castTo!TypeBool) {
 		error("Boolean expected in while expression", that.cond.position);
 	}
-	that.type = createType!TypeStruct();
+	that.type = new TypeStruct();
 	that.ispure = that.cond.ispure && that.state.ispure;
 }
 
 void semantic1ExpressionImpl(New that, Trace* trace) {
 	semantic1(that.value, trace);
-	that.type = createType!(TypePointer)(that.value.type);
+	that.type = new TypePointer(that.value.type);
 	that.ispure = that.value.ispure;
 }
 
 void semantic1ExpressionImpl(NewArray that, Trace* trace) {
 	semantic1(that.length, trace);
 	semantic1(that.value, trace);
-	if (!sameTypeValueType(that.length, createType!TypeUInt(0))) {
+	if (!sameTypeValueType(that.length, new TypeUInt(0))) {
 		error("Can only create an array with length of UInts", that.length.position);
 	}
-	that.type = createType!TypeArray(that.value.type);
+	that.type = new TypeArray(that.value.type);
 	that.ispure = that.length.ispure && that.value.ispure;
 }
 
@@ -421,7 +379,7 @@ bool castable(Type target, Type want) {
 	if (sameType(target, want)) {
 		return true;
 	}
-	if (sameType(target, createType!TypeStruct())) {
+	if (sameType(target, new TypeStruct())) {
 		return true;
 	}
 	if ((target.castTo!TypeInt || target.castTo!TypeUInt)
@@ -436,17 +394,17 @@ void semantic1ExpressionImplWritable(Index that, Trace* trace, ref Expression ou
 	semantic1(that.index, trace);
 	if (auto array = that.array.castTo!Type) {
 		auto index = checkType(that.index);
-		if (!sameType(index, createType!TypeStruct())) {
+		if (!sameType(index, new TypeStruct())) {
 			error("Expected empty type in array type", that.position);
 		}
-		output = createType!TypeArray(array);
+		output = new TypeArray(array);
 	} else {
 		dispatch!(semantic1IndexImpl, TypeArray, TypeStruct, Type)(that.array.type, that, trace);
 	}
 }
 
 void semantic1IndexImpl(TypeArray type, Index that, Trace* trace) {
-	if (!sameTypeValueType(that.index, createType!TypeUInt(0))) {
+	if (!sameTypeValueType(that.index, new TypeUInt(0))) {
 		error("Can only index an array with UInts", that.position);
 	}
 	that.type = type.array;
@@ -477,7 +435,7 @@ void semantic1ExpressionImplWritable(Call that, Trace* trace, ref Expression out
 	if (that.fptr.tryType) {
 		auto fptr = checkType(that.fptr);
 		auto arg = checkType(that.arg);
-		output = createType!TypeFunction(fptr, arg);
+		output = new TypeFunction(fptr, arg);
 	} else {
 		auto fun = that.fptr.type.castTo!TypeFunction;
 		if (!fun) {
@@ -498,8 +456,8 @@ void semantic1ExpressionImpl(Slice that, Trace* trace) {
 	if (!that.array.type.castTo!TypeArray) {
 		error("Not an array", that.position);
 	}
-	if (!(sameTypeValueType(that.right, createType!TypeUInt(0))
-			&& sameTypeValueType(that.left, createType!TypeUInt(0)))) {
+	if (!(sameTypeValueType(that.right, new TypeUInt(0))
+			&& sameTypeValueType(that.left, new TypeUInt(0)))) {
 		error("Can only index an array with UInts", that.position);
 	}
 	that.type = that.array.type;
@@ -516,7 +474,7 @@ void semantic1ExpressionImpl(string op)(Binary!op that, Trace* trace) {
 			error(op ~ " only works on Ints or UInts of the same Type", that.position);
 		}
 		static if (["<=", ">=", ">", "<"].canFind(op)) {
-			that.type = createType!TypeBool;
+			that.type = new TypeBool;
 		} else {
 			that.type = ty;
 		}
@@ -532,14 +490,14 @@ void semantic1ExpressionImpl(string op)(Binary!op that, Trace* trace) {
 		if (!(sameTypeValueValue(that.left, that.right))) {
 			error(op ~ " only works on the same Type", that.position);
 		}
-		that.type = createType!TypeBool;
+		that.type = new TypeBool;
 		that.ispure = that.left.ispure && that.right.ispure;
 	} else static if (["&&", "||"].canFind(op)) {
 		auto ty = that.left.type;
 		if (!(ty.castTo!TypeBool && sameType(ty, that.right.type))) {
 			error(op ~ " only works on Bools", that.position);
 		}
-		that.type = createType!TypeBool;
+		that.type = new TypeBool;
 		that.ispure = that.left.ispure && that.right.ispure;
 	} else {
 		static assert(0);
@@ -565,7 +523,7 @@ void semantic1ExpressionImpl(string op)(Prefix!op that, Trace* trace) {
 		if (!that.value.lvalue) {
 			error("& only works lvalues", that.position);
 		}
-		that.type = createType!(TypePointer)(that.value.type);
+		that.type = new TypePointer(that.value.type);
 		that.ispure = that.value.ispure;
 	} else static if (op == "!") {
 		if (!that.value.type.castTo!TypeBool) {
@@ -600,7 +558,7 @@ void semantic1ExpressionImpl(FuncLit that, Trace* trace) {
 	if (that.explicit_return) {
 		semantic1(that.explicit_return, trace);
 		auto explicit_return = checkType(that.explicit_return);
-		that.type = createType!TypeFunction(explicit_return, argument);
+		that.type = new TypeFunction(explicit_return, argument);
 	}
 	semantic1(that.text, trace);
 
@@ -611,7 +569,7 @@ void semantic1ExpressionImpl(FuncLit that, Trace* trace) {
 		}
 	} else {
 		//todo add purity to function types
-		that.type = createType!TypeFunction(that.text.type, argument);
+		that.type = new TypeFunction(that.text.type, argument);
 	}
 	that.ispure = true;
 	auto mod = trace.upperModule;
@@ -619,7 +577,7 @@ void semantic1ExpressionImpl(FuncLit that, Trace* trace) {
 }
 
 void semantic1ExpressionImpl(StringLit that, Trace* trace) {
-	that.type = createType!TypeArray(createType!TypeChar);
+	that.type = new TypeArray(new TypeChar);
 	that.ispure = true;
 }
 
@@ -636,12 +594,12 @@ void semantic1ExpressionImpl(ArrayLit that, Trace* trace) {
 			error("All elements of an array literal must be of the same type", that.position);
 		}
 	}
-	that.type = createType!TypeArray(head);
+	that.type = new TypeArray(head);
 	that.ispure = that.values.map!(a => a.ispure).all;
 }
 
 void semantic1ExpressionImpl(ExternJs that, Trace* trace) {
-	that.type = createType!TypeExtern;
+	that.type = new TypeExtern;
 	that.ispure = true;
 	if (that.name == "") {
 		error("Improper extern", that.position);
@@ -657,41 +615,6 @@ bool sameTypeValueValue(ref Replaceable!Expression left, ref Replaceable!Express
 	return sameType(left.type, right.type) || implicitConvertDual(left, right);
 }
 
-//checks if two types are the same
-bool sameType(Type a, Type b) {
-	alias Types = AliasSeq!(TypeMetaclass, TypeBool, TypeChar, TypeInt, TypeUInt,
-			TypeStruct, TypePointer, TypeArray, TypeFunction, TypeImport, TypeExtern);
-	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(a, b);
-}
-
-bool sameTypeImpl(T1, T2)(T1 a, T2 b) {
-	static if (!is(T1 == T2) || is(T1 == TypeImport) || is(T1 == TypeExtern)) {
-		return false;
-	} else {
-		alias T = T1;
-		static if (is(T == TypeBool) || is(T == TypeChar) || is(T == TypeMetaclass)) {
-			return true;
-		} else static if (is(T == TypeUInt) || is(T == TypeInt)) {
-			return a.size == b.size;
-		} else static if (is(T == TypeStruct)) {
-			if (a.values.length != b.values.length) {
-				return false;
-			}
-			foreach (c, t; a.values) {
-				if (!sameType(t, b.values[c])) {
-					return false;
-				}
-			}
-			return true;
-		} else static if (is(T == TypePointer)) {
-			return sameType(a.value, b.value);
-		} else static if (is(T == TypeArray)) {
-			return sameType(a.array, b.array);
-		} else static if (is(T == TypeFunction)) {
-			return sameType(a.fptr, b.fptr) && sameType(a.arg, b.arg);
-		}
-	}
-}
 //modifys value's type
 //returns if converted
 bool implicitConvert(ref Replaceable!Expression value, Type type) {

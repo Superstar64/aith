@@ -16,10 +16,10 @@
 +/
 module ast;
 
-import std.algorithm : any, canFind, filter, joiner, map;
+import std.algorithm : all, any, canFind, filter, joiner, map;
 import std.bigint : BigInt;
 import std.conv : to;
-import std.range : chain, generate, tee;
+import std.range : chain, generate, tee, zip;
 import std.meta : AliasSeq;
 import std.traits : isArray, isAssociativeArray;
 import std.typecons : tuple;
@@ -197,12 +197,22 @@ class TypeInt : Type {
 	this() {
 		super();
 	}
+
+	this(int size) {
+		super();
+		this.size = size;
+	}
 }
 
 class TypeUInt : Type {
 	uint size;
 	this() {
 		super();
+	}
+
+	this(int size) {
+		super();
+		this.size = size;
 	}
 }
 
@@ -245,6 +255,11 @@ class TypeStruct : Type {
 	Type[] values;
 	this() {
 		super();
+	}
+
+	this(Type[] values) {
+		super();
+		this.values = values;
 	}
 }
 
@@ -301,6 +316,11 @@ class TypeArray : Type {
 	this() {
 		super();
 	}
+
+	this(Type array) {
+		super();
+		this.array = array;
+	}
 }
 
 //if fptr and arg are types then this gets converted to TypeFunction
@@ -315,6 +335,12 @@ class TypeFunction : Type {
 	Type arg;
 	this() {
 		super();
+	}
+
+	this(Type fptr, Type arg) {
+		super();
+		this.fptr = fptr;
+		this.arg = arg;
 	}
 }
 
@@ -335,7 +361,7 @@ class Prefix(string T) : Expression if (["+", "-", "*", "/", "&", "!"].canFind(T
 	Replaceable!Expression value;
 }
 
-class Postfix(string T) : Type if (["(*)"].canFind(T)) {
+class Postfix(string T) : Expression if (["(*)"].canFind(T)) {
 	Replaceable!Expression value;
 }
 
@@ -343,6 +369,11 @@ class TypePointer : Type {
 	Type value;
 	this() {
 		super();
+	}
+
+	this(Type value) {
+		super();
+		this.value = value;
 	}
 }
 
@@ -410,4 +441,45 @@ class TypeExtern : Type {
 	this() {
 		super();
 	}
+}
+
+//checks if two types are the same
+bool sameType(Type a, Type b) {
+	alias Types = AliasSeq!(TypeMetaclass, TypeBool, TypeChar, TypeInt, TypeUInt,
+			TypeStruct, TypePointer, TypeArray, TypeFunction, TypeImport, TypeExtern);
+	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(a, b);
+}
+
+bool sameTypeImpl(T1, T2)(T1 a, T2 b) {
+	static if (!is(T1 == T2) || is(T1 == TypeImport) || is(T1 == TypeExtern)) {
+		return false;
+	} else {
+		return sameTypeImpl2(a, b);
+	}
+}
+
+bool sameTypeImpl2(T)(T a, T b)
+		if (is(T == TypeBool) || is(T == TypeChar) || is(T == TypeMetaclass)) {
+	return true;
+}
+
+bool sameTypeImpl2(T)(T a, T b) if (is(T == TypeUInt) || is(T == TypeInt)) {
+	return a.size == b.size;
+}
+
+bool sameTypeImpl2(TypeStruct a, TypeStruct b) {
+	return a.values.length == b.values.length && zip(a.values, b.values)
+		.map!(a => sameType(a[0], a[1])).all;
+}
+
+bool sameTypeImpl2(TypePointer a, TypePointer b) {
+	return sameType(a.value, b.value);
+}
+
+bool sameTypeImpl2(TypeArray a, TypeArray b) {
+	return sameType(a.array, b.array);
+}
+
+bool sameTypeImpl2(TypeFunction a, TypeFunction b) {
+	return sameType(a.fptr, b.fptr) && sameType(a.arg, b.arg);
 }

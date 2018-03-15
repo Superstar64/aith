@@ -29,7 +29,6 @@ import std.variant : visit;
 
 import ast;
 import error : error;
-import semantic;
 import jsast;
 
 T castTo(T, Base)(Base node) {
@@ -81,7 +80,7 @@ JsExpr generateSymbol(FuncLit that, JsScope depend, Extra* extra) {
 	extra.context = FunctionContext();
 	extra.context.argumentName = genName(extra);
 	auto result = new JsFuncLit([extra.context.argumentName], []);
-	if (!sameType(that.text.type, createType!TypeStruct())) {
+	if (!sameType(that.text.type, new TypeStruct())) {
 		auto val = generateJs(that.text, Usage(true, Case.copyObject), result.states, extra);
 		result.states ~= new JsReturn(val);
 	} else {
@@ -405,7 +404,6 @@ alias Nodes = AliasSeq!(IntLit, BoolLit, CharLit, TupleLit, ScopeVarRef, ModuleV
 		Binary!"<", Binary!">", Binary!"&&", Binary!"||", Prefix!"-", Prefix!"!", ExternJs);
 
 JsExpr generateJs(Expression that, Usage usage, JsScope depend, Extra* extra) {
-	assert(isRuntimeValue(that));
 	return dispatch!(generateJsImpl, Nodes)(that, usage, depend, extra);
 }
 
@@ -419,14 +417,12 @@ JsState assignTo(bool createVar, JsLit left, JsExpr right) {
 
 void generateJsIntoVar(Expression that, JsLit variable, bool createVar,
 		Case shouldCopy, JsScope depend, Extra* extra) {
-	assert(isRuntimeValue(that));
 	return dispatch!(generateJsIntoVarImpl, Nodes)(that, variable, createVar,
 			shouldCopy, depend, extra);
 }
 
 //todo print warning if unusal node(new,intlit,etc)
 void generateJsEffectsOnly(Expression that, JsScope depend, Extra* extra) {
-	assert(isRuntimeValue(that));
 	return dispatch!(generateJsEffectsOnlyImpl, Nodes)(that, depend, extra);
 }
 
@@ -572,7 +568,7 @@ JsExpr generateJsImpl(Cast that, Usage usage, JsScope depend, Extra* extra) {
 	auto value = generateJs(that.value, usage, depend, extra);
 	if (sameType(that.value.type, that.wanted.castTo!Type)) {
 		return value;
-	} else if (sameType(that.value.type, createType!TypeStruct())) {
+	} else if (sameType(that.value.type, new TypeStruct())) {
 		return maybeCopy(defaultValue(that.wanted), that.wanted, usage, extra);
 	} else if (that.wanted.castTo!TypeUInt || that.wanted.castTo!TypeInt) {
 		if (that.implicit) {
