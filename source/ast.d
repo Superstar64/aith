@@ -169,6 +169,7 @@ abstract class Type : Expression {
 	this() {
 		this.type = metaclass;
 		this.ispure = true;
+		this.process = true;
 	}
 }
 
