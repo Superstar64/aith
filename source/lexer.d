@@ -15,14 +15,16 @@
 	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
 +/
 module lexer;
-import std.algorithm : startsWith;
+import std.algorithm;
 import std.ascii : isAlpha, isAlphaNum, isDigit, isWhite;
 import std.bigint : BigInt;
 import std.conv : to;
 import std.typecons : Nullable;
 import std.variant : Algebraic;
-import std.range : chunks;
+import std.range;
 import std.array : array;
+import std.meta;
+import std.utf : byCodeUnit;
 
 import error : error, Position;
 
@@ -42,295 +44,183 @@ import error : error, Position;
 	bool empty(string str) {
 		return str.length == 0;
 	}
+
+	string next(ref string str) {
+		return str.nextN(1);
+	}
+
+	string nextN(ref string str, size_t length) {
+		auto result = str[0 .. length];
+		str.popFrontN(length);
+		return result;
+	}
+}
+
+enum keywords = AliasSeq!("alias", "let", "bool_t", "cast", "char", "else", "extern",
+			"false", "if", "import", "int_t", "new", "of", "private", "public",
+			"struct", "then", "true", "uint_t", "while");
+struct Keyword(string keyword) if (staticIndexOf!(keyword, keywords) >= 0) {
+	string toString() {
+		return keyword;
+	}
+}
+
+auto keyword(string key)() {
+	return Keyword!key();
+}
+
+//must be sorted according to string length
+enum operators = AliasSeq!("(*)", "==", "!=", "<=", ">=", "&&", "||", "::",
+			"$@", "->", "..", "<", ">", "+", "-", "*", "/", "%", "=", "!",
+			"~", "&", "|", "^", ":", "$", "@", "{", "}", "(", ")", "[", "]", ".", ",", ";");
+
+struct Operator(string operator) if (staticIndexOf!(operator, operators) >= 0) {
+	string toString() {
+		return operator;
+	}
+}
+
+auto operator(string oper)() {
+	return Operator!oper();
+}
+
+template parseOperatorTemplate(string op) {
+	Nullable!(Operator!op) parseOperator(ref string file, Position) {
+		if (file.startsWith(op)) {
+			file.popFrontN(op.length);
+			return typeof(return)(Operator!op());
+		}
+		return typeof(return).init;
+	}
 }
 
 struct Identifier {
-	string name;
-	alias name this;
-	static Nullable!Identifier consume(ref string file) {
-		if (file.front.isAlpha || file.front == '_') {
-			auto original = file;
-			do {
-				file.popFront;
-			}
-			while (!file.empty && (file.front.isAlphaNum || file.front == '_'));
-			return typeof(return)(Identifier(original[0 .. original.length - file.length]));
-		}
-		return typeof(return).init;
+	string value;
+	alias value this;
+	string toString() {
+		return value;
 	}
+}
+
+Nullable!Identifier parseIdentifier(ref string file, Position) {
+	if (file.front.isAlpha || file.front == '_') {
+		auto length = file[].until!(a => !(a.isAlphaNum || a == '_')).count;
+		return typeof(return)(Identifier(file.nextN(length)));
+	}
+	return typeof(return).init;
 }
 
 struct IntLiteral {
-	BigInt num;
-	alias num this;
-	this(this) {
-
-	}
-
-	auto opAssign(typeof(this) other) {
-		num = other.num;
-	}
-
-	static Nullable!IntLiteral consume(ref string file) {
-		if (file.front.isDigit) {
-			auto original = file;
-			do {
-				file.popFront;
-			}
-			while (!file.empty && file.front.isDigit);
-			auto number = original[0 .. original.length - file.length];
-			return typeof(return)(IntLiteral(BigInt(number)));
-		}
-		return typeof(return).init;
-	}
-}
-
-struct Keyword {
-	enum list = [
-			"alias", "let", "bool_t", "cast", "char", "else", "extern", "false",
-			"if", "import", "int_t", "new", "of", "private", "public",
-			"struct", "then", "true", "uint_t", "while",
-		];
-	size_t index;
+	BigInt value;
+	alias value this;
 	string toString() {
-		return list[index];
-	}
-
-	static Nullable!Keyword opBinary(string op)(string candidate) if (op == "in") { //converts given string to a key word
-		foreach (c, k; list) {
-			if (k == candidate) {
-				return typeof(return)(Keyword(c));
-			}
-		}
-		return typeof(return).init;
+		return value.to!string;
 	}
 }
 
-template key(string s) {
-	auto findKey() {
-		foreach (c, k; Keyword.list) {
-			if (k == s) {
-				return Keyword(c);
-			}
-		}
-		assert(0, "unable to find keyword " ~ s);
+Nullable!IntLiteral parseIntLiteral(ref string file, Position) {
+	if (file.front.isDigit) {
+		auto length = file[].until!(a => !a.isDigit).count;
+		return typeof(return)(IntLiteral(BigInt(file.nextN(length))));
 	}
-
-	enum key = findKey();
+	return typeof(return).init;
 }
 
-struct Operator {
-	enum list = [
-			//must be sorted according to string length
-			"(*)", "==", "!=", "<=", ">=", "&&", "||", "::", "$@", "->", "..",
-			"<", ">", "+", "-", "*", "/", "%", "=", "!", "~", "&", "|", "^",
-			":", "$", "@", "{", "}", "(", ")", "[", "]", ".", ",", ";"
+string readStringWithEscapes(ref string file, char end, string current, out string err) {
+	enum errEoF = "Unexpected eof when parsing string";
+	enum validHex = "0123456789abcdefABCDEF";
+
+	enum escapeMap = [
+			'a' : '\a', 'b' : '\b', 'f' : '\f', 'n' : '\n', 'r' : '\r', 't' : '\t',
+			'v' : '\v', '\\' : '\\', '\'' : '\'', '"' : '"', '`' : '`', '0' : '\0'
 		];
-	size_t index;
-	string toString() {
-		return list[index];
-	}
-
-	static Nullable!Operator consume(ref string file) {
-		foreach (c, k; list) {
-			if (k.length > file.length) {
-				continue;
-			}
-			if (k == file[0 .. k.length]) {
-				file = file[k.length .. $];
-				return typeof(return)(Operator(c));
-			}
-		}
-		return typeof(return).init;
-	}
-}
-
-template oper(string s) {
-	auto findOper() {
-		foreach (c, o; Operator.list) {
-			if (o == s) {
-				return Operator(c);
-			}
-		}
-		assert(0, "unable to find operator " ~ s);
-	}
-
-	enum oper = findOper();
-}
-
-string readStringLitWithEscapes(ref string file, char end, string current, out string err) {
 	while (true) {
-		if (file.front == '\\') {
-			file.popFront;
-			if (file.empty) {
-				err = "Expected escape character after \\";
-				return null;
-			}
-			if (file.front == 'a') {
-				current ~= '\a';
-			} else if (file.front == 'b') {
-				current ~= '\b';
-			} else if (file.front == 'f') {
-				current ~= '\f';
-			} else if (file.front == 'n') {
-				current ~= '\n';
-			} else if (file.front == 'r') {
-				current ~= '\r';
-			} else if (file.front == 't') {
-				current ~= '\t';
-			} else if (file.front == 'v') {
-				current ~= '\v';
-			} else if (file.front == '\\') {
-				current ~= '\\';
-			} else if (file.front == '\'') {
-				current ~= '\'';
-			} else if (file.front == '"') {
-				current ~= '"';
-			} else if (file.front == '`') {
-				current ~= '`';
-			} else if (file.front == '0') {
-				current ~= '\0';
-			} else if (file.front == '-') {
-				file.popFront;
-				if (file.empty) {
-					err = "Expected hexadecmial";
-					return null;
-				}
-				string text = file;
-				while (file.front != '-') {
-					file.popFront;
-					if (file.empty) {
-						err = "Expected -";
-						return null;
-					}
-				}
-				text = text[0 .. text.length - file.length];
-				file.popFront;
-				if (file.empty || file.front != '/') {
-					err = "Expected /";
-					return null;
-				}
-
-				if (text.length % 2 != 0) {
-					err = "Bad Length for hex literal";
-					return null;
-				}
-				foreach (c; text.chunks(2)) {
-					current ~= c.array.to!ubyte(16);
-				}
-			} else {
-				err = "Expected escape character after \\";
-				return null;
-			}
-			file.popFront;
+		auto length = file[].until!(a => a == '\\' || a == end).tee!(a => current ~= a).count;
+		file.popFrontN(length);
+		if (file.empty) {
+			err = errEoF;
+			return "";
 		}
-		if (file.front == end) {
-			file.popFront;
+		if (file.front in escapeMap) {
+			current ~= escapeMap[file.front];
+		} else if (file.front == '-') {
+			assert(0, "todo implement \\-HEX-/ literals");
+		} else if (file.front == end) {
 			return current;
 		}
-		current ~= file.front;
-		file.popFront;
-		if (file.empty) {
-			err = "Expected " ~ end;
-			return null;
-		}
 	}
 }
 
-string readStringLit(ref string file, char start, char end, out string err) {
+string readString(ref string file, char start, char end, out string err) {
 	if (file.front != start) {
 		return null;
 	}
 	file.popFront;
-	if (file.empty) {
-		err = "Expected " ~ end;
-		return null;
+	auto length = file[].until!(a => a == '\\' || a == end).count;
+	auto str = file.nextN(length);
+	if (file.empty || file.front == '\\') {
+		return readStringWithEscapes(file, end, str, err);
 	}
-	string original = file;
-	while (true) {
-		if (file.front == '\\') {
-			return readStringLitWithEscapes(file, end,
-					original[0 .. original.length - file.length], err);
-		}
-		if (file.front == end) {
-			original = original[0 .. original.length - file.length];
-			file.popFront;
-			return original;
-		}
-		file.popFront;
-		if (file.empty) {
-			err = "Expected " ~ end;
-			return null;
-		}
+	file.popFront;
+	return str;
+}
+
+Nullable!T parseStringLiteral(T)(ref string file, Position position) {
+	string err;
+	auto str = readString(file, T.charCode, T.charCode, err);
+	if (err) {
+		error(err, position);
 	}
+	if (str) {
+		return typeof(return)(T(str));
+	}
+	return typeof(return).init;
 }
 
 struct CharLiteral {
-	string data;
-	static Nullable!CharLiteral consume(ref string file, out string err) {
-		auto str = readStringLit(file, '\'', '\'', err);
-		if (str && !err) {
-			return typeof(return)(CharLiteral(str));
-		}
-		return (typeof(return)).init;
-	}
+	string value;
+	alias value this;
+	enum charCode = '\'';
 }
 
 struct StringLiteral {
-	string data;
-	static Nullable!StringLiteral consume(ref string file, out string err) {
-		auto str = readStringLit(file, '"', '"', err);
-		if (str && !err) {
-			return typeof(return)(StringLiteral(str));
-		}
-		return (typeof(return)).init;
-	}
+	string value;
+	alias value this;
+	enum charCode = '"';
 }
 
 struct Eof {
+}
 
+Nullable!Eof parseEOF(ref string file, Position) {
+	if (file.length == 0) {
+		return typeof(return)(Eof());
+	}
+	return typeof(return).init;
 }
 
 struct Token {
 	Position position;
-	Algebraic!(Identifier, IntLiteral, Keyword, Operator, CharLiteral, StringLiteral, Eof) value;
+	Algebraic!(Identifier, IntLiteral, CharLiteral, StringLiteral,
+			staticMap!(Operator, operators), staticMap!(Keyword, keywords), Eof) value;
 	alias value this;
-	bool opEquals(Token other) {
-		return value == other.value;
-	}
 
 	bool opEquals(T)(T t) if (!is(T == Token)) {
 		return value == t;
 	}
 
-	auto opAssign(T)(T val) {
-		value = val;
-		return this;
+	auto expect(T)(T expected) {
+		if (this != expected) {
+			error("Expected " ~ expected.to!string, position);
+		}
 	}
 
-	auto opAssign(T : Token)(T token) {
-		position = token.positionition;
-		value = token.value;
-	}
-
-	@property auto ref expectT(T...)() {
-		foreach (a; T) {
-			if (value.peek!a) {
-				static if (T.length == 1) {
-					return value.get!T;
-				} else {
-					return;
-				}
-			}
+	auto expectType(T)() {
+		if (auto wanted = value.peek!T) {
+			return *wanted;
 		}
 		error("Expected " ~ T.stringof, position);
 		assert(0);
-	}
-
-	@property void expect(T)(T t) {
-		if (value != t) {
-			error("Expected " ~ t.to!string, position);
-		}
 	}
 }
 
@@ -360,110 +250,88 @@ void removeSingleLine(ref string file) {
 	return file.removeSingleLine;
 }
 
-void removeComment(ref string file) {
+void removeComments(ref string file) {
 	if (file.empty) {
 		return;
 	}
 	if (file.front.isWhite) {
 		file.popFront;
-		file.removeComment;
+		file.removeComments;
 	}
 	if (file.startsWith("#/")) {
 		file.popFrontN(2);
 		file.removeMultiLine;
-		file.removeComment;
+		file.removeComments;
 	}
 	if (file.startsWith("#")) {
 		file.removeSingleLine;
-		return file.removeComment;
+		return file.removeComments;
 	}
 }
 
+//wierd compile bug workaround
+template metaParseDot(alias T) {
+	alias metaParseDot = T.parseOperator;
+}
+
+alias Parsers = AliasSeq!(parseEOF, parseIdentifier, parseIntLiteral, parseStringLiteral!CharLiteral,
+		parseStringLiteral!StringLiteral, staticMap!(metaParseDot,
+			staticMap!(parseOperatorTemplate, operators)));
+
 struct Lexer {
-	string file_name;
-	uint cline = 1;
-	uint cindex;
+	string fileName;
+	uint currentLine = 1;
+	uint currentIndex;
 	string file;
 
-	string file_org; //original file
+	string fileOriginal;
 	Token front;
 
-	this(string file_name, string file) {
-		this.file_name = file_name;
+	this(string fileName, string file) {
+		this.fileName = fileName;
 		this.file = file;
-		this.file_org = file;
+		this.fileOriginal = file;
 		popFront;
 	}
 
-	void popFront() {
-		{ //clean whitespace,comments,etc
-			auto original = file;
-			file.removeComment();
-			diff(original);
-		}
-		auto position = Position(file_name, cline, file_org, cindex);
-		scope (success) {
-			position.indexe = cindex;
-			front.position = position;
-		}
-
-		auto original = file;
-		scope (success) {
-			diff(original);
-		}
-
-		if (file.empty) {
-			front = Eof();
-			return;
-		}
-		auto iden = Identifier.consume(file);
-		if (!iden.isNull) {
-			auto key = Keyword in iden.get.name;
-			if (!key.isNull) {
-				front = key.get;
-				return;
-			} else {
-				front = iden.get;
-				return;
-			}
-		}
-		auto ilit = IntLiteral.consume(file);
-		if (!ilit.isNull) {
-			front = ilit.get;
-			return;
-		}
-		auto ope = Operator.consume(file);
-		if (!ope.isNull) {
-			front = ope.get;
-			return;
-		}
-		string err;
-		auto chlit = CharLiteral.consume(file, err);
-		if (err) {
-			error(err, Position(file_name, cline, file, cindex, cindex + 1));
-		}
-		if (!chlit.isNull) {
-			front = chlit.get;
-			return;
-		}
-		auto stlit = StringLiteral.consume(file, err);
-		if (err) {
-			error(err, Position(file_name, cline, file, cindex, cindex + 1));
-		}
-		if (!stlit.isNull) {
-			front = stlit.get;
-			return;
-		}
-		error("Unknown Token", Position(file_name, cline, file, cindex, cindex + 1));
+	void countLines(string old) {
+		currentIndex += old.length - file.length;
+		currentLine += old[0 .. old.length - file.length].filter!(a => a == '\n').count;
 	}
 
-	void diff(string original) {
-		foreach (c; original[0 .. original.length - file.length]) {
-			if (c == '\n') {
-				cline++;
-			}
-			cindex++;
+	void clean() {
+		auto old = file;
+		file.removeComments;
+		countLines(old);
+	}
+
+	void popFront() {
+		clean();
+		auto old = file;
+		auto position = Position(fileName, currentLine, fileOriginal, currentIndex);
+		scope (success) {
+			front.position = position.join(Position(fileName, currentLine,
+					fileOriginal, currentIndex));
 		}
+		foreach (parserFun; Parsers) {
+			auto tokenPartNullable = parserFun(file, position);
+			if (!tokenPartNullable.isNull) {
+				countLines(old);
+				auto tokenPart = tokenPartNullable.get();
+				static if (is(typeof(tokenPart) == Identifier)) {
+					foreach (keyword; keywords) {
+						if (tokenPart == keyword) {
+							front.value = typeof(front.value)(Keyword!keyword());
+							return;
+						}
+					}
+				}
+				front.value = typeof(front.value)(tokenPart);
+				return;
+			}
+		}
+
+		error("Unknown Token", position);
 	}
 
 @property:

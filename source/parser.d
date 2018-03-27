@@ -44,7 +44,7 @@ struct Parser {
 			auto position = front.position;
 			auto val = sub;
 			foreach (o; opers) {
-				if (front == oper!o) {
+				if (front == operator!o) {
 					auto ret = new Binary!o;
 					popFront;
 					ret.left = val;
@@ -61,11 +61,11 @@ struct Parser {
 		with (lexer) {
 			auto position = front.position;
 			foreach (o; opers) {
-				if (front == oper!o) {
+				if (front == operator!o) {
 					static if (o == "+" || o == "-") { //hacky special case
 						auto original = lexer;
-						bool usign = front == oper!"+";
-						bool nega = front == oper!"-";
+						bool usign = front == operator!"+";
+						bool nega = front == operator!"-";
 						popFront;
 						auto intL = parseIntLit(usign, nega);
 						if (intL) {
@@ -88,9 +88,9 @@ struct Parser {
 	Expression parseCore() {
 		with (lexer) {
 			Expression val;
-			foreach (fun; AliasSeq!(parseBasic, parseCast, parseTuple!(oper!"(",
-					oper!")"), parseVariable, parseIf, parseWhile,
-					parseNew, parseScope, parseImport, parseFuncArgument, parseFuncLit,
+			foreach (fun; AliasSeq!(parseBasic, parseCast,
+					parseTuple!(operator!"(", operator!")"), parseVariable, parseIf,
+					parseWhile, parseNew, parseScope, parseImport, parseFuncArgument, parseFuncLit,
 					parseStringLit, parseArrayLit, parseExtern, parseBasicType, parseStruct)) {
 				auto value = fun;
 				if (value) {
@@ -106,7 +106,7 @@ struct Parser {
 	Expression parseStruct() {
 		with (lexer) {
 			auto position = front.position;
-			if (front == key!"struct") {
+			if (front == keyword!"struct") {
 				auto ret = new TypeTemporaryStruct();
 				popFront;
 				ret.value = parseExpression();
@@ -120,9 +120,9 @@ struct Parser {
 	Expression parseBasicType() {
 		with (lexer) {
 			uint parseDotFix() {
-				if (front == oper!".") {
+				if (front == operator!".") {
 					popFront;
-					uint res = front.expectT!(IntLiteral).toInt();
+					uint res = front.expectType!(IntLiteral).toInt();
 					popFront;
 					return res;
 				}
@@ -136,20 +136,20 @@ struct Parser {
 					ret.position = position.join(front.position);
 				}
 			}
-			if (front == key!"int_t") {
+			if (front == keyword!"int_t") {
 				popFront;
 				auto int_t = new TypeInt();
 				int_t.size = parseDotFix;
 				ret = int_t;
-			} else if (front == key!"uint_t") {
+			} else if (front == keyword!"uint_t") {
 				popFront;
 				auto int_t = new TypeUInt();
 				int_t.size = parseDotFix;
 				ret = int_t;
-			} else if (front == key!"char") {
+			} else if (front == keyword!"char") {
 				popFront;
 				ret = new TypeChar();
-			} else if (front == key!"bool_t") {
+			} else if (front == keyword!"bool_t") {
 				popFront;
 				ret = new TypeBool();
 			}
@@ -164,13 +164,13 @@ struct Parser {
 			if (intL) {
 				intL.position = position.join(front.position);
 				return intL;
-			} else if (front == key!"true") {
+			} else if (front == keyword!"true") {
 				auto ret = new BoolLit();
 				ret.yes = true;
 				popFront;
 				ret.position = position.join(front.position);
 				return ret;
-			} else if (front == key!"false") {
+			} else if (front == keyword!"false") {
 				auto ret = new BoolLit();
 				ret.yes = false;
 				popFront;
@@ -178,7 +178,7 @@ struct Parser {
 				return ret;
 			} else if (front.peek!CharLiteral) {
 				auto ret = new CharLit();
-				auto str = front.get!(CharLiteral).data;
+				auto str = front.get!(CharLiteral).value;
 				ret.value = decodeFront(str);
 				if (str.length != 0) {
 					error("TypeChar Lit to big", front.position);
@@ -195,7 +195,7 @@ struct Parser {
 		with (lexer) {
 			if (front.peek!IntLiteral) {
 				auto ret = new IntLit;
-				ret.value = front.get!(IntLiteral).num;
+				ret.value = front.get!(IntLiteral).value;
 				ret.usigned = posi;
 				if (nega) {
 					ret.value = -ret.value;
@@ -210,13 +210,13 @@ struct Parser {
 	Expression parseCast() {
 		with (lexer) {
 			auto position = front.position;
-			if (front == key!"cast") {
+			if (front == keyword!"cast") {
 				auto ret = new Cast();
 				popFront;
-				front.expect(oper!"(");
+				front.expect(operator!"(");
 				popFront;
 				ret.wanted = parseExpression;
-				front.expect(oper!")");
+				front.expect(operator!")");
 				popFront;
 				ret.value = parseExpression;
 				ret.position = position.join(front.position);
@@ -231,7 +231,7 @@ struct Parser {
 			auto ret = new TupleLit();
 			while (true) {
 				ret.values ~= Replaceable!Expression(parseExpression);
-				if (front != oper!",") {
+				if (front != operator!",") {
 					break;
 				}
 				popFront;
@@ -243,7 +243,7 @@ struct Parser {
 		}
 	}
 
-	Expression parseTuple(alias Front = oper!"(", alias End = oper!")")() {
+	Expression parseTuple(alias Front = operator!"(", alias End = operator!")")() {
 		with (lexer) {
 			Expression val;
 			auto position = front.position;
@@ -266,7 +266,7 @@ struct Parser {
 
 	Expression parseFuncArgument() {
 		with (lexer) {
-			if (front == oper!"$@") {
+			if (front == operator!"$@") {
 				auto ret = new FuncArgument();
 				auto position = front.position;
 				popFront;
@@ -282,7 +282,7 @@ struct Parser {
 			auto position = front.position;
 			if (front.peek!Identifier) {
 				auto ret = new Variable();
-				ret.name = front.get!(Identifier).name;
+				ret.name = front.get!(Identifier).value;
 				popFront;
 				ret.position = position.join(front.position);
 				return ret;
@@ -294,14 +294,14 @@ struct Parser {
 	Expression parseIf() {
 		with (lexer) {
 			auto position = front.position;
-			if (front == key!"if") {
+			if (front == keyword!"if") {
 				auto ret = new If();
 				popFront;
 				ret.cond = parseExpression;
-				front.expect(key!"then");
+				front.expect(keyword!"then");
 				popFront;
 				ret.yes = parseExpression;
-				if (front == key!"else") {
+				if (front == keyword!"else") {
 					popFront;
 					ret.no = parseExpression;
 				} else {
@@ -317,11 +317,11 @@ struct Parser {
 	Expression parseWhile() {
 		with (lexer) {
 			auto position = front.position;
-			if (front == key!"while") {
+			if (front == keyword!"while") {
 				auto ret = new While();
 				popFront;
 				ret.cond = parseExpression;
-				if (front == key!"then") {
+				if (front == keyword!"then") {
 					popFront;
 					ret.state = parseExpression;
 				} else {
@@ -337,11 +337,11 @@ struct Parser {
 	Expression parseNew() {
 		with (lexer) {
 			auto position = front.position;
-			if (front == key!"new") {
+			if (front == keyword!"new") {
 				popFront;
-				if (front == oper!"[") {
+				if (front == operator!"[") {
 					auto ret = new NewArray();
-					ret.length = parseTuple!(oper!"[", oper!"]");
+					ret.length = parseTuple!(operator!"[", operator!"]");
 					assert(ret.length);
 					ret.value = parseExpression;
 					ret.position = position.join(front.position);
@@ -360,19 +360,19 @@ struct Parser {
 	Expression parsePostfix(Expression current) {
 		with (lexer) {
 			auto position = current.position;
-			if (front == oper!".") {
+			if (front == operator!".") {
 				auto ret = new Dot();
 				ret.value = current;
 				popFront;
-				front.expectT!(Identifier);
-				ret.index = front.get!(Identifier).name;
+				front.expectType!(Identifier);
+				ret.index = front.get!(Identifier).value;
 				popFront;
 				ret.position = position.join(front.position);
 				return parsePostfix(ret);
-			} else if (front == oper!"[") {
+			} else if (front == operator!"[") {
 				auto pos2 = front.position;
 				popFront;
-				if (front == oper!"]") {
+				if (front == operator!"]") {
 					popFront;
 					auto ret = new Index;
 					ret.array = current;
@@ -382,7 +382,7 @@ struct Parser {
 					return parsePostfix(ret);
 				}
 				auto val = parseTupleImpl;
-				if (front == oper!"..") {
+				if (front == operator!"..") {
 					auto ret = new Slice;
 					ret.array = current;
 					ret.left = val;
@@ -392,13 +392,13 @@ struct Parser {
 					pos2 = front.position;
 
 					ret.right = parseTupleImpl;
-					front.expect(oper!"]");
+					front.expect(operator!"]");
 					popFront;
 					ret.right.position = pos2.join(front.position);
 					ret.position = position.join(front.position);
 					return parsePostfix(ret);
 				} else {
-					assert(front == oper!"]");
+					assert(front == operator!"]");
 					popFront;
 					auto ret = new Index;
 					ret.array = current;
@@ -407,7 +407,7 @@ struct Parser {
 					ret.position = position.join(front.position);
 					return parsePostfix(ret);
 				}
-			} else if (front == oper!"(") {
+			} else if (front == operator!"(") {
 				auto argument = parseTupleImpl;
 				assert(argument);
 				auto ret = new Call();
@@ -415,7 +415,7 @@ struct Parser {
 				ret.arg = argument;
 				ret.position = position.join(front.position);
 				return parsePostfix(ret);
-			} else if (front == oper!"(*)") {
+			} else if (front == operator!"(*)") {
 				auto ret = new Postfix!"(*)"();
 				popFront;
 				ret.value = current;
@@ -429,9 +429,9 @@ struct Parser {
 	Expression parseScope() {
 		with (lexer) {
 			auto position = front.position;
-			if (front == oper!"{") {
+			if (front == operator!"{") {
 				popFront;
-				auto ret = parseScopeImpl!(oper!"}")();
+				auto ret = parseScopeImpl!(operator!"}")();
 				ret.position = position.join(front.position);
 				return ret;
 			}
@@ -439,7 +439,7 @@ struct Parser {
 		}
 	}
 
-	Expression parseScopeImpl(alias end = oper!"}")() {
+	Expression parseScopeImpl(alias end = operator!"}")() {
 		with (lexer) {
 			auto ret = new Scope();
 			while (true) {
@@ -447,9 +447,9 @@ struct Parser {
 					popFront;
 					return ret;
 				}
-				if (front == key!"let" || front == key!"alias") {
+				if (front == keyword!"let" || front == keyword!"alias") {
 					auto var = new ScopeVarDef();
-					parseVarDef(var, front == key!"alias");
+					parseVarDef(var, front == keyword!"alias");
 					ret.states ~= Replaceable!Statement(var);
 				} else {
 					auto position = front.position;
@@ -458,7 +458,7 @@ struct Parser {
 						ret.last = val;
 						popFront;
 						return ret;
-					} else if (front == oper!"=") {
+					} else if (front == operator!"=") {
 						popFront;
 						auto assigner = parseExpression;
 						auto assign = new Assign;
@@ -470,7 +470,7 @@ struct Parser {
 						ret.states ~= Replaceable!Statement(val);
 					}
 				}
-				front.expect(oper!";");
+				front.expect(operator!";");
 				popFront;
 			}
 		}
@@ -482,15 +482,15 @@ struct Parser {
 			var.manifest = manifest;
 			popFront;
 			auto type = parseExpression();
-			if (front != oper!"=") {
-				front.expectT!Identifier;
-				var.name = front.get!(Identifier).name;
+			if (front != operator!"=") {
+				front.expectType!Identifier;
+				var.name = front.get!(Identifier).value;
 				popFront;
-				front.expect(oper!"=");
+				front.expect(operator!"=");
 				popFront;
 				var.explicitType = type;
 			} else {
-				assert(front == oper!"=");
+				assert(front == operator!"=");
 				auto expr = cast(Variable) type;
 				if (!expr) {
 					error("expected identifier", position);
@@ -507,11 +507,11 @@ struct Parser {
 	Expression parseImport() {
 		with (lexer) {
 			auto position = front.position;
-			if (front == key!"import") {
+			if (front == keyword!"import") {
 				auto ret = new Import();
 				popFront;
-				front.expectT!StringLiteral;
-				auto file = front.get!StringLiteral.data;
+				front.expectType!StringLiteral;
+				auto file = front.get!StringLiteral.value;
 				popFront();
 				ret.mod = findAndReadModule(file);
 				ret.position = position.join(front.position);
@@ -524,11 +524,11 @@ struct Parser {
 	Expression parseFuncLit() {
 		with (lexer) {
 			auto position = front.position;
-			if (front == oper!"$") {
+			if (front == operator!"$") {
 				auto ret = new FuncLit();
 				popFront;
 				auto type = parseExpression;
-				if (front == oper!"->") {
+				if (front == operator!"->") {
 					popFront;
 					ret.explicit_return = type;
 					type = parseExpression;
@@ -548,7 +548,7 @@ struct Parser {
 			if (front.peek!StringLiteral) {
 				auto ret = new StringLit;
 				auto position = front.position;
-				ret.str = front.get!(StringLiteral).data;
+				ret.str = front.get!(StringLiteral).value;
 				popFront;
 				ret.position = position.join(front.position);
 				return ret;
@@ -559,7 +559,7 @@ struct Parser {
 
 	Expression parseArrayLit() {
 		with (lexer) {
-			auto val = parseTuple!(oper!"[", oper!"]");
+			auto val = parseTuple!(operator!"[", operator!"]");
 			if (val) {
 				auto ret = new ArrayLit;
 				ret.values = (cast(TupleLit) val).values;
@@ -572,7 +572,7 @@ struct Parser {
 
 	Expression parseExtern() {
 		with (lexer) {
-			if (front == key!"extern") {
+			if (front == keyword!"extern") {
 				auto ret = new ExternJs;
 				auto position = front.position;
 				popFront;
@@ -608,24 +608,24 @@ struct Parser {
 				}
 				int[] modifiersList;
 				while (true) {
-					if (front == key!"public") {
+					if (front == keyword!"public") {
 						modifiersList ~= indexModifier!"public";
-					} else if (front == key!"private") {
+					} else if (front == keyword!"private") {
 						modifiersList ~= indexModifier!"private";
 					} else {
 						break;
 					}
 					popFront;
 				}
-				if (modifiersList.length > 0 && front == oper!":") {
+				if (modifiersList.length > 0 && front == operator!":") {
 					applyModifiers(modifiersList, globalModifiers);
 					popFront;
-				} else if (front == key!"let" || front == key!"alias") {
+				} else if (front == keyword!"let" || front == keyword!"alias") {
 					Modifier localModifiers = globalModifiers;
 					applyModifiers(modifiersList, localModifiers);
 					auto var = new ModuleVarDef();
 					var.modifier = localModifiers;
-					parseVarDef(var, front == key!"alias");
+					parseVarDef(var, front == keyword!"alias");
 					ret.symbols[var.name] = var;
 					if (auto ext = cast(ExternJs) var.definition) {
 						if (var.manifest) {
@@ -635,7 +635,7 @@ struct Parser {
 					if (auto func = cast(FuncLit) var.definition) {
 						func.name = var.name;
 					}
-					front.expect(oper!";");
+					front.expect(operator!";");
 					popFront;
 				} else {
 					error("Expected variable or modifiers list", front.position);
