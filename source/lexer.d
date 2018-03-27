@@ -209,10 +209,19 @@ struct Token {
 		return value == t;
 	}
 
-	auto expect(T)(T expected) {
+	auto expect(T...)(T expected) if (T.length == 1) {
 		if (this != expected) {
 			error("Expected " ~ expected.to!string, position);
 		}
+	}
+
+	auto expect(T...)(T expectedList) if (T.length != 1) {
+		foreach (expected; expectedList) {
+			if (this == expected) {
+				return;
+			}
+		}
+		error("Expected " ~ T.stringof, position);
 	}
 
 	auto expectType(T)() {

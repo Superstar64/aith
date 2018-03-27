@@ -61,8 +61,8 @@ Module readModule(string name) {
 	auto map = new MmFile(name);
 	maps ~= map;
 	auto buffer = cast(string) map[];
-	auto parser = Parser(Lexer(name, buffer));
-	parser.parseModule(mod);
+	auto lexer = Lexer(name, buffer);
+	parseModule(lexer, mod);
 	return mod;
 }
 
