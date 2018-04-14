@@ -21,7 +21,7 @@ import std.meta : AliasSeq;
 import std.utf : decodeFront;
 import error : error, Position;
 
-import ast;
+import parserast;
 import app : findAndReadModule;
 import lexer;
 import std.algorithm : countUntil;
@@ -95,18 +95,6 @@ Expression parsePrefix(opers...)(ref Lexer lexer) {
 Expression parsePrefixImpl(opers...)(ref Lexer lexer) {
 	foreach (o; opers) {
 		if (lexer.front == operator!o) {
-			static if (o == "+" || o == "-") { //hacky special case
-				auto original = lexer;
-				bool usign = lexer.front == operator!"+";
-				bool nega = lexer.front == operator!"-";
-				lexer.popFront;
-				lexer.front.expectType!IntLiteral;
-				auto intL = parseCoreDispatch(lexer.front.get!IntLiteral, lexer, usign, nega);
-				if (intL) {
-					return parsePostfix(lexer, intL);
-				}
-				lexer = original;
-			}
 			auto ret = new Prefix!o;
 			lexer.popFront;
 			ret.value = parsePrefix!(opers)(lexer);
@@ -137,9 +125,7 @@ Expression parseCoreImpl(ref Lexer lexer) {
 }
 
 Expression parseCoreDispatch(Keyword!"struct", ref Lexer lexer) {
-	auto ret = new TypeTemporaryStruct();
-	ret.value = parseExpression(lexer);
-	return ret;
+	return new TypeStruct();
 }
 
 uint parseDotFix(ref Lexer lexer) {
@@ -173,13 +159,9 @@ Expression parseCoreDispatch(Keyword!"bool_t", ref Lexer lexer) {
 	return new TypeBool();
 }
 
-Expression parseCoreDispatch(IntLiteral value, ref Lexer lexer, bool posi = false, bool nega = false) {
+Expression parseCoreDispatch(IntLiteral value, ref Lexer lexer) {
 	auto ret = new IntLit;
 	ret.value = value;
-	ret.usigned = posi;
-	if (nega) {
-		ret.value = -ret.value;
-	}
 	return ret;
 }
 
@@ -205,20 +187,13 @@ Expression parseCoreDispatch(CharLiteral value, ref Lexer lexer) {
 }
 
 Expression parseCoreDispatch(Keyword!"cast", ref Lexer lexer) {
-	auto ret = new Cast();
-	lexer.front.expect(operator!"(");
-	lexer.popFront;
-	ret.wanted = parseExpression(lexer);
-	lexer.front.expect(operator!")");
-	lexer.popFront;
-	ret.value = parseExpression(lexer);
-	return ret;
+	return new Cast();
 }
 
-Replaceable!Expression[] parseList(ref Lexer lexer) {
-	Replaceable!Expression[] result;
+Expression[] parseList(ref Lexer lexer) {
+	Expression[] result;
 	while (true) {
-		result ~= Replaceable!Expression(parseExpression(lexer));
+		result ~= parseExpression(lexer);
 		if (lexer.front != operator!",") {
 			break;
 		}
@@ -328,7 +303,7 @@ Expression parseCoreDispatch(Operator!"$", ref Lexer lexer) {
 	auto type = parseExpression(lexer);
 	if (lexer.front == operator!"->") {
 		lexer.popFront;
-		ret.explicit_return = type;
+		ret.explicitReturn = type;
 		type = parseExpression(lexer);
 	}
 	ret.argument = type;
@@ -339,15 +314,16 @@ Expression parseCoreDispatch(Operator!"$", ref Lexer lexer) {
 
 Expression parseCoreDispatch(StringLiteral value, ref Lexer lexer) {
 	auto ret = new StringLit;
-	ret.str = value.value;
+	ret.value = value.value;
 	return ret;
 }
 
 Expression parseCoreDispatch(Operator!"[", ref Lexer lexer) {
-	auto val = parseTupleEnd!(operator!"]")(lexer);
+	auto values = parseList(lexer);
+	lexer.front.expect(operator!"]");
 	lexer.popFront;
 	auto ret = new ArrayLit;
-	ret.values = (cast(TupleLit) val).values;
+	ret.values = values;
 	return ret;
 }
 
@@ -361,10 +337,9 @@ Expression parsePostfix(ref Lexer lexer, Expression current) {
 }
 
 Expression parsePostfixDispatch(T)(T operator, ref Lexer lexer, Expression current) {
-	auto result = parsePostfix(lexer, parsePostfixDispatchImpl(operator, lexer,
-			current, lexer.front.position));
+	auto result = parsePostfixDispatchImpl(operator, lexer, current, lexer.front.position);
 	result.position = current.position.join(lexer.front.position);
-	return result;
+	return parsePostfix(lexer, result);
 }
 
 Expression parsePostfixDispatchImpl(Operator!".", ref Lexer lexer,
@@ -411,8 +386,8 @@ Expression parsePostfixDispatchImpl(Operator!"(", ref Lexer lexer,
 	assert(lexer.front == operator!")");
 	lexer.popFront;
 	auto ret = new Call();
-	ret.fptr = current;
-	ret.arg = argument;
+	ret.calle = current;
+	ret.argument = argument;
 	argument.position = postfixStart.join(lexer.front.position);
 	return ret;
 }
@@ -433,7 +408,7 @@ Expression parseCoreDispatch(Operator!"{", ref Lexer lexer) {
 		if (lexer.front == keyword!"let" || lexer.front == keyword!"alias") {
 			auto var = new ScopeVarDef();
 			parseVarDef(lexer, var, lexer.front == keyword!"alias");
-			ret.states ~= Replaceable!Statement(var);
+			ret.states ~= var;
 		} else {
 			auto val = parseExpression(lexer);
 			if (lexer.front == operator!"}") {
@@ -446,9 +421,9 @@ Expression parseCoreDispatch(Operator!"{", ref Lexer lexer) {
 				auto assign = new Assign;
 				assign.left = val;
 				assign.right = assigner;
-				ret.states ~= Replaceable!Statement(assign);
+				ret.states ~= assign;
 			} else {
-				ret.states ~= Replaceable!Statement(val);
+				ret.states ~= val;
 			}
 		}
 		lexer.front.expect(operator!";");
@@ -478,7 +453,7 @@ VarDef parseVarDefImpl(ref Lexer lexer, VarDef var, bool manifest) {
 		lexer.popFront;
 	}
 
-	var.definition = parseExpression(lexer);
+	var.value = parseExpression(lexer);
 	return var;
 }
 
@@ -524,15 +499,7 @@ void parseModule(ref Lexer lexer, Module ret) {
 			auto var = new ModuleVarDef();
 			var.modifier = localModifiers;
 			parseVarDef(lexer, var, lexer.front == keyword!"alias");
-			ret.symbols[var.name] = var;
-			if (auto ext = cast(ExternJs) var.definition) {
-				if (var.manifest) {
-					ext.name = var.name;
-				}
-			}
-			if (auto func = cast(FuncLit) var.definition) {
-				func.name = var.name;
-			}
+			ret.symbols ~= var;
 			lexer.front.expect(operator!";");
 			lexer.popFront;
 		} else {

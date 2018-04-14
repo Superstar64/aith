@@ -21,631 +21,536 @@ import std.bigint : BigInt;
 import std.conv : to;
 import std.file : read;
 import std.meta : AliasSeq;
-import std.range : recurrence, drop, take;
+import std.range : chain, recurrence, drop, take, only;
 
-import ast;
+static import Parser = parserast;
+import semanticast;
 import error : error, Position;
+import misc;
 
-T castTo(T, Base)(Base node) {
-	return cast(T) node;
+Module lazyCreateModule(Parser.Module parser) {
+	auto mod = new Module();
+	foreach (symbol; parser.symbols) {
+		if (symbol.name in mod.rawSymbols) {
+			error("Symbol already exists", symbol.position);
+		}
+		mod.rawSymbols[symbol.name] = symbol;
+	}
+	return mod;
 }
 
 void processModule(Module mod) {
-	mod.process = true;
-	auto trace = Trace(mod, null);
-	foreach (symbol; mod.symbols) {
-		semantic1(symbol, &trace);
-		if (!symbol.ispure) {
-			error("Impure expression in global", symbol.position);
+	foreach (symbol; mod.rawSymbols) {
+		if (symbol.name in mod.aliases) {
+			continue;
 		}
+		processModuleSymbol(mod, symbol);
 	}
 }
 
-bool isRuntimeValue(Expression expression) {
-	return !(expression.castTo!Type || expression.castTo!Import);
-}
-
-void checkRuntimeValue(Expression expression) {
-	if (!isRuntimeValue(expression)) {
-		error("Expected runtime value", expression.position);
+void processModuleSymbol(Module mod, Parser.ModuleVarDef symbol) {
+	auto context = Context(mod, null, null, [mod]);
+	//todo refactor this
+	Parser.FuncLit whenFunctionParser;
+	FuncLit whenFunctionSemantic;
+	mod.aliases[symbol.name] = semantic1(symbol, context, whenFunctionParser,
+			whenFunctionSemantic);
+	if (whenFunctionParser) {
+		semantic1FuncFinish(whenFunctionParser, whenFunctionSemantic, context);
 	}
 }
 
-Type tryType(ref Replaceable!Expression expression) {
-	if (auto tuple = expression.castTo!TupleLit) {
-		expression._original ~= expression._value;
-		auto structWrap = new TypeStruct(tuple.values.map!checkType.array);
-		expression._value = structWrap;
-		return structWrap;
+Wrapper!Expression semantic1(Parser.ModuleVarDef that, Context context,
+		out Parser.FuncLit whenFunctionParser, out FuncLit whenFunctionSemantic) {
+	if (that.visible) {
+		context.global.visible[that.name] = Tuple!()();
 	}
-	if (!expression.castTo!Type) {
-		return null;
+	Wrapper!Expression value;
+	if (auto func = that.value.castTo!(Parser.FuncLit)) {
+		whenFunctionParser = func;
+		value = semantic1Func(func, that.name, context, whenFunctionSemantic);
+	} else if (auto ext = that.value.castTo!(Parser.ExternJs)) {
+		value = semantic1Extern(ext, that.name, context);
+	} else {
+		value = semantic1(that.value, context);
 	}
-	return expression.castTo!Type;
-}
-
-//makes sure expression is a type or implicitly convert it to a type
-Type checkType(ref Replaceable!Expression expression) {
-	auto type = tryType(expression);
-	if (type is null) {
-		error("Expected type", expression.position);
-		assert(0);
+	if (!value.ispure) {
+		error("Impure expression in global variable", value.position);
 	}
-	return type;
-}
-
-void semantic1(Replaceable!Statement that, Trace* trace) {
-	if (that.castTo!Expression) {
-		semantic1(*cast(Replaceable!Expression*)&that, trace);
-		return;
-	}
-	dispatch!(semantic1, VarDef, Assign)(that, trace);
-}
-
-Module upperModule(Trace* trace) {
-	return trace.range.reduce!"b".node.castTo!Module;
-}
-
-FuncLit upperFunc(Trace* trace) {
-	auto range = trace.range.map!(a => a.node).map!(a => a.castTo!FuncLit).filter!(a => !!a);
-	if (!range.empty) {
-		return range.front;
-	}
-	return null;
-}
-
-void semantic1(VarDef that, Trace* trace) {
-	semantic1(that.definition, trace);
-	that.ispure = that.definition.ispure;
-	if (!that.manifest) {
-		that.ispure = false;
-		checkRuntimeValue(that.definition);
-	}
+	auto definition = new ModuleVarDef(value, that.visible, that.name);
 	if (that.explicitType) {
-		semantic1(that.explicitType, trace);
-		auto explicit = checkType(that.explicitType);
-		if (!sameTypeValueType(that.definition, explicit)) {
-			error("types don't match", that.position);
-		}
+		auto explicitType = semantic1Type(that.explicitType, context);
+		value = implicitCast(value, explicitType);
 	}
-	if (!that.manifest) {
-		if (auto scopeVar = that.castTo!ScopeVarDef) {
-			scopeVar.func = trace.upperFunc;
-		}
-		if (auto moduleVar = that.castTo!ModuleVarDef) {
-			auto mod = trace.upperModule;
-			mod.exports[that.name] = Symbol(moduleVar);
-		}
+	if (that.manifest) {
+		return Wrapper!Expression(value);
+	}
+	context.global.exports[definition.name] = definition;
+	return Wrapper!Expression(new ModuleVarRef(Wrapper!ModuleVarDef(definition, that.position)));
+}
+
+Wrapper!Expression semantic1Func(Parser.FuncLit that, string name,
+		Context context, out FuncLit result) {
+	auto explicitReturn = that.explicitReturn ? semantic1Type(that.explicitReturn,
+			context) : Wrapper!Type(null, Position());
+	auto argument = semantic1Type(that.argument, context);
+	result = new FuncLit(name, explicitReturn, argument);
+	if (!explicitReturn) {
+		context = Context(context.global, result, null, context.searchSpace);
+		result.text = semantic1(that.text, context);
+	}
+	context.global.exports[name] = result;
+	return Wrapper!Expression(result, that.position);
+}
+
+//explicitTypes functions have defered analysis
+void semantic1FuncFinish(Parser.FuncLit that, FuncLit result, Context context) {
+	context = Context(context.global, result, null, context.searchSpace);
+	if (result.explicitReturn) {
+		result.text = semantic1(that.text, context);
+		result.text = implicitCast(result.text, result.explicitReturn);
 	}
 }
 
-void semantic1(Assign that, Trace* trace) {
-	semantic1(that.left, trace);
-	semantic1(that.right, trace);
-	if (!(sameType(that.left.type, that.right.type) || implicitConvert(that.right, that.left.type))) {
-		error("= only works on the same type", that.position);
-	}
-	if (!that.left.lvalue) {
-		error("= only works on lvalues", that.position);
-	}
-	that.ispure = that.left.ispure && that.right.ispure;
+bool isInt(Type type) {
+	return !!type.castTo!TypeUInt || !!type.castTo!TypeInt;
 }
 
-void semantic1(ref Replaceable!Expression that, Trace* trace) {
-	if (that.process) {
-		//todo check for cycles
+Wrapper!Expression tryCast(bool implicit)(Wrapper!Expression value,
+		Wrapper!Type wanted, Position position) {
+	if (sameType(value.type, wanted)) {
+		return Wrapper!Expression(value, position);
+	} else if ((implicit ? !!value.castTo!IntLit : isInt(value.type)) && isInt(wanted)) {
+		return Wrapper!Expression(new CastInteger(value, wanted), position);
+	} else if (auto ext = value.castTo!ExternJs) {
+		return Wrapper!Expression(new CastExtern(Wrapper!ExternJs(ext,
+				value.position), wanted), position);
+	} else {
+		return Wrapper!Expression(null);
+	}
+}
+
+Wrapper!Expression explicitCast(Wrapper!Expression value, Wrapper!Type wanted, Position position) {
+	auto result = tryCast!false(value, wanted, position);
+	if (!result) {
+		error("Unknown cast request", position);
+	}
+	return result;
+}
+
+//todo fix me reimplement auto casting
+Wrapper!Type assumeType(Wrapper!Expression value) {
+	if (auto tuple = value.castTo!TupleLit) {
+		return Wrapper!Type(new TypeStruct(tuple.values.map!assumeType.map!(a => a._value)
+				.array), value.position);
+	}
+	if (!value.castTo!Type) {
+		error("Expected type", value.position);
+	}
+	return Wrapper!Type(value.castTo!Type, value.position);
+}
+
+Wrapper!Expression implicitCast(Wrapper!Expression value, Type wanted) {
+	auto result = tryCast!true(value, Wrapper!Type(wanted), value.position);
+	if (!result) {
+		error("Unknown cast request", value.position);
+	}
+	return result;
+}
+
+void implicitCastDual(ref Wrapper!Expression value1, ref Wrapper!Expression value2,
+		Position position) {
+	auto newValue1 = tryCast!true(value1, Wrapper!Type(value2.type), position);
+	auto newValue2 = tryCast!true(value2, Wrapper!Type(value1.type), position);
+	if (newValue1) {
+		value1 = newValue1;
 		return;
 	}
-	that.process = true;
-	auto nextTrace = Trace(that, trace);
-	trace = &nextTrace;
-	auto current = that._value;
-	dispatch!(semantic1ExpressionImpl, TypeMetaclass, TypeBool, TypeChar, TypeInt, TypeUInt, Import,
-			IntLit, CharLit, BoolLit, TupleLit, FuncArgument, If, While, New, NewArray,
-			Cast, Slice, Scope, FuncLit, StringLit, ArrayLit, ExternJs,
-			Binary!"*", Binary!"/", Binary!"%", Binary!"+", Binary!"-",
-			Binary!"~", Binary!"==", Binary!"!=", Binary!"<=", Binary!">=",
-			Binary!"<", Binary!">", Binary!"&&", Binary!"||", Prefix!"+",
-			Prefix!"-", Prefix!"*", Prefix!"/", Prefix!"&", Prefix!"!", Expression)(
-			that._value, trace);
-	if (that._value != current) {
-		that._original ~= current;
+	if (newValue2) {
+		value2 = newValue2;
+		return;
 	}
-	assert(that.type);
-	assert(that.type.castTo!Type);
-	assert(!cast(Variable) that);
-}
-//for types that cases that requre ast modification
-void semantic1ExpressionImpl(ref Expression that, Trace* trace) {
-	dispatch!(semantic1ExpressionImplWritable, Variable, Dot,
-			TypeTemporaryStruct, Index, Call, Postfix!"(*)")(that, trace, that);
+	if (!sameType(value1.type, value2.type)) {
+		error("Not same type", position);
+	}
 }
 
-void semantic1ExpressionImplWritable(Variable that, Trace* trace, ref Expression output) {
-	Trace* subTrace;
-	auto source = trace.search(that.name, subTrace);
-	if (source is null) {
+Wrapper!Type semantic1Type(Parser.Expression that, Context context) {
+	return assumeType(semantic1(that, context));
+}
+
+auto semantic1(T)(T that, Context context) {
+	auto result = semantic1Impl(that, context);
+	return Wrapper!(typeof(result))(result, that.position);
+}
+
+Expression semantic1Impl(Parser.Expression that, Context context) {
+	return dispatch!(semantic1Impl, Parser.Variable, Parser.TypeStruct, Parser.Index,
+			Parser.Call, Parser.Dot, Parser.TypeBool, Parser.TypeChar,
+			Parser.TypeInt, Parser.TypeUInt, Parser.Import, Parser.IntLit, Parser.CharLit,
+			Parser.BoolLit, Parser.TupleLit, Parser.FuncArgument, Parser.If,
+			Parser.While, Parser.New, Parser.NewArray, Parser.Cast, Parser.Slice,
+			Parser.Scope, Parser.FuncLit, Parser.StringLit, Parser.ArrayLit,
+			Parser.ExternJs, Parser.Binary!"*", Parser.Binary!"/",
+			Parser.Binary!"%", Parser.Binary!"+", Parser.Binary!"-",
+			Parser.Binary!"~", Parser.Binary!"==", Parser.Binary!"!=",
+			Parser.Binary!"<=", Parser.Binary!">=", Parser.Binary!"<",
+			Parser.Binary!">", Parser.Binary!"&&", Parser.Binary!"||",
+			Parser.Prefix!"+", Parser.Prefix!"-", Parser.Prefix!"*",
+			Parser.Prefix!"/", Parser.Prefix!"&", Parser.Prefix!"!", Parser.Postfix!"(*)")(that,
+			context);
+}
+
+Expression semantic1Impl(Parser.Variable that, Context context) {
+	auto variable = context.search(that.name);
+	if (variable is null) {
 		error("Unknown variable", that.position);
 	}
-
-	if (source.definition.type is null) {
-		semantic1(source, subTrace);
-	}
-	Expression thealias;
-	if (source.manifest) {
-		thealias = source.definition;
-	} else {
-		if (auto scopeDef = source.castTo!ScopeVarDef) {
-			auto scopeRef = new ScopeVarRef();
-			scopeRef.definition = scopeDef;
-			scopeRef.ispure = true;
-			scopeRef.type = source.type;
-			scopeRef.lvalue = true;
-			thealias = scopeRef;
-		} else if (auto moduleDef = source.castTo!ModuleVarDef) {
-			auto moduleRef = new ModuleVarRef();
-			moduleRef.definition = moduleDef;
-			moduleRef.ispure = false;
-			moduleRef.type = source.type;
-			moduleRef.lvalue = true;
-			thealias = moduleRef;
-		} else {
-			assert(0);
+	if (auto scopeVariable = variable.castTo!ScopeVarRef) {
+		if (!(scopeVariable.definition in context.localVariables)) {
+			error("Escaping variable", that.position);
 		}
 	}
-	assert(thealias.type);
-	if (auto scopeVarRef = thealias.castTo!ScopeVarRef) {
-		checkNotClosure(scopeVarRef, trace, that.position);
+	return variable;
+}
+
+Expression semantic1Impl(Parser.TypeStruct that, Context context) {
+	return new StructFunc;
+}
+
+Expression semantic1Impl(Parser.Dot that, Context context) {
+	auto value = semantic1(that.value, context);
+	return dispatch!(semantic1Dot, TypeArray, TypeImport)(value.type, value,
+			that.index, that.position, context);
+}
+
+Expression semantic1Dot(TypeArray type, Wrapper!Expression value, string index,
+		Position position, Context context) {
+	if (index != "length") {
+		error("Arrays only have .length", position);
 	}
-	output = thealias;
+	return new Length(value);
 }
 
-void semantic1ExpressionImplWritable(TypeTemporaryStruct that, Trace* trace, ref Expression output) {
-	semantic1(that.value, trace);
-	if (!that.value.castTo!TupleLit) {
-		error("expected tuple lit after struct", that.position);
+Expression semantic1Dot(TypeImport type, Wrapper!Expression value, string index,
+		Position position, Context context) {
+	auto mod = value.castTo!Import.mod;
+	auto symbol = mod.search(index);
+	if (!(index in mod.visible)) {
+		error(index ~ "is not visible", position);
 	}
-	auto tuple = that.value.castTo!TupleLit;
-	auto result = new TypeStruct(tuple.values.map!checkType.array);
-	output = result;
+	return symbol;
 }
 
-void checkNotClosure(ScopeVarRef that, Trace* trace, Position pos) {
-	if (trace.upperFunc !is that.definition.func) {
-		error("Closures not supported", pos);
-	}
+Expression semantic1Dot(Type type, Wrapper!Expression value, string index,
+		Position position, Context context) {
+	error("unable to dot", position);
+	assert(0);
 }
 
-void semantic1ExpressionImplWritable(Dot that, Trace* trace, ref Expression output) {
-	semantic1(that.value, trace);
-	semantic1Dot(that.value.type, trace, that, output);
-	that.ispure = that.value.ispure;
+Expression semantic1Impl(Parser.Import that, Context context) {
+	return new Import(that.mod);
 }
 
-void semantic1Dot(Expression that, Trace* trace, Dot dot, ref Expression output) {
-	auto nextTrace = Trace(that, trace);
-	trace = &nextTrace;
-	dispatch!(semantic1DotImpl, TypeArray, TypeImport, Type)(that, trace, dot, output);
+Expression semantic1Impl(Parser.TypeBool that, Context context) {
+	return new TypeBool();
 }
 
-void semantic1DotImpl(TypeArray that, Trace* trace, Dot dot, ref Expression output) {
-	if (dot.index != "length") {
-		semantic1DotImpl(that.castTo!Type, trace, dot, output);
+Expression semantic1Impl(Parser.TypeChar that, Context context) {
+	return new TypeChar();
+}
+
+void checkIntSize(int size, Position position) {
+	if (size == 0) {
 		return;
 	}
-	dot.type = new TypeUInt(0);
-}
-
-void semantic1DotImpl(TypeImport that, Trace* trace, Dot dot, ref Expression output) {
-	auto imp = dot.value.castTo!Import;
-	if (dot.index !in imp.mod.symbols) {
-		error(dot.index ~ " doesn't exist in module", dot.position);
-	}
-	auto definition = imp.mod.symbols[dot.index];
-	if (!definition.visible) {
-		error(dot.index ~ " is not visible", dot.position);
-	}
-	ModuleVarRef thealias = new ModuleVarRef();
-	thealias.definition = definition;
-	thealias.ispure = false;
-	thealias.type = definition.type;
-	thealias.lvalue = true;
-	if (definition.type is null) {
-		auto definitionTrace = Trace(imp.mod, null);
-		semantic1(thealias.definition, &definitionTrace);
-	}
-	output = thealias;
-}
-
-void semantic1DotImpl(Type that, Trace* trace, Dot dot, ref Expression output) {
-	error("Unable to dot", that.position);
-}
-
-void semantic1ExpressionImpl(TypeMetaclass that, Trace* trace) {
-}
-
-void semantic1ExpressionImpl(Import that, Trace* trace) {
-	that.type = new TypeImport;
-	that.ispure = true;
-}
-
-void semantic1ExpressionImpl(T)(T that, Trace* trace)
-		if (is(T == TypeBool) || is(T == TypeChar)) {
-}
-
-void semantic1ExpressionImpl(T)(T that, Trace* trace)
-		if (is(T == TypeInt) || is(T == TypeUInt)) {
-	if (that.size == 0) {
-		return;
-	}
-	if (!recurrence!((a, n) => a[n - 1] / 2)(that.size).until(1).map!(a => a % 2 == 0).all) {
-		error("Bad TypeInt Size", that.position);
+	if (!recurrence!((a, n) => a[n - 1] / 2)(size).until(1).map!(a => a % 2 == 0).all) {
+		error("Bad TypeInt Size", position);
 	}
 }
 
-void semantic1ExpressionImplWritable(Postfix!"(*)" that, Trace* trace, ref Expression output) {
-	semantic1(that.value, trace);
-	output = new TypePointer(that.value.checkType);
+Expression semantic1Impl(Parser.TypeInt that, Context context) {
+	checkIntSize(that.size, that.position);
+	return new TypeInt(that.size);
 }
 
-void semantic1ExpressionImpl(IntLit that, Trace* trace) {
-	if (that.usigned) {
-		that.type = new TypeUInt(0);
-	} else {
-		that.type = new TypeInt(0);
-	}
-	that.ispure = true;
+Expression semantic1Impl(Parser.TypeUInt that, Context context) {
+	checkIntSize(that.size, that.position);
+	return new TypeUInt(that.size);
 }
 
-void semantic1ExpressionImpl(CharLit that, Trace* trace) {
-	that.type = new TypeChar;
-	that.ispure = true;
+Expression semantic1Impl(Parser.Postfix!"(*)" that, Context context) {
+	auto value = semantic1Type(that.value, context);
+	return new TypePointer(value);
 }
 
-void semantic1ExpressionImpl(BoolLit that, Trace* trace) {
-	that.type = new TypeBool;
-	that.ispure = true;
+Expression semantic1Impl(Parser.IntLit that, Context context) {
+	return new IntLit(that.value);
 }
 
-void semantic1ExpressionImpl(TupleLit that, Trace* trace) {
-	foreach (value; that.values) {
-		semantic1(value, trace);
-	}
-	that.type = new TypeStruct(that.values.map!(a => a.type).array);
-	that.ispure = that.values.map!(a => a.ispure).all;
+Expression semantic1Impl(Parser.CharLit that, Context context) {
+	return new CharLit(that.value);
 }
 
-void semantic1ExpressionImpl(FuncArgument that, Trace* trace) {
-	that.type = trace.upperFunc.argument.castTo!Type;
-	if (that.type is null) {
+Expression semantic1Impl(Parser.BoolLit that, Context context) {
+	return new BoolLit(that.yes);
+}
+
+Expression semantic1Impl(Parser.TupleLit that, Context context) {
+	auto values = that.values.map!(a => semantic1(a, context)).array;
+	return new TupleLit(values);
+}
+
+Expression semantic1Impl(Parser.FuncArgument that, Context context) {
+	if (context.local is null) {
 		error("$@ without function", that.position);
 	}
+	return new FuncArgument(context.local.argument);
 }
 
-void semantic1ExpressionImpl(If that, Trace* trace) {
-	semantic1(that.cond, trace);
-	semantic1(that.yes, trace);
-	semantic1(that.no, trace);
-	if (!that.cond.type.castTo!TypeBool) {
-		error("Boolean expected in if expression", that.cond.position);
-	}
-	if (!sameTypeValueValue(that.yes, that.no)) {
-		error("If expression with the true and false parts having different types", that.position);
-	}
-	that.type = that.yes.type;
-	that.ispure = that.cond.ispure && that.yes.ispure && that.no.ispure;
+Expression semantic1Impl(Parser.If that, Context context) {
+	auto cond = semantic1(that.cond, context);
+	auto yes = semantic1(that.yes, context);
+	auto no = semantic1(that.no, context);
+	cond = implicitCast(cond, new TypeBool);
+	implicitCastDual(yes, no, that.position);
+	return new If(cond, yes, no);
 }
 
-void semantic1ExpressionImpl(While that, Trace* trace) {
-	semantic1(that.cond, trace);
-	semantic1(that.state, trace);
-	if (!that.cond.type.castTo!TypeBool) {
-		error("Boolean expected in while expression", that.cond.position);
-	}
-	that.type = new TypeStruct();
-	that.ispure = that.cond.ispure && that.state.ispure;
+Expression semantic1Impl(Parser.While that, Context context) {
+	auto cond = semantic1(that.cond, context);
+	auto state = semantic1(that.state, context);
+	cond = implicitCast(cond, new TypeBool);
+	return new While(cond, state);
 }
 
-void semantic1ExpressionImpl(New that, Trace* trace) {
-	semantic1(that.value, trace);
-	that.type = new TypePointer(that.value.type);
-	that.ispure = that.value.ispure;
+Expression semantic1Impl(Parser.New that, Context context) {
+	auto value = semantic1(that.value, context);
+	return new New(value);
 }
 
-void semantic1ExpressionImpl(NewArray that, Trace* trace) {
-	semantic1(that.length, trace);
-	semantic1(that.value, trace);
-	if (!sameTypeValueType(that.length, new TypeUInt(0))) {
-		error("Can only create an array with length of UInts", that.length.position);
-	}
-	that.type = new TypeArray(that.value.type);
-	that.ispure = that.length.ispure && that.value.ispure;
+Expression semantic1Impl(Parser.NewArray that, Context context) {
+	auto length = semantic1(that.length, context);
+	auto value = semantic1(that.value, context);
+	value = implicitCast(value, new TypeUInt(0));
+	return new NewArray(length, value);
 }
 
-void semantic1ExpressionImpl(Cast that, Trace* trace) {
-	semantic1(that.value, trace);
-	semantic1(that.wanted, trace);
-	auto wanted = checkType(that.wanted);
-	if (!castable(that.value.type, wanted)) {
-		error("Unable to cast", that.position);
-	}
-	that.type = wanted;
-	that.ispure = that.value.ispure;
+Expression semantic1Impl(Parser.Cast that, Context context) {
+	return new CastFunc;
 }
 
-bool castable(Type target, Type want) {
-	target = target;
-	want = want;
-	if (sameType(target, want)) {
-		return true;
-	}
-	if (sameType(target, new TypeStruct())) {
-		return true;
-	}
-	if ((target.castTo!TypeInt || target.castTo!TypeUInt)
-			&& (want.castTo!TypeInt || want.castTo!TypeUInt)) { //casting between int types
-		return true;
-	}
-	return false;
+Expression semantic1Impl(Parser.Index that, Context context) {
+	auto array = semantic1(that.array, context);
+	auto index = semantic1(that.index, context);
+	return dispatch!(semantic1Index, TypeMetaclass, TypeArray, TypeStruct, Type)(
+			array.type, array, index, that.position);
 }
 
-void semantic1ExpressionImplWritable(Index that, Trace* trace, ref Expression output) {
-	semantic1(that.array, trace);
-	semantic1(that.index, trace);
-	if (auto array = that.array.castTo!Type) {
-		auto index = checkType(that.index);
-		if (!sameType(index, new TypeStruct())) {
-			error("Expected empty type in array type", that.position);
+Expression semantic1Index(TypeMetaclass type, Wrapper!Expression array,
+		Wrapper!Expression index, Position position) {
+	if (auto tuple = index.castTo!TupleLit) {
+		if (tuple.values.length == 0) {
+			return new TypeArray(array.castTo!Type);
 		}
-		output = new TypeArray(array);
-	} else {
-		dispatch!(semantic1IndexImpl, TypeArray, TypeStruct, Type)(that.array.type, that, trace);
 	}
+	error("Array types must have an empty index", position);
+	assert(0);
 }
 
-void semantic1IndexImpl(TypeArray type, Index that, Trace* trace) {
-	if (!sameTypeValueType(that.index, new TypeUInt(0))) {
-		error("Can only index an array with UInts", that.position);
-	}
-	that.type = type.array;
-	that.lvalue = true;
-	that.ispure = that.array.ispure && that.index.ispure;
+Expression semantic1Index(TypeArray type, Wrapper!Expression array,
+		Wrapper!Expression index, Position position) {
+	index = implicitCast(index, new TypeUInt(0));
+	return new Index(array, index);
 }
 
-void semantic1IndexImpl(TypeStruct type, Index that, Trace* trace) {
-	auto indexLit = that.index.castTo!IntLit;
-	if (!indexLit) {
-		error("Expected integer when indexing struct", that.index.position);
+Expression semantic1Index(TypeStruct type, Wrapper!Expression array,
+		Wrapper!Expression index, Position position) {
+	auto indexLiteral = index.castTo!IntLit;
+	if (!indexLiteral) {
+		error("Expected integer when indexing tuple", position);
 	}
-	uint index = indexLit.value.to!uint;
-	if (index >= type.values.length) {
-		error("Index number to high", that.position);
-	}
-	that.type = type.values[index];
-	that.lvalue = that.array.lvalue;
+	return new TupleIndex(array, indexLiteral.value.to!uint);
 }
 
-void semantic1IndexImpl(Type type, Index that, Trace* trace) {
-	error("Unable able to index", that.position);
+Expression semantic1Index(Type type, Wrapper!Expression array,
+		Wrapper!Expression index, Position position) {
+	error("Unable to index", position);
+	assert(0);
 }
 
-void semantic1ExpressionImplWritable(Call that, Trace* trace, ref Expression output) {
-	semantic1(that.fptr, trace);
-	semantic1(that.arg, trace);
-	if (that.fptr.tryType) {
-		auto fptr = checkType(that.fptr);
-		auto arg = checkType(that.arg);
-		output = new TypeFunction(fptr, arg);
-	} else {
-		auto fun = that.fptr.type.castTo!TypeFunction;
-		if (!fun) {
-			error("Not a function", that.position);
-		}
-		if (!sameTypeValueType(that.arg, fun.arg)) {
-			error("Unable to call function with the  argument's type", that.position);
-		}
-		that.type = fun.fptr;
-		that.ispure = that.fptr.ispure && that.arg.ispure /* todo fix me && fun.ispure*/ ;
-	}
+Expression semantic1Impl(Parser.Call that, Context context) {
+	auto calle = semantic1(that.calle, context);
+	auto argument = semantic1(that.argument, context);
+	return dispatch!(semantic1Call, TypeStructFunc, TypeCastFunc,
+			TypeCastPartial, TypeMetaclass, TypeFunction, Type)(calle.type,
+			calle, argument, that.position);
 }
 
-void semantic1ExpressionImpl(Slice that, Trace* trace) {
-	semantic1(that.array, trace);
-	semantic1(that.left, trace);
-	semantic1(that.right, trace);
-	if (!that.array.type.castTo!TypeArray) {
-		error("Not an array", that.position);
+Expression semantic1Call(TypeStructFunc type, Wrapper!Expression calle,
+		Wrapper!Expression argument, Position position) {
+	auto tuple = argument.castTo!TupleLit;
+	if (!tuple) {
+		error("Struct expects a tuple", position);
 	}
-	if (!(sameTypeValueType(that.right, new TypeUInt(0))
-			&& sameTypeValueType(that.left, new TypeUInt(0)))) {
-		error("Can only index an array with UInts", that.position);
-	}
-	that.type = that.array.type;
-	that.ispure = that.array.ispure && that.left.ispure && that.right.ispure;
+	return new TypeStruct(tuple.values.map!assumeType.map!(a => a._value).array);
 }
 
-void semantic1ExpressionImpl(string op)(Binary!op that, Trace* trace) {
-	semantic1(that.left, trace);
-	semantic1(that.right, trace);
+Expression semantic1Call(TypeCastFunc type, Wrapper!Expression calle,
+		Wrapper!Expression argument, Position position) {
+	auto argumentType = assumeType(argument);
+	return new CastPartial(argumentType.castTo!Type);
+}
+
+Expression semantic1Call(TypeCastPartial type, Wrapper!Expression calle,
+		Wrapper!Expression argument, Position position) {
+	return Wrapper!Expression(explicitCast(argument,
+			Wrapper!Type(calle.castTo!CastPartial.value, position), position));
+}
+
+Expression semantic1Call(TypeMetaclass type, Wrapper!Expression calle,
+		Wrapper!Expression argument, Position position) {
+	auto argumentType = assumeType(argument);
+	return new TypeFunction(calle.castTo!Type, argumentType);
+}
+
+Expression semantic1Call(TypeFunction type, Wrapper!Expression calle,
+		Wrapper!Expression argument, Position position) {
+	argument = implicitCast(argument, type.argument);
+	return new Call(calle, argument);
+}
+
+Expression semantic1Call(Type type, Wrapper!Expression calle,
+		Wrapper!Expression argument, Position position) {
+	error("Unable to call", position);
+	assert(0);
+}
+
+Expression semantic1Impl(Parser.Slice that, Context context) {
+	auto array = semantic1(that.array, context);
+	auto left = semantic1(that.left, context);
+	auto right = semantic1(that.right, context);
+	if (!array.type.castTo!TypeArray) {
+		error("Slicing expects an array", that.position);
+	}
+	left = implicitCast(left, new TypeUInt(0));
+	right = implicitCast(right, new TypeUInt(0));
+	return new Slice(array, left, right);
+}
+
+//todo remove me
+//wierd compiler bug
+
+alias ParserBinary = Parser.Binary;
+alias ParserPrefix = Parser.Prefix;
+
+Expression semantic1Impl(string op)(ParserBinary!op that, Context context) {
+	auto left = semantic1(that.left, context);
+	auto right = semantic1(that.right, context);
+	implicitCastDual(left, right, that.position);
 	static if (["*", "/", "%", "+", "-", "<=", ">=", ">", "<"].canFind(op)) {
-		auto ty = that.left.type;
-		if (!((ty.castTo!TypeUInt || ty.castTo!TypeInt)
-				&& (sameTypeValueValue(that.left, that.right)))) {
-			error(op ~ " only works on Ints or UInts of the same Type", that.position);
+		if (!left.type.isInt || !right.type.isInt) {
+			error(op ~ "only works on ints", that.position);
 		}
-		static if (["<=", ">=", ">", "<"].canFind(op)) {
-			that.type = new TypeBool;
-		} else {
-			that.type = ty;
+	} else if (op == "~") {
+		if (!left.type.castTo!TypeArray) {
+			error(op ~ "only works on arrays", that.position);
 		}
-		that.ispure = that.left.ispure && that.right.ispure;
-	} else static if (op == "~") {
-		auto ty = that.left.type;
-		if (!ty.castTo!TypeArray && sameType(ty, that.right.type)) {
-			error("~ only works on Arrays of the same Type", that.position);
-		}
-		that.type = ty;
-		that.ispure = that.left.ispure && that.right.ispure;
-	} else static if (["==", "!="].canFind(op)) {
-		if (!(sameTypeValueValue(that.left, that.right))) {
-			error(op ~ " only works on the same Type", that.position);
-		}
-		that.type = new TypeBool;
-		that.ispure = that.left.ispure && that.right.ispure;
-	} else static if (["&&", "||"].canFind(op)) {
-		auto ty = that.left.type;
-		if (!(ty.castTo!TypeBool && sameType(ty, that.right.type))) {
-			error(op ~ " only works on Bools", that.position);
-		}
-		that.type = new TypeBool;
-		that.ispure = that.left.ispure && that.right.ispure;
-	} else {
-		static assert(0);
+	} else if (["&&", "||"].canFind(op)) {
+		left = implicitCast(left, new TypeBool());
 	}
+	return new Binary!op(left, right);
 }
 
-void semantic1ExpressionImpl(string op)(Prefix!op that, Trace* trace) {
-	semantic1(that.value, trace);
+Expression semantic1Impl(string op)(ParserPrefix!op that, Context context) {
+	auto value = semantic1(that.value, context);
 	static if (op == "-") {
-		if (!that.value.type.castTo!TypeInt) {
-			error("= only works Signed Ints", that.position);
+		if (!value.type.isInt) {
+			error("- only works on ints");
 		}
-		that.type = that.value.type;
-		that.ispure = that.value.ispure;
 	} else static if (op == "*") {
-		if (!that.value.type.castTo!(TypePointer)) {
-			error("* only works on pointers", that.position);
+		if (!value.type.castTo!TypePointer) {
+			error("* only works on pointers");
 		}
-		that.type = that.value.type.castTo!(TypePointer).value;
-		that.lvalue = true;
-		that.ispure = that.value.ispure;
 	} else static if (op == "&") {
-		if (!that.value.lvalue) {
-			error("& only works lvalues", that.position);
+		if (!value.lvalue) {
+			error("& only works on lvalues");
 		}
-		that.type = new TypePointer(that.value.type);
-		that.ispure = that.value.ispure;
 	} else static if (op == "!") {
-		if (!that.value.type.castTo!TypeBool) {
-			error("! only works on Bools", that.position);
-		}
-		that.type = that.value.type;
-		that.ispure = that.value.ispure;
+		value = implicitCast(value, new TypeBool);
 	} else static if (["+", "/"].canFind(op)) {
 		error(op ~ " not supported", that.position);
-	} else {
-		static assert(0);
 	}
+	return new Prefix!op(value);
 }
 
-void semantic1ExpressionImpl(Scope that, Trace* trace) {
-	that.ispure = true;
-	foreach (state; that.children(trace)) {
-		semantic1(state, trace);
-		that.ispure = that.ispure && state.ispure;
-	}
-	if (that.last is null) {
-		that.last = new TupleLit();
-	}
-	semantic1(that.last, trace);
-	that.type = that.last.type;
+Statement semantic1Impl(Parser.Statement that, Context context) {
+	return dispatch!((that, context) => cast(Statement) semantic1(that, context)
+			._value, Parser.ScopeVarDef, Parser.Assign, Parser.Expression)(that, context);
 }
 
-void semantic1ExpressionImpl(FuncLit that, Trace* trace) {
-	semantic1(that.argument, trace);
-	auto argument = checkType(that.argument);
-
-	if (that.explicit_return) {
-		semantic1(that.explicit_return, trace);
-		auto explicit_return = checkType(that.explicit_return);
-		that.type = new TypeFunction(explicit_return, argument);
-	}
-	semantic1(that.text, trace);
-
-	if (that.explicit_return) {
-		auto explicit_return = that.explicit_return.castTo!Type;
-		if (!sameType(explicit_return, that.text.type)) {
-			error("Explict return doesn't match actual return", that.position);
+Expression semantic1Impl(Parser.Scope that, Context context) {
+	auto searcher = new ScopeSearcher;
+	context.searchSpace ~= searcher;
+	Wrapper!Statement[] states;
+	foreach (c, pstate; that.states) {
+		auto state = semantic1(pstate, context);
+		if (auto variable = state.castTo!ScopeVarDef) {
+			searcher.variables[variable.name] = new ScopeVarRef(Wrapper!ScopeVarDef(variable,
+					that.position));
+			context.localVariables[variable] = Tuple!()();
 		}
-	} else {
-		//todo add purity to function types
-		that.type = new TypeFunction(that.text.type, argument);
+		states ~= state;
 	}
-	that.ispure = true;
-	auto mod = trace.upperModule;
-	mod.exports[that.name] = Symbol(that);
+	auto last = that.last ? semantic1(that.last, context) : Wrapper!Expression(new TupleLit(null));
+
+	return new Scope(states, last);
 }
 
-void semantic1ExpressionImpl(StringLit that, Trace* trace) {
-	that.type = new TypeArray(new TypeChar);
-	that.ispure = true;
+ScopeVarDef semantic1Impl(Parser.ScopeVarDef that, Context context) {
+	auto value = semantic1(that.value, context);
+	if (that.explicitType) {
+		auto explicitType = semantic1Type(that.explicitType, context);
+		value = implicitCast(value, explicitType);
+	}
+	if (that.manifest) {
+		error("Manifest locals not yet supported", that.position);
+	}
+
+	return new ScopeVarDef(that.name, value);
 }
 
-void semantic1ExpressionImpl(ArrayLit that, Trace* trace) {
-	foreach (value; that.values) {
-		semantic1(value, trace);
+Assign semantic1Impl(Parser.Assign that, Context context) {
+	auto left = semantic1(that.left, context);
+	auto right = semantic1(that.right, context);
+	if (!left.lvalue) {
+		error("Not an lvalue", that.left.position);
 	}
+	right = implicitCast(right, left.type);
+
+	return new Assign(left, right);
+}
+
+Expression semantic1Impl(Parser.StringLit that, Context context) {
+	return new StringLit(that.value);
+}
+
+Expression semantic1Impl(Parser.ArrayLit that, Context context) {
 	if (that.values.length == 0) {
 		error("Array Literals must contain at least one element", that.position);
 	}
-	auto head = that.values[0].type;
-	foreach (value; that.values[1 .. $]) {
-		if (!sameTypeValueType(value, head)) {
-			error("All elements of an array literal must be of the same type", that.position);
-		}
-	}
-	that.type = new TypeArray(head);
-	that.ispure = that.values.map!(a => a.ispure).all;
+	auto values = that.values.map!(a => semantic1(a, context));
+	auto head = values.front;
+	values.popFront;
+	auto array = only(head).chain(values.map!(a => implicitCast(a, head.type))).array;
+	return new ArrayLit(array);
 }
 
-void semantic1ExpressionImpl(ExternJs that, Trace* trace) {
-	that.type = new TypeExtern;
-	that.ispure = true;
-	if (that.name == "") {
-		error("Improper extern", that.position);
-	}
+Expression semantic(Parser.ExternJs that, Context context) {
+	error("extern must be a global variable", that.position);
+	assert(0);
 }
 
-//check if a value's is equal to another type factering in implict coversions
-bool sameTypeValueType(ref Replaceable!Expression value, Type type) {
-	return sameType(value.type, type) || implicitConvert(value, type);
-}
-
-bool sameTypeValueValue(ref Replaceable!Expression left, ref Replaceable!Expression right) {
-	return sameType(left.type, right.type) || implicitConvertDual(left, right);
-}
-
-//modifys value's type
-//returns if converted
-bool implicitConvert(ref Replaceable!Expression value, Type type) {
-	if (value.castTo!IntLit && (type.castTo!TypeUInt || type.castTo!TypeInt)) {
-		auto result = new Cast();
-		result.implicit = true;
-		result.wanted = type;
-		result.type = type;
-		result.value = value;
-		result.process = true;
-		result.ispure = value.ispure;
-		value._original ~= value._value;
-		value._value = result;
-		return true;
-	}
-	if (auto ext = value.castTo!ExternJs) {
-		auto result = new Cast();
-		result.implicit = true;
-		result.wanted = type;
-		result.type = type;
-		result.value = value;
-		result.process = true;
-		result.ispure = value.ispure;
-		value._original ~= value._value;
-		value = result;
-		return true;
-	}
-	return false;
-}
-
-//check if two values can convert implictly into each other
-bool implicitConvertDual(ref Replaceable!Expression left, ref Replaceable!Expression right) {
-	return implicitConvert(left, right.type) || implicitConvert(right, left.type);
+Wrapper!Expression semantic1Extern(Parser.ExternJs that, string name, Context context) {
+	return Wrapper!Expression(new ExternJs(name), that.position);
 }

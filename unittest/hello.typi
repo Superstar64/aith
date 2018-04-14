@@ -6,5 +6,5 @@ alias main=$() -> () {
 	write("hello world");
 };
 
-alias ()(char[]) write=extern;
+alias (struct ())(char[]) write=extern;
 

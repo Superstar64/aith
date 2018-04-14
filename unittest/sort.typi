@@ -25,13 +25,14 @@ alias qsort=$() -> int_t.4[] {
 		array[array.length - 1] = last;
 		qsort(array[0..middle]);
 		qsort(array[middle..array.length]);
-	}
+	};
+	()
 };
 
 alias main = $() -> () {
-	let array = [cast(int_t.4)0,7,9,3,8,6,5,1,4,2];
+	let array = [cast(int_t.4)(0),7,9,3,8,6,5,1,4,2];
 	qsort(array);
-	assert(array == [cast(int_t.4)0,1,2,3,4,5,6,7,8,9]); 
+	assert(array == [cast(int_t.4)(0),1,2,3,4,5,6,7,8,9]); 
 };
 
-alias ()(bool_t) assert = extern;
+alias (struct ())(bool_t) assert = extern;

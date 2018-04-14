@@ -33,7 +33,9 @@ import parser;
 import lexer;
 import semantic;
 import codegen;
-import ast;
+
+static import parserast;
+import semanticast;
 import jsast;
 
 Module[string] all;
@@ -55,15 +57,15 @@ Module findAndReadModule(string name) {
 }
 
 Module readModule(string name) {
-	auto mod = new Module();
-	all[name] = mod;
-
+	auto parserMod = new parserast.Module();
 	auto map = new MmFile(name);
 	maps ~= map;
 	auto buffer = cast(string) map[];
 	auto lexer = Lexer(name, buffer);
-	parseModule(lexer, mod);
-	return mod;
+	parseModule(lexer, parserMod);
+	auto semanticMod = lazyCreateModule(parserMod);
+	all[name] = semanticMod;
+	return semanticMod;
 }
 
 void readFiles(string[] fileNames, out Module[string] wanted) {
