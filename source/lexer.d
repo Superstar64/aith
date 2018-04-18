@@ -16,17 +16,17 @@
 +/
 module lexer;
 import std.algorithm;
-import std.ascii : isAlpha, isAlphaNum, isDigit, isWhite;
-import std.bigint : BigInt;
-import std.conv : to;
-import std.typecons : Nullable;
-import std.variant : Algebraic;
+import std.ascii;
+import std.bigint;
+import std.conv;
+import std.typecons;
+import std.variant;
 import std.range;
-import std.array : array;
+import std.array;
 import std.meta;
-import std.utf : byCodeUnit;
+import std.utf;
 
-import error : error, Position;
+import misc;
 
 @property {
 	char front(string str) {

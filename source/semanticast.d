@@ -16,15 +16,14 @@
 +/
 module semanticast;
 
-import std.algorithm : all, canFind, filter, map;
-import std.array : array;
-import std.bigint : BigInt;
-import std.range : chain, only, retro, zip;
-import std.meta : AliasSeq;
-import std.typecons : Tuple;
+import std.algorithm;
+import std.array;
+import std.bigint;
+import std.range;
+import std.meta;
+import std.typecons;
 
 static import Parser = parserast;
-import error : error, Position;
 import misc;
 
 struct Wrapper(T) {
@@ -130,13 +129,13 @@ class StructFunc : Literal {
 	this() {
 		super(new TypeStructFunc());
 	}
-};
+}
 
 class CastFunc : Literal {
 	this() {
 		super(new TypeCastFunc());
 	}
-};
+}
 
 class CastPartial : Literal {
 	Type value;
@@ -144,7 +143,7 @@ class CastPartial : Literal {
 		super(new TypeCastPartial());
 		this.value = value;
 	}
-};
+}
 
 abstract class Type : Literal {
 	this() {

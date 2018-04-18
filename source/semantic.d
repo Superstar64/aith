@@ -15,17 +15,17 @@
 	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
 +/
 module semantic;
-import std.algorithm : all, any, canFind, each, filter, map, reduce, until;
-import std.array : join, array;
-import std.bigint : BigInt;
-import std.conv : to;
-import std.file : read;
-import std.meta : AliasSeq;
-import std.range : chain, recurrence, drop, take, only;
+import std.algorithm;
+import std.array;
+import std.bigint;
+import std.conv;
+import std.file;
+import std.meta;
+import std.range;
+import std.typecons;
 
 static import Parser = parserast;
 import semanticast;
-import error : error, Position;
 import misc;
 
 Module lazyCreateModule(Parser.Module parser) {

@@ -15,17 +15,17 @@
 +/
 module codegen;
 
-import std.algorithm : canFind, each, find, filter, joiner, map;
-import std.array : join, empty, popBack;
-import std.bigint : BigInt;
-import std.conv : to;
-import std.meta : AliasSeq, staticIndexOf;
-import std.range : array, chain, drop, enumerate, only;
-import std.stdio : write;
-import std.string : front, popFront;
-import std.typecons : Tuple, tuple;
-import std.utf : encode;
-import std.variant : visit;
+import std.algorithm;
+import std.array;
+import std.bigint;
+import std.conv;
+import std.meta;
+import std.range;
+import std.stdio;
+import std.string;
+import std.typecons;
+import std.utf;
+import std.variant;
 
 import semanticast;
 import jsast;

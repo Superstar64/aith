@@ -16,15 +16,15 @@
 +/
 module parser;
 
-import std.bigint : BigInt;
-import std.meta : AliasSeq;
-import std.utf : decodeFront;
-import error : error, Position;
+import std.bigint;
+import std.meta;
+import std.utf;
+import misc;
 
 import parserast;
-import app : findAndReadModule;
+import app;
 import lexer;
-import std.algorithm : countUntil;
+import std.algorithm;
 
 template dispatchLexer(alias fun, Types...) {
 	auto dispatchLexer(T...)(ref Lexer lexer, auto ref T args) {

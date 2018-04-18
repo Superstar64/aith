@@ -28,7 +28,7 @@ import std.stdio;
 import std.file : exists, isDir;
 import core.stdc.stdlib : exit;
 
-import error : error;
+import misc;
 import parser;
 import lexer;
 import semantic;

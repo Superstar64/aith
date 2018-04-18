@@ -16,9 +16,9 @@
 +/
 module jsast;
 
-import std.algorithm : any, canFind, filter, map;
-import std.range : enumerate;
-import std.typecons : Tuple;
+import std.algorithm;
+import std.range;
+import std.typecons;
 
 abstract class JsState {
 	void toStateString(scope void delegate(const(char)[]) result, uint indent);

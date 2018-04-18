@@ -16,9 +16,9 @@
 +/
 module parserast;
 
-import std.algorithm : canFind;
+import std.algorithm;
 import std.bigint;
-import error : Position;
+import misc;
 
 static import Semantic = semanticast;
 
