@@ -145,52 +145,12 @@ class CastPartial : Literal {
 	}
 }
 
-abstract class Type : Literal {
-	this() {
-		super(metaclass);
-	}
-}
-
 class ModuleVarRef : Expression {
 	Wrapper!ModuleVarDef definition;
 	this(Wrapper!ModuleVarDef definition) {
 		super(definition.value.type, true, false);
 		this.definition = definition;
 	}
-}
-
-class TypeBool : Type {
-}
-
-class TypeChar : Type {
-}
-
-class TypeInt : Type {
-	uint size;
-	this(int size) {
-		super();
-		this.size = size;
-	}
-}
-
-class TypeUInt : Type {
-	uint size;
-	this(int size) {
-		super();
-		this.size = size;
-	}
-}
-
-class TypeMetaclass : Type {
-	this() {
-	}
-}
-
-TypeMetaclass metaclass;
-static this() {
-	metaclass = new TypeMetaclass();
-	metaclass.type = metaclass;
-	metaclass.ispure = true;
 }
 
 class Import : Literal {
@@ -222,18 +182,6 @@ class BoolLit : Literal {
 	this(bool value) {
 		super(new TypeBool);
 		this.yes = value;
-	}
-}
-
-class TypeStruct : Type {
-	Type[] values;
-	this() {
-		this([]);
-	}
-
-	this(Type[] values) {
-		super();
-		this.values = values;
 	}
 }
 
@@ -345,32 +293,12 @@ class TupleIndex : Expression {
 	}
 }
 
-class TypeArray : Type {
-	Type array;
-
-	this(Type array) {
-		super();
-		this.array = array;
-	}
-}
-
 class Call : Expression {
 	Wrapper!Expression calle;
 	Wrapper!Expression argument;
 	//todo ispure for type
 	this(Wrapper!Expression calle, Wrapper!Expression argument) {
 		super(calle.type.castTo!TypeFunction.calle, false, false);
-		this.calle = calle;
-		this.argument = argument;
-	}
-}
-
-class TypeFunction : Type {
-	Type calle;
-	Type argument;
-
-	this(Type calle, Type argument) {
-		super();
 		this.calle = calle;
 		this.argument = argument;
 	}
@@ -422,15 +350,6 @@ class Prefix(string op) : Expression if (["+", "-", "*", "/", "&", "!"].canFind(
 			assert(0, op ~ "not supported");
 		}
 		super(type, lvalue, value.ispure);
-		this.value = value;
-	}
-}
-
-class TypePointer : Type {
-	Type value;
-
-	this(Type value) {
-		super();
 		this.value = value;
 	}
 }
@@ -529,6 +448,87 @@ class ExternJs : Expression {
 	}
 }
 
+abstract class Type : Literal {
+	this() {
+		super(metaclass);
+	}
+}
+
+class TypeBool : Type {
+}
+
+class TypeChar : Type {
+}
+
+class TypeInt : Type {
+	uint size;
+	this(int size) {
+		super();
+		this.size = size;
+	}
+}
+
+class TypeUInt : Type {
+	uint size;
+	this(int size) {
+		super();
+		this.size = size;
+	}
+}
+
+class TypeMetaclass : Type {
+	this() {
+	}
+}
+
+TypeMetaclass metaclass;
+static this() {
+	metaclass = new TypeMetaclass();
+	metaclass.type = metaclass;
+	metaclass.ispure = true;
+}
+
+class TypeStruct : Type {
+	Type[] values;
+	this() {
+		this([]);
+	}
+
+	this(Type[] values) {
+		super();
+		this.values = values;
+	}
+}
+
+class TypeArray : Type {
+	Type array;
+
+	this(Type array) {
+		super();
+		this.array = array;
+	}
+}
+
+class TypeFunction : Type {
+	Type calle;
+	Type argument;
+
+	this(Type calle, Type argument) {
+		super();
+		this.calle = calle;
+		this.argument = argument;
+	}
+}
+
+class TypePointer : Type {
+	Type value;
+
+	this(Type value) {
+		super();
+		this.value = value;
+	}
+}
+
 class TypeLess : Type {
 }
 
@@ -540,13 +540,13 @@ class TypeExtern : TypeLess {
 }
 
 class TypeStructFunc : TypeLess {
-};
+}
 
 class TypeCastFunc : TypeLess {
-};
+}
 
 class TypeCastPartial : TypeLess {
-};
+}
 
 bool sameType(Type a, Type b) {
 	alias Types = AliasSeq!(TypeMetaclass, TypeBool, TypeChar, TypeInt, TypeUInt,
