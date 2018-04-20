@@ -97,8 +97,6 @@ struct Context {
 
 abstract class Statement : Node {
 	bool ispure;
-	this() {
-	}
 
 	this(bool ispure) {
 		this.ispure = ispure;
@@ -109,8 +107,6 @@ abstract class Statement : Node {
 abstract class Expression : Statement {
 	Type type;
 	bool lvalue;
-	this() {
-	}
 
 	this(Type type, bool lvalue, bool ispure) {
 		super(ispure);
@@ -192,10 +188,6 @@ class TupleLit : Expression {
 				values.map!(a => a.ispure).all);
 		this.values = values;
 	}
-}
-
-class Variable : Expression {
-	string name;
 }
 
 class FuncArgument : Expression {
@@ -333,7 +325,7 @@ class Binary(string op) : Expression
 	}
 }
 
-class Prefix(string op) : Expression if (["+", "-", "*", "/", "&", "!"].canFind(op)) {
+class Prefix(string op) : Expression if (["-", "*", "&", "!"].canFind(op)) {
 	Wrapper!Expression value;
 	this(Wrapper!Expression value) {
 		bool lvalue;

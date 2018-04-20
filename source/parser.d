@@ -65,7 +65,7 @@ alias parseExpression = parseWrap!parseExpressionImpl;
 Expression parseExpressionImpl(ref Lexer lexer) {
 	return parseBinary!("&&", "||", parseBinary!("==", "!=", "<=", ">=", "<",
 			">", parseBinary!("+", "-", "~", parseBinary!("*", "/", "%",
-			parsePrefix!("+", "-", "*", "/", "&", "!")))))(lexer);
+			parsePrefix!("-", "*", "&", "!")))))(lexer);
 }
 
 Expression parseBinary(args...)(ref Lexer lexer) {

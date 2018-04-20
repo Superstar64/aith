@@ -155,7 +155,7 @@ class Binary(string T) : Expression
 	Expression right;
 }
 
-class Prefix(string T) : Expression if (["+", "-", "*", "/", "&", "!"].canFind(T)) {
+class Prefix(string T) : Expression if (["-", "*", "&", "!"].canFind(T)) {
 	Expression value;
 }
 

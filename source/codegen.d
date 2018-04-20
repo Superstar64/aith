@@ -444,8 +444,8 @@ void generateJsEffectsOnlyImpl(T)(T that, JsScope depend, Extra* extra)
 }
 
 void generateJsEffectsOnlyImpl(T)(T that, JsScope depend, Extra* extra)
-		if (staticIndexOf!(T, New, CastInteger, Length, Prefix!"+",
-			Prefix!"-", Prefix!"*", Prefix!"/", Prefix!"&", Prefix!"!") >= 0) {
+		if (staticIndexOf!(T, New, CastInteger, Length, Prefix!"-",
+			Prefix!"*", Prefix!"&", Prefix!"!") >= 0) {
 	generateJsEffectsOnly(that.value, depend, extra);
 }
 

@@ -196,9 +196,8 @@ Expression semantic1Impl(Parser.Expression that, Context context) {
 			Parser.Binary!"~", Parser.Binary!"==", Parser.Binary!"!=",
 			Parser.Binary!"<=", Parser.Binary!">=", Parser.Binary!"<",
 			Parser.Binary!">", Parser.Binary!"&&", Parser.Binary!"||",
-			Parser.Prefix!"+", Parser.Prefix!"-", Parser.Prefix!"*",
-			Parser.Prefix!"/", Parser.Prefix!"&", Parser.Prefix!"!", Parser.Postfix!"(*)")(that,
-			context);
+			Parser.Prefix!"-", Parser.Prefix!"*", Parser.Prefix!"&",
+			Parser.Prefix!"!", Parser.Postfix!"(*)")(that, context);
 }
 
 Expression semantic1Impl(Parser.Variable that, Context context) {
