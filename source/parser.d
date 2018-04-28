@@ -27,11 +27,12 @@ import lexer;
 import std.algorithm;
 
 template dispatchLexer(alias fun, Types...) {
-	auto dispatchLexer(T...)(ref Lexer lexer, auto ref T args) {
+	auto dispatchLexer(T...)(ref Lexer lexer, T args) {
 		foreach (Type; Types) {
-			if (auto pointer = lexer.front.peek!Type) {
+			if (lexer.front.peek!Type) {
+				auto token = lexer.front.get!Type;
 				lexer.popFront;
-				return fun(*pointer, lexer, args);
+				return fun(token, lexer, args);
 			}
 		}
 		assert(0, T.stringof);
@@ -39,11 +40,12 @@ template dispatchLexer(alias fun, Types...) {
 }
 
 template dispatchLexerFailable(alias fun, Types...) {
-	auto dispatchLexerFailable(Fail, T...)(Fail fail, ref Lexer lexer, auto ref T args) {
+	auto dispatchLexerFailable(Fail, T...)(Fail fail, ref Lexer lexer, T args) {
 		foreach (Type; Types) {
-			if (auto pointer = lexer.front.peek!Type) {
+			if (lexer.front.peek!Type) {
+				auto token = lexer.front.get!Type;
 				lexer.popFront;
-				return fun(*pointer, lexer, args);
+				return fun(token, lexer, args);
 			}
 		}
 		return fail;
@@ -332,12 +334,14 @@ Expression parseCoreDispatch(Keyword!"extern", ref Lexer lexer) {
 }
 
 Expression parsePostfix(ref Lexer lexer, Expression current) {
+	auto position = lexer.front.position;
 	return dispatchLexerFailable!(parsePostfixDispatch, Operator!".",
-			Operator!"[", Operator!"(", Operator!"(*)")(current, lexer, current);
+			Operator!"[", Operator!"(", Operator!"(*)")(current, lexer, current, position);
 }
 
-Expression parsePostfixDispatch(T)(T operator, ref Lexer lexer, Expression current) {
-	auto result = parsePostfixDispatchImpl(operator, lexer, current, lexer.front.position);
+Expression parsePostfixDispatch(T)(T operator, ref Lexer lexer, Expression current,
+		Position postfixStart) {
+	auto result = parsePostfixDispatchImpl(operator, lexer, current, postfixStart);
 	result.position = current.position.join(lexer.front.position);
 	return parsePostfix(lexer, result);
 }
