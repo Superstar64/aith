@@ -27,7 +27,6 @@ SOURCES := $(call FIND,source,d)
 
 FORMAT := $(SOURCES:%=$(BUILD_DIR)%.format)
 
-
 #hack to check compiler flags
 LINK_HASH := $(BUILD_DIR)$(call HASH,$(DC) $(DFLAGS) $(DLDFLAGS)).flags
 $(LINK_HASH): | $$(dir $$@)
@@ -37,24 +36,24 @@ $(LINK_HASH): | $$(dir $$@)
 $(APP): $(LINK_HASH) $(SOURCES) | $$(dir $$@)
 	$(DC) $(DFLAGS) $(DLDFLAGS) $(OUTPUT_FLAG)$@ $(SOURCES)
 
-UNITTEST := $(call FIND,unittest,typi)
-UNITTEST_OUTPUT := $(UNITTEST:%.typi=$(BUILD_DIR)%.js)
-UNITTEST_RUN := $(UNITTEST_OUTPUT:%=%.run)
-$(UNITTEST_OUTPUT): $(BUILD_DIR)%.js : %.typi unittest/runtime.js $(APP) | $$(dir $$@)
+TEST := $(call FIND,test,typi)
+TEST_OUTPUT := $(TEST:%.typi=$(BUILD_DIR)%.js)
+TEST_RUN := $(TEST_OUTPUT:%=%.run)
+$(TEST_OUTPUT): $(BUILD_DIR)%.js : %.typi test/runtime.js $(APP) | $$(dir $$@)
 	$(APP) $< $(word 2,$^) -o $@
 
-$(UNITTEST_RUN): %.run : %
+$(TEST_RUN): %.run : %
 	node $<
 	touch $@
 $(FORMAT): $(BUILD_DIR)%.format : % | $$(dir $$@)
 	$(DFORMATTER) $<
 	touch $@
 
-build_unittest: $(UNITTEST_OUTPUT)
+build_test: $(TEST_OUTPUT)
 
-run_unittest: $(UNITTEST_RUN)
+test: $(TEST_RUN)
 
 format: $(FORMAT)
 
-.PHONY: unittest format
+.PHONY: test format
 
