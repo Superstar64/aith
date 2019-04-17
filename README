@@ -1,4 +1,4 @@
-Typi is a toy language with a native language look and feel that compiles to javascript with basic hindly milner type inferance. 
+Typi is a toy language with a native language look and feel that compiles to javascript with basic hindly milner type inference. 
 This language is not intended for practical use.
 
 see LICENSE for License info
