@@ -1,50 +1,51 @@
-Typi is a staticly,structly typed language
-Typi's types:
-	"bool": Boolean type
-	"char": Character type,utf-32, variable length encoding such as utf-8 is not supported
-	"int_t.x": Signed Integer type, where x is replace with the number of bytes wanted.0 is size_t.x must be a power of 2.(as of now only 4 or lower is supported)
-	"uint_t.x": Unsigned Integer type
-	"{optional_name1 x1,optional_name x2,x3...}": Struct Type, where there is a variable list of types inside the parentheses where any of them can have names. if the number of types in the struct is 1 and it has no name the struct type get replace with it's one subtype
-	"x(*)": Pointer type,where x is any other type
-	"x[]": Array type,where x is any other type
-	"$x1:x2": Function type, where x1 is the return type and x2 is the argument type
-Typi's Expressions:
-	name::value Use value from other modulee 
-	"123": Integer Literals,there type is int_t.0.If an Int lit has a prefix + it's type will be uint_t.0. May(or maynot) be implictly converted to another interger type
-	"'a'": Character Literals
-	"true","false": Boolean Literals
-	"(x1,x2,x3,...)": Struct Literals,If the amount of Expressions inside the Struct Literal is 1 then the Struct Literal get replaced with it's one expression
-	"abc": Variable
-	"if x1 then x2 else x3": If Expression, x1 must be of bool, x2 and x3 must be the same type,"else x2" is optional and when it is missing it is equivalent to "()";
-	"while x1 then x2": While Expression, x1 must be of bool,"then x2 is optional",While will always return "()";
-	"new x1": New Expression,copys x1 to a new heap pointer and returns it
-	"new[x1]x2": New Array Expression:Creates an array with size x1 and inits it with x2, x1 must be of uint_t.0
-	"cast(x2)x1": Cast Expression,x1 is an Expression, x2 is a Type
-	"x1.x2": Dot Expression,x1 must be a struct, x2 is an integer token or a identifyer token
-	"x1[x2]": Array Index Expression,x2 must be of uint_t.0
-	"x1(x2)": Function Call, functions only take 1 one argument and return 1 argument
-	"x1[x2..x3]":Slice Expression,x2 and x3 must be of uint_t.0
-	Binary Operators(in order of precedence by row): Both left and right sides must be the exact same type
+typi uses basic hindly milner for type inferance
+typi's types:
+	"boolean": boolean type
+	"character": character type,utf-32, variable length encoding such as utf-8 is not supported
+	"integer x": signed integer type, where x is replace with the number of bits wanted. 0 is size_t.
+	"natural x": unsigned integer type
+	"tuple(x1,x2,x3...)": tuple type, must have not length 1
+	"x(*)": pointer type,where x is any other type
+	"x[*]": array type,where x is any other type
+	"x1 -> x2": function type, where x1 is the return type and x2 is the argument type
+typi's expressions:
+	name::value use value from other modulee 
+	"123": integer literals
+	"'a'": character literals
+	"true","false": boolean literals
+	"(x1,x2,x3,...)": tuple literals,if the amount of expressions inside the tuple literal is 1 then the tuple literal get replaced with it's one expression
+	"abc": variable
+	"if x1 then x2 else x3": if expression, x1 must be of bool, x2 and x3 must be the same type,"else x2" is optional and when it is missing it is equivalent to "()";
+	"while x1 then x2": while expression, x1 must be of bool,"then x2 is optional",while will always return "()";
+	"new x1": new expression,copys x1 to a new heap pointer and returns it
+	"new[x1]x2": new array expression: creates an array with size x1 and inits it with x2, x1 must be of natural 0
+	"(cast x2)x1": integer casting expression,x1 is an expression, x2 is a type
+	"(infer x2)x1": expression type annotation,x1 is an expression, x2 is a type
+	"x1.x2": dot expression, right now x1 must be an array and x2 must be an "length"
+	"x1[x2]": array index expression,x2 must be of natural 0
+	"x1(x2)": function call, functions only take 1 one argument and return 1 argument
+	"x1[x2..x3]":slice expression,x2 and x3 must be of type natural 0
+	"x1 @ t1 t2": tuple index x1 is the tuple, t1 is the index, t2 is the length of the tuple
+	binary operators(in order of precedence by row): both left and right sides must be the exact same type
 		"*","/","%",
-		"+","-","~":Array Append,
+		"+","-","~":array append,
 		"==","!=","<=",">=","<",">",
 		"&&","||",
 		"="
-	Prefix Operators:
-		"-","*","&":Address of Stack Variables are copied to the heap,"~","!"
-	"{x1;x2;x3;...;x4}": Scope Expression "x"s are statements and x4 is the return value.
-	"$x1 x2": Function Literal,x1 is a type. argument_name is any identifyer. x2 is a value.
-	"$x3 -> x1 x2" Function Literal where x3 is the return value
-	"$@": Function Argument
-Typi's Statements:
-	"alias x1=x2": Alias Statement, alias identifer x1 to type x2.
-	"alias x1=x2": Compile Time Variable Declarition,declare compile time variable x1 and assign x2 to it.This varable acts like a named literal(cannot assign,cannot take address of)
-	"alias type x1 = x2"
-	"let x1=x2": Variable Decleration,declare variable x1,and assign x2 to it.
+	prefix operators:
+		"-","*","&":address of stack variables are copied to the heap,"~","!"
+	"{x1;x2;x3;...;x4}": scope expression "x"s are statements and x4 is the return value.
+	">x1": function literal, x2 is a value.
+	"$@": function argument
+typi's statements:
+	"alias x1=x2": alias statement, alias identifer x1 to type x2.
+	"alias x1=x2": compile time variable declarition,declare compile time variable x1 and assign x2 to it.this varable acts like a named literal(cannot assign,cannot take address of)
+	"alias x1 :: type = x2"
+	"let x1=x2": variable decleration,declare variable x1,and assign x2 to it.
 	"let type x1 = x2"
-	"import x1::x2::x3": Import Statement,Import "x1::x2::x3" in to current scope
-	"import x4::x5=x1::x2::x3": Import Statment,Import "x1::x2::x3" in to current scope and refer to it only by "x4::x5"
-	any expresion
-Typi's Modules only allow:alias,auto,enum,import statments at global scope
+	"import "path" ": import a module
+	"x1:::x2" : access module field where x1 is a module and x2 is a field inside of a module
+	any expresion : must return void
+typi's modules only allow:alias and let expressions global scope
 # is used for single line comments
 #/ /# is used for multiline comments

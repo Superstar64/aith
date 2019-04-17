@@ -14,17 +14,57 @@
 	You should have received a copy of the GNU General Public License
 	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
 +/
-module parser;
+module parser.parser;
 
 import std.bigint;
 import std.meta;
 import std.utf;
+import std.conv;
 import misc;
 
-import parserast;
+import parser.ast;
 import app;
 import lexer;
 import std.algorithm;
+
+//todo this is ugly fix it
+void parseModule(ref Lexer lexer, Module ret) {
+	Modifier globalModifiers;
+	while (true) {
+		if (lexer.front == Eof()) {
+			lexer.popFront;
+			return;
+		}
+		int[] modifiersList;
+		while (true) {
+			if (lexer.front == keyword!"public") {
+				modifiersList ~= indexModifier!"public";
+			} else if (lexer.front == keyword!"private") {
+				modifiersList ~= indexModifier!"private";
+			} else {
+				break;
+			}
+			lexer.popFront;
+		}
+		if (modifiersList.length > 0 && lexer.front == operator!":") {
+			applyModifiers(modifiersList, globalModifiers);
+			lexer.popFront;
+		} else if (lexer.front == keyword!"let" || lexer.front == keyword!"alias") {
+			Modifier localModifiers = globalModifiers;
+			applyModifiers(modifiersList, localModifiers);
+			auto var = new ModuleVarDef();
+			var.modifier = localModifiers;
+			parseVarDef(lexer, var, lexer.front == keyword!"alias");
+			ret.symbols ~= var;
+			lexer.front.expect(operator!";");
+			lexer.popFront;
+		} else {
+			error("Expected variable or modifiers list", lexer.front.position);
+		}
+	}
+}
+
+private:
 
 template dispatchLexer(alias fun, Types...) {
 	auto dispatchLexer(T...)(ref Lexer lexer, T args) {
@@ -65,9 +105,9 @@ template parseWrap(alias fun) {
 
 alias parseExpression = parseWrap!parseExpressionImpl;
 Expression parseExpressionImpl(ref Lexer lexer) {
-	return parseBinary!("&&", "||", parseBinary!("==", "!=", "<=", ">=", "<",
-			">", parseBinary!("+", "-", "~", parseBinary!("*", "/", "%",
-			parsePrefix!("-", "*", "&", "!")))))(lexer);
+	return parseBinary!("->", parseBinary!("&&", "||", parseBinary!("==",
+			"!=", "<=", ">=", "<", ">", parseBinary!("+", "-", "~",
+			parseBinary!("*", "/", "%", parsePrefix!("-", "*", "&", "!"))))))(lexer);
 }
 
 Expression parseBinary(args...)(ref Lexer lexer) {
@@ -113,11 +153,11 @@ Expression parseWithPostfixImpl(ref Lexer lexer) {
 
 alias parseCore = parseWrap!parseCoreImpl;
 Expression parseCoreImpl(ref Lexer lexer) {
-	auto value = dispatchLexerFailable!(parseCoreDispatch, Keyword!"struct", Keyword!"int_t", Keyword!"uint_t",
-			Keyword!"char", Keyword!"bool_t", IntLiteral, Keyword!"true", Keyword!"false", CharLiteral,
-			Keyword!"cast", Operator!"(", Operator!"$@", Identifier, Keyword!"if",
-			Keyword!"while", Keyword!"new", Keyword!"import", Operator!"$",
-			StringLiteral, Operator!"[", Keyword!"extern", Operator!"{")(null, lexer);
+	auto value = dispatchLexerFailable!(parseCoreDispatch, Keyword!"tuple", Keyword!"integer", Keyword!"natural",
+			Keyword!"character", Keyword!"boolean", IntLiteral, Keyword!"true", Keyword!"false", CharLiteral,
+			Keyword!"cast", Keyword!"infer", Operator!"(", Operator!"$@", Identifier,
+			Keyword!"if", Keyword!"while", Keyword!"new", Keyword!"import",
+			Operator!">", StringLiteral, Operator!"[", Keyword!"extern", Operator!"{")(null, lexer);
 	if (value) {
 		return value;
 	}
@@ -126,38 +166,39 @@ Expression parseCoreImpl(ref Lexer lexer) {
 	assert(0);
 }
 
-Expression parseCoreDispatch(Keyword!"struct", ref Lexer lexer) {
-	return new TypeStruct();
+Expression parseCoreDispatch(Keyword!"tuple", ref Lexer lexer) {
+	auto value = parseExpression(lexer);
+	auto result = new TypeTuple();
+	result.value = value;
+	return result;
 }
 
-uint parseDotFix(ref Lexer lexer) {
-	if (lexer.front == operator!".") {
-		lexer.popFront;
-		uint res = lexer.front.expectType!(IntLiteral).toInt();
-		lexer.popFront;
-		return res;
-	}
-	assert(0);
+auto parseToken(T)(ref Lexer lexer) {
+	auto result = lexer.front.expectType!T;
+	lexer.popFront;
+	return result;
 }
 
-Expression parseCoreDispatch(Keyword!"int_t", ref Lexer lexer) {
-	auto int_t = new TypeInt();
-	int_t.size = parseDotFix(lexer);
-	return int_t;
+Expression parseCoreDispatch(Keyword!"integer", ref Lexer lexer) {
+	auto integer = new TypeInt();
+	integer.size = parseToken!IntLiteral(lexer).toInt;
+	integer.signed = true;
+	return integer;
 
 }
 
-Expression parseCoreDispatch(Keyword!"uint_t", ref Lexer lexer) {
-	auto int_t = new TypeUInt();
-	int_t.size = parseDotFix(lexer);
-	return int_t;
+Expression parseCoreDispatch(Keyword!"natural", ref Lexer lexer) {
+	auto natural = new TypeInt();
+	natural.size = parseToken!IntLiteral(lexer).toInt;
+	natural.signed = false;
+	return natural;
 }
 
-Expression parseCoreDispatch(Keyword!"char", ref Lexer lexer) {
+Expression parseCoreDispatch(Keyword!"character", ref Lexer lexer) {
 	return new TypeChar();
 }
 
-Expression parseCoreDispatch(Keyword!"bool_t", ref Lexer lexer) {
+Expression parseCoreDispatch(Keyword!"boolean", ref Lexer lexer) {
 	return new TypeBool();
 }
 
@@ -189,7 +230,15 @@ Expression parseCoreDispatch(CharLiteral value, ref Lexer lexer) {
 }
 
 Expression parseCoreDispatch(Keyword!"cast", ref Lexer lexer) {
-	return new Cast();
+	auto ret = new Cast();
+	ret.type = parseExpression(lexer);
+	return ret;
+}
+
+Expression parseCoreDispatch(Keyword!"infer", ref Lexer lexer) {
+	auto ret = new Infer();
+	ret.type = parseExpression(lexer);
+	return ret;
 }
 
 Expression[] parseList(ref Lexer lexer) {
@@ -300,17 +349,9 @@ Expression parseCoreDispatch(Keyword!"import", ref Lexer lexer) {
 	return ret;
 }
 
-Expression parseCoreDispatch(Operator!"$", ref Lexer lexer) {
+Expression parseCoreDispatch(Operator!">", ref Lexer lexer) {
 	auto ret = new FuncLit();
-	auto type = parseExpression(lexer);
-	if (lexer.front == operator!"->") {
-		lexer.popFront;
-		ret.explicitReturn = type;
-		type = parseExpression(lexer);
-	}
-	ret.argument = type;
 	ret.text = parseExpression(lexer);
-
 	return ret;
 }
 
@@ -330,13 +371,17 @@ Expression parseCoreDispatch(Operator!"[", ref Lexer lexer) {
 }
 
 Expression parseCoreDispatch(Keyword!"extern", ref Lexer lexer) {
-	return new ExternJs;
+	auto ret = new ExternJs;
+	ret.name = lexer.front.expectType!StringLiteral;
+	lexer.popFront;
+	return ret;
 }
 
 Expression parsePostfix(ref Lexer lexer, Expression current) {
 	auto position = lexer.front.position;
-	return dispatchLexerFailable!(parsePostfixDispatch, Operator!".",
-			Operator!"[", Operator!"(", Operator!"(*)")(current, lexer, current, position);
+	return dispatchLexerFailable!(parsePostfixDispatch, Operator!".", Operator!"[",
+			Operator!"(", Operator!"(*)", Operator!"[*]", Operator!":::", Operator!"@")(current,
+			lexer, current, position);
 }
 
 Expression parsePostfixDispatch(T)(T operator, ref Lexer lexer, Expression current,
@@ -344,6 +389,31 @@ Expression parsePostfixDispatch(T)(T operator, ref Lexer lexer, Expression curre
 	auto result = parsePostfixDispatchImpl(operator, lexer, current, postfixStart);
 	result.position = current.position.join(lexer.front.position);
 	return parsePostfix(lexer, result);
+}
+
+Expression parsePostfixDispatchImpl(Operator!"@", ref Lexer lexer,
+		Expression current, Position postfixStart) {
+	auto ret = new TupleIndex();
+	ret.tuple = current;
+	ret.index = lexer.front
+		.expectType!IntLiteral
+		.to!uint;
+	lexer.popFront;
+	ret.total = lexer.front
+		.expectType!IntLiteral
+		.to!uint;
+	lexer.popFront;
+	return ret;
+}
+
+Expression parsePostfixDispatchImpl(Operator!":::", ref Lexer lexer,
+		Expression current, Position postfixStart) {
+	auto ret = new UseSymbol();
+	ret.value = current;
+	lexer.front.expectType!(Identifier);
+	ret.index = lexer.front.get!(Identifier).value;
+	lexer.popFront;
+	return ret;
 }
 
 Expression parsePostfixDispatchImpl(Operator!".", ref Lexer lexer,
@@ -396,8 +466,9 @@ Expression parsePostfixDispatchImpl(Operator!"(", ref Lexer lexer,
 	return ret;
 }
 
-Expression parsePostfixDispatchImpl(Operator!"(*)", ref Lexer lexer, Expression current, Position) {
-	auto ret = new Postfix!"(*)"();
+Expression parsePostfixDispatchImpl(string op)(Operator!op, ref Lexer lexer,
+		Expression current, Position) if (op == "(*)" || op == "[*]") {
+	auto ret = new Postfix!op();
 	ret.value = current;
 	return ret;
 }
@@ -439,23 +510,14 @@ alias parseVarDef = parseWrap!parseVarDefImpl;
 VarDef parseVarDefImpl(ref Lexer lexer, VarDef var, bool manifest) {
 	var.manifest = manifest;
 	lexer.popFront;
-	auto type = parseExpression(lexer);
-	if (lexer.front != operator!"=") {
-		lexer.front.expectType!Identifier;
-		var.name = lexer.front.get!(Identifier).value;
+	var.name = lexer.front.expectType!Identifier;
+	lexer.popFront;
+	if (lexer.front == operator!"::") {
 		lexer.popFront;
-		lexer.front.expect(operator!"=");
-		lexer.popFront;
-		var.explicitType = type;
-	} else {
-		assert(lexer.front == operator!"=");
-		auto expr = cast(Variable) type;
-		if (!expr) {
-			error("expected identifier", lexer.front.position);
-		}
-		var.name = expr.name;
-		lexer.popFront;
+		var.explicitType = parseExpression(lexer);
 	}
+	lexer.front.expect(operator!"=");
+	lexer.popFront;
 
 	var.value = parseExpression(lexer);
 	return var;
@@ -471,43 +533,6 @@ static void applyModifiers(int[] modifiers, ref Modifier output) {
 			output.visible = false;
 		} else {
 			assert(0);
-		}
-	}
-}
-
-//todo this is ugly remove it
-void parseModule(ref Lexer lexer, Module ret) {
-	Modifier globalModifiers;
-	while (true) {
-		if (lexer.front == Eof()) {
-			lexer.popFront;
-			return;
-		}
-		int[] modifiersList;
-		while (true) {
-			if (lexer.front == keyword!"public") {
-				modifiersList ~= indexModifier!"public";
-			} else if (lexer.front == keyword!"private") {
-				modifiersList ~= indexModifier!"private";
-			} else {
-				break;
-			}
-			lexer.popFront;
-		}
-		if (modifiersList.length > 0 && lexer.front == operator!":") {
-			applyModifiers(modifiersList, globalModifiers);
-			lexer.popFront;
-		} else if (lexer.front == keyword!"let" || lexer.front == keyword!"alias") {
-			Modifier localModifiers = globalModifiers;
-			applyModifiers(modifiersList, localModifiers);
-			auto var = new ModuleVarDef();
-			var.modifier = localModifiers;
-			parseVarDef(lexer, var, lexer.front == keyword!"alias");
-			ret.symbols ~= var;
-			lexer.front.expect(operator!";");
-			lexer.popFront;
-		} else {
-			error("Expected variable or modifiers list", lexer.front.position);
 		}
 	}
 }

@@ -1,59 +1,75 @@
+#Environment variables:
+# dc : d compiler
+# dflags : compiler flags
+# dformatter : formatter
+# dformatter_flags : formatter flags
+# build : build directory
+# incremental : if true then do incremental build
+
+dc ?= ldc2
+dflags ?=
+dformatter ?= dfmt
+dformatter_flags ?= --inplace --brace_style=otbs --indent_style=tab
+build ?= build
+incremental ?= false
+
+
 .SECONDEXPANSION:
 
-DC ?= gdc
-DFLAGS ?=
-DLDFLAGS ?=
-DFORMATTER ?= dfmt --inplace --brace_style=otbs --indent_style=tab
+find = $(wildcard $1/*.$2) $(foreach directory,$(wildcard $1/*),$(call find,$(directory),$2))
+hash = $(shell echo $1 | md5sum | cut -d ' ' -f 1)
 
-ifeq ($(DC),gdc)
-OUTPUT_FLAG = -o 
+ifeq ($(dc),gdc)
+-o = -o 
 else
-OUTPUT_FLAG = -of
+-o = -of
 endif
-BUILD_DIR ?= build/
+-I = -I
+-c = -c
 
-APP := $(BUILD_DIR)typi
 
-$(APP):
+$(build)/typi:
 
 %/:
 	mkdir -p $@
 .PRECIOUS: %/
 
-FIND = $(wildcard $1/*.$2) $(foreach directory,$(wildcard $1/*),$(call FIND,$(directory),$2))
-HASH = $(shell echo $1 | md5sum | cut -d ' ' -f 1)
-
-SOURCES := $(call FIND,source,d)
-
-FORMAT := $(SOURCES:%=$(BUILD_DIR)%.format)
-
 #hack to check compiler flags
-LINK_HASH := $(BUILD_DIR)$(call HASH,$(DC) $(DFLAGS) $(DLDFLAGS)).flags
-$(LINK_HASH): | $$(dir $$@)
-	$(if $(wildcard $(BUILD_DIR)*.flags),rm $(wildcard $(BUILD_DIR)*.flags))
+flags := $(build)/flags/$(call hash,$(dc) $(dflags))
+$(flags): | $$(dir $$@)
+	$(foreach old,$(wildcard $(build)/flags/*),rm $(old))
 	touch $@
 
-$(APP): $(LINK_HASH) $(SOURCES) | $$(dir $$@)
-	$(DC) $(DFLAGS) $(DLDFLAGS) $(OUTPUT_FLAG)$@ $(SOURCES)
+sources := $(call find,source,d)
+ifeq ($(incremental),true)
+objects = $(sources:%.d=$(build)/%.o)
+$(objects) : $(build)/%.o : %.d $(flags)
+	$(dc) $(dflags)  $(-o)$@ $< $(-c) $(-I)source
 
-TEST := $(call FIND,test,typi)
-TEST_OUTPUT := $(TEST:%.typi=$(BUILD_DIR)%.js)
-TEST_RUN := $(TEST_OUTPUT:%=%.run)
-$(TEST_OUTPUT): $(BUILD_DIR)%.js : %.typi test/runtime.js $(APP) | $$(dir $$@)
-	$(APP) $< $(word 2,$^) -o $@
 
-$(TEST_RUN): %.run : %
+$(build)/typi: $(objects) $(flags) | $$(dir $$)
+	$(dc) $(dflags) $(-o)$@ $(objects)
+else
+$(build)/typi : $(sources) $(flags) | $$(dir $$)
+	$(dc) $(dflags) $(-o)$@ $(sources)
+endif
+test := $(call find,test,typi)
+test_output := $(test:%.typi=$(build)/%.js)
+$(test_output): $(build)/%.js : %.typi test/runtime.js $(build)/typi | $$(dir $$@)
+	$(build)/typi $< test/runtime.js -o $@
+test_build : $(test_output)
+.PHONY: test_build
+
+test_run := $(test_output:%=%.run)
+$(test_run): %.run : %
 	node $<
 	touch $@
-$(FORMAT): $(BUILD_DIR)%.format : % | $$(dir $$@)
-	$(DFORMATTER) $<
+test: $(test_run)
+.PHONY: test
+
+format := $(sources:%=$(build)/%.format)
+$(format): $(build)/%.format : % | $$(dir $$@)
+	$(dformatter) $(dformatter_flags) $<
 	touch $@
-
-build_test: $(TEST_OUTPUT)
-
-test: $(TEST_RUN)
-
-format: $(FORMAT)
-
-.PHONY: test format
-
+format: $(format)
+.PHONY: format

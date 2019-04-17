@@ -29,13 +29,13 @@ import std.file : exists, isDir;
 import core.stdc.stdlib : exit;
 
 import misc;
-import parser;
+import parser.parser;
 import lexer;
-import semantic;
+import semantic.semantic;
 import codegen;
 
-static import parserast;
-import semanticast;
+static import Parser = parser.ast;
+import semantic.ast;
 import jsast;
 
 Module[string] all;
@@ -57,7 +57,7 @@ Module findAndReadModule(string name) {
 }
 
 Module readModule(string name) {
-	auto parserMod = new parserast.Module();
+	auto parserMod = new Parser.Module();
 	auto map = new MmFile(name);
 	maps ~= map;
 	auto buffer = cast(string) map[];

@@ -2,9 +2,11 @@
  Boost License
 /#
 
-alias main=$() -> () {
+alias void = tuple();
+
+alias main :: void -> void = > {
 	write("hello world");
 };
 
-alias (struct ())(char[]) write=extern;
+alias write :: character[*] -> void = extern "write";
 

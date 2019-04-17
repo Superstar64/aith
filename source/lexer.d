@@ -56,9 +56,9 @@ import misc;
 	}
 }
 
-enum keywords = AliasSeq!("alias", "let", "bool_t", "cast", "char", "else", "extern",
-			"false", "if", "import", "int_t", "new", "of", "private", "public",
-			"struct", "then", "true", "uint_t", "while");
+enum keywords = AliasSeq!("alias", "let", "boolean", "cast", "character", "else", "extern",
+			"false", "if", "import", "infer", "integer", "new", "of",
+			"private", "public", "tuple", "then", "true", "natural", "while");
 struct Keyword(string keyword) if (staticIndexOf!(keyword, keywords) >= 0) {
 	string toString() {
 		return keyword;
@@ -70,9 +70,10 @@ auto keyword(string key)() {
 }
 
 //must be sorted according to string length
-enum operators = AliasSeq!("(*)", "==", "!=", "<=", ">=", "&&", "||", "::",
-			"$@", "->", "..", "<", ">", "+", "-", "*", "/", "%", "=", "!",
-			"~", "&", "|", "^", ":", "$", "@", "{", "}", "(", ")", "[", "]", ".", ",", ";");
+enum operators = AliasSeq!("[*]", "(*)", ":::", "==", "!=", "<=", ">=", "&&",
+			"||", "::", "$@", "->", "..", "<", ">", "+", "-", "*", "/", "%",
+			"=", "!", "~", "&", "|", "^", ":", "$", "@", "{", "}", "(", ")",
+			"[", "]", ".", ",", ";");
 
 struct Operator(string operator) if (staticIndexOf!(operator, operators) >= 0) {
 	string toString() {
@@ -135,7 +136,9 @@ string readStringWithEscapes(ref string file, char end, string current, out stri
 			'v' : '\v', '\\' : '\\', '\'' : '\'', '"' : '"', '`' : '`', '0' : '\0'
 		];
 	while (true) {
-		auto length = file[].until!(a => a == '\\' || a == end).tee!(a => current ~= a).count;
+		auto length = file[].until!(a => a == '\\' || a == end)
+			.tee!(a => current ~= a)
+			.count;
 		file.popFrontN(length);
 		if (file.empty) {
 			err = errEoF;
@@ -256,7 +259,7 @@ void removeSingleLine(ref string file) {
 		return;
 	}
 	file.popFront;
-	return file.removeSingleLine;
+	file.removeSingleLine;
 }
 
 void removeComments(ref string file) {
@@ -274,11 +277,10 @@ void removeComments(ref string file) {
 	}
 	if (file.startsWith("#")) {
 		file.removeSingleLine;
-		return file.removeComments;
+		file.removeComments;
 	}
 }
 
-//wierd compile bug workaround
 template metaParseDot(alias T) {
 	alias metaParseDot = T.parseOperator;
 }

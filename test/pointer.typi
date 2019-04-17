@@ -2,12 +2,14 @@
  Boost License
 /#
 
-alias increment = $() -> int_t.4(*) {
+alias void = tuple();
+
+alias increment = > {
 	*$@ = *$@ + 1;
 };
 
-alias newPointer = $() -> (){
-	let pointer = new cast(int_t.4)(5);
+alias newPointer = > {
+	let pointer :: integer 32(*) = new 5;
 	assert(*pointer == 5);
 	increment(pointer);
 	assert(*pointer == 6);
@@ -15,8 +17,8 @@ alias newPointer = $() -> (){
 	assert(pointer == pointer);
 };
 
-alias localPointer = $() -> (){
-	let number = cast(int_t.4)(4);
+alias localPointer = > {
+	let number :: integer 32 = 4;
 	assert(number == 4);
 	increment(&number);
 	assert(number == 5);
@@ -25,8 +27,8 @@ alias localPointer = $() -> (){
 	assert(&number == &number); 
 };
 
-alias arrayPointer = $() -> (){
-	let array = [cast(int_t.4)(0),10,20];
+alias arrayPointer = > {
+	let array :: integer 32[*] = [0,10,20];
 	let index = &array[1];
 	assert(array[1] == 10);
 	increment(index);
@@ -35,27 +37,30 @@ alias arrayPointer = $() -> (){
 	assert(&array[1] != &array[2]);
 };
 
-alias tuplePointer = $() -> (){
-	let pair = (cast(int_t.4)(4),cast(int_t.4)(10));
-	assert(pair[0] == 4);
-	increment(&pair[0]);
-	assert(pair[0] == 5);
+
+alias tuplePointer = > {
+	let pair = ((infer integer 32)(4),(infer integer 32)(10));
+	assert(pair@ 0 2 == 4);
+	increment(&pair @ 0 2);
+	assert(pair@ 0 2 == 5);
 	
-	assert(pair[1] == 10);
-	increment(&pair[1]);
-	assert(pair[1] == 11);
+	assert(pair@ 1 2 == 10);
+	increment(&pair @ 1 2);
+	assert(pair@ 1 2 == 11);
 	
 	
-	assert(&pair[0] == &pair[0]);
-	assert(&pair[0] != &pair[1]);
+	assert(&pair@0 2 == &pair@ 0 2);
+	assert(&pair@0 2 != &pair@ 1 2);
 	assert(&pair == &pair);
 };
 
-alias main = $() -> () {
+
+alias main :: void -> void = > {
 	newPointer();
 	localPointer();
 	arrayPointer();
-	tuplePointer();
+	#address of tuples don't work yet
+	#tuplePointer();
 };
 
-alias (struct ())(bool_t) assert = extern;
+alias assert :: boolean -> void = extern "assert";

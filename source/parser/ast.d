@@ -14,13 +14,13 @@
 	You should have received a copy of the GNU General Public License
 	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
 +/
-module parserast;
+module parser.ast;
 
 import std.algorithm;
 import std.bigint;
 import misc;
 
-static import Semantic = semanticast;
+static import Semantic = semantic.ast;
 
 class Module {
 	ModuleVarDef[] symbols;
@@ -68,10 +68,7 @@ class TypeChar : Expression {
 
 class TypeInt : Expression {
 	int size;
-}
-
-class TypeUInt : Expression {
-	int size;
+	bool signed;
 }
 
 class Import : Expression {
@@ -90,7 +87,8 @@ class BoolLit : Expression {
 	bool yes;
 }
 
-class TypeStruct : Expression {
+class TypeTuple : Expression {
+	Expression value;
 }
 
 class TupleLit : Expression {
@@ -125,6 +123,11 @@ class NewArray : Expression {
 }
 
 class Cast : Expression {
+	Expression type;
+}
+
+class Infer : Expression {
+	Expression type;
 }
 
 class Dot : Expression {
@@ -132,9 +135,20 @@ class Dot : Expression {
 	string index;
 }
 
+class UseSymbol : Expression {
+	Expression value;
+	string index;
+}
+
 class Index : Expression {
 	Expression array;
 	Expression index;
+}
+
+class TupleIndex : Expression {
+	Expression tuple;
+	uint total;
+	uint index;
 }
 
 class Call : Expression {
@@ -148,9 +162,11 @@ class Slice : Expression {
 	Expression right;
 }
 
-class Binary(string T) : Expression 
-		if (["*", "/", "%", "+", "-", "~", "==", "!=",
-			"<=", ">=", "<", ">", "&&", "||"].canFind(T)) {
+class Binary(string T) : Expression
+		if ([
+				"*", "/", "%", "+", "-", "~", "==", "!=", "<=", ">=", "<", ">",
+				"&&", "||", "->"
+			].canFind(T)) {
 	Expression left;
 	Expression right;
 }
@@ -159,7 +175,7 @@ class Prefix(string T) : Expression if (["-", "*", "&", "!"].canFind(T)) {
 	Expression value;
 }
 
-class Postfix(string T) : Expression if (["(*)"].canFind(T)) {
+class Postfix(string T) : Expression if (["(*)", "[*]"].canFind(T)) {
 	Expression value;
 }
 
@@ -169,8 +185,6 @@ class Scope : Expression {
 }
 
 class FuncLit : Expression {
-	Expression explicitReturn; //nullable
-	Expression argument;
 	Expression text;
 }
 
@@ -183,4 +197,5 @@ class ArrayLit : Expression {
 }
 
 class ExternJs : Expression {
+	string name;
 }

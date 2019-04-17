@@ -1,0 +1,11 @@
+alias main :: void -> void = > {
+	let triplet = (true,false,"test");
+	assert(triplet@ 0 3 == true);
+	assert(triplet@ 1 3 == false);
+	assert(triplet@ 2 3 == "test");
+};
+
+
+alias void = tuple();
+
+alias assert :: boolean -> void = extern "assert";
