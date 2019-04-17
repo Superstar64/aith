@@ -1,4 +1,4 @@
-typi uses basic hindly milner for type inferance
+typi uses basic hindly milner for type inferance but there are polymorphic type annotations yet
 typi's types:
 	"boolean": boolean type
 	"character": character type,utf-32, variable length encoding such as utf-8 is not supported
