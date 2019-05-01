@@ -42,7 +42,7 @@ typi's statements:
 	"alias x1=x2": compile time variable declarition,declare compile time variable x1 and assign x2 to it.this varable acts like a named literal(cannot assign,cannot take address of)
 	"alias x1 :: type = x2"
 	"let x1=x2": variable decleration,declare variable x1,and assign x2 to it.
-	"let type x1 = x2"
+	"let x1 :: type = x2"
 	"import "path" ": import a module
 	"x1:::x2" : access module field where x1 is a module and x2 is a field inside of a module
 	any expresion : must return void
