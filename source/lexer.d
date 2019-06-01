@@ -73,7 +73,7 @@ auto keyword(string key)() {
 enum operators = AliasSeq!("[*]", "(*)", ":::", "==", "!=", "<=", ">=", "&&",
 			"||", "::", "$@", "->", "..", "<", ">", "+", "-", "*", "/", "%",
 			"=", "!", "~", "&", "|", "^", ":", "$", "@", "{", "}", "(", ")",
-			"[", "]", ".", ",", ";");
+			"[", "]", ".", ",", ";", "_");
 
 struct Operator(string operator) if (staticIndexOf!(operator, operators) >= 0) {
 	string toString() {
@@ -104,8 +104,8 @@ struct Identifier {
 }
 
 Nullable!Identifier parseIdentifier(ref string file, Position) {
-	if (file.front.isAlpha || file.front == '_') {
-		auto length = file[].until!(a => !(a.isAlphaNum || a == '_')).count;
+	if (file.front.isAlpha) {
+		auto length = file[].until!(a => !(a.isAlphaNum)).count;
 		return typeof(return)(Identifier(file.nextN(length)));
 	}
 	return typeof(return).init;
@@ -296,12 +296,17 @@ struct Lexer {
 	string file;
 
 	string fileOriginal;
-	Token front;
+	Token head;
+	Token lookAhead;
+	Token front() {
+		return head;
+	}
 
 	this(string fileName, string file) {
 		this.fileName = fileName;
 		this.file = file;
 		this.fileOriginal = file;
+		popFront;
 		popFront;
 	}
 
@@ -317,11 +322,22 @@ struct Lexer {
 	}
 
 	void popFront() {
+		head = lookAhead;
+		getNext();
+		if (auto top = head.peek!Identifier) {
+			while (lookAhead.peek!Identifier) {
+				top.value ~= " " ~ lookAhead.get!Identifier;
+				getNext();
+			}
+		}
+	}
+
+	void getNext() {
 		clean();
 		auto old = file;
 		auto position = Position(fileName, currentLine, fileOriginal, currentIndex);
 		scope (success) {
-			front.position = position.join(Position(fileName, currentLine,
+			lookAhead.position = position.join(Position(fileName, currentLine,
 					fileOriginal, currentIndex));
 		}
 		foreach (parserFun; Parsers) {
@@ -332,12 +348,12 @@ struct Lexer {
 				static if (is(typeof(tokenPart) == Identifier)) {
 					foreach (keyword; keywords) {
 						if (tokenPart == keyword) {
-							front.value = typeof(front.value)(Keyword!keyword());
+							lookAhead.value = typeof(front.value)(Keyword!keyword());
 							return;
 						}
 					}
 				}
-				front.value = typeof(front.value)(tokenPart);
+				lookAhead.value = typeof(front.value)(tokenPart);
 				return;
 			}
 		}

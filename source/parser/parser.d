@@ -167,7 +167,7 @@ Expression parseCoreImpl(ref Lexer lexer) {
 }
 
 Expression parseCoreDispatch(Keyword!"tuple", ref Lexer lexer) {
-	auto value = parseExpression(lexer);
+	auto value = parseCore(lexer);
 	auto result = new TypeTuple();
 	result.value = value;
 	return result;
@@ -380,7 +380,7 @@ Expression parseCoreDispatch(Keyword!"extern", ref Lexer lexer) {
 Expression parsePostfix(ref Lexer lexer, Expression current) {
 	auto position = lexer.front.position;
 	return dispatchLexerFailable!(parsePostfixDispatch, Operator!".", Operator!"[",
-			Operator!"(", Operator!"(*)", Operator!"[*]", Operator!":::", Operator!"@")(current,
+			Operator!"(", Operator!"(*)", Operator!"[*]", Operator!":::", Operator!"_")(current,
 			lexer, current, position);
 }
 
@@ -391,15 +391,11 @@ Expression parsePostfixDispatch(T)(T operator, ref Lexer lexer, Expression curre
 	return parsePostfix(lexer, result);
 }
 
-Expression parsePostfixDispatchImpl(Operator!"@", ref Lexer lexer,
+Expression parsePostfixDispatchImpl(Operator!"_", ref Lexer lexer,
 		Expression current, Position postfixStart) {
 	auto ret = new TupleIndex();
 	ret.tuple = current;
 	ret.index = lexer.front
-		.expectType!IntLiteral
-		.to!uint;
-	lexer.popFront;
-	ret.total = lexer.front
 		.expectType!IntLiteral
 		.to!uint;
 	lexer.popFront;

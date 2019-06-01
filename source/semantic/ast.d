@@ -32,8 +32,8 @@ import misc;
 
 //vtables need theses
 import semantic.semantic : Context;
-import codegen : Usage, Extra, Case, generateJsImpl, generateJsIntoVarImpl,
-	generateJsAddressOfImpl, generateJsEffectsOnlyImpl, generateSymbolImpl;
+import codegen : Usage, Extra, generateJsImpl, generateJsIntoImpl, generateJsAddressOfImpl,
+	generateJsEffectsOnlyImpl, generateSymbolImpl, AssignContext, generateJsAssignImpl;
 
 enum TupleLitKind {
 	normal,
@@ -63,12 +63,17 @@ auto wrapper(T)(T value, Position position) {
 	return Wrapper!T(value, position);
 }
 
-class Transition {
-	Expression[Expression] replacements;
+class TypeTransition {
+	Expression[void* ] replacements;
+}
+
+class Transition : TypeTransition {
 	Module source;
 	Tuple!()[PolymorphicVariable] functionVariables;
+	FunctionLiteral[Type][FunctionLiteralImpl!false]* specializations;
 	this(Module source) {
 		this.source = source;
+		this.specializations = &source.functionSpecializations;
 	}
 }
 
@@ -95,11 +100,10 @@ interface RuntimeExpression : PolymorphicExpression {
 		return typeVirtual;
 	}
 
-	JsExpr generateJs(Usage usage, JsScope depend, Extra* extra);
-	void generateJsIntoVar(JsLit variable, bool createVar, Case shouldCopy,
-			JsScope depend, Extra* extra);
+	JsExpr generateJs(Usage usage, JsScope depend, Extra extra);
+	void generateJsInto(AssignContext var, JsScope depend, Extra extra);
 	//todo print warning if unusal node(new,intlit,etc)
-	void generateJsEffectsOnly(JsScope depend, Extra* extra);
+	void generateJsEffectsOnly(JsScope depend, Extra extra);
 }
 
 interface PolymorphicLValueExpression : PolymorphicExpression {
@@ -113,7 +117,8 @@ interface LValueExpression : PolymorphicLValueExpression, RuntimeExpression {
 		return typeVirtual;
 	}
 
-	JsExpr generateJsAddressOf(Usage, JsScope, Extra*);
+	JsExpr generateJsAddressOf(Usage, JsScope, Extra);
+	void generateJsAssign(RuntimeExpression, JsScope, Extra);
 }
 
 mixin template overrideExpression(RealType = CompileTimeType) {
@@ -136,16 +141,15 @@ override:
 		return this;
 	}
 
-	JsExpr generateJs(Usage usage, JsScope depend, Extra* extra) {
+	JsExpr generateJs(Usage usage, JsScope depend, Extra extra) {
 		return generateJsImpl(this, usage, depend, extra);
 	}
 
-	void generateJsIntoVar(JsLit variable, bool createVar, Case shouldCopy,
-			JsScope depend, Extra* extra) {
-		return generateJsIntoVarImpl(this, variable, createVar, shouldCopy, depend, extra);
+	void generateJsInto(AssignContext context, JsScope depend, Extra extra) {
+		return generateJsIntoImpl(this, context, depend, extra);
 	}
 
-	void generateJsEffectsOnly(JsScope depend, Extra* extra) {
+	void generateJsEffectsOnly(JsScope depend, Extra extra) {
 		return generateJsEffectsOnlyImpl(this, depend, extra);
 	}
 }
@@ -159,8 +163,12 @@ override:
 		return this;
 	}
 
-	JsExpr generateJsAddressOf(Usage usage, JsScope depend, Extra* extra) {
+	JsExpr generateJsAddressOf(Usage usage, JsScope depend, Extra extra) {
 		return generateJsAddressOfImpl(this, usage, depend, extra);
+	}
+
+	void generateJsAssign(RuntimeExpression right, JsScope depend, Extra extra) {
+		generateJsAssignImpl(this, right, depend, extra);
 	}
 }
 
@@ -205,36 +213,25 @@ mixin template overrideGenericLValue(bool kind) {
 	mixin target_;
 }
 
-auto specializeMap(Tuple)(Tuple tuple) {
-	return tuple[0].mapWrap!(a => a.specialize(tuple[1], tuple[2]));
-}
-
-auto specializeRegular(Tuple)(Tuple tuple) {
-	return tuple[0].specialize(tuple[1], tuple[2]);
-}
-
-auto specializeMapList(Tuple)(Tuple tuple) {
-	return tuple[0].map!(a => a.mapWrap!(b => b.specialize(tuple[1], tuple[2]))).array;
-}
-
-auto specializeIgnore(Tuple)(Tuple tuple) {
-	return tuple[0];
-}
-
-mixin template overrideSpecialize(bool runtime, alias create, alias symbols,
-		alias maps, Return = PolymorphicExpression, alias postfix = (a, b, c) {}) {
+mixin template overrideSpecialize(bool runtime, Return = PolymorphicExpression,
+		alias postfix = (a, b, c) {}, alias prefix = (a, b, c) => a, State = Transition) {
 	static if (!runtime) {
-		override Return specialize(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
-			if (this in transition.replacements) {
-				return transition.replacements[this].castTo!Return;
+		override Return specialize(PolymorphicType[PolymorphicVariable] moves, State transition) {
+			if ((cast(void*) this) in transition.replacements) {
+				return transition.replacements[(cast(void*) this)].castTo!Return;
 			}
-			auto result = create(tupleCall!(maps)(tupleMap!(s => std.typecons.tuple(s,
-					moves, transition))(symbols.expand).expand).expand);
-			transition.replacements[this] = result;
+			Return result = specializeImpl(moves, transition);
+			result = prefix(result, moves, transition);
+			transition.replacements[(cast(void*) this)] = result;
 			postfix(result, moves, transition);
 			return result;
 		}
 	}
+}
+
+mixin template overrideSpecializeType(bool runtime, Return = PolymorphicType,
+		alias postfix = (a, b, c) => a, alias prefix = (a, b, c) => a, State = TypeTransition) {
+	mixin overrideSpecialize!(runtime, Return, postfix, prefix, State);
 }
 
 // "macro" for creating specializable expressions
@@ -316,9 +313,12 @@ class IntLitImpl(bool runtime) : PickExpression!runtime {
 		this.value = value;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createIntLit(type.specialize(moves, transition), value);
+	}
+
 	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createIntLit, Pack!(type, value),
-			Pack!(specializeRegular, specializeIgnore));
+	mixin overrideSpecialize!runtime;
 }
 
 alias createIntLit = creater!(IntLitImpl, Pack!(createrTypeCheck,
@@ -366,14 +366,20 @@ class TupleLitImpl(TupleLitKind kind) : PickExpression!kind, TupleLitCommon {
 		this.values = values;
 	}
 
+	static if (kind != kind.compile) {
+		auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+			return createTupleLitPoly(values.map!(a => a.mapWrap!(b => b.specialize(moves,
+					transition))).array);
+		}
+	}
+
 override:
 	Wrapper!Expression[] valuesVirtual() {
 		return values.castToPermissive!(Wrapper!Expression[]);
 	}
 
 	mixin overrideGeneric!kind;
-	mixin overrideSpecialize!(kind != TupleLitKind.poly, createTupleLitPoly,
-			Pack!values, Pack!specializeMapList);
+	mixin overrideSpecialize!(kind != TupleLitKind.poly);
 }
 
 Expression createTupleLit(Wrapper!Expression[] values) {
@@ -412,9 +418,14 @@ class IfImpl(bool runtime) : PickExpression!runtime {
 		this.no = no;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createIf(cond.mapWrap!(a => a.specialize(moves, transition)),
+				yes.mapWrap!(a => a.specialize(moves, transition)),
+				no.mapWrap!(a => a.specialize(moves, transition)));
+	}
+
 	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createIf, Pack!(cond, yes, no),
-			Pack!(specializeMap, specializeMap, specializeMap));
+	mixin overrideSpecialize!runtime;
 }
 
 alias createIf = creater!(IfImpl, Pack!(createrRuntimeCheck, createrRuntimeCheck,
@@ -431,9 +442,13 @@ class WhileImpl(bool runtime) : PickExpression!runtime {
 		this.state = state;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createWhile(cond.mapWrap!(a => a.specialize(moves, transition)),
+				state.mapWrap!(a => a.specialize(moves, transition)));
+	}
+
 	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createWhile, Pack!(cond, state),
-			Pack!(specializeMap, specializeMap));
+	mixin overrideSpecialize!runtime;
 }
 
 alias createWhile = creater!(WhileImpl, Pack!(createrRuntimeCheck,
@@ -448,8 +463,12 @@ class NewImpl(bool runtime) : PickExpression!runtime {
 		this.value = value;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createNew(value.mapWrap!(a => a.specialize(moves, transition)),);
+	}
+
 	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createNew, Pack!(value), Pack!(specializeMap));
+	mixin overrideSpecialize!runtime;
 }
 
 alias createNew = creater!(NewImpl, Pack!(createrRuntimeCheck), Pack!(createrRuntimeMap),);
@@ -465,31 +484,28 @@ class NewArrayImpl(bool runtime) : PickExpression!runtime {
 		this.value = value;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createNewArray(length.mapWrap!(a => a.specialize(moves,
+				transition)), value.mapWrap!(a => a.specialize(moves, transition)));
+	}
+
 	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createNewArray, Pack!(length, value),
-			Pack!(specializeMap, specializeMap));
+	mixin overrideSpecialize!runtime;
 }
 
 alias createNewArray = creater!(NewArrayImpl, Pack!(createrRuntimeCheck,
 		createrRuntimeCheck), Pack!(createrRuntimeMap, createrRuntimeMap),);
 
-alias CastInteger = CastIntegerImpl!true;
-
-class CastIntegerImpl(bool runtime) : PickExpression!runtime {
-	Wrapper!(PickExpression!runtime) value;
+class CastInteger : RuntimeExpression {
+	Wrapper!RuntimeExpression value;
 	//todo figure out position data for implicit casts
-	this(Wrapper!(PickExpression!runtime) value, Type wanted) {
+	this(Wrapper!RuntimeExpression value, Type wanted) {
 		this.type = wanted;
 		this.value = value;
 	}
 
-	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createCastInteger, Pack!(value, type),
-			Pack!(specializeMap, specializeRegular));
+	mixin overrideRuntime;
 }
-
-alias createCastInteger = creater!(IfImpl, Pack!(createrRuntimeCheck,
-		createrIgnoreCheck), Pack!(createrRuntimeMap, createrIgnoreMap),);
 
 alias Length = LengthImpl!true;
 
@@ -500,8 +516,12 @@ class LengthImpl(bool runtime) : PickExpression!runtime {
 		this.value = value;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createLength(value.mapWrap!(a => a.specialize(moves, transition)),);
+	}
+
 	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createLength, Pack!(value), Pack!(specializeMap));
+	mixin overrideSpecialize!runtime;
 }
 
 alias createLength = creater!(LengthImpl, Pack!(createrRuntimeCheck),
@@ -519,9 +539,14 @@ class IndexImpl(bool runtime) : PickExpressionLValue!runtime {
 		this.index = index;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createIndex(type.specialize(moves, transition),
+				array.mapWrap!(a => a.specialize(moves, transition)),
+				index.mapWrap!(a => a.specialize(moves, transition)));
+	}
+
 	mixin overrideGenericLValue!(runtime);
-	mixin overrideSpecialize!(runtime, createIndex, Pack!(type, array, index),
-			Pack!(specializeRegular, specializeMap, specializeMap), PolymorphicLValueExpression);
+	mixin overrideSpecialize!(runtime, PolymorphicLValueExpression);
 }
 
 alias createIndex = creater!(IndexImpl, Pack!(createrTypeCheck, createrRuntimeCheck, createrRuntimeCheck),
@@ -580,14 +605,21 @@ template TupleIndexImpl(bool runtime) {
 		}
 
 		static if (lvalue) {
+			auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+				return createTupleIndexLValue(type.specialize(moves, transition),
+						tuple.mapWrap!(a => a.specialize(moves, transition)), index);
+			}
+
 			mixin overrideGenericLValue!runtime;
-			mixin overrideSpecialize!(runtime, createTupleIndexLValue, Pack!(type, tuple, index),
-					Pack!(specializeRegular, specializeMap, specializeIgnore),
-					PolymorphicLValueExpression);
+			mixin overrideSpecialize!(runtime, PolymorphicLValueExpression);
 		} else {
+			auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+				return createTupleIndexRValue(type.specialize(moves, transition),
+						tuple.mapWrap!(a => a.specialize(moves, transition)), index);
+			}
+
 			mixin overrideGeneric!runtime;
-			mixin overrideSpecialize!(runtime, createTupleIndexRValue, Pack!(type, tuple,
-					index), Pack!(specializeRegular, specializeMap, specializeIgnore));
+			mixin overrideSpecialize!runtime;
 		}
 	}
 }
@@ -604,9 +636,14 @@ class CallImpl(bool runtime) : PickExpression!runtime {
 		this.argument = argument;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createCall(type.specialize(moves, transition),
+				calle.mapWrap!(a => a.specialize(moves, transition)),
+				argument.mapWrap!(a => a.specialize(moves, transition)));
+	}
+
 	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createCall, Pack!(type, calle,
-			argument), Pack!(specializeRegular, specializeMap, specializeMap));
+	mixin overrideSpecialize!runtime;
 }
 
 alias createCall = creater!(CallImpl, Pack!(createrTypeCheck, createrRuntimeCheck,
@@ -626,9 +663,14 @@ class SliceImpl(bool runtime) : PickExpression!runtime {
 		this.right = right;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createSlice(array.mapWrap!(a => a.specialize(moves,
+				transition)), left.mapWrap!(a => a.specialize(moves, transition)),
+				right.mapWrap!(a => a.specialize(moves, transition)));
+	}
+
 	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createSlice, Pack!(array, left, right),
-			Pack!(specializeMap, specializeMap, specializeMap));
+	mixin overrideSpecialize!runtime;
 }
 
 alias createSlice = creater!(SliceImpl, Pack!(createrRuntimeCheck, createrRuntimeCheck,
@@ -657,9 +699,13 @@ template BinaryImpl(bool runtime) {
 			this.right = right;
 		}
 
+		auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+			return createBinary!op(left.mapWrap!(a => a.specialize(moves,
+					transition)), right.mapWrap!(a => a.specialize(moves, transition)));
+		}
+
 		mixin overrideGeneric!runtime;
-		mixin overrideSpecialize!(runtime, createBinary!op, Pack!(left,
-				right), Pack!(specializeMap, specializeMap));
+		mixin overrideSpecialize!runtime;
 	}
 
 	class BinaryImpl(string op) : PickExpression!runtime
@@ -673,9 +719,13 @@ template BinaryImpl(bool runtime) {
 			this.right = right;
 		}
 
+		auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+			return createBinary!op(left.mapWrap!(a => a.specialize(moves,
+					transition)), right.mapWrap!(a => a.specialize(moves, transition)));
+		}
+
 		mixin overrideGeneric!runtime;
-		mixin overrideSpecialize!(runtime, createBinary!op, Pack!(left,
-				right), Pack!(specializeMap, specializeMap));
+		mixin overrideSpecialize!runtime;
 	}
 
 }
@@ -702,8 +752,14 @@ template PrefixImpl(bool runtime) {
 			this.value = value;
 		}
 
+		static if (!runtime) {
+			auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+				return createPrefix!op(value.mapWrap!(a => a.specialize(moves, transition)));
+			}
+		}
+
 		mixin overrideGeneric!runtime;
-		mixin overrideSpecialize!(runtime, createPrefix!op, Pack!value, Pack!specializeMap);
+		mixin overrideSpecialize!runtime;
 	}
 
 	class PrefixImpl(string op : "!") : PickExpression!runtime {
@@ -713,8 +769,12 @@ template PrefixImpl(bool runtime) {
 			this.value = value;
 		}
 
+		auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+			return createPrefix!op(value.mapWrap!(a => a.specialize(moves, transition)));
+		}
+
 		mixin overrideGeneric!runtime;
-		mixin overrideSpecialize!(runtime, createPrefix!op, Pack!value, Pack!specializeMap);
+		mixin overrideSpecialize!runtime;
 	}
 }
 
@@ -728,9 +788,13 @@ class DerefImpl(bool runtime) : PickExpressionLValue!runtime {
 		this.value = value;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createDeref(type.specialize(moves, transition),
+				value.mapWrap!(a => a.specialize(moves, transition)));
+	}
+
 	mixin overrideGenericLValue!runtime;
-	mixin overrideSpecialize!(runtime, createDeref, Pack!(type, value),
-			Pack!(specializeRegular, specializeMap), PolymorphicLValueExpression);
+	mixin overrideSpecialize!(runtime, PolymorphicLValueExpression);
 }
 
 alias createDeref = creater!(DerefImpl, Pack!(createrTypeCheck, createrRuntimeCheck),
@@ -745,8 +809,12 @@ class AddressImpl(bool runtime) : PickExpression!runtime {
 		this.value = value;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createAddress(value.mapWrap!(a => a.specialize(moves, transition)));
+	}
+
 	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createAddress, Pack!value, Pack!specializeMap);
+	mixin overrideSpecialize!runtime;
 }
 
 alias createAddress = creater!(AddressImpl, Pack!(createrLValueCheck),
@@ -763,9 +831,13 @@ class ScopeImpl(bool runtime) : PickExpression!runtime {
 		this.last = last;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createScope(pass.mapWrap!(a => a.specialize(moves, transition)),
+				last.mapWrap!(a => a.specialize(moves, transition)));
+	}
+
 	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createScope, Pack!(pass, last),
-			Pack!(specializeMap, specializeMap));
+	mixin overrideSpecialize!runtime;
 }
 
 alias createScope = creater!(ScopeImpl, Pack!(createrRuntimeCheck,
@@ -776,6 +848,7 @@ alias ScopeVar = ScopeVarImpl!true;
 alias ScopeVarImplSuper(bool runtime : true) = AliasSeq!(ScopeVarImpl!false);
 alias ScopeVarImplSuper(bool runtime : false) = AliasSeq!();
 
+//todo refactor this
 interface ScopeVarImpl(bool runtime) : PickExpressionLValue!runtime, ScopeVarImplSuper!runtime {
 	string nameVirtual();
 	final name() {
@@ -804,6 +877,10 @@ class ScopeVarClass(bool runtime) : ScopeVarImpl!runtime {
 		this.value = value;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createScopeVar(name, value.mapWrap!(a => a.specialize(moves, transition)));
+	}
+
 override:
 	string nameVirtual() {
 		return name;
@@ -818,8 +895,7 @@ override:
 	}
 
 	mixin overrideGenericLValue!runtime;
-	mixin overrideSpecialize!(runtime, createScopeVar, Pack!(name, value),
-			Pack!(specializeIgnore, specializeMap), ScopeVarImpl!false);
+	mixin overrideSpecialize!(runtime, ScopeVarImpl!false);
 	static if (runtime) {
 		ScopeVarImpl!false specialize(PolymorphicType[PolymorphicVariable] moves,
 				Transition transition) {
@@ -843,22 +919,15 @@ class ScopeVarDefImpl(bool runtime) : PickExpression!runtime {
 		this.last = last;
 	}
 
-	static void checkParameters(PolymorphicExpression expression,
-			PolymorphicType[PolymorphicVariable] moves, Transition transition) {
-		if (auto runtime = expression.castTo!(ScopeVarDefImpl!true)) {
-			check(isSubSet(runtime.variable.type.parameters, transition.functionVariables),
-					"unable to infer type", runtime.variable.value.position);
-		} else {
-			auto compile = expression.castTo!(ScopeVarDefImpl!false);
-			assert(compile);
-			check(isSubSet(compile.variable.type.parameters, transition.functionVariables),
-					"unable to infer type", compile.variable.value.position);
+	static if (!runtime) {
+		auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+			return createScopeVarDef(variable.specialize(moves, transition),
+					last.mapWrap!(a => a.specialize(moves, transition)));
 		}
 	}
 
 	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createScopeVarDef, Pack!(variable, last),
-			Pack!(specializeRegular, specializeMap), PolymorphicExpression, checkParameters);
+	mixin overrideSpecialize!(runtime, PolymorphicExpression);
 }
 
 alias createScopeVarDef = creater!(ScopeVarDefImpl, Pack!(castTo!(ScopeVarImpl!true),
@@ -877,28 +946,15 @@ class AssignImpl(bool runtime) : PickExpression!runtime {
 		this.right = right;
 		this.last = last;
 	}
-	//todo this is very hack, replace with something better
-	static void checkParameters(PolymorphicExpression expression,
-			PolymorphicType[PolymorphicVariable] moves, Transition transition) {
-		if (auto runtime = expression.castTo!(AssignImpl!true)) {
-			check(isSubSet(runtime.left.type.parameters, transition.functionVariables),
-					"unable to infer type", runtime.left.position);
-			check(isSubSet(runtime.right.type.parameters, transition.functionVariables),
-					"unable to infer type", runtime.right.position);
-		} else {
-			auto compile = expression.castTo!(AssignImpl!false);
-			assert(compile);
-			check(isSubSet(compile.left.type.parameters, transition.functionVariables),
-					"unable to infer type", compile.left.position);
-			check(isSubSet(compile.right.type.parameters, transition.functionVariables),
-					"unable to infer type", compile.right.position);
-		}
+
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createAssign(left.mapWrap!(a => a.specialize(moves,
+				transition)), right.mapWrap!(a => a.specialize(moves,
+				transition)), last.mapWrap!(a => a.specialize(moves, transition)));
 	}
 
 	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createAssign, Pack!(left, right, last),
-			Pack!(specializeMap, specializeMap, specializeMap),
-			PolymorphicExpression, checkParameters);
+	mixin overrideSpecialize!(runtime, PolymorphicExpression);
 }
 
 alias createAssign = creater!(AssignImpl, Pack!(createrLValueCheck, createrRuntimeCheck,
@@ -906,10 +962,7 @@ alias createAssign = creater!(AssignImpl, Pack!(createrLValueCheck, createrRunti
 
 alias FunctionLiteral = FunctionLiteralImpl!true;
 
-alias MaybeSymbol(bool runtime : true) = Symbol;
-alias MaybeSymbol(bool runtime : false) = AliasSeq!();
-
-class FunctionLiteralImpl(bool runtime) : PickExpression!runtime, MaybeSymbol!runtime {
+class FunctionLiteralImpl(bool runtime) : PickExpression!runtime, PickSymbol!runtime {
 	Wrapper!(PickExpression!runtime) text;
 	bool explicitInfer;
 
@@ -940,28 +993,54 @@ class FunctionLiteralImpl(bool runtime) : PickExpression!runtime, MaybeSymbol!ru
 	}
 
 	mixin overrideGeneric!runtime;
-	void specializePostfix(PolymorphicExpression result,
-			PolymorphicType[PolymorphicVariable] moves, Transition transition) {
-		auto vars = transition.functionVariables;
-		transition.functionVariables = result.type.parameters;
-		if (auto runtime = result.castTo!(FunctionLiteralImpl!true)) {
-			runtime.text = text.mapWrap!(a => a.specialize(moves, transition)
-					.castTo!RuntimeExpression);
-			assert(runtime.text, "null text:" ~ text.to!string);
-			transition.source.exports[name] = runtime;
-		} else {
-			auto compile = result.castTo!(FunctionLiteralImpl!false);
-			compile.text = text.mapWrap!(a => a.specialize(moves, transition));
-		}
-		transition.functionVariables = vars;
-	}
+	static if (!runtime) {
+		FunctionLiteralImpl!false root;
 
-	mixin overrideSpecialize!(runtime, createFunctionLiteral, Pack!(type,
-			name, explicitInfer), Pack!(specializeRegular,
-			specializeIgnore, specializeIgnore), PolymorphicExpression, specializePostfix);
-	static if (runtime) {
-		mixin overrideSymbol;
+		void specializePostfix(PolymorphicExpression result,
+				PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+			auto vars = transition.functionVariables;
+			transition.functionVariables = result.type.parameters;
+			if (auto runtime = result.castTo!(FunctionLiteralImpl!true)) {
+				runtime.text = text.mapWrap!(a => a.specialize(moves,
+						transition).castTo!RuntimeExpression);
+				assert(runtime.text, "null text:" ~ text.to!string);
+			} else {
+				auto compile = result.castTo!(FunctionLiteralImpl!false);
+				compile.text = text.mapWrap!(a => a.specialize(moves, transition));
+				compile.root = getRoot;
+			}
+			transition.functionVariables = vars;
+		}
+
+		PolymorphicExpression specializePrefix(PolymorphicExpression result,
+				PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+			if (auto runtime = result.castTo!(FunctionLiteralImpl!true)) {
+				FunctionLiteral[Type]* maps = getRoot in *transition.specializations;
+				if (maps) {
+					if (auto known = runtime.type in *maps) {
+						return *known;
+					}
+				} else {
+					(*transition.specializations)[getRoot] = null;
+					maps = &((*transition.specializations)[getRoot]);
+				}
+				(*maps)[runtime.type] = runtime;
+			}
+			return result;
+		}
+
+		FunctionLiteralImpl!false getRoot() {
+			return root ? root : this;
+		}
+
+		auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+			return createFunctionLiteral(type.specialize(moves, transition), name, explicitInfer);
+		}
+
+		mixin overrideSpecialize!(runtime, PolymorphicExpression,
+				specializePostfix, specializePrefix);
 	}
+	mixin overrideSymbol!runtime;
 }
 
 alias createFunctionLiteral = creater!(FunctionLiteralImpl, Pack!(createrTypeCheck, createrIgnoreCheck,
@@ -974,8 +1053,12 @@ class FuncArgumentImpl(bool runtime) : PickExpression!runtime {
 		this.type = type;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createFuncArgument(type.specialize(moves, transition),);
+	}
+
 	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createFuncArgument, Pack!type, Pack!specializeRegular);
+	mixin overrideSpecialize!runtime;
 }
 
 alias createFuncArgument = creater!(FuncArgument, Pack!(createrTypeCheck),
@@ -1000,9 +1083,13 @@ class ArrayLitImpl(bool runtime) : PickExpression!runtime {
 		this.values = values;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createArrayLit(type.specialize(moves, transition),
+				values.map!(a => a.mapWrap!(b => b.specialize(moves, transition))).array,);
+	}
+
 	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createArrayLit, Pack!(type, values),
-			Pack!(specializeRegular, specializeMapList));
+	mixin overrideSpecialize!runtime;
 }
 
 alias createArrayLit = creater!(ArrayLitImpl, Pack!(createrTypeCheck,
@@ -1017,32 +1104,42 @@ class ExternJsImpl(bool runtime) : PickExpression!runtime {
 		this.name = name;
 	}
 
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, Transition transition) {
+		return createExternJs(type.specialize(moves, transition), name);
+	}
+
 	mixin overrideGeneric!runtime;
-	mixin overrideSpecialize!(runtime, createExternJs, Pack!(type, name),
-			Pack!(specializeRegular, specializeIgnore));
+	mixin overrideSpecialize!runtime;
 }
 
 alias createExternJs = creater!(ExternJs, Pack!(createrTypeCheck,
 		createrIgnoreCheck), Pack!(createrTypeMap, createrIgnoreMap),);
 
-interface Symbol {
+interface PolySymbol {
 	final string name() {
 		return nameVirtual();
 	}
 
 	string nameVirtual();
-
-	JsExpr generateSymbol(JsScope, Extra*);
 }
 
-mixin template overrideSymbol() {
+interface Symbol : PolySymbol {
+	JsExpr generateSymbol(JsScope, Extra);
+}
+
+alias PickSymbol(bool runtime : true) = Symbol;
+alias PickSymbol(bool runtime : false) = PolySymbol;
+
+mixin template overrideSymbol(bool runtime = true) {
 	string name;
 	override string nameVirtual() {
 		return name;
 	}
 
-	override JsExpr generateSymbol(JsScope depend, Extra* extra) {
-		return generateSymbolImpl(this, depend, extra);
+	static if (runtime) {
+		override JsExpr generateSymbol(JsScope depend, Extra extra) {
+			return generateSymbolImpl(this, depend, extra);
+		}
 	}
 }
 
@@ -1054,7 +1151,9 @@ struct ModuleAlias {
 class Module {
 	ModuleAlias[string] aliases;
 	Symbol[string] exports;
+	FunctionLiteral[Type][FunctionLiteralImpl!false] functionSpecializations;
 	Parser.ModuleVarDef[string] rawSymbols;
+
 }
 
 class ModuleVarDef : Symbol {
@@ -1081,25 +1180,54 @@ abstract class CompileTimeType : Expression {
 
 abstract class PolymorphicType : CompileTimeType {
 	Tuple!()[PolymorphicVariable] parameters();
-	PolymorphicType specialize(PolymorphicType[PolymorphicVariable] moves, Transition transition);
+	PolymorphicType specialize(PolymorphicType[PolymorphicVariable] moves, TypeTransition transition);
 }
 
-class PolymorphicVariable : PolymorphicType {
+abstract class PolymorphicVariable : PolymorphicType {
 	override Tuple!()[PolymorphicVariable] parameters() {
 		return [this: tuple()];
 	}
 
 	override PolymorphicType specialize(PolymorphicType[PolymorphicVariable] moves,
-			Transition transition) {
+			TypeTransition transition) {
 		if (this in moves) {
 			return moves[this];
 		} else {
 			return this;
 		}
 	}
+}
 
+class NormalPolymorphicVariable : PolymorphicVariable {
 	override string toString() {
 		return (cast(void*) this).to!string;
+	}
+}
+
+class NumberPolymorphicVariable : PolymorphicVariable {
+	override string toString() {
+		return (cast(void*) this).to!string ~ " extends number";
+	}
+}
+
+class TuplePolymorphicVariable : PolymorphicVariable {
+	PolymorphicType[] values;
+	this(PolymorphicType[] values) {
+		this.values = values;
+	}
+
+	override PolymorphicType specialize(PolymorphicType[PolymorphicVariable] moves,
+			TypeTransition transition) {
+		if (this in moves) {
+			return moves[this];
+		} else {
+			return new TuplePolymorphicVariable(values.map!(a => a.specialize(moves,
+					transition)).array);
+		}
+	}
+
+	override string toString() {
+		return (cast(void*) this).to!string ~ " extends tuple(" ~ values.to!string ~ ")";
 	}
 }
 
@@ -1110,8 +1238,20 @@ abstract class Type : PolymorphicType {
 	}
 
 	override PolymorphicType specialize(PolymorphicType[PolymorphicVariable] moves,
-			Transition transition) {
+			TypeTransition transition) {
 		return this;
+	}
+
+	override size_t toHash() {
+		return typeid(this).toHash;
+	}
+
+	override bool opEquals(Object other) {
+		auto right = other.castTo!Type;
+		if (right) {
+			return sameType(this, right);
+		}
+		return false;
 	}
 }
 
@@ -1191,11 +1331,11 @@ class TypeStructImpl(TupleLitKind kind) : PickType!kind {
 			return values.map!(a => a.parameters.keys).joiner.array.arrayToSet;
 		}
 
-		override PolymorphicType specialize(PolymorphicType[PolymorphicVariable] moves,
-				Transition transition) {
+		auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, TypeTransition transition) {
 			return createTypeStruct(values.map!(a => a.specialize(moves, transition)).array);
 		}
 	}
+	mixin overrideSpecializeType!(kind != TupleLitKind.poly);
 
 	override string toString() {
 		return "(" ~ values.map!(a => a.toString ~ ",")
@@ -1232,12 +1372,13 @@ class TypeArrayImpl(bool runtime) : PickType!runtime {
 		override Tuple!()[PolymorphicVariable] parameters() {
 			return array.parameters;
 		}
-
-		override PolymorphicType specialize(PolymorphicType[PolymorphicVariable] moves,
-				Transition transition) {
-			return createTypeArray(array.specialize(moves, transition));
-		}
 	}
+
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, TypeTransition transition) {
+		return createTypeArray(array.specialize(moves, transition));
+	}
+
+	mixin overrideSpecializeType!runtime;
 
 	override string toString() {
 		return array.toString() ~ "[]";
@@ -1266,13 +1407,14 @@ class TypeFunctionImpl(bool runtime) : PickType!runtime {
 		override Tuple!()[PolymorphicVariable] parameters() {
 			return arrayToSet(result.parameters.keys ~ argument.parameters.keys);
 		}
-
-		override PolymorphicType specialize(PolymorphicType[PolymorphicVariable] moves,
-				Transition transition) {
-			return createTypeFunction(result.specialize(moves, transition),
-					argument.specialize(moves, transition));
-		}
 	}
+
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, TypeTransition transition) {
+		return createTypeFunction(result.specialize(moves, transition),
+				argument.specialize(moves, transition));
+	}
+
+	mixin overrideSpecializeType!runtime;
 
 	override string toString() {
 		return argument.toString ~ "->" ~ result.toString;
@@ -1299,12 +1441,13 @@ class TypePointerImpl(bool runtime) : PickType!runtime {
 		override Tuple!()[PolymorphicVariable] parameters() {
 			return value.parameters;
 		}
-
-		override PolymorphicType specialize(PolymorphicType[PolymorphicVariable] moves,
-				Transition transition) {
-			return createTypePointer(value.specialize(moves, transition));
-		}
 	}
+
+	auto specializeImpl()(PolymorphicType[PolymorphicVariable] moves, TypeTransition transition) {
+		return createTypePointer(value.specialize(moves, transition));
+	}
+
+	mixin overrideSpecializeType!runtime;
 
 	override string toString() {
 		return value.toString() ~ "(*)";
@@ -1322,7 +1465,9 @@ struct Subsitution {
 alias PolyTypes = AliasSeq!(TypeBool, TypeChar, TypeInt, TypeStructImpl!(TupleLitKind.normal),
 		TypeStructImpl!(TupleLitKind.poly), TypePointerImpl!true,
 		TypePointerImpl!false, TypeArrayImpl!true, TypeArrayImpl!false,
-		TypeFunctionImpl!true, TypeFunctionImpl!false, PolymorphicVariable);
+		TypeFunctionImpl!true,
+		TypeFunctionImpl!false, NumberPolymorphicVariable,
+		TuplePolymorphicVariable, NormalPolymorphicVariable);
 //todo use virtual table dispatch for this
 Subsitution[] typeMatch(PolymorphicType a, PolymorphicType b, Position position) {
 	return dispatch!((a, b) => dispatch!((a, b) => typeMatchImpl(b, a, position), PolyTypes)(b, a),
@@ -1333,10 +1478,37 @@ Subsitution[] typeMatchImpl(T1, T2)(T1 left, T2 right, Position position) {
 	if (left is right) {
 		return [];
 	}
-	static if (is(T1 == PolymorphicVariable)) {
+	static if (is(T1 == NormalPolymorphicVariable)) {
 		return [Subsitution(left, right)];
-	} else static if (is(T2 == PolymorphicVariable)) {
+	} else static if (is(T2 == NormalPolymorphicVariable)) {
 		return [Subsitution(right, left)];
+	} else static if (is(T1 == NumberPolymorphicVariable) && is(T2 == NumberPolymorphicVariable)) {
+		return [Subsitution(left, right)];
+	} else static if (is(T1 == NumberPolymorphicVariable) && is(T2 == TypeInt)) {
+		return [Subsitution(left, right)];
+	} else static if (is(T1 == TypeInt) && is(T2 == NumberPolymorphicVariable)) {
+		return [Subsitution(right, left)];
+	} else static if (is(T1 == TuplePolymorphicVariable) && is(T2 == TuplePolymorphicVariable)) {
+		auto common = zip(left.values, right.values).map!(a => typeMatch(a.expand,
+				position)).joiner.array;
+		if (left.values.length < right.values.length) {
+			common ~= Subsitution(left, right);
+		} else {
+			common ~= Subsitution(right, left);
+		}
+		return common;
+	} else static if (is(T1 == TuplePolymorphicVariable)
+			&& is(T2 == TypeStructImpl!a, TupleLitKind a)) {
+		if (left.values.length <= right.values.length) {
+			return zip(left.values, right.values).map!(a => typeMatch(a.expand,
+					position)).joiner.array ~ Subsitution(left, right);
+		}
+	} else static if (is(T1 == TypeStructImpl!a, TupleLitKind a)
+			&& is(T2 == TuplePolymorphicVariable)) {
+		if (left.values.length >= right.values.length) {
+			return zip(left.values, right.values).map!(a => typeMatch(a.expand,
+					position)).joiner.array ~ Subsitution(right, left);
+		}
 	} else static if (is(T1 == TypeBool) && is(T2 == TypeBool)) {
 		return [];
 	} else static if (is(T1 == TypeChar) && is(T2 == TypeChar)) {
@@ -1345,7 +1517,7 @@ Subsitution[] typeMatchImpl(T1, T2)(T1 left, T2 right, Position position) {
 		if (left.size == right.size) {
 			return [];
 		}
-	} else static if (is(T1 == TypeStructImpl!a, TupleLitKind a)
+	} else static if (is(T1 == TypeStructImpl!c, TupleLitKind c)
 			&& is(T2 == TypeStructImpl!b, TupleLitKind b)) {
 		if (left.values.length == right.values.length) {
 			return zip(left.values, right.values).map!(a => typeMatch(a.expand,
@@ -1361,6 +1533,36 @@ Subsitution[] typeMatchImpl(T1, T2)(T1 left, T2 right, Position position) {
 	}
 	error("Can't match " ~ left.toString ~ " to " ~ right.toString, position);
 	assert(0);
+}
+
+alias Types = AliasSeq!(TypeBool, TypeChar, TypeInt, TypeStruct, TypeArray,
+		TypeFunction, TypePointer);
+
+bool sameType(PolymorphicType a, PolymorphicType b) {
+	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(a, b);
+}
+
+bool sameTypeImpl(T1, T2)(T1 left, T2 right) {
+	if (left is right) {
+		return true;
+	}
+	static if (is(T1 == TypeBool) && is(T2 == TypeBool)) {
+		return true;
+	} else static if (is(T1 == TypeChar) && is(T2 == TypeChar)) {
+		return true;
+	} else static if (is(T1 == TypeInt) && is(T2 == TypeInt)) {
+		return left.size == right.size;
+	} else static if (is(T1 == TypeStruct) && is(T2 == TypeStruct)) {
+		return left.values.length == right.values.length && zip(left.values,
+				right.values).map!(a => sameType(a.expand)).all;
+	} else static if (is(T1 == TypeArray) && is(T2 == TypeArray)) {
+		return sameType(left.array, right.array);
+	} else static if (is(T1 == TypeFunction) && is(T2 == TypeFunction)) {
+		return sameType(left.result, right.result) && sameType(left.argument, right.argument);
+	} else static if (is(T1 == TypePointer) && is(T2 == TypePointer)) {
+		return sameType(left.value, right.value);
+	}
+	return false;
 }
 
 //dark corners
@@ -1390,50 +1592,4 @@ class TypeInferPartial : CompileTimeType {
 	override string toString() {
 		return "inferpartial";
 	}
-}
-
-class TypeGenericFunction : CompileTimeType {
-	override string toString() {
-		return "generic";
-	}
-}
-
-alias Types = AliasSeq!(TypeBool, TypeChar, TypeInt, TypeStruct, TypePointer,
-		TypeArray, TypeFunction);
-//todo use virtual table dispatch for this
-bool sameType(Type a, Type b) {
-	return dispatch!((a, b) => dispatch!((a, b) => sameTypeImpl(b, a), Types)(b, a), Types)(a, b);
-}
-
-bool sameTypeImpl(T1, T2)(T1 a, T2 b) {
-	static if (!is(T1 == T2)) {
-		return false;
-	} else {
-		return sameTypeImpl2(a, b);
-	}
-}
-
-bool sameTypeImpl2(T)(T a, T b) if (is(T == TypeBool) || is(T == TypeChar)) {
-	return true;
-}
-
-bool sameTypeImpl2(TypeInt a, TypeInt b) {
-	return a.size == b.size;
-}
-
-bool sameTypeImpl2(TypeStruct a, TypeStruct b) {
-	return a.values.length == b.values.length && zip(a.values, b.values)
-		.map!(a => sameType(a[0], a[1])).all;
-}
-
-bool sameTypeImpl2(TypePointer a, TypePointer b) {
-	return sameType(a.value, b.value);
-}
-
-bool sameTypeImpl2(TypeArray a, TypeArray b) {
-	return sameType(a.array, b.array);
-}
-
-bool sameTypeImpl2(TypeFunction a, TypeFunction b) {
-	return sameType(a.result, b.result) && sameType(a.argument, b.argument);
 }

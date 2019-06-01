@@ -8,7 +8,7 @@ alias increment = > {
 	*$@ = *$@ + 1;
 };
 
-alias newPointer = > {
+alias heap pointer = > {
 	let pointer :: integer 32(*) = new 5;
 	assert(*pointer == 5);
 	increment(pointer);
@@ -17,17 +17,17 @@ alias newPointer = > {
 	assert(pointer == pointer);
 };
 
-alias localPointer = > {
+alias local pointer = > {
 	let number :: integer 32 = 4;
 	assert(number == 4);
 	increment(&number);
 	assert(number == 5);
 	increment(&number);
 	assert(number == 6);
-	assert(&number == &number); 
+	assert(&number == &number);
 };
 
-alias arrayPointer = > {
+alias array pointer = > {
 	let array :: integer 32[*] = [0,10,20];
 	let index = &array[1];
 	assert(array[1] == 10);
@@ -38,29 +38,28 @@ alias arrayPointer = > {
 };
 
 
-alias tuplePointer = > {
+alias record pointer = > {
 	let pair = ((infer integer 32)(4),(infer integer 32)(10));
-	assert(pair@ 0 2 == 4);
-	increment(&pair @ 0 2);
-	assert(pair@ 0 2 == 5);
+	assert(pair_0 == 4);
+	increment(&pair_0);
+	assert(pair_0 == 5);
 	
-	assert(pair@ 1 2 == 10);
-	increment(&pair @ 1 2);
-	assert(pair@ 1 2 == 11);
+	assert(pair_1 == 10);
+	increment(&pair_1);
+	assert(pair_1 == 11);
 	
 	
-	assert(&pair@0 2 == &pair@ 0 2);
-	assert(&pair@0 2 != &pair@ 1 2);
+	assert(&pair_0 == &pair_0);
+	assert(&pair_0 != &pair_1);
 	assert(&pair == &pair);
 };
 
 
 alias main :: void -> void = > {
-	newPointer();
-	localPointer();
-	arrayPointer();
-	#address of tuples don't work yet
-	#tuplePointer();
+	heap pointer();
+	local pointer();
+	array pointer();
+	record pointer();
 };
 
 alias assert :: boolean -> void = extern "assert";

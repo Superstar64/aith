@@ -19,13 +19,30 @@ module jsast;
 import std.algorithm;
 import std.range;
 import std.typecons;
+import std.conv;
+
+import std.range.interfaces;
+
+struct JsContext {
+	JsVariable[string] variables;
+	string[JsVariable] names;
+	//deep copy
+	this(this) {
+		variables = variables.dup;
+		names = names.dup;
+	}
+}
 
 abstract class JsState {
-	void toStateString(scope void delegate(const(char)[]) result, uint indent);
+	void toStateString(scope void delegate(const(char)[]) result, uint indent, JsContext context);
 	override string toString() {
 		string result;
-		toStateString((const(char)[] str) { result ~= str; }, 0);
+		toStateString((const(char)[] str) { result ~= str; }, 0, JsContext());
 		return result;
+	}
+
+	JsContext updateContext(JsContext context) {
+		return context;
 	}
 
 	static increase(ref uint indent) {
@@ -47,7 +64,8 @@ abstract class JsState {
 abstract class JsLabel : JsState {
 	string label;
 
-	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
+	override void toStateString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
 		if (label.length > 0) {
 			result(label);
 			result(":");
@@ -67,13 +85,15 @@ class JsScope : JsLabel {
 		this.states = states;
 	}
 
-	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
-		super.toStateString(result, indent);
+	override void toStateString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
+		super.toStateString(result, indent, context);
 		result("{");
 		increase(indent);
 		foreach (state; states) {
 			line(result, indent);
-			state.toStateString(result, indent);
+			context = state.updateContext(context);
+			state.toStateString(result, indent, context);
 		}
 		decrease(indent);
 		line(result, indent);
@@ -110,15 +130,16 @@ class JsIf : JsLabel {
 		this.no = new JsImplictScope(no);
 	}
 
-	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
-		super.toStateString(result, indent);
+	override void toStateString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
+		super.toStateString(result, indent, context);
 		result("if (");
-		cond.toExprString(result, indent);
+		cond.toExprString(result, indent, context);
 		result(")");
-		yes.toStateString(result, indent);
+		yes.toStateString(result, indent, context);
 		if (no.length > 0) {
 			result(" else ");
-			no.toStateString(result, indent);
+			no.toStateString(result, indent, context);
 		}
 	}
 }
@@ -135,12 +156,13 @@ class JsWhile : JsLabel {
 		this.states = new JsImplictScope(states);
 	}
 
-	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
-		super.toStateString(result, indent);
+	override void toStateString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
+		super.toStateString(result, indent, context);
 		result("while (");
-		cond.toExprString(result, indent);
+		cond.toExprString(result, indent, context);
 		result(")");
-		states.toStateString(result, indent);
+		states.toStateString(result, indent, context);
 	}
 }
 
@@ -156,12 +178,13 @@ class JsDoWhile : JsLabel {
 		this.cond = cond;
 	}
 
-	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
-		super.toStateString(result, indent);
+	override void toStateString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
+		super.toStateString(result, indent, context);
 		result("do ");
-		states.toStateString(result, indent);
+		states.toStateString(result, indent, context);
 		result("while (");
-		cond.toExprString(result, indent);
+		cond.toExprString(result, indent, context);
 		result(");");
 	}
 }
@@ -182,44 +205,50 @@ class JsFor : JsLabel {
 		this.states = new JsImplictScope(states);
 	}
 
-	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
-		super.toStateString(result, indent);
+	override void toStateString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
+		super.toStateString(result, indent, context);
 		result("for (");
 		if (vardef) {
-			vardef.toStateString(result, indent);
+			context = vardef.variable.insert(context);
+			vardef.toStateString(result, indent, context);
 		} else {
 			result(";");
 		}
 		if (cond) {
-			cond.toExprString(result, indent);
+			cond.toExprString(result, indent, context);
 		}
 		result(";");
 		if (inc) {
-			inc.toExprString(result, indent);
+			inc.toExprString(result, indent, context);
 		}
 		result(")");
-		states.toStateString(result, indent);
+		states.toStateString(result, indent, context);
 	}
 }
 
 class JsVarDef : JsState {
-	string name;
+	JsVariable variable;
 	JsExpr value;
-	this() {
-	}
 
-	this(string name, JsExpr value) {
-		this.name = name;
+	this(JsVariable variable, JsExpr value) {
+		this.variable = variable;
 		this.value = value;
 	}
 
-	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
+	override void toStateString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
 		result("var ");
-		result(name);
+		variable.toExprString(result, indent, context);
 		result(" = ");
-		value.toExprString(result, indent);
+		value.toExprString(result, indent, context);
 		result(";");
 	}
+
+	override JsContext updateContext(JsContext context) {
+		return variable.insert(context);
+	}
+
 }
 
 class JsReturn : JsState {
@@ -231,11 +260,12 @@ class JsReturn : JsState {
 		this.expr = expr;
 	}
 
-	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
+	override void toStateString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
 		result("return");
 		if (expr) {
 			result(" ");
-			expr.toExprString(result, indent);
+			expr.toExprString(result, indent, context);
 		}
 		result(";");
 	}
@@ -250,7 +280,8 @@ class JsContinue : JsState {
 		this.label = label;
 	}
 
-	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
+	override void toStateString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
 		result("continue");
 		if (label.length > 0) {
 			result(" ");
@@ -269,7 +300,8 @@ class JsBreak : JsState {
 		this.label = label;
 	}
 
-	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
+	override void toStateString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
 		result("break");
 		if (label.length > 0) {
 			result(" ");
@@ -288,20 +320,21 @@ enum precedence = [
 enum predPrefix = precedence.length + 1;
 enum predPostfix = predPrefix + 1;
 enum predLit = predPostfix + 1;
-enum predHighest = predLit + 1;
 
 abstract class JsExpr : JsState {
-	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
-		toExprString(result, indent);
+	override void toStateString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
+		toExprString(result, indent, context);
 		result(";");
 	}
 
-	void toExprString(scope void delegate(const(char)[]) result, uint indent);
-	void toExprString(scope void delegate(const(char)[]) result, uint indent, uint pred) {
+	void toExprString(scope void delegate(const(char)[]) result, uint indent, JsContext context);
+	void toExprString(scope void delegate(const(char)[]) result, uint indent,
+			uint pred, JsContext context) {
 		if (pred > this.pred) {
 			result("(");
 		}
-		toExprString(result, indent);
+		toExprString(result, indent, context);
 		if (pred > this.pred) {
 			result(")");
 		}
@@ -310,22 +343,108 @@ abstract class JsExpr : JsState {
 	uint pred();
 }
 
-//for int lits, bool lits, float lits and variables
-class JsLit : JsExpr {
-	string value;
-	this() {
+auto defaultNaming(string name) {
+	name = name.replace(" ", "_");
+	return chain(only(name), iota(0, uint.max).map!(a => name ~ a.to!string));
+}
+
+auto temporary() {
+	return iota(0, uint.max).map!(a => "$" ~ a.to!string);
+}
+
+class JsVariable : JsExpr {
+	InputRange!string convention;
+
+	this(T)(T range) if (isInputRange!T) {
+		convention = inputRangeObject(range);
 	}
+
+	override void toExprString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
+		result(context.names[this]);
+	}
+
+	override uint pred() {
+		return predLit;
+	}
+
+	final JsContext insert(JsContext context) {
+		foreach (name; convention) {
+			if (!(name in context.variables)) {
+				context.variables[name] = this;
+				context.names[this] = name;
+				return context;
+			}
+		}
+		assert(0);
+	}
+}
+
+abstract class JsBasicLit : JsExpr {
+	string value;
 
 	this(string value) {
 		this.value = value;
 	}
 
-	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
+	override void toExprString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
 		result(value);
 	}
 
 	override uint pred() {
 		return predLit;
+	}
+}
+
+class JsExternLit : JsBasicLit {
+	this(string name) {
+		super(name);
+	}
+}
+
+class JsIntLit : JsBasicLit {
+	this(long value) {
+		super(value.to!string);
+	}
+}
+
+class JsDoubleLit : JsBasicLit {
+	this(double value) {
+		super(value.to!string);
+	}
+}
+
+class JsBoolLit : JsBasicLit {
+	this(bool value) {
+		if (value) {
+			super("true");
+		} else {
+			super("false");
+		}
+	}
+}
+
+string escape(dchar d) {
+	if (d == '\0') {
+		return "\\0"; //"\0" in js
+	} else if (d == '\'') {
+		return "'";
+	} else if (d == '"') {
+		return "\\\""; //"\"" in js
+	}
+	return d.to!string;
+}
+
+class JsCharLit : JsBasicLit {
+	this(dchar value) {
+		super('"' ~ escape(value) ~ '"');
+	}
+}
+
+class JsThis : JsBasicLit {
+	this() {
+		super("this");
 	}
 }
 
@@ -338,9 +457,10 @@ class JsPrefix(string op) : JsExpr {
 		this.expr = expr;
 	}
 
-	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
+	override void toExprString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
 		result(op);
-		expr.toExprString(result, indent, pred);
+		expr.toExprString(result, indent, pred, context);
 	}
 
 	override uint pred() {
@@ -357,8 +477,9 @@ class JsPostfix(string op) : JsExpr {
 		this.expr = expr;
 	}
 
-	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
-		expr.toExprString(result, indent, pred);
+	override void toExprString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
+		expr.toExprString(result, indent, pred, context);
 		result(op);
 	}
 
@@ -378,10 +499,11 @@ class JsBinary(string op) : JsExpr {
 		this.right = right;
 	}
 
-	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
-		left.toExprString(result, indent, pred);
+	override void toExprString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
+		left.toExprString(result, indent, pred, context);
 		result(" " ~ op ~ " ");
-		right.toExprString(result, indent, pred);
+		right.toExprString(result, indent, pred, context);
 	}
 
 	override uint pred() {
@@ -400,11 +522,12 @@ class JsCall : JsExpr {
 		this.args = args;
 	}
 
-	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
-		func.toExprString(result, indent, pred);
+	override void toExprString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
+		func.toExprString(result, indent, pred, context);
 		result("(");
 		foreach (c, arg; args) {
-			arg.toExprString(result, indent);
+			arg.toExprString(result, indent, context);
 			if (c != args.length - 1) {
 				result(", ");
 			}
@@ -418,27 +541,29 @@ class JsCall : JsExpr {
 }
 
 class JsFuncLit : JsExpr {
-	string[] args;
+	JsVariable[] args;
 	JsImplictScope states;
-	this() {
-		states = new JsImplictScope();
-	}
 
-	this(string[] args, JsState[] states) {
+	this(JsVariable[] args, JsState[] states) {
 		this.args = args;
 		this.states = new JsImplictScope(states);
 	}
 
-	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
+	override void toExprString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
+		foreach (arg; args) {
+			context = arg.insert(context);
+		}
 		result("function (");
 		foreach (c, arg; args) {
-			result(arg);
+			context = arg.insert(context);
+			arg.toExprString(result, indent, context);
 			if (c != args.length - 1) {
 				result(", ");
 			}
 		}
 		result(")");
-		states.toStateString(result, indent);
+		states.toStateString(result, indent, context);
 	}
 
 	override uint pred() {
@@ -455,10 +580,11 @@ class JsArray : JsExpr {
 		this.exprs = exprs;
 	}
 
-	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
+	override void toExprString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
 		result("[");
 		foreach (c, expr; exprs) {
-			expr.toExprString(result, indent);
+			expr.toExprString(result, indent, context);
 			if (c != exprs.length - 1) {
 				result(", ");
 			}
@@ -480,14 +606,15 @@ class JsObject : JsExpr {
 		this.fields = fields;
 	}
 
-	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
+	override void toExprString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
 		result("{");
 		increase(indent);
 		foreach (c, field; fields.enumerate) {
 			line(result, indent);
 			result(field[0]);
 			result(" : ");
-			field[1].toExprString(result, indent);
+			field[1].toExprString(result, indent, context);
 			if (c != fields.length - 1) {
 				result(",");
 			}
@@ -513,8 +640,9 @@ class JsDot : JsExpr {
 		this.value = value;
 	}
 
-	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
-		object.toExprString(result, indent, pred);
+	override void toExprString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
+		object.toExprString(result, indent, pred, context);
 		result(".");
 		result(value);
 	}
@@ -535,10 +663,11 @@ class JsIndex : JsExpr {
 		this.index = index;
 	}
 
-	override void toExprString(scope void delegate(const(char)[]) result, uint indent) {
-		array.toExprString(result, indent, pred);
+	override void toExprString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
+		array.toExprString(result, indent, pred, context);
 		result("[");
-		index.toExprString(result, indent);
+		index.toExprString(result, indent, context);
 		result("]");
 	}
 
@@ -549,9 +678,13 @@ class JsIndex : JsExpr {
 
 class JsModule : JsImplictScope {
 	alias states this;
-	override void toStateString(scope void delegate(const(char)[]) result, uint indent) {
+	override void toStateString(scope void delegate(const(char)[]) result,
+			uint indent, JsContext context) {
 		foreach (state; states) {
-			state.toStateString(result, indent);
+			context = state.updateContext(context);
+		}
+		foreach (state; states) {
+			state.toStateString(result, indent, context);
 			result("\n");
 		}
 	}

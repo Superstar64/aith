@@ -58,6 +58,7 @@ class Context {
 	string symbolName;
 	Tuple!()[Parser.Expression] recursionCheck;
 	Equivalence[] typeChecks;
+	Tuple!(PolymorphicType, Position)[] types;
 	ScopeVarImpl!false[] vars;
 	void delegate() @system[] futures;
 
@@ -126,8 +127,7 @@ PolymorphicType[PolymorphicVariable] mapSubstitions(Context context, Subsitution
 				auto substitions = mapSubstitions(context,
 						typeMatch(map[key][0], map[key][1], Position.init));
 				foreach (ref value; map.byValue) {
-					value = value.map!(a => a.specialize(substitions,
-							new Transition(context.global))).array;
+					value = value.map!(a => a.specialize(substitions, new TypeTransition())).array;
 				}
 				map[key].popFront;
 				foreach (substition; substitions.byKey) {
@@ -145,7 +145,7 @@ PolymorphicType[PolymorphicVariable] mapSubstitions(Context context, Subsitution
 	}
 	//todo is this necessary
 	foreach (ref value; solution.byValue) {
-		value = value.specialize(solution, new Transition(context.global));
+		value = value.specialize(solution, new TypeTransition());
 	}
 	return solution;
 }
@@ -172,6 +172,11 @@ void processModuleSymbol(Module mod, Parser.ModuleVarDef symbol,
 		auto pending = context.typeChecks.map!(check => typeMatch(check.left,
 				check.right, check.position)).joiner.array;
 		PolymorphicType[PolymorphicVariable] substitions = mapSubstitions(context, pending);
+		auto expected = result.type.specialize(substitions, new TypeTransition()).parameters;
+		foreach (type; context.types) {
+			check(isSubSet(type[0].specialize(substitions, new TypeTransition())
+					.parameters, expected), "unable to infer type", type[1]);
+		}
 		result = result.specialize(substitions, new Transition(context.global));
 		value = value.mapWrap!(a => result);
 	}
@@ -222,6 +227,9 @@ auto semanticMain(Parser.Expression that, Context context) {
 	}
 	context.recursionCheck[that] = Tuple!()();
 	auto result = semanticImplDispatch(that, context);
+	if (auto expr = result.castTo!PolymorphicExpression) {
+		context.types ~= tuple(expr.type, that.position);
+	}
 	return Wrapper!(typeof(result))(result, that.position);
 }
 
@@ -246,7 +254,7 @@ Expression semanticImplDispatch(Parser.Expression that, Context context) {
 Expression semanticImpl(Parser.Variable that, Context context) {
 	auto variable = context.search(that.name);
 	check(!(variable is null), "Undefined variable", that.position);
-	//todo check for closrure variables
+	//todo check for closrure variable
 	return variable;
 }
 
@@ -277,7 +285,7 @@ Expression semanticImpl(Parser.UseSymbol that, Context context) {
 Expression semanticImpl(Parser.Dot that, Context context) {
 	auto value = semanticMain(that.value, context).assumePolymorphic;
 	context.typeChecks ~= Equivalence(value.type,
-			new TypeArrayImpl!false(new PolymorphicVariable), that.position);
+			new TypeArrayImpl!false(new NormalPolymorphicVariable), that.position);
 	check(that.index == "length", "Arrays only have .length", that.position);
 	return createLength(value);
 }
@@ -314,7 +322,7 @@ Expression semanticImpl(Parser.Postfix!"[*]" that, Context context) {
 }
 
 Expression semanticImpl(Parser.IntLit that, Context context) {
-	return new IntLitImpl!false(new PolymorphicVariable, that.value);
+	return new IntLitImpl!false(new NumberPolymorphicVariable, that.value);
 }
 
 Expression semanticImpl(Parser.CharLit that, Context context) {
@@ -372,7 +380,7 @@ Expression semanticImpl(Parser.Infer that, Context context) {
 Expression semanticImpl(Parser.Index that, Context context) {
 	auto array = semanticMain(that.array, context).assumePolymorphic;
 	auto index = semanticMain(that.index, context).assumePolymorphic;
-	auto var = new PolymorphicVariable;
+	auto var = new NormalPolymorphicVariable;
 	context.typeChecks ~= Equivalence(array.type, new TypeArrayImpl!false(var), array.position);
 	context.typeChecks ~= Equivalence(index.type, new TypeInt(0, false), index.position);
 	return createIndex(var, array, index);
@@ -381,15 +389,12 @@ Expression semanticImpl(Parser.Index that, Context context) {
 Expression semanticImpl(Parser.TupleIndex that, Context context) {
 	auto tuple = semanticMain(that.tuple, context).assumePolymorphic;
 	auto index = that.index;
-	auto total = that.total;
-	if (index >= total) {
-		error("bad tuple index", that.position);
-	}
-	PolymorphicVariable[] types = new PolymorphicVariable[total];
+	PolymorphicVariable[] types = new NormalPolymorphicVariable[index + 1];
 	foreach (ref type; types) {
-		type = new PolymorphicVariable();
+		type = new NormalPolymorphicVariable();
 	}
-	context.typeChecks ~= Equivalence(tuple.type, createTypeStruct(types), that.position);
+	auto type = new TuplePolymorphicVariable(types.map!(a => a.convert!PolymorphicType).array);
+	context.typeChecks ~= Equivalence(tuple.type, type, that.position);
 	return createTupleIndex(types[index], tuple, index);
 }
 
@@ -416,7 +421,7 @@ Expression semanticCall(TypeInferPartial type, Wrapper!Expression calle,
 
 Expression semanticCall(PolymorphicType type, Wrapper!Expression calle0,
 		Wrapper!Expression argument0, Position position, Context context) {
-	auto var = new PolymorphicVariable;
+	auto var = new NormalPolymorphicVariable;
 	auto calle1 = calle0.assumePolymorphic;
 	auto argument1 = argument0.assumePolymorphic;
 	context.typeChecks ~= Equivalence(type, new TypeFunctionImpl!false(var,
@@ -435,7 +440,7 @@ Expression semanticImpl(Parser.Slice that, Context context) {
 	auto left = semanticMain(that.left, context).assumePolymorphic;
 	auto right = semanticMain(that.right, context).assumePolymorphic;
 
-	auto type = new TypeArrayImpl!false(new PolymorphicVariable);
+	auto type = new TypeArrayImpl!false(new NormalPolymorphicVariable);
 	context.typeChecks ~= Equivalence(array.type, type, that.position);
 	context.typeChecks ~= Equivalence(left.type, new TypeInt(0, false), that.position);
 	context.typeChecks ~= Equivalence(right.type, new TypeInt(0, false), that.position);
@@ -455,11 +460,20 @@ alias ParserBinary = Parser.Binary;
 alias ParserPrefix = Parser.Prefix;
 
 Expression semanticImpl(string op)(ParserBinary!op that, Context context)
-		if (["*", "/", "%", "+", "-", "<=", ">=", ">", "<"].canFind(op)) {
+		if (["<=", ">=", ">", "<"].canFind(op)) {
 	auto left = semanticMain(that.left, context).assumePolymorphic;
 	auto right = semanticMain(that.right, context).assumePolymorphic;
 	context.typeChecks ~= Equivalence(left.type, right.type, that.position);
-	//todo typecheck int
+	return createBinary!op(left, right);
+}
+
+Expression semanticImpl(string op)(ParserBinary!op that, Context context)
+		if (["*", "/", "%", "+", "-"].canFind(op)) {
+	auto left = semanticMain(that.left, context).assumePolymorphic;
+	auto right = semanticMain(that.right, context).assumePolymorphic;
+	auto type = new NumberPolymorphicVariable();
+	context.typeChecks ~= Equivalence(left.type, type, that.position);
+	context.typeChecks ~= Equivalence(right.type, type, that.position);
 	return createBinary!op(left, right);
 }
 
@@ -507,14 +521,15 @@ Expression semanticImpl(string op)(ParserPrefix!op that, Context context)
 Expression semanticImpl(string op)(ParserPrefix!op that, Context context)
 		if (op == "-") {
 	auto value = semanticMain(that.value, context).assumePolymorphic;
-	//todo typecheck int
+	auto type = new NumberPolymorphicVariable;
+	context.typeChecks ~= Equivalence(value.type, type, that.position);
 	return createPrefix!op(value);
 }
 
 Expression semanticImpl(string op)(ParserPrefix!op that, Context context)
 		if (op == "*") {
 	auto value = semanticMain(that.value, context).assumePolymorphic;
-	auto var = new PolymorphicVariable;
+	auto var = new NormalPolymorphicVariable;
 	context.typeChecks ~= Equivalence(value.type, new TypePointerImpl!false(var), that.position);
 	return createDeref(var, value);
 }
@@ -580,9 +595,9 @@ Expression semanticImpl(Parser.FuncLit that, Context context) {
 	if (context.argumentType) {
 		error("only top level lambda are supported for now", that.position);
 	}
-	auto argumentType = new PolymorphicVariable;
+	auto argumentType = new NormalPolymorphicVariable;
 	context.argumentType = argumentType;
-	auto returnType = new PolymorphicVariable;
+	auto returnType = new NormalPolymorphicVariable;
 	auto type = new TypeFunctionImpl!false(returnType, argumentType);
 	auto result = new FunctionLiteralImpl!false(type, context.symbolName, context.explicitInfer);
 	auto old = context.store;
@@ -604,7 +619,7 @@ Expression semanticImpl(Parser.StringLit that, Context context) {
 }
 
 Expression semanticImpl(Parser.ArrayLit that, Context context) {
-	auto var = new PolymorphicVariable;
+	auto var = new NormalPolymorphicVariable;
 	auto type = new TypeArrayImpl!false(var);
 	auto values = that.values.map!(a => semanticMain(a, context).assumePolymorphic).array;
 	foreach (value; values) {
@@ -614,5 +629,5 @@ Expression semanticImpl(Parser.ArrayLit that, Context context) {
 }
 
 Expression semanticImpl(Parser.ExternJs that, Context context) {
-	return new ExternJsImpl!false(new PolymorphicVariable, that.name);
+	return new ExternJsImpl!false(new NormalPolymorphicVariable, that.name);
 }

@@ -145,7 +145,7 @@ void main(string[] args) {
 	auto writer = &output.write!(const(char)[]);
 	if (genAll) {
 		foreach (mod; all.values) {
-			generateJsModule(mod).toStateString(writer, 0);
+			generateJsModule(mod).toStateString(writer, 0, JsContext());
 			output.writeln;
 		}
 		foreach (file; args) {
@@ -156,7 +156,7 @@ void main(string[] args) {
 	} else {
 		foreach (file; args) {
 			if (file.endsWith(".typi")) {
-				generateJsModule(wanted[file]).toStateString(writer, 0);
+				generateJsModule(wanted[file]).toStateString(writer, 0, JsContext());
 			} else {
 				File(file, "r").byChunk(4096).map!(a => cast(const(char)[]) a).copy(writer);
 			}
