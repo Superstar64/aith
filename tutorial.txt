@@ -25,7 +25,7 @@ typi's expressions:
 	"x1[x2]": array index expression,x2 must be of natural 0
 	"x1(x2)": function call, functions only take 1 one argument and return 1 argument
 	"x1[x2..x3]":slice expression,x2 and x3 must be of type natural 0
-	"x1 @ t1 t2": tuple index x1 is the tuple, t1 is the index, t2 is the length of the tuple
+	"x1_t1": tuple index x1 is the tuple, t1 is the index
 	binary operators(in order of precedence by row): both left and right sides must be the exact same type
 		"*","/","%",
 		"+","-","~":array append,
