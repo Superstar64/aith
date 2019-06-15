@@ -54,12 +54,20 @@ alias record pointer = > {
 	assert(&pair == &pair);
 };
 
+alias pointed record = > {
+	let record = (true,false);
+	let address = &record;
+	(*address)_0 = false;
+	assert(record_0 == false);
+};
+
 
 alias main :: void -> void = > {
 	heap pointer();
 	local pointer();
 	array pointer();
 	record pointer();
+	pointed record();
 };
 
 alias assert :: boolean -> void = extern "assert";

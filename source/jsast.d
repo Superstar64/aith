@@ -26,11 +26,6 @@ import std.range.interfaces;
 struct JsContext {
 	JsVariable[string] variables;
 	string[JsVariable] names;
-	//deep copy
-	this(this) {
-		variables = variables.dup;
-		names = names.dup;
-	}
 }
 
 abstract class JsState {
@@ -361,6 +356,7 @@ class JsVariable : JsExpr {
 
 	override void toExprString(scope void delegate(const(char)[]) result,
 			uint indent, JsContext context) {
+		assert(this in context.names, "unassigned name: " ~ convention.front);
 		result(context.names[this]);
 	}
 

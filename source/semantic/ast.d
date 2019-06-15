@@ -32,8 +32,10 @@ import misc;
 
 //vtables need theses
 import semantic.semantic : Context;
-import codegen : Usage, Extra, generateJsImpl, generateJsIntoImpl, generateJsAddressOfImpl,
-	generateJsEffectsOnlyImpl, generateSymbolImpl, AssignContext, generateJsAssignImpl;
+import codegen : Extra, generateJsImpl, generateJsCopyImpl,
+	generateJsEffectLessImpl, generateJsEffectLessCopyImpl, generateJsVarImpl,
+	generateJsExprImpl, generateJsAddressOfImpl, generateJsEffectsOnlyImpl,
+	generateSymbolImpl, generateJsAssignImpl;
 
 enum TupleLitKind {
 	normal,
@@ -100,8 +102,16 @@ interface RuntimeExpression : PolymorphicExpression {
 		return typeVirtual;
 	}
 
-	JsExpr generateJs(Usage usage, JsScope depend, Extra extra);
-	void generateJsInto(AssignContext var, JsScope depend, Extra extra);
+	JsExpr generateJs(JsScope depend, Extra extra);
+	//if expression is a tuple, it is unique
+	JsExpr generateJsCopy(JsScope depend, Extra extra);
+	//allows repeated evalutation of returned expression
+	JsExpr generateJsEffectLess(JsScope depend, Extra extra);
+	//if expression is a tuple, then
+	// that when evaluted returns a new unique tuple
+	JsExpr generateJsEffectLessCopy(JsScope depend, Extra extra);
+	void generateJsVar(JsVariable target, JsScope depend, Extra extra);
+	void generateJsExpr(JsExpr target, JsScope depend, Extra extra);
 	//todo print warning if unusal node(new,intlit,etc)
 	void generateJsEffectsOnly(JsScope depend, Extra extra);
 }
@@ -117,7 +127,7 @@ interface LValueExpression : PolymorphicLValueExpression, RuntimeExpression {
 		return typeVirtual;
 	}
 
-	JsExpr generateJsAddressOf(Usage, JsScope, Extra);
+	JsExpr generateJsAddressOf(JsScope, Extra);
 	void generateJsAssign(RuntimeExpression, JsScope, Extra);
 }
 
@@ -141,12 +151,28 @@ override:
 		return this;
 	}
 
-	JsExpr generateJs(Usage usage, JsScope depend, Extra extra) {
-		return generateJsImpl(this, usage, depend, extra);
+	JsExpr generateJs(JsScope depend, Extra extra) {
+		return generateJsImpl(this, depend, extra);
 	}
 
-	void generateJsInto(AssignContext context, JsScope depend, Extra extra) {
-		return generateJsIntoImpl(this, context, depend, extra);
+	JsExpr generateJsCopy(JsScope depend, Extra extra) {
+		return generateJsCopyImpl(this, depend, extra);
+	}
+
+	JsExpr generateJsEffectLess(JsScope depend, Extra extra) {
+		return generateJsEffectLessImpl(this, depend, extra);
+	}
+
+	JsExpr generateJsEffectLessCopy(JsScope depend, Extra extra) {
+		return generateJsEffectLessCopyImpl(this, depend, extra);
+	}
+
+	void generateJsVar(JsVariable target, JsScope depend, Extra extra) {
+		return generateJsVarImpl(this, target, depend, extra);
+	}
+
+	void generateJsExpr(JsExpr target, JsScope depend, Extra extra) {
+		return generateJsExprImpl(this, target, depend, extra);
 	}
 
 	void generateJsEffectsOnly(JsScope depend, Extra extra) {
@@ -163,8 +189,8 @@ override:
 		return this;
 	}
 
-	JsExpr generateJsAddressOf(Usage usage, JsScope depend, Extra extra) {
-		return generateJsAddressOfImpl(this, usage, depend, extra);
+	JsExpr generateJsAddressOf(JsScope depend, Extra extra) {
+		return generateJsAddressOfImpl(this, depend, extra);
 	}
 
 	void generateJsAssign(RuntimeExpression right, JsScope depend, Extra extra) {
@@ -1214,6 +1240,10 @@ class TuplePolymorphicVariable : PolymorphicVariable {
 	PolymorphicType[] values;
 	this(PolymorphicType[] values) {
 		this.values = values;
+	}
+
+	override Tuple!()[PolymorphicVariable] parameters() {
+		return arrayToSet(values.map!(a => a.parameters.byKey).joiner.array ~ this);
 	}
 
 	override PolymorphicType specialize(PolymorphicType[PolymorphicVariable] moves,
