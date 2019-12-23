@@ -2,14 +2,14 @@
  Boost License
 /#
 
-alias void = tuple();
+void = tuple();
 
-alias increment = > {
-	*$@ = *$@ + 1;
+increment = >(x) = {
+	x <- *x + 1;
 };
 
-alias heap pointer = > {
-	let pointer :: integer 32(*) = new 5;
+heap pointer = >() = {
+	let pointer : integer 32(*) = new 5;
 	assert(*pointer == 5);
 	increment(pointer);
 	assert(*pointer == 6);
@@ -17,57 +17,38 @@ alias heap pointer = > {
 	assert(pointer == pointer);
 };
 
-alias local pointer = > {
-	let number :: integer 32 = 4;
-	assert(number == 4);
-	increment(&number);
-	assert(number == 5);
-	increment(&number);
-	assert(number == 6);
-	assert(&number == &number);
-};
-
-alias array pointer = > {
-	let array :: integer 32[*] = [0,10,20];
-	let index = &array[1];
+array pointer = >() =  {
+	let array : integer 32[*] = [0,10,20];
+	let index = array&[1];
 	assert(array[1] == 10);
 	increment(index);
 	assert(array[1] == 11);
-	assert(&array[1] == &array[1]);
-	assert(&array[1] != &array[2]);
+	assert(array&[1] == array&[1]);
+	assert(array&[1] != array&[2]);
 };
 
 
-alias record pointer = > {
-	let pair = ((infer integer 32)(4),(infer integer 32)(10));
-	assert(pair_0 == 4);
-	increment(&pair_0);
-	assert(pair_0 == 5);
+record pointer = >() =  {
+	let pair = new (4 : integer 32,10 : integer 32);
+	assert((*pair)_0 == 4);
+	increment(pair&_0);
+	assert((*pair)_0 == 5);
 	
-	assert(pair_1 == 10);
-	increment(&pair_1);
-	assert(pair_1 == 11);
+	assert((*pair)_1 == 10);
+	increment(pair&_1);
+	assert((*pair)_1 == 11);
 	
 	
-	assert(&pair_0 == &pair_0);
-	assert(&pair_0 != &pair_1);
-	assert(&pair == &pair);
-};
-
-alias pointed record = > {
-	let record = (true,false);
-	let address = &record;
-	(*address)_0 = false;
-	assert(record_0 == false);
+	assert(pair&_0 == pair&_0);
+	assert(pair&_0 != pair&_1);
+	assert(pair == pair);
 };
 
 
-alias main :: void -> void = > {
+main : void -> void = >() = {
 	heap pointer();
-	local pointer();
 	array pointer();
 	record pointer();
-	pointed record();
 };
 
-alias assert :: boolean -> void = extern "assert";
+assert : boolean -> void = extern "assert";

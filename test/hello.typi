@@ -2,11 +2,10 @@
  Boost License
 /#
 
-alias void = tuple();
+void = tuple();
 
-alias main :: void -> void = > {
+main : void -> void = >()= {
 	write("hello world");
 };
 
-alias write :: character[*] -> void = extern "write";
-
+write : character[*] -> void = extern "write";

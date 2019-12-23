@@ -26,6 +26,24 @@ import std.range.interfaces;
 struct JsContext {
 	JsVariable[string] variables;
 	string[JsVariable] names;
+
+	JsContext insert(JsVariable variable) {
+		auto clone = this;
+		return clone.insertImpl(variable);
+	}
+
+	JsContext insertImpl(JsVariable variable) {
+		variables = variables.dup;
+		names = names.dup;
+		foreach (name; variable.convention) {
+			if (!(name in variables)) {
+				variables[name] = variable;
+				names[variable] = name;
+				return this;
+			}
+		}
+		assert(0);
+	}
 }
 
 abstract class JsState {
@@ -205,7 +223,7 @@ class JsFor : JsLabel {
 		super.toStateString(result, indent, context);
 		result("for (");
 		if (vardef) {
-			context = vardef.variable.insert(context);
+			context = context.insert(vardef.variable);
 			vardef.toStateString(result, indent, context);
 		} else {
 			result(";");
@@ -241,7 +259,7 @@ class JsVarDef : JsState {
 	}
 
 	override JsContext updateContext(JsContext context) {
-		return variable.insert(context);
+		return context.insert(variable);
 	}
 
 }
@@ -363,20 +381,9 @@ class JsVariable : JsExpr {
 	override uint pred() {
 		return predLit;
 	}
-
-	final JsContext insert(JsContext context) {
-		foreach (name; convention) {
-			if (!(name in context.variables)) {
-				context.variables[name] = this;
-				context.names[this] = name;
-				return context;
-			}
-		}
-		assert(0);
-	}
 }
 
-abstract class JsBasicLit : JsExpr {
+abstract class JsBasicLitImpl(JObject) : JObject {
 	string value;
 
 	this(string value) {
@@ -393,25 +400,37 @@ abstract class JsBasicLit : JsExpr {
 	}
 }
 
+alias JsBasicLit = JsBasicLitImpl!JsExpr;
+
 class JsExternLit : JsBasicLit {
 	this(string name) {
 		super(name);
 	}
 }
 
-class JsIntLit : JsBasicLit {
+class JsIntLitImpl(JObject) : JsBasicLitImpl!JObject {
 	this(long value) {
+		super(value.to!string);
+	}
+
+	import std.bigint;
+
+	this(BigInt value) {
 		super(value.to!string);
 	}
 }
 
-class JsDoubleLit : JsBasicLit {
+alias JsIntLit = JsIntLitImpl!JsExpr;
+
+class JsDoubleLitImpl(JObject) : JsBasicLitImpl!JObject {
 	this(double value) {
 		super(value.to!string);
 	}
 }
 
-class JsBoolLit : JsBasicLit {
+alias JsDoubleLit = JsDoubleLitImpl!JsExpr;
+
+class JsBoolLitImpl(JObject) : JsBasicLitImpl!JObject {
 	this(bool value) {
 		if (value) {
 			super("true");
@@ -420,6 +439,8 @@ class JsBoolLit : JsBasicLit {
 		}
 	}
 }
+
+alias JsBoolLit = JsBoolLitImpl!JsExpr;
 
 string escape(dchar d) {
 	if (d == '\0') {
@@ -432,11 +453,19 @@ string escape(dchar d) {
 	return d.to!string;
 }
 
-class JsCharLit : JsBasicLit {
+class JsCharLitImpl(JObject) : JsBasicLitImpl!JObject {
 	this(dchar value) {
 		super('"' ~ escape(value) ~ '"');
 	}
+
+	this(string value) {
+		super('"' ~ value.map!escape
+				.joiner
+				.to!string ~ '"');
+	}
 }
+
+alias JsCharLit = JsCharLitImpl!JsExpr;
 
 class JsThis : JsBasicLit {
 	this() {
@@ -548,11 +577,10 @@ class JsFuncLit : JsExpr {
 	override void toExprString(scope void delegate(const(char)[]) result,
 			uint indent, JsContext context) {
 		foreach (arg; args) {
-			context = arg.insert(context);
+			context = context.insert(arg);
 		}
 		result("function (");
 		foreach (c, arg; args) {
-			context = arg.insert(context);
 			arg.toExprString(result, indent, context);
 			if (c != args.length - 1) {
 				result(", ");
@@ -567,12 +595,12 @@ class JsFuncLit : JsExpr {
 	}
 }
 
-class JsArray : JsExpr {
-	JsExpr[] exprs;
+class JsArrayImpl(JObject) : JObject {
+	JObject[] exprs;
 	this() {
 	}
 
-	this(JsExpr[] exprs) {
+	this(JObject[] exprs) {
 		this.exprs = exprs;
 	}
 
@@ -593,12 +621,14 @@ class JsArray : JsExpr {
 	}
 }
 
-class JsObject : JsExpr {
-	Tuple!(string, JsExpr)[] fields;
+alias JsArray = JsArrayImpl!JsExpr;
+
+class JsObjectImpl(JObject) : JObject {
+	Tuple!(string, JObject)[] fields;
 	this() {
 	}
 
-	this(Tuple!(string, JsExpr)[] fields) {
+	this(Tuple!(string, JObject)[] fields) {
 		this.fields = fields;
 	}
 
@@ -624,6 +654,8 @@ class JsObject : JsExpr {
 		return predLit;
 	}
 }
+
+alias JsObject = JsObjectImpl!JsExpr;
 
 class JsDot : JsExpr {
 	JsExpr object;
@@ -685,3 +717,13 @@ class JsModule : JsImplictScope {
 		}
 	}
 }
+
+abstract class Json : JsExpr {
+}
+
+alias JsonInt = JsIntLitImpl!Json;
+alias JsonDouble = JsDoubleLitImpl!Json;
+alias JsonBool = JsBoolLitImpl!Json;
+alias JsonChar = JsCharLitImpl!Json;
+alias JsonArray = JsArrayImpl!Json;
+alias JsonObject = JsObjectImpl!Json;

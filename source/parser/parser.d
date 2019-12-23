@@ -41,6 +41,10 @@ void parseModule(ref Lexer lexer, Module ret) {
 				modifiersList ~= indexModifier!"public";
 			} else if (lexer.front == keyword!"private") {
 				modifiersList ~= indexModifier!"private";
+			} else if (lexer.front == keyword!"global") {
+				modifiersList ~= indexModifier!"global";
+			} else if (lexer.front == keyword!"static") {
+				modifiersList ~= indexModifier!"static";
 			} else {
 				break;
 			}
@@ -49,22 +53,38 @@ void parseModule(ref Lexer lexer, Module ret) {
 		if (modifiersList.length > 0 && lexer.front == operator!":") {
 			applyModifiers(modifiersList, globalModifiers);
 			lexer.popFront;
-		} else if (lexer.front == keyword!"let" || lexer.front == keyword!"alias") {
+		} else {
 			Modifier localModifiers = globalModifiers;
 			applyModifiers(modifiersList, localModifiers);
-			auto var = new ModuleVarDef();
+			auto var = new DefaultImpl!ModuleVarDef();
 			var.modifier = localModifiers;
-			parseVarDef(lexer, var, lexer.front == keyword!"alias");
+			parseVarDef(lexer, var);
 			ret.symbols ~= var;
-			lexer.front.expect(operator!";");
+			lexer.expect(operator!";");
 			lexer.popFront;
-		} else {
-			error("Expected variable or modifiers list", lexer.front.position);
 		}
 	}
 }
 
 private:
+
+enum modifiersList = ["public", "private", "global", "static"];
+enum indexModifier(string modifier) = modifiersList.countUntil(modifier);
+static void applyModifiers(int[] modifiers, ref Modifier output) {
+	foreach (modifier; modifiers) {
+		if (modifier == indexModifier!"public") {
+			output.visible = true;
+		} else if (modifier == indexModifier!"private") {
+			output.visible = false;
+		} else if (modifier == indexModifier!"global") {
+			output.global = true;
+		} else if (modifier == indexModifier!"static") {
+			output.global = false;
+		} else {
+			assert(0);
+		}
+	}
+}
 
 template dispatchLexer(alias fun, Types...) {
 	auto dispatchLexer(T...)(ref Lexer lexer, T args) {
@@ -107,7 +127,7 @@ alias parseExpression = parseWrap!parseExpressionImpl;
 Expression parseExpressionImpl(ref Lexer lexer) {
 	return parseBinary!("->", parseBinary!("&&", "||", parseBinary!("==",
 			"!=", "<=", ">=", "<", ">", parseBinary!("+", "-", "~",
-			parseBinary!("*", "/", "%", parsePrefix!("-", "*", "&", "!"))))))(lexer);
+			parseBinary!("*", "/", "%", parsePrefix!("-", "*", "!"))))))(lexer);
 }
 
 Expression parseBinary(args...)(ref Lexer lexer) {
@@ -120,7 +140,7 @@ Expression parseBinaryImpl(args...)(ref Lexer lexer) {
 	auto val = sub(lexer);
 	foreach (o; opers) {
 		if (lexer.front == operator!o) {
-			auto ret = new Binary!o;
+			auto ret = new DefaultImpl!(Binary!o);
 			lexer.popFront;
 			ret.left = val;
 			ret.right = parseBinary!args(lexer);
@@ -137,7 +157,7 @@ Expression parsePrefix(opers...)(ref Lexer lexer) {
 Expression parsePrefixImpl(opers...)(ref Lexer lexer) {
 	foreach (o; opers) {
 		if (lexer.front == operator!o) {
-			auto ret = new Prefix!o;
+			auto ret = new DefaultImpl!(Prefix!o);
 			lexer.popFront;
 			ret.value = parsePrefix!(opers)(lexer);
 			return ret;
@@ -155,9 +175,9 @@ alias parseCore = parseWrap!parseCoreImpl;
 Expression parseCoreImpl(ref Lexer lexer) {
 	auto value = dispatchLexerFailable!(parseCoreDispatch, Keyword!"tuple", Keyword!"integer", Keyword!"natural",
 			Keyword!"character", Keyword!"boolean", IntLiteral, Keyword!"true", Keyword!"false", CharLiteral,
-			Keyword!"cast", Keyword!"infer", Operator!"(", Operator!"$@", Identifier,
-			Keyword!"if", Keyword!"while", Keyword!"new", Keyword!"import",
-			Operator!">", StringLiteral, Operator!"[", Keyword!"extern", Operator!"{")(null, lexer);
+			Keyword!"cast", Operator!"(", Identifier, Keyword!"if", Keyword!"while",
+			Keyword!"new", Keyword!"import", Operator!">", StringLiteral,
+			Operator!"[", Keyword!"extern", Operator!"{")(null, lexer);
 	if (value) {
 		return value;
 	}
@@ -167,20 +187,28 @@ Expression parseCoreImpl(ref Lexer lexer) {
 }
 
 Expression parseCoreDispatch(Keyword!"tuple", ref Lexer lexer) {
-	auto value = parseCore(lexer);
-	auto result = new TypeTuple();
-	result.value = value;
+	lexer.expect(operator!"(");
+	lexer.popFront;
+	if (lexer.front == operator!")") {
+		lexer.popFront;
+		return new DefaultImpl!TypeTuple;
+	}
+	auto values = parseList(lexer);
+	lexer.expect(operator!")");
+	lexer.popFront;
+	auto result = new DefaultImpl!TypeTuple;
+	result.values = values;
 	return result;
 }
 
 auto parseToken(T)(ref Lexer lexer) {
-	auto result = lexer.front.expectType!T;
+	auto result = lexer.expectType!T;
 	lexer.popFront;
 	return result;
 }
 
 Expression parseCoreDispatch(Keyword!"integer", ref Lexer lexer) {
-	auto integer = new TypeInt();
+	auto integer = new DefaultImpl!TypeInt;
 	integer.size = parseToken!IntLiteral(lexer).toInt;
 	integer.signed = true;
 	return integer;
@@ -188,40 +216,40 @@ Expression parseCoreDispatch(Keyword!"integer", ref Lexer lexer) {
 }
 
 Expression parseCoreDispatch(Keyword!"natural", ref Lexer lexer) {
-	auto natural = new TypeInt();
+	auto natural = new DefaultImpl!TypeInt();
 	natural.size = parseToken!IntLiteral(lexer).toInt;
 	natural.signed = false;
 	return natural;
 }
 
 Expression parseCoreDispatch(Keyword!"character", ref Lexer lexer) {
-	return new TypeChar();
+	return new DefaultImpl!TypeChar();
 }
 
 Expression parseCoreDispatch(Keyword!"boolean", ref Lexer lexer) {
-	return new TypeBool();
+	return new DefaultImpl!TypeBool();
 }
 
 Expression parseCoreDispatch(IntLiteral value, ref Lexer lexer) {
-	auto ret = new IntLit;
+	auto ret = new DefaultImpl!IntLit;
 	ret.value = value;
 	return ret;
 }
 
 Expression parseCoreDispatch(Keyword!"true", ref Lexer lexer) {
-	auto ret = new BoolLit();
+	auto ret = new DefaultImpl!BoolLit();
 	ret.yes = true;
 	return ret;
 }
 
 Expression parseCoreDispatch(Keyword!"false", ref Lexer lexer) {
-	auto ret = new BoolLit();
+	auto ret = new DefaultImpl!BoolLit();
 	ret.yes = false;
 	return ret;
 }
 
 Expression parseCoreDispatch(CharLiteral value, ref Lexer lexer) {
-	auto ret = new CharLit();
+	auto ret = new DefaultImpl!CharLit();
 	ret.value = decodeFront(value.value);
 	if (value.value.length != 0) {
 		error("TypeChar Lit to big", lexer.front.position);
@@ -230,19 +258,14 @@ Expression parseCoreDispatch(CharLiteral value, ref Lexer lexer) {
 }
 
 Expression parseCoreDispatch(Keyword!"cast", ref Lexer lexer) {
-	auto ret = new Cast();
-	ret.type = parseExpression(lexer);
+	auto ret = new DefaultImpl!Cast();
+	ret.type = parseCore(lexer);
+	ret.value = parseExpression(lexer);
 	return ret;
 }
 
-Expression parseCoreDispatch(Keyword!"infer", ref Lexer lexer) {
-	auto ret = new Infer();
-	ret.type = parseExpression(lexer);
-	return ret;
-}
-
-Expression[] parseList(ref Lexer lexer) {
-	Expression[] result;
+T[] parseListImpl(T, alias parser)(ref Lexer lexer) {
+	T[] result;
 	while (true) {
 		result ~= parseExpression(lexer);
 		if (lexer.front != operator!",") {
@@ -251,6 +274,10 @@ Expression[] parseList(ref Lexer lexer) {
 		lexer.popFront;
 	}
 	return result;
+}
+
+Expression[] parseList(ref Lexer lexer) {
+	return parseListImpl!(Expression, parseExpression)(lexer);
 }
 
 Expression parseCoreDispatch(End...)(Operator!"(", ref Lexer lexer) {
@@ -262,16 +289,16 @@ Expression parseCoreDispatch(End...)(Operator!"(", ref Lexer lexer) {
 Expression parseTupleEnd(End...)(ref Lexer lexer) {
 	foreach (stop; End) {
 		if (lexer.front == stop) {
-			auto ret = new TupleLit();
+			auto ret = new DefaultImpl!TupleLit();
 			return ret;
 		}
 	}
 	auto list = parseList(lexer);
-	lexer.front.expect(End);
+	lexer.expect(End);
 	if (list.length == 1) {
 		return list[0];
 	} else {
-		auto result = new TupleLit();
+		auto result = new DefaultImpl!TupleLit();
 		result.values = list;
 		return result;
 	}
@@ -289,99 +316,141 @@ Expression parseTupleImpl(alias Start, End...)(ref Lexer lexer) {
 	return result;
 }
 
-Expression parseCoreDispatch(Operator!"$@", ref Lexer lexer) {
-	return new FuncArgument();
-}
-
 Expression parseCoreDispatch(Identifier identifier, ref Lexer lexer) {
-	auto ret = new Variable();
+	auto ret = new DefaultImpl!Variable();
 	ret.name = identifier.value;
 	return ret;
 }
 
 Expression parseCoreDispatch(Keyword!"if", ref Lexer lexer) {
-	auto ret = new If();
+	auto ret = new DefaultImpl!If();
 	ret.cond = parseExpression(lexer);
-	lexer.front.expect(keyword!"then");
+	lexer.expect(keyword!"then");
 	lexer.popFront;
 	ret.yes = parseExpression(lexer);
 	if (lexer.front == keyword!"else") {
 		lexer.popFront;
 		ret.no = parseExpression(lexer);
 	} else {
-		ret.no = new TupleLit();
+		ret.no = new DefaultImpl!TupleLit();
 	}
 	return ret;
 }
 
 Expression parseCoreDispatch(Keyword!"while", ref Lexer lexer) {
-	auto ret = new While();
+	auto ret = new DefaultImpl!While();
 	ret.cond = parseExpression(lexer);
 	if (lexer.front == keyword!"then") {
 		lexer.popFront;
 		ret.state = parseExpression(lexer);
 	} else {
-		ret.state = new TupleLit();
+		ret.state = new DefaultImpl!TupleLit();
 	}
 	return ret;
 }
 
 Expression parseCoreDispatch(Keyword!"new", ref Lexer lexer) {
 	if (lexer.front == operator!"[") {
-		auto ret = new NewArray();
+		auto ret = new DefaultImpl!NewArray();
 		ret.length = parseTuple!(operator!"[", operator!"]")(lexer);
 		assert(ret.length);
 		ret.value = parseExpression(lexer);
 		return ret;
 	} else {
-		auto ret = new New();
+		auto ret = new DefaultImpl!New();
 		ret.value = parseExpression(lexer);
 		return ret;
 	}
 }
 
 Expression parseCoreDispatch(Keyword!"import", ref Lexer lexer) {
-	auto ret = new Import();
-	lexer.front.expectType!StringLiteral;
+	auto ret = new DefaultImpl!Import();
+	lexer.expectType!StringLiteral;
 	auto file = lexer.front.get!StringLiteral.value;
 	lexer.popFront();
 	ret.mod = findAndReadModule(file);
 	return ret;
 }
 
+alias parsePattern = parseWrap!parsePatternImpl;
+
+Pattern parsePatternImpl(ref Lexer lexer) {
+	auto value = dispatchLexerFailable!(parsePatternDispatch, Operator!"(", Identifier)(null, lexer);
+	if (value) {
+		return value;
+	}
+
+	error("Expected pattern", lexer.front.position);
+	assert(0);
+}
+
+Pattern parsePatternDispatch(Identifier name, ref Lexer lexer) {
+	auto ret = new DefaultImpl!NamedArgument();
+	ret.name = name;
+	return ret;
+}
+
+Pattern parsePatternDispatch(Operator!"(", ref Lexer lexer) {
+	Pattern[] matches;
+	if (lexer.front == operator!")") {
+		lexer.popFront;
+		auto ret = new DefaultImpl!TupleArgument();
+		ret.matches = matches;
+		return ret;
+	}
+	matches ~= parsePattern(lexer);
+	while (lexer.front == operator!",") {
+		lexer.popFront;
+		matches ~= parsePattern(lexer);
+	}
+	lexer.expect(operator!")");
+	lexer.popFront;
+	if (matches.length == 1) {
+		return matches[0];
+	} else {
+		auto ret = new DefaultImpl!TupleArgument();
+		ret.matches = matches;
+		return ret;
+	}
+}
+
 Expression parseCoreDispatch(Operator!">", ref Lexer lexer) {
-	auto ret = new FuncLit();
+	auto ret = new DefaultImpl!FuncLit();
+	lexer.expect(operator!"(");
+	ret.argument = parsePattern(lexer);
+	lexer.expect(operator!"=");
+	lexer.popFront;
 	ret.text = parseExpression(lexer);
 	return ret;
 }
 
 Expression parseCoreDispatch(StringLiteral value, ref Lexer lexer) {
-	auto ret = new StringLit;
+	auto ret = new DefaultImpl!StringLit;
 	ret.value = value.value;
 	return ret;
 }
 
 Expression parseCoreDispatch(Operator!"[", ref Lexer lexer) {
 	auto values = parseList(lexer);
-	lexer.front.expect(operator!"]");
+	lexer.expect(operator!"]");
 	lexer.popFront;
-	auto ret = new ArrayLit;
+	auto ret = new DefaultImpl!ArrayLit;
 	ret.values = values;
 	return ret;
 }
 
 Expression parseCoreDispatch(Keyword!"extern", ref Lexer lexer) {
-	auto ret = new ExternJs;
-	ret.name = lexer.front.expectType!StringLiteral;
+	auto ret = new DefaultImpl!ExternJs;
+	ret.name = lexer.expectType!StringLiteral;
 	lexer.popFront;
 	return ret;
 }
 
 Expression parsePostfix(ref Lexer lexer, Expression current) {
 	auto position = lexer.front.position;
-	return dispatchLexerFailable!(parsePostfixDispatch, Operator!".", Operator!"[",
-			Operator!"(", Operator!"(*)", Operator!"[*]", Operator!":::", Operator!"_")(current,
-			lexer, current, position);
+	return dispatchLexerFailable!(parsePostfixDispatch, Operator!".", Operator!"[", Operator!"(",
+			Operator!"(*)", Operator!"[*]", Operator!"::", Operator!"_",
+			Operator!":", Operator!"&[", Operator!"&_")(current, lexer, current, position);
 }
 
 Expression parsePostfixDispatch(T)(T operator, ref Lexer lexer, Expression current,
@@ -393,20 +462,29 @@ Expression parsePostfixDispatch(T)(T operator, ref Lexer lexer, Expression curre
 
 Expression parsePostfixDispatchImpl(Operator!"_", ref Lexer lexer,
 		Expression current, Position postfixStart) {
-	auto ret = new TupleIndex();
+	auto ret = new DefaultImpl!TupleIndex();
 	ret.tuple = current;
-	ret.index = lexer.front
-		.expectType!IntLiteral
+	ret.index = lexer.expectType!IntLiteral
 		.to!uint;
 	lexer.popFront;
 	return ret;
 }
 
-Expression parsePostfixDispatchImpl(Operator!":::", ref Lexer lexer,
+Expression parsePostfixDispatchImpl(Operator!"&_", ref Lexer lexer,
 		Expression current, Position postfixStart) {
-	auto ret = new UseSymbol();
+	auto ret = new DefaultImpl!TupleIndexAddress();
+	ret.tuple = current;
+	ret.index = lexer.expectType!IntLiteral
+		.to!uint;
+	lexer.popFront;
+	return ret;
+}
+
+Expression parsePostfixDispatchImpl(Operator!"::", ref Lexer lexer,
+		Expression current, Position postfixStart) {
+	auto ret = new DefaultImpl!UseSymbol();
 	ret.value = current;
-	lexer.front.expectType!(Identifier);
+	lexer.expectType!(Identifier);
 	ret.index = lexer.front.get!(Identifier).value;
 	lexer.popFront;
 	return ret;
@@ -414,11 +492,30 @@ Expression parsePostfixDispatchImpl(Operator!":::", ref Lexer lexer,
 
 Expression parsePostfixDispatchImpl(Operator!".", ref Lexer lexer,
 		Expression current, Position postfixStart) {
-	auto ret = new Dot();
+	auto ret = new DefaultImpl!Dot();
 	ret.value = current;
-	lexer.front.expectType!(Identifier);
+	lexer.expectType!(Identifier);
 	ret.index = lexer.front.get!(Identifier).value;
 	lexer.popFront;
+	return ret;
+}
+
+Expression parsePostfixDispatchImpl(Operator!":", ref Lexer lexer,
+		Expression current, Position postfixStart) {
+	auto ret = new DefaultImpl!Infer();
+	ret.value = current;
+	ret.type = parseExpression(lexer);
+	return ret;
+}
+
+Expression parsePostfixDispatchImpl(Operator!"&[", ref Lexer lexer,
+		Expression current, Position postfixStart) {
+	auto argument = parseExpression(lexer);
+	lexer.expect(operator!"]");
+	lexer.popFront;
+	auto ret = new DefaultImpl!IndexAddress;
+	ret.array = current;
+	ret.index = argument;
 	return ret;
 }
 
@@ -431,7 +528,7 @@ Expression parsePostfixDispatchImpl(Operator!"[", ref Lexer lexer,
 
 Expression parsePostfixBraceDispatch(Operator!"..", ref Lexer lexer,
 		Expression current, Expression argument, Position postfixStart) {
-	auto ret = new Slice;
+	auto ret = new DefaultImpl!Slice;
 	ret.array = current;
 	ret.left = argument;
 	ret.left.position = postfixStart.join(lexer.front.position);
@@ -443,7 +540,7 @@ Expression parsePostfixBraceDispatch(Operator!"..", ref Lexer lexer,
 
 Expression parsePostfixBraceDispatch(Operator!"]", ref Lexer lexer,
 		Expression current, Expression argument, Position postfixStart) {
-	auto ret = new Index;
+	auto ret = new DefaultImpl!Index;
 	ret.array = current;
 	ret.index = argument;
 	ret.index.position = postfixStart.join(lexer.front.position);
@@ -455,7 +552,7 @@ Expression parsePostfixDispatchImpl(Operator!"(", ref Lexer lexer,
 	auto argument = parseTupleEnd!(operator!")")(lexer);
 	assert(lexer.front == operator!")");
 	lexer.popFront;
-	auto ret = new Call();
+	auto ret = new DefaultImpl!Call();
 	ret.calle = current;
 	ret.argument = argument;
 	argument.position = postfixStart.join(lexer.front.position);
@@ -464,21 +561,22 @@ Expression parsePostfixDispatchImpl(Operator!"(", ref Lexer lexer,
 
 Expression parsePostfixDispatchImpl(string op)(Operator!op, ref Lexer lexer,
 		Expression current, Position) if (op == "(*)" || op == "[*]") {
-	auto ret = new Postfix!op();
+	auto ret = new DefaultImpl!(Postfix!op)();
 	ret.value = current;
 	return ret;
 }
 
 Expression parseCoreDispatch(Operator!"{", ref Lexer lexer) {
-	auto ret = new Scope();
+	auto ret = new DefaultImpl!Scope();
 	while (true) {
 		if (lexer.front == operator!"}") {
 			lexer.popFront;
 			return ret;
 		}
-		if (lexer.front == keyword!"let" || lexer.front == keyword!"alias") {
-			auto var = new ScopeVarDef();
-			parseVarDef(lexer, var, lexer.front == keyword!"alias");
+		if (lexer.front == keyword!"let") {
+			auto var = new DefaultImpl!ScopeVarDef();
+			lexer.popFront;
+			parseVarDef(lexer, var);
 			ret.states ~= var;
 		} else {
 			auto val = parseExpression(lexer);
@@ -486,10 +584,10 @@ Expression parseCoreDispatch(Operator!"{", ref Lexer lexer) {
 				ret.last = val;
 				lexer.popFront;
 				return ret;
-			} else if (lexer.front == operator!"=") {
+			} else if (lexer.front == operator!"<-") {
 				lexer.popFront;
 				auto assigner = parseExpression(lexer);
-				auto assign = new Assign;
+				auto assign = new DefaultImpl!Assign;
 				assign.left = val;
 				assign.right = assigner;
 				ret.states ~= assign;
@@ -497,38 +595,22 @@ Expression parseCoreDispatch(Operator!"{", ref Lexer lexer) {
 				ret.states ~= val;
 			}
 		}
-		lexer.front.expect(operator!";");
+		lexer.expect(operator!";");
 		lexer.popFront;
 	}
 }
 
 alias parseVarDef = parseWrap!parseVarDefImpl;
-VarDef parseVarDefImpl(ref Lexer lexer, VarDef var, bool manifest) {
-	var.manifest = manifest;
+VarDef parseVarDefImpl(ref Lexer lexer, VarDef var) {
+	var.name = lexer.expectType!Identifier;
 	lexer.popFront;
-	var.name = lexer.front.expectType!Identifier;
-	lexer.popFront;
-	if (lexer.front == operator!"::") {
+	if (lexer.front == operator!":") {
 		lexer.popFront;
 		var.explicitType = parseExpression(lexer);
 	}
-	lexer.front.expect(operator!"=");
+	lexer.expect(operator!"=");
 	lexer.popFront;
 
 	var.value = parseExpression(lexer);
 	return var;
-}
-
-enum modifiersList = ["public", "private"];
-enum indexModifier(string modifier) = modifiersList.countUntil(modifier);
-static void applyModifiers(int[] modifiers, ref Modifier output) {
-	foreach (modifier; modifiers) {
-		if (modifier == indexModifier!"public") {
-			output.visible = true;
-		} else if (modifier == indexModifier!"private") {
-			output.visible = false;
-		} else {
-			assert(0);
-		}
-	}
 }

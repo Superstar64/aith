@@ -3,6 +3,141 @@ import std.traits;
 import std.algorithm;
 import std.typecons;
 import std.array;
+import core.runtime;
+import core.stdc.stdlib;
+import std.stdio;
+import std.meta;
+import std.format;
+import std.range;
+import std.bigint;
+
+import jsast : Json, JsonInt, JsonBool, JsonChar, JsonArray, JsonObject;
+
+class Lazy(T) {
+	T delegate() callback;
+	struct Value {
+		T val;
+	}
+
+	Value* value;
+
+	this(T delegate() callback) {
+		this.callback = callback;
+	}
+
+	T get() {
+		if (value is null) {
+			auto v = callback();
+			value = new Value(v);
+		}
+		return value.val;
+	}
+
+	void eval() {
+		get();
+	}
+}
+
+Lazy!T defer(T)(T delegate() callback) {
+	return new Lazy!T(callback);
+}
+
+interface Jsonable {
+	Json jsonify();
+}
+
+Json jsonify(int x) {
+	return new JsonInt(x);
+}
+
+Json jsonify(BigInt x) {
+	return new JsonInt(x);
+}
+
+Json jsonify(bool x) {
+	return new JsonBool(x);
+}
+
+Json jsonify(string x) {
+	return new JsonChar(x);
+}
+
+Json jsonify(T)(T[] list) {
+	return new JsonArray(list.map!jsonify.array);
+}
+
+Json jsonify(V)(V[string] map) {
+	JsonObject base = new JsonObject;
+	foreach (name; map.byKey) {
+		base.fields ~= tuple(name, map[name].jsonify);
+	}
+	return base;
+}
+
+Json jsonify(T)(Lazy!T x) {
+	return x.get.jsonify;
+}
+
+Json jsonify(Jsonable dispatch) {
+	return dispatch.jsonify();
+}
+
+template GetMember(T) {
+	alias GetMember(string name) = AliasSeq!(__traits(getMember, T, name));
+}
+
+alias PropertyNameTuple(T) = __traits(derivedMembers, T);
+
+alias PropertyTypeTuple(T) = staticMap!(ReturnType, staticMap!(GetMember!T,
+		PropertyNameTuple!T));
+
+mixin template Getters(T) {
+	import std.format;
+	import std.traits;
+
+	static foreach (field; PropertyNameTuple!T) {
+		mixin(q{ private ReturnType!(__traits(getMember,T,field)) _%s;}.format(field));
+		mixin(q{ override %s ReturnType!(__traits(getMember,T,field)) %s(){
+				return _%s;
+			}}.format(
+				functionAttributes!(__traits(getMember,
+				T, field)) & FunctionAttribute.ref_ ? "ref" : "", field, field));
+	}
+	this(PropertyTypeTuple!T arguments) {
+		static foreach (c, field; PropertyNameTuple!T) {
+			mixin(q{this._%s = arguments[c];}.format(field));
+		}
+	}
+
+	auto properties()() {
+		mixin(q{return .tuple(} ~ [PropertyNameTuple!T].map!(a => "_" ~ a ~ ",").joiner.array
+				~ q{);});
+	}
+
+	import jsast : Json;
+
+	Json jsonifyImpl()() {
+		import jsast;
+		static import std.typecons;
+		static import std.conv;
+		static import misc;
+
+		JsonObject base = new JsonObject;
+		base.fields ~= std.typecons.tuple("_name", misc.jsonify(T.stringof));
+		//base.fields ~= std.typecons.tuple("_address", misc.jsonify(std.conv.to!string(cast(void*)(this))) );
+		static foreach (c, field; PropertyNameTuple!T) {
+			mixin(q{base.fields ~= std.typecons.tuple("%s",this.%s.jsonify);}.format(field, field));
+		}
+		return base;
+	}
+}
+
+class DefaultImpl(T) : T {
+	this() {
+	}
+
+	mixin Getters!T;
+}
 
 template dispatch(alias fun, Types...) {
 	auto dispatch(Base, T...)(Base base, auto ref T args) {
@@ -15,75 +150,14 @@ template dispatch(alias fun, Types...) {
 	}
 }
 
-template castTo(T) {
-	T castTo(Base)(Base node) {
-		static if (is(isImplicitlyConvertible!(Base, T))) {
-			static assert(0,
-					T.stringof ~ " is a base class of " ~ Base.stringof ~ "use convert instead");
-		}
-		return cast(T) node;
-	}
-}
-
 template convert(T) {
 	T convert(Base)(Base node) {
 		return node;
 	}
 }
 
-template castToPermissive(T) {
-	T castToPermissive(Base)(Base node) {
-		return cast(T) node;
-	}
-}
-
 template Pack(T...) {
 	alias expand = T;
-}
-
-auto tupleEnumerateImpl()(int index) {
-	return tuple();
-}
-
-auto tupleEnumerateImpl(H, T...)(int index, H head, T tail) {
-	return tuple(tuple(index, head), tupleEnumerateImpl(index + 1, tail).expand);
-}
-
-auto tupleEnumerateImpl(Tuple...)(Tuple t) {
-	return tupleEnumerateImpl(0, t);
-}
-
-auto tupleMap(alias fun, int[] pass = [])() {
-	return tuple();
-}
-
-auto tupleMap(alias fun, int[] pass = [], H, T...)(H head, T tail) {
-	static if (pass.any!"a == 0") {
-		return tuple(head, tupleMap!(fun, map!(a => a - 1)(pass).array)(tail).expand);
-	} else {
-		return tuple(fun(head), tupleMap!(fun, map!(a => a - 1)(pass).array)(tail).expand);
-	}
-}
-
-auto tupleCall(alias fun)() {
-	return tuple();
-}
-
-auto tupleCall(alias fun, H, T...)(H head, T tail) {
-	return tuple(fun.expand[0](head), tupleCall!(Pack!(fun.expand[1 .. $]))(tail).expand);
-}
-
-auto tupleFold(alias fun, int[] pass = [], Seed)(Seed seed) {
-	return seed;
-}
-
-auto tupleFold(alias fun, int[] pass = [], Seed, H, T...)(Seed seed, H head, T tail) {
-	static if (pass.any!"a == 0") {
-		return tupleFold!(fun, map!(a => a - 1)(pass).array)(seed, tail);
-	} else {
-		auto next = fun(seed, head);
-		return tupleFold!(fun, map!(a => a - 1)(pass).array)(next, tail);
-	}
 }
 
 Tuple!()[T] arrayToSet(T)(T[] data) {
@@ -92,6 +166,30 @@ Tuple!()[T] arrayToSet(T)(T[] data) {
 		result[d] = tuple();
 	}
 	return result;
+}
+
+T[] emptyArray(T)() {
+	return null;
+}
+
+Tuple!()[T] emptySet(T)() {
+	return null;
+}
+
+V[K] emptyMap(K, V)() {
+	return null;
+}
+
+Tuple!()[T] singleSet(T)(T data) {
+	return arrayToSet([data]);
+}
+
+Tuple!()[T] mergeSets(T)(Tuple!()[T] left, Tuple!()[T] right) {
+	return arrayToSet(left.keys ~ right.keys);
+}
+
+auto mergeSets(H, T...)(H first, H second, T tail) if (tail.length > 0) {
+	return mergeSets(mergeSets(first, second), tail);
 }
 
 bool isSubSet(T)(Tuple!()[T] smaller, Tuple!()[T] bigger) {
@@ -103,61 +201,49 @@ bool isSubSet(T)(Tuple!()[T] smaller, Tuple!()[T] bigger) {
 	return true;
 }
 
-import core.runtime;
-import core.stdc.stdlib;
-import std.conv;
-import std.stdio;
-
-struct Position { //used for token position in a file
-	string file_name;
-	uint line;
-	string file; //ref to file
-	size_t indexs; //file index start
-	size_t indexe; //file index end
-	auto join(Position other) {
-		assert(file_name == other.file_name, file_name ~ " " ~ other.file_name);
-		assert(file.ptr == other.file.ptr);
-		return Position(file_name, line, file, indexs, other.indexs);
+K[V] mergeMaps(K, V)(K[V] left, K[V] right) {
+	K[V] result;
+	foreach (k; left.byKey) {
+		result[k] = left[k];
 	}
-
-	string toString() {
-		return file[indexs .. indexe];
+	foreach (k; right.byKey) {
+		result[k] = right[k];
 	}
+	return result;
 }
 
+auto mergeMaps(H, T...)(H first, H second, T tail) if (tail.length > 0) {
+	return mergeMaps(mergeMaps(first, second), tail);
+}
+
+struct Source {
+	string fileName;
+	string file;
+}
+
+struct Section {
+	uint lineStart;
+	uint lineEnd;
+	size_t start;
+	size_t end;
+}
+
+struct Position {
+	Source source;
+	Section section;
+}
+
+Position join(Position left, Position right) {
+	assert(left.source == right.source);
+	return Position(left.source, Section(left.section.lineStart,
+			right.section.lineEnd, left.section.start, right.section.end));
+}
+
+//todo rework pretty printing
 string prettyPrint(Position pos, string colorstart = "\x1b[31m", string colorend = "\x1b[0m") {
 	string res;
-	res ~= "in file:" ~ pos.file_name ~ " at line:" ~ pos.line.to!string ~ "\n";
-	size_t lower = pos.indexs;
-	size_t upper = pos.indexe;
-
-	if (lower == pos.file.length) {
-		res ~= "at Eof";
-		return res;
-	}
-
-	if (lower != 0) {
-		while (true) {
-			if (pos.file[lower] == '\n') {
-				break;
-			}
-			lower--;
-			if (lower == 0) {
-				break;
-			}
-		}
-		lower++;
-	}
-	while (upper != pos.file.length) {
-		if (pos.file[upper] == '\n') {
-			break;
-		}
-		upper++;
-	}
-
-	res ~= pos.file[lower .. pos.indexs];
-	res ~= colorstart ~ pos.file[pos.indexs .. pos.indexe] ~ colorend;
-	res ~= pos.file[pos.indexe .. upper];
+	res ~= "in file:" ~ pos.source.fileName ~ " at line:" ~ pos.section.lineStart.to!string ~ "\n";
+	res ~= colorstart ~ pos.source.file[pos.section.start .. pos.section.end] ~ colorend;
 	return res;
 }
 

@@ -2,38 +2,38 @@
  Boost License
 /#
 
-alias void = tuple();
+void = tuple();
 
-alias quick sort = > {
-	let array = $@;
+swap = >(left,right) = {
+	let tmp = *left;
+	left <- *right;
+	right <- tmp;
+};
+
+quick sort : integer 32[*] -> void = >(array) = {
 	if array.length > 1 then {
 		let pivot = array[array.length - 1];
-		let middle = 0;
-		let end = 0;
-		while end < array.length - 1 then {
+		let middle = new 0;
+		let end = new 0;
+		while *end < array.length - 1 then {
 			#0..middle < pivot
 			#middle..end - 1 > pivot
-			if pivot > array[end] then {
-				let last = array[end];
-				let current = array[middle];
-				array[middle] = last;
-				array[end] = current;
-				middle = middle + 1;
+			if pivot > array[*end] then {
+				swap(array&[*middle], array&[*end]);
+				middle <- *middle + 1;
 			};
-			end = end + 1;
+			end <- *end + 1;
 		};
-		let last = array[middle];
-		array[middle] = pivot;
-		array[array.length - 1] = last;
-		quick sort(array[0..middle]);
-		quick sort(array[middle..array.length]);
+		swap(array&[*middle],array&[array.length - 1]);
+		quick sort(array[0..*middle]);
+		quick sort(array[*middle..array.length]);
 	};
 };
 
-alias main :: void -> void = > {
-	let array :: integer 32 [*] = [0,7,9,3,8,6,5,1,4,2];
+main : void -> void = >(x) = {
+	let array : integer 32 [*] = [0,7,9,3,8,6,5,1,4,2];
 	quick sort(array);
 	assert(array == [0,1,2,3,4,5,6,7,8,9]); 
 };
 
-alias assert :: boolean -> void = extern "assert";
+assert : boolean -> void = extern "assert";

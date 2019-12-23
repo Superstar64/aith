@@ -55,8 +55,8 @@ $(build)/typi : $(sources) $(flags) | $$(dir $$)
 endif
 test := $(call find,test,typi)
 test_output := $(test:%.typi=$(build)/%.js)
-$(test_output): $(build)/%.js : %.typi test/runtime.js $(build)/typi | $$(dir $$@)
-	$(build)/typi $< test/runtime.js -o $@
+$(test_output): $(build)/%.js : %.typi runtime/runtime.js $(build)/typi | $$(dir $$@)
+	$(build)/typi $< runtime/runtime.js -o $@
 test_build : $(test_output)
 .PHONY: test_build
 

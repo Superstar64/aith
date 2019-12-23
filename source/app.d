@@ -32,7 +32,7 @@ import misc;
 import parser.parser;
 import lexer;
 import semantic.semantic;
-import codegen;
+import codegen.codegen;
 
 static import Parser = parser.ast;
 import semantic.ast;
@@ -90,6 +90,7 @@ You may distrubute this software under the General Public Licenese Version 3
 `;
 
 void main(string[] args) {
+
 	if (args.length == 1) {
 		writeln(Help);
 		return;
@@ -145,7 +146,7 @@ void main(string[] args) {
 	auto writer = &output.write!(const(char)[]);
 	if (genAll) {
 		foreach (mod; all.values) {
-			generateJsModule(mod).toStateString(writer, 0, JsContext());
+			generateJsModule(mod.toRuntime).toStateString(writer, 0, JsContext());
 			output.writeln;
 		}
 		foreach (file; args) {
@@ -156,7 +157,9 @@ void main(string[] args) {
 	} else {
 		foreach (file; args) {
 			if (file.endsWith(".typi")) {
-				generateJsModule(wanted[file]).toStateString(writer, 0, JsContext());
+				auto want = wanted[file].toRuntime;
+				//writeln(want.jsonify.to!string);
+				generateJsModule(want).toStateString(writer, 0, JsContext());
 			} else {
 				File(file, "r").byChunk(4096).map!(a => cast(const(char)[]) a).copy(writer);
 			}

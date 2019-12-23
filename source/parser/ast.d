@@ -26,176 +26,279 @@ class Module {
 	ModuleVarDef[] symbols;
 }
 
-abstract class Node {
-	Position position;
+interface Node {
+	ref Position position();
 }
 
-abstract class Statement : Node {
+interface Statement : Node {
 }
 
-class Assign : Statement {
-	Expression left;
-	Expression right;
+interface Assign : Statement {
+ref:
+	override Position position();
+	Expression left();
+	Expression right();
 }
 
-abstract class VarDef : Statement {
-	bool manifest;
-	string name;
-	Expression explicitType; //nullable
-	Expression value;
+interface VarDef : Statement {
+ref:
+	string name();
+	Expression explicitType(); //nullable
+	Expression value();
 }
 
 struct Modifier {
 	bool visible;
+	bool global;
 }
 
-class ScopeVarDef : VarDef {
+interface ScopeVarDef : VarDef {
+override ref:
+	Position position();
+	string name();
+	Expression explicitType(); //nullable
+	Expression value();
 }
 
-class ModuleVarDef : VarDef {
-	Modifier modifier;
+interface ModuleVarDef : VarDef {
 	alias modifier this;
+ref:
+	Modifier modifier();
+
+override:
+	Position position();
+	string name();
+	Expression explicitType(); //nullable
+	Expression value();
 }
 
-abstract class Expression : Statement {
+interface Expression : Statement {
 }
 
-class TypeBool : Expression {
+interface TypeBool : Expression {
+ref:
+	Position position();
 }
 
-class TypeChar : Expression {
+interface TypeChar : Expression {
+ref:
+	Position position();
 }
 
-class TypeInt : Expression {
-	int size;
-	bool signed;
+interface TypeInt : Expression {
+ref:
+	Position position();
+	int size();
+	bool signed();
 }
 
-class Import : Expression {
-	Semantic.Module mod;
+interface Import : Expression {
+ref:
+	Position position();
+	Semantic.Module mod();
 }
 
-class IntLit : Expression {
-	BigInt value;
+interface IntLit : Expression {
+ref:
+	Position position();
+	BigInt value();
 }
 
-class CharLit : Expression {
-	dchar value;
+interface CharLit : Expression {
+ref:
+	Position position();
+	dchar value();
 }
 
-class BoolLit : Expression {
-	bool yes;
+interface BoolLit : Expression {
+ref:
+	Position position();
+	bool yes();
 }
 
-class TypeTuple : Expression {
-	Expression value;
+interface TypeTuple : Expression {
+ref:
+	Position position();
+	Expression[] values();
 }
 
-class TupleLit : Expression {
-	Expression[] values;
+interface TupleLit : Expression {
+ref:
+	Position position();
+	Expression[] values();
 }
 
-class Variable : Expression {
-	string name;
+interface Variable : Expression {
+ref:
+	Position position();
+	string name();
 }
 
-class FuncArgument : Expression {
+interface If : Expression {
+ref:
+	Position position();
+	Expression cond();
+	Expression yes();
+	Expression no();
 }
 
-class If : Expression {
-	Expression cond;
-	Expression yes;
-	Expression no;
+interface While : Expression {
+ref:
+	Position position();
+	Expression cond();
+	Expression state();
 }
 
-class While : Expression {
-	Expression cond;
-	Expression state;
+interface New : Expression {
+ref:
+	Position position();
+	Expression value();
 }
 
-class New : Expression {
-	Expression value;
+interface NewArray : Expression {
+ref:
+	Position position();
+	Expression length();
+	Expression value();
 }
 
-class NewArray : Expression {
-	Expression length;
-	Expression value;
+interface Cast : Expression {
+ref:
+	Position position();
+	Expression type();
+	Expression value();
 }
 
-class Cast : Expression {
-	Expression type;
+interface Infer : Expression {
+ref:
+	Position position();
+	Expression type();
+	Expression value();
 }
 
-class Infer : Expression {
-	Expression type;
+interface Dot : Expression {
+ref:
+	Position position();
+	Expression value();
+	string index();
 }
 
-class Dot : Expression {
-	Expression value;
-	string index;
+interface UseSymbol : Expression {
+ref:
+	Position position();
+	Expression value();
+	string index();
 }
 
-class UseSymbol : Expression {
-	Expression value;
-	string index;
+interface Index : Expression {
+ref:
+	Position position();
+	Expression array();
+	Expression index();
 }
 
-class Index : Expression {
-	Expression array;
-	Expression index;
+interface IndexAddress : Expression {
+ref:
+	Position position();
+	Expression array();
+	Expression index();
 }
 
-class TupleIndex : Expression {
-	Expression tuple;
-	uint total;
-	uint index;
+interface TupleIndex : Expression {
+ref:
+	Position position();
+	Expression tuple();
+	uint index();
 }
 
-class Call : Expression {
-	Expression calle;
-	Expression argument;
+interface TupleIndexAddress : Expression {
+ref:
+	Position position();
+	Expression tuple();
+	uint index();
 }
 
-class Slice : Expression {
-	Expression array;
-	Expression left;
-	Expression right;
+interface Call : Expression {
+ref:
+	Position position();
+	Expression calle();
+	Expression argument();
 }
 
-class Binary(string T) : Expression
+interface Slice : Expression {
+ref:
+	Position position();
+	Expression array();
+	Expression left();
+	Expression right();
+}
+
+interface Binary(string T) : Expression
 		if ([
 				"*", "/", "%", "+", "-", "~", "==", "!=", "<=", ">=", "<", ">",
 				"&&", "||", "->"
 			].canFind(T)) {
-	Expression left;
-	Expression right;
+ref:
+	Position position();
+	Expression left();
+	Expression right();
 }
 
-class Prefix(string T) : Expression if (["-", "*", "&", "!"].canFind(T)) {
-	Expression value;
+interface Prefix(string T) : Expression if (["-", "*", "!"].canFind(T)) {
+ref:
+	Position position();
+	Expression value();
 }
 
-class Postfix(string T) : Expression if (["(*)", "[*]"].canFind(T)) {
-	Expression value;
+interface Postfix(string T) : Expression if (["(*)", "[*]"].canFind(T)) {
+ref:
+	Position position();
+	Expression value();
 }
 
-class Scope : Expression {
-	Statement[] states;
-	Expression last; //nullable
+interface Scope : Expression {
+ref:
+	Position position();
+	Statement[] states();
+	Expression last(); //nullable
 }
 
-class FuncLit : Expression {
-	Expression text;
+interface Pattern : Node {
 }
 
-class StringLit : Expression {
-	string value;
+interface NamedArgument : Pattern {
+ref:
+	Position position();
+	string name();
 }
 
-class ArrayLit : Expression {
-	Expression[] values;
+interface TupleArgument : Pattern {
+ref:
+	Position position();
+	Pattern[] matches();
 }
 
-class ExternJs : Expression {
-	string name;
+interface FuncLit : Expression {
+ref:
+	Position position();
+	Expression text();
+	Pattern argument();
+}
+
+interface StringLit : Expression {
+ref:
+	Position position();
+	string value();
+}
+
+interface ArrayLit : Expression {
+ref:
+	Position position();
+	Expression[] values();
+}
+
+interface ExternJs : Expression {
+ref:
+	Position position();
+	string name();
 }

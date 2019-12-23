@@ -1,4 +1,4 @@
-alias main :: void -> void = > {
+main : void -> void = >() =  {
 	let triplet = (true,false,"test");
 	assert(triplet_0 == true);
 	assert(triplet_1 == false);
@@ -6,6 +6,6 @@ alias main :: void -> void = > {
 };
 
 
-alias void = tuple();
+void = tuple();
 
-alias assert :: boolean -> void = extern "assert";
+assert : boolean -> void = extern "assert";

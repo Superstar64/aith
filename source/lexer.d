@@ -56,8 +56,8 @@ import misc;
 	}
 }
 
-enum keywords = AliasSeq!("alias", "let", "boolean", "cast", "character", "else", "extern",
-			"false", "if", "import", "infer", "integer", "new", "of",
+enum keywords = AliasSeq!("global", "static", "let", "boolean", "cast", "character", "else",
+			"extern", "false", "if", "import", "infer", "integer", "new", "of",
 			"private", "public", "tuple", "then", "true", "natural", "while");
 struct Keyword(string keyword) if (staticIndexOf!(keyword, keywords) >= 0) {
 	string toString() {
@@ -71,9 +71,9 @@ auto keyword(string key)() {
 
 //must be sorted according to string length
 enum operators = AliasSeq!("[*]", "(*)", ":::", "==", "!=", "<=", ">=", "&&",
-			"||", "::", "$@", "->", "..", "<", ">", "+", "-", "*", "/", "%",
-			"=", "!", "~", "&", "|", "^", ":", "$", "@", "{", "}", "(", ")",
-			"[", "]", ".", ",", ";", "_");
+			"||", "::", "->", "..", "&[", "&_", "<-", "<", ">", "+", "-", "*",
+			"/", "%", "=", "!", "~", "&", "|", "^", ":", "$", "@", "{", "}",
+			"(", ")", "[", "]", ".", ",", ";", "_");
 
 struct Operator(string operator) if (staticIndexOf!(operator, operators) >= 0) {
 	string toString() {
@@ -85,30 +85,12 @@ auto operator(string oper)() {
 	return Operator!oper();
 }
 
-template parseOperatorTemplate(string op) {
-	Nullable!(Operator!op) parseOperator(ref string file, Position) {
-		if (file.startsWith(op)) {
-			file.popFrontN(op.length);
-			return typeof(return)(Operator!op());
-		}
-		return typeof(return).init;
-	}
-}
-
 struct Identifier {
 	string value;
 	alias value this;
 	string toString() {
 		return value;
 	}
-}
-
-Nullable!Identifier parseIdentifier(ref string file, Position) {
-	if (file.front.isAlpha) {
-		auto length = file[].until!(a => !(a.isAlphaNum)).count;
-		return typeof(return)(Identifier(file.nextN(length)));
-	}
-	return typeof(return).init;
 }
 
 struct IntLiteral {
@@ -119,10 +101,89 @@ struct IntLiteral {
 	}
 }
 
-Nullable!IntLiteral parseIntLiteral(ref string file, Position) {
+struct CharLiteral {
+	string value;
+	alias value this;
+	enum charCode = '\'';
+}
+
+struct StringLiteral {
+	string value;
+	alias value this;
+	enum charCode = '"';
+}
+
+struct Eof {
+}
+
+struct Token {
+	Position position;
+	Algebraic!(Identifier, IntLiteral, CharLiteral, StringLiteral,
+			staticMap!(Operator, operators), staticMap!(Keyword, keywords), Eof) value;
+	alias value this;
+
+	bool opEquals(T)(T t) if (!is(T == Token)) {
+		return value == t;
+	}
+}
+
+template parseOperator(string op) {
+	Nullable!(Operator!op) parseOperator(ref string file, void delegate(string) error) {
+		if (file.startsWith(op)) {
+			file.popFrontN(op.length);
+			return Operator!op().nullable;
+		}
+		return typeof(return).init;
+	}
+}
+
+template parseKeyword(string key) {
+	Nullable!(Keyword!key) parseKeyword(ref string file, void delegate(string) error) {
+		if (file.startsWith(key)) {
+			file.popFrontN(key.length);
+			return Keyword!key().nullable;
+		}
+		return typeof(return).init;
+	}
+}
+
+Nullable!string parseIdentifierImpl(ref string file) {
+	auto original = file;
+	if (file.front.isAlpha) {
+		auto length = file[].until!(a => !(a.isAlphaNum)).count;
+		auto identifier = file.nextN(length);
+		if ([keywords].any!(a => a == identifier)) {
+			file = original;
+		} else {
+			return identifier.nullable;
+		}
+	}
+	return typeof(return).init;
+}
+
+Nullable!Identifier parseIdentifier(ref string file, void delegate(string) error) {
+	auto identifier = parseIdentifierImpl(file);
+	if (!identifier.isNull) {
+		auto result = identifier.get;
+		while (true) {
+			auto original = file;
+			file.removeComments;
+			auto next = parseIdentifierImpl(file);
+			if (next.isNull) {
+				file = original;
+				return Identifier(result).nullable;
+			} else {
+				result ~= " " ~ next.get;
+			}
+		}
+	}
+	return typeof(return).init;
+}
+
+Nullable!IntLiteral parseIntLiteral(ref string file, void delegate(string) error) {
 	if (file.front.isDigit) {
 		auto length = file[].until!(a => !a.isDigit).count;
-		return typeof(return)(IntLiteral(BigInt(file.nextN(length))));
+		return IntLiteral(BigInt(file.nextN(length))).nullable;
 	}
 	return typeof(return).init;
 }
@@ -168,11 +229,11 @@ string readString(ref string file, char start, char end, out string err) {
 	return str;
 }
 
-Nullable!T parseStringLiteral(T)(ref string file, Position position) {
+Nullable!T parseStringLiteral(T)(ref string file, void delegate(string) error) {
 	string err;
 	auto str = readString(file, T.charCode, T.charCode, err);
 	if (err) {
-		error(err, position);
+		error(err);
 	}
 	if (str) {
 		return typeof(return)(T(str));
@@ -180,60 +241,11 @@ Nullable!T parseStringLiteral(T)(ref string file, Position position) {
 	return typeof(return).init;
 }
 
-struct CharLiteral {
-	string value;
-	alias value this;
-	enum charCode = '\'';
-}
-
-struct StringLiteral {
-	string value;
-	alias value this;
-	enum charCode = '"';
-}
-
-struct Eof {
-}
-
-Nullable!Eof parseEOF(ref string file, Position) {
+Nullable!Eof parseEOF(ref string file, void delegate(string) error) {
 	if (file.length == 0) {
 		return typeof(return)(Eof());
 	}
 	return typeof(return).init;
-}
-
-struct Token {
-	Position position;
-	Algebraic!(Identifier, IntLiteral, CharLiteral, StringLiteral,
-			staticMap!(Operator, operators), staticMap!(Keyword, keywords), Eof) value;
-	alias value this;
-
-	bool opEquals(T)(T t) if (!is(T == Token)) {
-		return value == t;
-	}
-
-	auto expect(T...)(T expected) if (T.length == 1) {
-		if (this != expected) {
-			error("Expected " ~ expected.to!string, position);
-		}
-	}
-
-	auto expect(T...)(T expectedList) if (T.length != 1) {
-		foreach (expected; expectedList) {
-			if (this == expected) {
-				return;
-			}
-		}
-		error("Expected " ~ T.stringof, position);
-	}
-
-	auto expectType(T)() {
-		if (auto wanted = value.peek!T) {
-			return *wanted;
-		}
-		error("Expected " ~ T.stringof, position);
-		assert(0);
-	}
 }
 
 void removeMultiLine(ref string file) {
@@ -281,92 +293,89 @@ void removeComments(ref string file) {
 	}
 }
 
-template metaParseDot(alias T) {
-	alias metaParseDot = T.parseOperator;
+alias Parsers = AliasSeq!(parseEOF, parseIdentifier, parseIntLiteral, parseStringLiteral!CharLiteral,
+		parseStringLiteral!StringLiteral, staticMap!(parseKeyword, keywords),
+		staticMap!(parseOperator, operators));
+
+auto slice(string file, size_t index) {
+	return file[index .. $];
 }
 
-alias Parsers = AliasSeq!(parseEOF, parseIdentifier, parseIntLiteral, parseStringLiteral!CharLiteral,
-		parseStringLiteral!StringLiteral, staticMap!(metaParseDot,
-			staticMap!(parseOperatorTemplate, operators)));
+auto unslice(string file, string subset) {
+	return subset.ptr - file.ptr;
+}
 
 struct Lexer {
-	string fileName;
-	uint currentLine = 1;
-	uint currentIndex;
-	string file;
-
-	string fileOriginal;
-	Token head;
-	Token lookAhead;
-	Token front() {
-		return head;
-	}
+	Source source;
+	uint line;
+	size_t index;
 
 	this(string fileName, string file) {
-		this.fileName = fileName;
-		this.file = file;
-		this.fileOriginal = file;
-		popFront;
+		this.source = Source(fileName, file);
+		this.line = 1;
 		popFront;
 	}
 
-	void countLines(string old) {
-		currentIndex += old.length - file.length;
-		currentLine += old[0 .. old.length - file.length].filter!(a => a == '\n').count;
-	}
+	Token front;
 
-	void clean() {
-		auto old = file;
-		file.removeComments;
-		countLines(old);
-	}
-
-	void popFront() {
-		head = lookAhead;
-		getNext();
-		if (auto top = head.peek!Identifier) {
-			while (lookAhead.peek!Identifier) {
-				top.value ~= " " ~ lookAhead.get!Identifier;
-				getNext();
-			}
-		}
-	}
-
-	void getNext() {
-		clean();
-		auto old = file;
-		auto position = Position(fileName, currentLine, fileOriginal, currentIndex);
-		scope (success) {
-			lookAhead.position = position.join(Position(fileName, currentLine,
-					fileOriginal, currentIndex));
-		}
-		foreach (parserFun; Parsers) {
-			auto tokenPartNullable = parserFun(file, position);
-			if (!tokenPartNullable.isNull) {
-				countLines(old);
-				auto tokenPart = tokenPartNullable.get();
-				static if (is(typeof(tokenPart) == Identifier)) {
-					foreach (keyword; keywords) {
-						if (tokenPart == keyword) {
-							lookAhead.value = typeof(front.value)(Keyword!keyword());
-							return;
-						}
-					}
-				}
-				lookAhead.value = typeof(front.value)(tokenPart);
-				return;
-			}
-		}
-
-		error("Unknown Token", position);
-	}
-
-@property:
-	bool empty() {
+	@property bool empty() {
 		return front == Eof();
 	}
 
-	auto save() {
+	@property auto save() {
 		return this;
+	}
+
+	void popFront() {
+		auto sliced = slice(source.file, index);
+		sliced.removeComments;
+
+		Position position() {
+			auto end = unslice(source.file, sliced);
+			auto lineCount = cast(uint) source.file[index .. end].filter!(a => a == '\n').count;
+			return Position(source, Section(line, line + lineCount, index, end));
+		}
+
+		void quit(string message) {
+			error(message, position());
+		}
+
+		static foreach (parser; Parsers) {
+			{
+				auto token = parser(sliced, &quit);
+				if (!token.isNull) {
+					front.value = typeof(front.value)(token.get);
+					front.position = position();
+					auto end = unslice(source.file, sliced);
+					line += cast(int) source.file[index .. end].filter!(a => a == '\n').count;
+					index = end;
+					return;
+				}
+			}
+		}
+		error("Unknown Token", position());
+	}
+
+	auto expect(T...)(T expected) if (T.length == 1) {
+		if (front != expected) {
+			error("Expected " ~ expected.to!string, front.position);
+		}
+	}
+
+	auto expect(T...)(T expectedList) if (T.length != 1) {
+		foreach (expected; expectedList) {
+			if (front == expected) {
+				return;
+			}
+		}
+		error("Expected " ~ T.stringof, front.position);
+	}
+
+	auto expectType(T)() {
+		if (auto wanted = front.value.peek!T) {
+			return *wanted;
+		}
+		error("Expected " ~ T.stringof, front.position);
+		assert(0);
 	}
 }
