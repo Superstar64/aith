@@ -19,6 +19,16 @@ template make(T) {
 	}
 }
 
+template make(T : Scheme) {
+	T make(PolymorphicVariable variable) {
+		return new Impl!T(variable, emptyArray!Constraint);
+	}
+
+	T make(PolymorphicVariable variable, Constraint[] constraints) {
+		return new Impl!T(variable, constraints);
+	}
+}
+
 mixin template DefaultCast() {
 	Expression castToExpression() {
 		return cast(Expression) this;
@@ -37,10 +47,14 @@ mixin template DefaultCast() {
 	}
 }
 
-mixin template DefaultMorph(T) {
+mixin template DefaultSpecialize(T) {
 	T specialize(Type[PolymorphicVariable] moves) {
 		return visit1!(make!T, a => a.specialize(moves))(this);
 	}
+}
+
+mixin template DefaultMorph(T) {
+	mixin DefaultSpecialize!T;
 
 	RuntimeType!T toRuntime() {
 		return visit2!(Codegen.make!(RuntimeType!T), a => a.toRuntime())(this);
@@ -64,18 +78,8 @@ class Impl(T : Expression) : T {
 	mixin DefaultCast;
 }
 
-TypeMetaclass metaclass;
-static this() {
-	metaclass = new TypeMetaclass();
-	metaclass._type = metaclass;
-}
-
 class Impl(T : Type) : T {
 	mixin Getters!T;
-
-	CompileTimeType type() {
-		return metaclass;
-	}
 
 	Tuple!()[PolymorphicVariable] generics() {
 		return genericsImpl(this);
@@ -89,20 +93,34 @@ class Impl(T : Type) : T {
 	}
 }
 
-class Impl(T : PolymorphicVariable) : T {
-	CompileTimeType type() {
-		return metaclass;
+class Impl(T : Constraint) : T {
+	mixin Getters!T;
+
+	Tuple!()[PolymorphicVariable] generics() {
+		return genericsImpl(this);
 	}
 
+	mixin DefaultSpecialize!T;
+	mixin DefaultCast;
+
+	override string toString() {
+		return toStringImpl(this);
+	}
+}
+
+class Impl(T : Scheme) : T {
+	mixin Getters!T;
 	override Tuple!()[PolymorphicVariable] generics() {
-		return [this: tuple()];
+		auto extra = constraints.map!(a => a.generics)
+			.fold!mergeSets(emptySet!PolymorphicVariable);
+		return mergeSets(extra, [variable: tuple()]);
 	}
 
 	override Type specialize(Type[PolymorphicVariable] moves) {
-		if (this in moves) {
-			return moves[this];
+		if (variable in moves) {
+			return moves[variable];
 		} else {
-			return this;
+			return make!Scheme(variable, constraints.map!(a => a.specialize(moves)).array);
 		}
 	}
 
@@ -117,48 +135,16 @@ class Impl(T : PolymorphicVariable) : T {
 	}
 }
 
-class Impl(T : TuplePolymorphicVariable) : TuplePolymorphicVariable {
-	mixin Getters!T;
-
-	CompileTimeType type() {
-		return metaclass;
-	}
-
-	Tuple!()[PolymorphicVariable] generics() {
-		return genericsImpl(this);
-	}
-
-	override Type specialize(Type[PolymorphicVariable] moves) {
-		if (id in moves) {
-			return moves[id];
-		} else {
-			return new Impl!TuplePolymorphicVariable(id,
-					values.map!(a => a.specialize(moves)).array);
-		}
-	}
-
-	mixin DefaultCast;
-
-	override Codegen.Type toRuntime() {
-		assert(0);
-	}
-}
-
 // visit with generics
-
-auto visit1(alias construct, alias f, T : ModuleVar)(T that) {
-	with (that)
-		return construct(f(type), f(generics), f(value), name, strong, id);
-}
 
 auto visit1(alias construct, alias f, T : NamedPattern)(T that) {
 	with (that)
-		return construct(f(type), f(argument));
+		return construct(f(type), f(generics), f(argument));
 }
 
 auto visit1(alias construct, alias f, T : TuplePattern)(T that) {
 	with (that)
-		return construct(f(type), f(matches));
+		return construct(f(type), f(generics), f(matches));
 }
 
 auto visit1(alias construct, alias f, T : FunctionLiteral)(T that) {
@@ -166,17 +152,12 @@ auto visit1(alias construct, alias f, T : FunctionLiteral)(T that) {
 		return construct(f(type), f(generics), name, strong, id, f(argument), f(text));
 }
 
-auto visit1(alias construct, alias f, T : FunctionArgument)(T that) {
+auto visit1(alias construct, alias f, T : Variable)(T that) {
 	with (that)
 		return construct(f(type), f(generics), name, id);
 }
 
-auto visit1(alias construct, alias f, T : ScopeVar)(T that) {
-	with (that)
-		return construct(f(type), f(generics), name, id);
-}
-
-auto visit1(alias construct, alias f, T : ScopeVarDef)(T that) {
+auto visit1(alias construct, alias f, T : VariableDef)(T that) {
 	with (that)
 		return construct(f(type), f(generics), f(variable), f(value), f(last));
 }
@@ -228,7 +209,7 @@ auto visit1(alias construct, alias f, T : CastInteger)(T that) {
 
 auto visit1(alias construct, alias f, T : Length)(T that) {
 	with (that)
-		return construct(f(type), f(generics), f(value));
+		return construct(f(type), f(generics));
 }
 
 auto visit1(alias construct, alias f, T : Index)(T that) {
@@ -336,12 +317,17 @@ auto visit1(alias construct, alias f, T : TypePointer)(T that) {
 		return construct(f(value));
 }
 
-// visit without generics
-
-auto visit2(alias construct, alias f, T : ModuleVar)(T that) {
+auto visit1(alias construct, alias f, T : ConstraintNumber)(T that) {
 	with (that)
-		return construct(f(type), f(value), name, strong, id);
+		return construct();
 }
+
+auto visit1(alias construct, alias f, T : ConstraintTuple)(T that) {
+	with (that)
+		return construct(index, f(type));
+}
+
+// visit without generics
 
 auto visit2(alias construct, alias f, T : NamedPattern)(T that) {
 	with (that)
@@ -358,17 +344,12 @@ auto visit2(alias construct, alias f, T : FunctionLiteral)(T that) {
 		return construct(f(type), name, strong, id, f(argument), f(text));
 }
 
-auto visit2(alias construct, alias f, T : FunctionArgument)(T that) {
+auto visit2(alias construct, alias f, T : Variable)(T that) {
 	with (that)
 		return construct(f(type), name, id);
 }
 
-auto visit2(alias construct, alias f, T : ScopeVar)(T that) {
-	with (that)
-		return construct(f(type), name, id);
-}
-
-auto visit2(alias construct, alias f, T : ScopeVarDef)(T that) {
+auto visit2(alias construct, alias f, T : VariableDef)(T that) {
 	with (that)
 		return construct(f(type), f(variable), f(value), f(last));
 }
@@ -420,7 +401,7 @@ auto visit2(alias construct, alias f, T : CastInteger)(T that) {
 
 auto visit2(alias construct, alias f, T : Length)(T that) {
 	with (that)
-		return construct(f(type), f(value));
+		return construct(f(type));
 }
 
 auto visit2(alias construct, alias f, T : Index)(T that) {
@@ -528,10 +509,6 @@ auto visit2(alias construct, alias f, T : TypePointer)(T that) {
 		return construct(f(value));
 }
 
-Tuple!()[PolymorphicVariable] genericsImpl(TuplePolymorphicVariable that) {
-	return arrayToSet(that.values.map!(a => a.generics.byKey).joiner.array ~ that.id);
-}
-
 Tuple!()[PolymorphicVariable] genericsImpl(TypeBool that) {
 	return null;
 }
@@ -560,20 +537,12 @@ Tuple!()[PolymorphicVariable] genericsImpl(TypePointer that) {
 	return that.value.generics;
 }
 
-string toStringImpl(NormalPolymorphicVariable that) {
-	return (cast(void*) that).to!string;
+Tuple!()[PolymorphicVariable] genericsImpl(ConstraintNumber that) {
+	return null;
 }
 
-string toStringImpl(NumberPolymorphicVariable that) {
-	return (cast(void*) that).to!string ~ " extends number";
-}
-
-string toStringImpl(TuplePolymorphicVariableImpl that) {
-	return (cast(void*) that).to!string ~ " extends tuple";
-}
-
-string toStringImpl(TuplePolymorphicVariable that) {
-	return that.id.toString ~ "(" ~ that.values.to!string ~ ")";
+Tuple!()[PolymorphicVariable] genericsImpl(ConstraintTuple that) {
+	return that.type.generics;
 }
 
 string toStringImpl(TypeBool that) {
@@ -608,88 +577,87 @@ string toStringImpl(TypePointer that) {
 	return that.value.toString() ~ "(*)";
 }
 
-class Impl(T : TypeImport) : T {
-	mixin Getters!T;
-	CompileTimeType type() {
-		return metaclass;
-	}
-
-	mixin DefaultCast;
-
-	override string toString() {
-		return "import";
-	}
+string toString(PolymorphicVariable that) {
+	return (cast(void*) that).to!string;
 }
 
-struct Subsitution {
-	PolymorphicVariable from;
-	Type to;
-
-	string toString() {
-		return .to!string(from) ~ " = " ~ .to!string(to);
-	}
+string toStringImpl(Scheme that) {
+	string result;
+	result ~= that.to!string();
+	result ~= " extends (";
+	result ~= that.constraints.map!(a => a.to!string()).joiner(",").array.to!string;
+	result ~= ")";
+	return result;
 }
 
-alias PolyTypes = AliasSeq!(TypeBool, TypeChar, TypeInt, TypeStruct,
-		TypePointer, TypeArray, TypeArray, TypeFunction, TypeFunction,
-		NumberPolymorphicVariable, TuplePolymorphicVariable, NormalPolymorphicVariable);
+string toStringImpl(ConstraintNumber that) {
+	return "number";
+}
+
+string toStringImpl(ConstraintTuple that) {
+	return that.index.to!string ~ " : " ~ that.type.to!string;
+}
+
+alias RuntimeTypes = AliasSeq!(TypeBool, TypeChar, TypeInt, TypeStruct, TypePointer, TypeArray, TypeArray, TypeFunction, TypeFunction);
+
 //todo use virtual table dispatch for this
-Subsitution[] typeMatch(Type a, Type b, Position position) {
-	return dispatch!((a, b) => dispatch!((a, b) => typeMatchImpl(b, a, position), PolyTypes)(b, a),
-			PolyTypes)(a, b);
+Type[PolymorphicVariable] typeMatch(Type a, Type b, Position position) {
+	alias PolyTypes = AliasSeq!(RuntimeTypes, Scheme);
+	return dispatch!((a, b) => dispatch!((a, b) => typeMatchImpl(b, a, position), PolyTypes)(b, a), PolyTypes)(a, b);
 }
 
-Subsitution[] typeMatchImpl(T1, T2)(T1 left, T2 right, Position position) {
-	if ((cast(Object) left) is(cast(Object) right)) {
-		return [];
+alias Constraints = AliasSeq!(ConstraintNumber, ConstraintTuple);
+
+Type[PolymorphicVariable] constraintMatch(Constraint constraint, Type type, Position position) {
+	return dispatch!((a, b) => dispatch!((b, a) => constraintMatchImpl(a, b, position), RuntimeTypes)(b, a), Constraints)(constraint, type);
+}
+
+Type[PolymorphicVariable] constraintMatchImpl(C, T)(C constraint, T type, Position position) {
+	static if (is(C == ConstraintNumber) && is(T == TypeInt)) {
+		return null;
+	} else static if (is(C == ConstraintTuple) && is(T == TypeStruct)) {
+		if (constraint.index < type.values.length) {
+			return typeMatch(constraint.type, type.values[constraint.index], position);
+		}
 	}
-	static if (is(T1 == NormalPolymorphicVariable)) {
-		return [Subsitution(left, right)];
-	} else static if (is(T2 == NormalPolymorphicVariable)) {
-		return [Subsitution(right, left)];
-	} else static if (is(T1 == NumberPolymorphicVariable) && is(T2 == NumberPolymorphicVariable)) {
-		return [Subsitution(left, right)];
-	} else static if (is(T1 == NumberPolymorphicVariable) && is(T2 == TypeInt)) {
-		return [Subsitution(left, right)];
-	} else static if (is(T1 == TypeInt) && is(T2 == NumberPolymorphicVariable)) {
-		return [Subsitution(right, left)];
-	} else static if (is(T1 == TuplePolymorphicVariable) && is(T2 == TuplePolymorphicVariable)) {
-		auto common = zip(left.values, right.values).map!(a => typeMatch(a.expand,
-				position)).joiner.array;
-		if (left.values.length < right.values.length) {
-			common ~= Subsitution(left.id, right.id);
-		} else {
-			common ~= Subsitution(right.id, left.id);
-		}
-		return common;
-	} else static if (is(T1 == TuplePolymorphicVariable) && is(T2 == TypeStruct)) {
-		if (left.values.length <= right.values.length) {
-			return zip(left.values, right.values).map!(a => typeMatch(a.expand,
-					position)).joiner.array ~ Subsitution(left.id, right);
-		}
-	} else static if (is(T1 == TypeStruct) && is(T2 == TuplePolymorphicVariable)) {
-		if (left.values.length >= right.values.length) {
-			return zip(left.values, right.values).map!(a => typeMatch(a.expand,
-					position)).joiner.array ~ Subsitution(right.id, left);
-		}
+	error("Can't match constraint " ~ constraint.toString ~ " to " ~ type.toString, position);
+	assert(0);
+}
+
+Type[PolymorphicVariable] typeMatchImpl(T1, T2)(T1 left, T2 right, Position position) {
+	if ((cast(Object) left) is(cast(Object) right)) {
+		return null;
+	}
+	static if (is(T1 == Scheme) && is(T2 == Scheme)) {
+		auto joined = make!Scheme(make!PolymorphicVariable, left.constraints ~ right.constraints);
+		return [left.variable: joined, right.variable: joined];
+	} else static if (is(T1 == Scheme) && !is(T2 == Scheme)) {
+		auto extra = left.constraints
+			.map!(a => constraintMatch(a, right, position))
+			.fold!mergeMaps(emptyMap!(PolymorphicVariable, Type));
+		return mergeMaps(extra, [left.variable: right]);
+	} else static if (!is(T1 == Scheme) && is(T2 == Scheme)) {
+		auto extra = right.constraints
+			.map!(a => constraintMatch(a, left, position))
+			.fold!mergeMaps(emptyMap!(PolymorphicVariable, Type));
+		return mergeMaps(extra, [right.variable: left]);
 	} else static if (is(T1 == TypeBool) && is(T2 == TypeBool)) {
-		return [];
+		return null;
 	} else static if (is(T1 == TypeChar) && is(T2 == TypeChar)) {
-		return [];
+		return null;
 	} else static if (is(T1 == TypeInt) && is(T2 == TypeInt)) {
 		if (left.size == right.size) {
-			return [];
+			return null;
 		}
 	} else static if (is(T1 == TypeStruct) && is(T2 == TypeStruct)) {
 		if (left.values.length == right.values.length) {
-			return zip(left.values, right.values).map!(a => typeMatch(a.expand,
-					position)).joiner.array;
+			return zip(left.values, right.values).map!(a => typeMatch(a.expand, position))
+				.fold!mergeMaps(emptyMap!(PolymorphicVariable, Type));
 		}
 	} else static if (is(T1 == TypeArray) && is(T2 == TypeArray)) {
 		return typeMatch(left.array, right.array, position);
 	} else static if (is(T1 == TypeFunction) && is(T2 == TypeFunction)) {
-		return typeMatch(left.result, right.result, position) ~ typeMatch(left.argument,
-				right.argument, position);
+		return mergeMaps(typeMatch(left.result, right.result, position), typeMatch(left.argument, right.argument, position));
 	} else static if (is(T1 == TypePointer) && is(T2 == TypePointer)) {
 		return typeMatch(left.value, right.value, position);
 	}
@@ -703,9 +671,13 @@ mixin template TypeImpl() {
 	}
 }
 
-Tuple!()[PolymorphicVariable] specialize(Tuple!()[PolymorphicVariable] generics,
-		Type[PolymorphicVariable] moves) {
-	return generics.keys.map!(a => a.specialize(moves).generics.keys).joiner.array.arrayToSet;
+Tuple!()[PolymorphicVariable] specialize(Tuple!()[PolymorphicVariable] generics, Type[PolymorphicVariable] moves) {
+	return generics.keys
+		.map!(a => make!Scheme(a))
+		.map!(a => a.specialize(moves).generics.keys)
+		.joiner
+		.array
+		.arrayToSet;
 }
 
 auto specialize(T)(T[] data, Type[PolymorphicVariable] moves) {

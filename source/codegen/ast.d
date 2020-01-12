@@ -30,14 +30,6 @@ interface Symbol : Expression {
 	JsExpr generateSymbol(JsScope, Extra);
 }
 
-interface ModuleVar : Symbol {
-	Type type();
-	Expression value();
-	string name();
-	bool strong();
-	SymbolId id();
-}
-
 interface Pattern : Jsonable {
 	Type type();
 }
@@ -48,7 +40,7 @@ T castTo(T)(Pattern pattern) {
 
 interface NamedPattern : Pattern {
 	Type type();
-	FunctionArgument argument();
+	Variable argument();
 }
 
 interface TuplePattern : Pattern {
@@ -70,21 +62,15 @@ interface Var : Expression {
 	VarId id();
 }
 
-interface FunctionArgument : Var {
+interface Variable : Var {
 	Type type();
 	string name();
 	VarId id();
 }
 
-interface ScopeVar : Var {
+interface VariableDef : Expression {
 	Type type();
-	string name();
-	VarId id();
-}
-
-interface ScopeVarDef : Expression {
-	Type type();
-	ScopeVar variable();
+	Pattern variable();
 	Expression value();
 	Expression last();
 }
@@ -140,7 +126,6 @@ interface CastInteger : Expression {
 
 interface Length : Expression {
 	Type type();
-	Expression value();
 }
 
 interface Index : Expression {

@@ -34,8 +34,6 @@ public import semantic.astimpl : specialize, toRuntime;
 //be catious about https://issues.dlang.org/show_bug.cgi?id=20312
 
 interface CompileTimeExpression {
-	CompileTimeType type();
-
 	Expression castToExpression();
 	Symbol castToSymbol();
 	Type castToType();
@@ -99,32 +97,22 @@ class Module {
 	}
 }
 
-interface _ModuleVar : Symbol {
-	Codegen.ModuleVar toRuntime();
-}
-
-interface ModuleVar : _ModuleVar {
-	Type type();
-	Tuple!()[PolymorphicVariable] generics();
-	Expression value();
-	string name();
-	bool strong();
-	SymbolId id();
-}
-
 interface Pattern : CompileTimeExpression {
 	Type type();
+	Tuple!()[PolymorphicVariable] generics();
 	Pattern specialize(Type[PolymorphicVariable] moves);
 	Codegen.Pattern toRuntime();
 }
 
 interface NamedPattern : Pattern {
 	Type type();
-	FunctionArgument argument();
+	Tuple!()[PolymorphicVariable] generics();
+	Variable argument();
 }
 
 interface TuplePattern : Pattern {
 	Type type();
+	Tuple!()[PolymorphicVariable] generics();
 	Pattern[] matches();
 }
 
@@ -138,51 +126,27 @@ interface FunctionLiteral : Symbol {
 	Lazy!(Expression) text();
 }
 
-interface Var : Expression {
-	string name();
-
-	Codegen.Var toRuntime();
+interface _Variable : Expression {
+	Variable specialize(Type[PolymorphicVariable] moves);
+	override Codegen.Variable toRuntime();
 }
 
-interface _FunctionArgument : Var {
-	FunctionArgument specialize(Type[PolymorphicVariable] moves);
-	Codegen.FunctionArgument toRuntime();
-}
-
-interface FunctionArgument : _FunctionArgument {
+interface Variable : _Variable {
 	Type type();
 	Tuple!()[PolymorphicVariable] generics();
 	string name();
 	VarId id();
 }
 
-interface _ScopeVar : Var {
-	ScopeVar specialize(Type[PolymorphicVariable] moves);
-	override Codegen.ScopeVar toRuntime();
-}
-
-interface ScopeVar : _ScopeVar {
+interface VariableDef : Expression {
 	Type type();
 	Tuple!()[PolymorphicVariable] generics();
-	string name();
-	VarId id();
-}
-
-interface ScopeVarDef : Expression {
-	Type type();
-	Tuple!()[PolymorphicVariable] generics();
-	ScopeVar variable();
+	Pattern variable();
 	Expression value();
 	Expression last();
 }
 
-interface CastPartial : CompileTimeExpression {
-	CompileTimeType type();
-	Type value();
-}
-
 interface Import : CompileTimeExpression {
-	CompileTimeType type();
 	Module mod();
 }
 
@@ -247,7 +211,6 @@ interface CastInteger : Expression {
 interface Length : Expression {
 	Type type();
 	Tuple!()[PolymorphicVariable] generics();
-	Expression value();
 }
 
 interface Index : Expression {
@@ -345,31 +308,33 @@ interface ExternJs : Expression {
 	string name();
 }
 
-interface CompileTimeType : CompileTimeExpression {
-	string toString();
-}
-
-interface Type : CompileTimeType {
+interface Type : CompileTimeExpression {
 	Tuple!()[PolymorphicVariable] generics();
 	Type specialize(Type[PolymorphicVariable] moves);
 	Codegen.Type toRuntime();
+	string toString();
 }
 
-interface PolymorphicVariable : Type {
+interface PolymorphicVariable : CompileTimeExpression {
 }
 
-interface NormalPolymorphicVariable : PolymorphicVariable {
+interface Constraint : CompileTimeExpression {
+	Tuple!()[PolymorphicVariable] generics();
+	Constraint specialize(Type[PolymorphicVariable] moves);
+	string toString();
 }
 
-interface NumberPolymorphicVariable : PolymorphicVariable {
+interface ConstraintNumber : Constraint {
 }
 
-interface TuplePolymorphicVariableImpl : PolymorphicVariable {
+interface ConstraintTuple : Constraint {
+	uint index();
+	Type type();
 }
 
-interface TuplePolymorphicVariable : Type {
-	PolymorphicVariable id();
-	Type[] values();
+interface Scheme : Type {
+	PolymorphicVariable variable();
+	Constraint[] constraints();
 }
 
 interface TypeBool : Type {
@@ -400,36 +365,12 @@ interface TypePointer : Type {
 	Type value();
 }
 
-//dark corners
-class TypeMetaclass : CompileTimeType {
-	CompileTimeType _type;
-	override CompileTimeType type() {
-		return _type;
-	}
-
-	this() {
-	}
-
-	import semantic.astimpl;
-
-	mixin DefaultCast;
-
-	override string toString() {
-		return "metaclass";
-	}
-}
-
-interface TypeImport : CompileTimeType {
-}
-
-alias RuntimeType(T : ModuleVar) = Codegen.ModuleVar;
 alias RuntimeType(T : Pattern) = Codegen.Pattern;
 alias RuntimeType(T : NamedPattern) = Codegen.NamedPattern;
 alias RuntimeType(T : TuplePattern) = Codegen.TuplePattern;
 alias RuntimeType(T : FunctionLiteral) = Codegen.FunctionLiteral;
-alias RuntimeType(T : FunctionArgument) = Codegen.FunctionArgument;
-alias RuntimeType(T : ScopeVar) = Codegen.ScopeVar;
-alias RuntimeType(T : ScopeVarDef) = Codegen.ScopeVarDef;
+alias RuntimeType(T : Variable) = Codegen.Variable;
+alias RuntimeType(T : VariableDef) = Codegen.VariableDef;
 alias RuntimeType(T : IntLit) = Codegen.IntLit;
 alias RuntimeType(T : CharLit) = Codegen.CharLit;
 alias RuntimeType(T : BoolLit) = Codegen.BoolLit;

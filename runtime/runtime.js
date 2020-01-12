@@ -1,144 +1,182 @@
-
 // utililty
-
-var tagged = function(name,value){
+var tagged = function(id, value) {
 	return {
-		name : name,
-		value : value
+		id: id,
+		value: value
 	};
 };
 
-var match = function(union,matches){
-	return matches[union.name](union.value);
+var match = function(union, matches) {
+	return matches[union.id](union.value);
 };
 
 //runtime typi info
 
-var typi_type_int = function(signed, size){
-	return tagged("number",[signed,size]);
+var typi_type_int = function(signed, size) {
+	return tagged(0, [signed, size]);
 };
 
-var typi_type_char = tagged("character",[]);
+var typi_type_char = tagged(1, []);
 
-var typi_type_bool = tagged("bool",[]);
+var typi_type_bool = tagged(2, []);
 
-var typi_type_tuple = function(types){
-	return tagged("tuple",types);
+var typi_type_tuple = function(types) {
+	return tagged(3, types);
 };
 
-var typi_type_array = function(value){
-	return tagged("array",value);
+var typi_type_array = function(value) {
+	return tagged(4, value);
 };
 
-var typi_type_pointer = function(value){
-	return tagged("pointer",value);
+var typi_type_pointer = function(value) {
+	return tagged(5, value);
 };
 
-var typi_type_function = function(argument,result){
-	return tagged("arrow",[argument,result]);
+var typi_type_function = function(argument, result) {
+	return tagged(6, [argument, result]);
 };
 
 // type utility
 
-var typi_assign = function(type, current, index, value){
-	match(type, {
-		number : function(x) { current[index] = value; },
-		character : function(x) { current[index] = value; },
-		bool : function(x) { current[index] = value; },
-		tuple : function(subtypes) {
-			for(var i = 0; i < subtypes.length;i++){
-				var subtype = subtypes[i];
-				current[index] = current[index] || [];
-				typi_assign(subtype,current[index], i, value[i]);
-			}
-		},
-		array : function(x) { current[index] = value; },
-		pointer :  function(x) { current[index] = value; },
-		arrow :  function(x) { current[index] = value; }
-	});
-};
-
-//comparing
-
-var typi_compare = function(type){
-	var vanilla = function(left,right) {
-		return left == right;
+var typi_constant = function(value) {
+	return function(ignore) {
+		return value;
 	};
-	return match(type,{
-		number : function(x) { return vanilla },
-		character : function(x) { return vanilla },
-		bool : function(x) { return vanilla },
-		tuple : function(subtypes) {
-			return function(left,right){
-				for(var i = 0;i < subtypes.length; i++){
-					var subtype = subtypes[i];
-					if(!typi_compare(subtype)(left[i],right[i])){
-						return false;
-					}
-				}
-				return true;
-			};
-		},
-		array : function(subtype){
-			return function(left,right){
-				if(left.length != right.length){
-					return false;
-				}
-				for(var i = 0; i < left.length; i++){
-					if(!typi_compare(subtype)(left.data[left.start + i],right.data[right.start + i])){
-						return false;
-					}
-				}
-				return true;
-			};
-		},
-		pointer : function(subtype){
-			return function(left,right){
-				if(left.source != right.source){
-					return false;
-				}
-				if(left.tree.length != right.tree.length){
-					return false;
-				}
-				for(var i = 0;i < left.tree.length; i++){
-					if(left.tree[i] != right.tree[i]){
-						return false;
-					}
-				}
-				return true;
-			};
-		},
-		arrow : function (x){
-			throw "comparing functions"
-		}
-	});
 };
 
-//arrays
+var typi_assign_vanilla = function(current, index, value) {
+	current[index] = value;
+}
 
-var typi_new_array = function(type){
-	return function(length,element){
-		var fresh = [];
-		for(var i = 0; i < length; i++){
-			typi_assign(type, fresh, i, element);
+var typi_assign_vanilla_constant = typi_constant(typi_assign_vanilla);
+
+var typi_tuple_assign = function(subtypes) {
+	var subassign = [];
+	for (var i = 0; i < subtypes.length; i++) {
+		subassign[i] = typi_assign(subtypes[i]);
+	}
+	return function(current, index, value) {
+		for (var i = 0; i < subassign.length; i++) {
+			current[index] = current[index] || [];
+			subassign[i](current[index], i, value[i]);
 		}
+	};
+};
+
+var typi_assign = function(type) {
+	var vanilla = typi_assign_vanilla_constant;
+	return match(type, [
+		vanilla,
+		vanilla,
+		vanilla,
+		typi_tuple_assign,
+		vanilla,
+		vanilla,
+		vanilla
+	]);
+};
+
+var typi_pointer_to = function(type) {
+	var assign = typi_assign(type);
+	return function(object, index) {
+		var children = [];
 		return {
-			data : fresh,
-			start : 0,
-			length : length
+			get: function() {
+				return object[index];
+			},
+			set: function(value) {
+				return assign(object, index, value);
+			},
+			child: type.id == 3 ? function(subindex) {
+				var subtype = type.value[subindex];
+				children[subindex] = children[subindex] || typi_pointer_to(subtype)(object[index], subindex);
+				return children[subindex];
+			} : undefined
 		};
 	};
 };
 
-var typi_index_array = function(array,index){
+//comparing
+
+var typi_compare_vanilla = function(left, right) {
+	return left == right;
+};
+
+var typi_compare_vanilla_constant = typi_constant(typi_compare_vanilla);
+
+var typi_tuple_compare = function(subtypes) {
+	var subcompares = [];
+	for (var i = 0; i < subtypes.length; i++) {
+		subcompares[i] = typi_compare(subtypes[i]);
+	}
+	return function(left, right) {
+		for (var i = 0; i < subcompares.length; i++) {
+			var subtype = subtypes[i];
+			if (!subcompares[i](left[i], right[i])) {
+				return false;
+			}
+		}
+		return true;
+	};
+};
+
+var typi_array_compare = function(subtype) {
+	var compare = typi_compare(subtype);
+	return function(left, right) {
+		if (left.length != right.length) {
+			return false;
+		}
+		for (var i = 0; i < left.length; i++) {
+			if (!compare(left.data[left.start + i], right.data[right.start + i])) {
+				return false;
+			}
+		}
+		return true;
+	};
+};
+
+var typi_compare = function(type) {
+	var vanilla = typi_compare_vanilla_constant;
+	return match(type, [
+		vanilla,
+		vanilla,
+		vanilla,
+		typi_tuple_compare,
+		typi_array_compare,
+		vanilla,
+		function(x) {
+			throw "comparing functions"
+		}
+	]);
+};
+
+
+//arrays
+
+var typi_new_array = function(type) {
+	var assign = typi_assign(type);
+	return function(length, element) {
+		var fresh = [];
+		for (var i = 0; i < length; i++) {
+			assign(fresh, i, element);
+		}
+		return {
+			data: fresh,
+			start: 0,
+			length: length
+		};
+	};
+};
+
+var typi_index_array = function(array, index) {
 	return array.data[array.start + index];
 };
 
-var typi_array_slice = function(array,start,end){
+var typi_array_slice = function(array, start, end) {
 	return {
-		data : array.data,
-		start : array.start + start,
-		length : end - start
+		data: array.data,
+		start: array.start + start,
+		length: end - start
 	};
 };
 
@@ -147,71 +185,68 @@ var typi_array_length = function(array) {
 };
 
 
-var typi_array_literal = function(type,length){
-	return function(elements){
+var typi_array_literal = function(type, length) {
+	var assign = typi_assign(type);
+	return function(elements) {
 		var fresh = [];
-		for(var i = 0; i < length; i++){
-			typi_assign(type, fresh, i, elements[i]);
+		for (var i = 0; i < length; i++) {
+			assign(fresh, i, elements[i]);
 		}
 		return {
-			data : fresh,
-			start : 0,
-			length : length
+			data: fresh,
+			start: 0,
+			length: length
 		};
 	};
 };
 
 //pointers
 
-var typi_tuple_address_forword = function(tuple_pointer, index){
-	return {
-		origin : tuple_pointer.origin,
-		tree : tuple_pointer.tree.concat([index])
+
+var typi_create_pointer = function(type) {
+	var assign = typi_assign(type);
+	var create = typi_pointer_to(type);
+	return function(value) {
+		var fresh = [null];
+		assign(fresh, 0, value);
+		return create(fresh, 0);
 	};
 };
 
-var typi_array_address_of = function(array, index) {
-    return {
-    	origin : array.data,
-    	tree : [array.start + index]
-    };
-};
+var typi_array_address_of = function(type) {
+	var create = typi_pointer_to(type);
+	return function(array, index) {
+		array.data.pointers = array.data.pointers || [];
 
-var typi_pointer_assign = function(type){
-	return function(pointer, value){
-		var current = pointer.origin;
-		for(var i = 0;i < pointer.tree.length - 1;i++){
-			current = current[pointer.tree[i]];
-		}
-		typi_assign(type, current, pointer.tree[pointer.tree.length-1], value);
-	};
-};
-var typi_create_pointer = function(value){
-	return {
-		origin : { value : value },
-		tree : ["value"]
+		var pointers = array.data.pointers;
+		var realIndex = array.start + index;
+		pointers[realIndex] = pointers[realIndex] || create(array.data, realIndex);
+		return pointers[realIndex];
 	};
 };
 
-var typi_derefence_pointer = function(pointer){
-	var current = pointer.origin;
-	for(var i = 0;i < pointer.tree.length;i++){
-		current = current[pointer.tree[i]];
-	}
-	return current;
+
+var typi_tuple_address_forword = function(tuple_pointer, index) {
+	return tuple_pointer.child(index);
+};
+
+var typi_pointer_assign = function(pointer, value) {
+	return pointer.set(value);
+};
+
+var typi_derefence_pointer = function(pointer) {
+	return pointer.get();
 };
 
 // misc
 
 var write = function(argument) {
-    console.log(argument.data);
+	console.log(argument.data);
 }
 
 var assert = function(check) {
-    if (!check) {
-        console.trace("Error");
-        throw "Assetion Error";
-    }
+	if (!check) {
+		console.trace("Error");
+		throw "Assetion Error";
+	}
 }
-
-main();

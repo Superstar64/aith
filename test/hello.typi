@@ -2,9 +2,9 @@
  Boost License
 /#
 
-void = tuple();
+void = (&&);
 
-main : void -> void = >()= {
+main : void -> void = () => {
 	write("hello world");
 };
 

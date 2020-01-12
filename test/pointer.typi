@@ -2,14 +2,14 @@
  Boost License
 /#
 
-void = tuple();
+void = (&&);
 
-increment = >(x) = {
+increment = x => {
 	x <- *x + 1;
 };
 
-heap pointer = >() = {
-	let pointer : integer 32(*) = new 5;
+heap pointer = () => {
+	pointer = (new 5) : integer 32(*);
 	assert(*pointer == 5);
 	increment(pointer);
 	assert(*pointer == 6);
@@ -17,9 +17,9 @@ heap pointer = >() = {
 	assert(pointer == pointer);
 };
 
-array pointer = >() =  {
-	let array : integer 32[*] = [0,10,20];
-	let index = array&[1];
+array pointer = () => {
+	array = [0,10,20] : integer 32[*];
+	index = array&[1];
 	assert(array[1] == 10);
 	increment(index);
 	assert(array[1] == 11);
@@ -28,24 +28,24 @@ array pointer = >() =  {
 };
 
 
-record pointer = >() =  {
-	let pair = new (4 : integer 32,10 : integer 32);
+record pointer = () => {
+	pair = new (4 : integer 32,10 : integer 32);
 	assert((*pair)_0 == 4);
-	increment(pair&_0);
+	increment(pair&*_0);
 	assert((*pair)_0 == 5);
 	
 	assert((*pair)_1 == 10);
-	increment(pair&_1);
+	increment(pair&*_1);
 	assert((*pair)_1 == 11);
 	
 	
-	assert(pair&_0 == pair&_0);
-	assert(pair&_0 != pair&_1);
+	assert(pair&*_0 == pair&*_0);
+	assert(pair&*_0 != pair&*_1);
 	assert(pair == pair);
 };
 
 
-main : void -> void = >() = {
+main : void -> void = () => {
 	heap pointer();
 	array pointer();
 	record pointer();

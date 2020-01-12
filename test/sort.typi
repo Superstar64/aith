@@ -2,19 +2,19 @@
  Boost License
 /#
 
-void = tuple();
+void = (&&);
 
-swap = >(left,right) = {
-	let tmp = *left;
+swap = (left,right) => {
+	tmp = *left;
 	left <- *right;
 	right <- tmp;
 };
 
-quick sort : integer 32[*] -> void = >(array) = {
+quick sort : integer 32[*] -> void = array => {
 	if array.length > 1 then {
-		let pivot = array[array.length - 1];
-		let middle = new 0;
-		let end = new 0;
+		pivot = array[array.length - 1];
+		middle = new 0;
+		end = new 0;
 		while *end < array.length - 1 then {
 			#0..middle < pivot
 			#middle..end - 1 > pivot
@@ -30,8 +30,8 @@ quick sort : integer 32[*] -> void = >(array) = {
 	};
 };
 
-main : void -> void = >(x) = {
-	let array : integer 32 [*] = [0,7,9,3,8,6,5,1,4,2];
+main : void -> void = x => {
+	array = [0,7,9,3,8,6,5,1,4,2] : integer 32 [*];
 	quick sort(array);
 	assert(array == [0,1,2,3,4,5,6,7,8,9]); 
 };

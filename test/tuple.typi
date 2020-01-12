@@ -1,11 +1,11 @@
-main : void -> void = >() =  {
-	let triplet = (true,false,"test");
+main : void -> void = () =>  {
+	triplet = (true,false,"test");
 	assert(triplet_0 == true);
 	assert(triplet_1 == false);
 	assert(triplet_2 == "test");
 };
 
 
-void = tuple();
+void = (&&);
 
 assert : boolean -> void = extern "assert";

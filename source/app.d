@@ -99,8 +99,7 @@ void main(string[] args) {
 
 	string outputFile = "-";
 	void opt(ref string[] s) {
-		getopt(s, "Generate-All|a", &genAll, "Add-Search-Dir|I", &searchDirs,
-				"Output|o", &outputFile);
+		getopt(s, "Generate-All|a", &genAll, "Add-Search-Dir|I", &searchDirs, "Output|o", &outputFile);
 	}
 
 	string configFile = environment.get("TYPI_CONFIG");

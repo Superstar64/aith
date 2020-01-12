@@ -1,17 +1,17 @@
-void = tuple();
+void = (&&);
 
-copy = >(from,to) = {
+copy = (from,to) => {
 	assert(from.length == to.length);
-	let index = new 0;
+	index = new 0;
 	while(*index < from.length) then {
 		to&[*index] <- from[*index];
 		index <- *index + 1;
 	};
 };
 
-main : void -> void = >() = {
-	let base = [(true,true),(true,false),(false,false)];
-	let target = new[3]((false,false));
+main : void -> void = () => {
+	base = [(true,true),(true,false),(false,false)];
+	target = new[3]((false,false));
 	copy(base,target);
 	assert(target == [(true,true),(true,false),(false,false)]);
 };

@@ -78,18 +78,13 @@ JsVariable nameSymbol(Symbol symbol) {
 	}
 }
 
-JsExpr generateSymbolImpl(ModuleVar that, JsScope depend, Extra extra) {
-	extra.context = FunctionContext();
-	return that.value.generateJs(depend, extra);
-}
-
 JsVariable symbolSubName(Pattern pattern, JsScope depend, Extra extra) {
 	return dispatch!(symbolSubNameImpl, NamedPattern, TuplePattern)(pattern, depend, extra);
 }
 
 JsVariable symbolSubNameImpl(NamedPattern pattern, JsScope depend, Extra extra) {
 	auto result = new JsVariable(defaultNaming(pattern.argument.name));
-	extra.context.arguments[pattern.argument.id] = result;
+	extra.context.variables[pattern.argument.id] = result;
 	return result;
 }
 
@@ -111,13 +106,24 @@ JsExpr generateSymbolImpl(FunctionLiteral that, JsScope depend, Extra extra) {
 	auto val = that.text.get.generateJs(result.states, extra);
 	result.states ~= new JsReturn(val);
 
-	return result;
+	auto initializer = new JsFuncLit([], []);
+	foreach (variable, value; extra.context.requests.map!(a => a)) {
+		initializer.states ~= new JsVarDef(variable, value);
+	}
+	initializer.states ~= new JsReturn(result);
+
+	return new JsCall(initializer, []);
+}
+
+JsExpr requestFresh(Extra extra, JsExpr value) {
+	auto variable = new JsVariable(temporary);
+	extra.context.requests ~= tuple(variable, value);
+	return variable;
 }
 
 struct FunctionContext {
 	JsVariable[VarId] variables;
-
-	JsVariable[VarId] arguments;
+	Tuple!(JsVariable, JsExpr)[] requests;
 }
 
 class Extra {
@@ -127,8 +133,7 @@ class Extra {
 }
 
 JsExpr runtimeInfoImpl(TypeInt that) {
-	return new JsCall(new JsExternLit("typi_type_int"),
-			[new JsBoolLit(that.signed), new JsIntLit(that.size)]);
+	return new JsCall(new JsExternLit("typi_type_int"), [new JsBoolLit(that.signed), new JsIntLit(that.size)]);
 }
 
 JsExpr runtimeInfoImpl(TypeChar that) {
@@ -140,25 +145,19 @@ JsExpr runtimeInfoImpl(TypeBool that) {
 }
 
 JsExpr runtimeInfoImpl(TypeStruct that) {
-	return new JsCall(new JsExternLit("typi_type_tuple"),
-			[new JsArray(that.values.map!(a => a.runtimeInfo).array)]);
+	return new JsCall(new JsExternLit("typi_type_tuple"), [new JsArray(that.values.map!(a => a.runtimeInfo).array)]);
 }
 
 JsExpr runtimeInfoImpl(TypeArray that) {
-	return new JsCall(new JsExternLit("typi_type_array"), [
-			that.array.runtimeInfo
-			]);
+	return new JsCall(new JsExternLit("typi_type_array"), [that.array.runtimeInfo]);
 }
 
 JsExpr runtimeInfoImpl(TypePointer that) {
-	return new JsCall(new JsExternLit("typi_type_pointer"), [
-			that.value.runtimeInfo
-			]);
+	return new JsCall(new JsExternLit("typi_type_pointer"), [that.value.runtimeInfo]);
 }
 
 JsExpr runtimeInfoImpl(TypeFunction that) {
-	return new JsCall(new JsExternLit("typi_type_function"),
-			[that.argument.runtimeInfo, that.result.runtimeInfo]);
+	return new JsCall(new JsExternLit("typi_type_function"), [that.argument.runtimeInfo, that.result.runtimeInfo]);
 }
 
 JsExpr indexTuple(JsExpr tuple, JsExpr index) {
@@ -227,12 +226,8 @@ JsExpr generateJsImpl(TupleLit that, JsScope depend, Extra extra) {
 	return new JsArray(that.values.map!(a => a.generateJs(depend, extra)).array);
 }
 
-JsExpr generateJsImpl(ScopeVar that, JsScope depend, Extra extra) {
+JsExpr generateJsImpl(Variable that, JsScope depend, Extra extra) {
 	return extra.context.variables[that.id];
-}
-
-JsExpr generateJsImpl(FunctionArgument that, JsScope, Extra extra) {
-	return extra.context.arguments[that.id];
 }
 
 JsExpr generateJsImpl(If that, JsScope depend, Extra extra) {
@@ -274,23 +269,23 @@ JsExpr generateJsImpl(While that, JsScope depend, Extra extra) {
 	return new JsArray([]);
 }
 
-JsExpr getCreatePointer() {
-	return new JsExternLit("typi_create_pointer");
+JsExpr getCreatePointer(Extra extra, Type type) {
+	return extra.requestFresh(new JsCall(new JsExternLit("typi_create_pointer"), [type.runtimeInfo]));
 }
 
 JsExpr generateJsImpl(New that, JsScope depend, Extra extra) {
 	auto value = that.value.generateJs(depend, extra);
-	return new JsCall(getCreatePointer, [value]);
+	return new JsCall(extra.getCreatePointer(that.value.type), [value]);
 }
 
-JsExpr getNewArray(Type type) {
-	return new JsCall(new JsExternLit("typi_new_array"), [type.runtimeInfo]);
+JsExpr getNewArray(Extra extra, Type type) {
+	return extra.requestFresh(new JsCall(new JsExternLit("typi_new_array"), [type.runtimeInfo]));
 }
 
 JsExpr generateJsImpl(NewArray that, JsScope depend, Extra extra) {
 	auto length = that.length.generateJs(depend, extra);
 	auto expression = that.value.generateJs(depend, extra);
-	return new JsCall(getNewArray(that.value.type), [length, expression]);
+	return new JsCall(extra.getNewArray(that.value.type), [length, expression]);
 }
 
 JsExpr generateJsImpl(CastInteger that, JsScope depend, Extra extra) {
@@ -303,8 +298,7 @@ JsExpr getArrayLength() {
 }
 
 JsExpr generateJsImpl(Length that, JsScope depend, Extra extra) {
-	auto value = that.value.generateJs(depend, extra);
-	return new JsCall(getArrayLength, [value]);
+	return getArrayLength;
 }
 
 JsExpr getIndexArray() {
@@ -348,10 +342,8 @@ JsExpr generateJsImpl(Slice that, JsScope depend, Extra extra) {
 	return new JsCall(getArraySlice, [array, left, right]);
 }
 
-auto getArrayLiteral(Type type, size_t length) {
-	return new JsCall(new JsExternLit("typi_array_literal"), [
-			type.runtimeInfo, new JsIntLit(length)
-			]);
+auto getArrayLiteral(Extra extra, Type type, size_t length) {
+	return extra.requestFresh(new JsCall(new JsExternLit("typi_array_literal"), [type.runtimeInfo, new JsIntLit(length)]));
 }
 
 JsExpr generateJsImpl(StringLit that, JsScope depend, Extra extra) {
@@ -359,22 +351,20 @@ JsExpr generateJsImpl(StringLit that, JsScope depend, Extra extra) {
 		.map!(a => new JsCharLit(a))
 		.map!(a => a.convert!JsExpr)
 		.array;
-	return new JsCall(getArrayLiteral(that.type.castTo!TypeArray.array,
-			internal.length), [new JsArray(internal)]);
+	return new JsCall(extra.getArrayLiteral(that.type.castTo!TypeArray.array, internal.length), [new JsArray(internal)]);
 }
 
 JsExpr generateJsImpl(ArrayLit that, JsScope depend, Extra extra) {
 	auto internal = that.values.map!(a => a.generateJs(depend, extra)).array;
-	return new JsCall(getArrayLiteral(that.type.castTo!TypeArray.array,
-			internal.length), [new JsArray(internal)]);
+	return new JsCall(extra.getArrayLiteral(that.type.castTo!TypeArray.array, internal.length), [new JsArray(internal)]);
 }
 
-JsExpr getCompare(Type type) {
-	return new JsCall(new JsExternLit("typi_compare"), [type.runtimeInfo]);
+JsExpr getCompare(Extra extra, Type type) {
+	return extra.requestFresh(new JsCall(new JsExternLit("typi_compare"), [type.runtimeInfo]));
 }
 
 JsExpr compare(JsExpr left, JsExpr right, Type type, Extra extra) {
-	return new JsCall(getCompare(type), [left, right]);
+	return new JsCall(extra.getCompare(type), [left, right]);
 }
 
 JsExpr generateJsImpl(Binary!"==" that, JsScope depend, Extra extra) {
@@ -402,14 +392,14 @@ JsExpr generateJsImpl(Deref that, JsScope depend, Extra extra) {
 	return new JsCall(getDereferencePointer, [value]);
 }
 
-JsExpr getArrayPointerJs() {
-	return new JsExternLit("typi_array_address_of");
+JsExpr getArrayPointerJs(Extra extra, Type type) {
+	return extra.requestFresh(new JsCall(new JsExternLit("typi_array_address_of"), [type.runtimeInfo]));
 }
 
 JsExpr generateJsImpl(IndexAddress that, JsScope depend, Extra extra) {
 	auto array = that.array.generateJs(depend, extra);
 	auto index = that.index.generateJs(depend, extra);
-	return new JsCall(getArrayPointerJs, [array, index]);
+	return new JsCall(extra.getArrayPointerJs(that.type.castTo!TypePointer.value), [array, index]);
 }
 
 JsExpr generateJsImpl(Scope that, JsScope depend, Extra extra) {
@@ -417,39 +407,40 @@ JsExpr generateJsImpl(Scope that, JsScope depend, Extra extra) {
 	return that.last.generateJs(depend, extra);
 }
 
-JsExpr generateJsImpl(ScopeVarDef that, JsScope depend, Extra extra) {
-	auto variable = new JsVariable(defaultNaming(that.variable.name));
+JsExpr generateJsImpl(VariableDef that, JsScope depend, Extra extra) {
+	JsScope temp = new JsScope;
+	auto variable = symbolSubName(that.variable, temp, extra);
 	that.value.generateJsVarDef(variable, depend, extra);
-	extra.context.variables[that.variable.id] = variable;
+	//todo: clean this
+	foreach (state; temp) {
+		depend ~= temp;
+	}
 	return that.last.generateJs(depend, extra);
 }
 
-JsExpr getAssignPointer(Type type) {
-	return new JsCall(new JsExternLit("typi_pointer_assign"), [type.runtimeInfo]);
+JsExpr getAssignPointer() {
+	return new JsExternLit("typi_pointer_assign");
 }
 
 JsExpr generateJsImpl(Assign that, JsScope depend, Extra extra) {
 	auto target = that.left.generateJs(depend, extra);
 	auto source = that.right.generateJs(depend, extra);
-	depend ~= new JsCall(getAssignPointer(that.right.type), [target, source]);
+	depend ~= new JsCall(getAssignPointer(), [target, source]);
 	return that.last.generateJs(depend, extra);
 }
 
-JsExpr generateJsImpl(string op)(Binary!op that, JsScope depend, Extra extra)
-		if (["*", "/", "%", "+", "-"].canFind(op)) {
+JsExpr generateJsImpl(string op)(Binary!op that, JsScope depend, Extra extra) if (["*", "/", "%", "+", "-"].canFind(op)) {
 	auto left = that.left.generateJs(depend, extra);
 	auto right = that.right.generateJs(depend, extra);
 	return castInt(new JsBinary!op(left, right), that.type);
 }
 
-JsExpr generateJsImpl(string op)(Binary!op that, JsScope depend, Extra extra)
-		if (["<=", ">=", "<", ">", "&&", "||"].canFind(op)) {
+JsExpr generateJsImpl(string op)(Binary!op that, JsScope depend, Extra extra) if (["<=", ">=", "<", ">", "&&", "||"].canFind(op)) {
 	auto left = that.left.generateJs(depend, extra);
 	auto right = that.right.generateJs(depend, extra);
 	return new JsBinary!op(left, right);
 }
 
-JsExpr generateJsImpl(string op)(Prefix!op that, JsScope depend, Extra extra)
-		if (["-", "!"].canFind(op)) {
+JsExpr generateJsImpl(string op)(Prefix!op that, JsScope depend, Extra extra) if (["-", "!"].canFind(op)) {
 	return new JsPrefix!op(that.value.generateJs(depend, extra));
 }

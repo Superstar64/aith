@@ -56,9 +56,7 @@ import misc;
 	}
 }
 
-enum keywords = AliasSeq!("global", "static", "let", "boolean", "cast", "character", "else",
-			"extern", "false", "if", "import", "infer", "integer", "new", "of",
-			"private", "public", "tuple", "then", "true", "natural", "while");
+enum keywords = AliasSeq!("global", "static", "let", "boolean", "cast", "character", "else", "extern", "false", "if", "import", "infer", "integer", "length", "new", "of", "private", "public", "tuple", "then", "true", "natural", "while");
 struct Keyword(string keyword) if (staticIndexOf!(keyword, keywords) >= 0) {
 	string toString() {
 		return keyword;
@@ -70,10 +68,7 @@ auto keyword(string key)() {
 }
 
 //must be sorted according to string length
-enum operators = AliasSeq!("[*]", "(*)", ":::", "==", "!=", "<=", ">=", "&&",
-			"||", "::", "->", "..", "&[", "&_", "<-", "<", ">", "+", "-", "*",
-			"/", "%", "=", "!", "~", "&", "|", "^", ":", "$", "@", "{", "}",
-			"(", ")", "[", "]", ".", ",", ";", "_");
+enum operators = AliasSeq!("[*]", "(*)", ":::", "==", "!=", "<=", ">=", "&&", "||", "::", "->", "..", "&[", "&*_", "<-", "=>", "(&", "&)", "<", ">", "+", "-", "*", "/", "%", "=", "!", "~", "&", "|", "^", ":", "$", "@", "{", "}", "(", ")", "[", "]", ".", ",", ";", "_");
 
 struct Operator(string operator) if (staticIndexOf!(operator, operators) >= 0) {
 	string toString() {
@@ -118,8 +113,7 @@ struct Eof {
 
 struct Token {
 	Position position;
-	Algebraic!(Identifier, IntLiteral, CharLiteral, StringLiteral,
-			staticMap!(Operator, operators), staticMap!(Keyword, keywords), Eof) value;
+	Algebraic!(Identifier, IntLiteral, CharLiteral, StringLiteral, staticMap!(Operator, operators), staticMap!(Keyword, keywords), Eof) value;
 	alias value this;
 
 	bool opEquals(T)(T t) if (!is(T == Token)) {
@@ -192,10 +186,7 @@ string readStringWithEscapes(ref string file, char end, string current, out stri
 	enum errEoF = "Unexpected eof when parsing string";
 	enum validHex = "0123456789abcdefABCDEF";
 
-	enum escapeMap = [
-			'a' : '\a', 'b' : '\b', 'f' : '\f', 'n' : '\n', 'r' : '\r', 't' : '\t',
-			'v' : '\v', '\\' : '\\', '\'' : '\'', '"' : '"', '`' : '`', '0' : '\0'
-		];
+	enum escapeMap = ['a' : '\a', 'b' : '\b', 'f' : '\f', 'n' : '\n', 'r' : '\r', 't' : '\t', 'v' : '\v', '\\' : '\\', '\'' : '\'', '"' : '"', '`' : '`', '0' : '\0'];
 	while (true) {
 		auto length = file[].until!(a => a == '\\' || a == end)
 			.tee!(a => current ~= a)
@@ -293,9 +284,7 @@ void removeComments(ref string file) {
 	}
 }
 
-alias Parsers = AliasSeq!(parseEOF, parseIdentifier, parseIntLiteral, parseStringLiteral!CharLiteral,
-		parseStringLiteral!StringLiteral, staticMap!(parseKeyword, keywords),
-		staticMap!(parseOperator, operators));
+alias Parsers = AliasSeq!(parseEOF, parseIdentifier, parseIntLiteral, parseStringLiteral!CharLiteral, parseStringLiteral!StringLiteral, staticMap!(parseKeyword, keywords), staticMap!(parseOperator, operators));
 
 auto slice(string file, size_t index) {
 	return file[index .. $];
@@ -309,6 +298,7 @@ struct Lexer {
 	Source source;
 	uint line;
 	size_t index;
+	size_t lineStart;
 
 	this(string fileName, string file) {
 		this.source = Source(fileName, file);
@@ -331,9 +321,14 @@ struct Lexer {
 		sliced.removeComments;
 
 		Position position() {
+			auto untilLine = countUntil(sliced, "\n");
+			if (untilLine == -1) {
+				untilLine = sliced.length;
+			}
 			auto end = unslice(source.file, sliced);
 			auto lineCount = cast(uint) source.file[index .. end].filter!(a => a == '\n').count;
-			return Position(source, Section(line, line + lineCount, index, end));
+
+			return Position(source, Section(line, line + lineCount, index, end, lineStart, end + untilLine));
 		}
 
 		void quit(string message) {
@@ -347,6 +342,10 @@ struct Lexer {
 					front.value = typeof(front.value)(token.get);
 					front.position = position();
 					auto end = unslice(source.file, sliced);
+					size_t nextLine = source.file[index .. end].retro.countUntil("\n");
+					if (nextLine != -1) {
+						lineStart = end - nextLine;
+					}
 					line += cast(int) source.file[index .. end].filter!(a => a == '\n').count;
 					index = end;
 					return;

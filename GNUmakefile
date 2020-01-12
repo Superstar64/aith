@@ -9,7 +9,7 @@
 dc ?= ldc2
 dflags ?=
 dformatter ?= dfmt
-dformatter_flags ?= --inplace --brace_style=otbs --indent_style=tab
+dformatter_flags ?= --inplace --brace_style=otbs --indent_style=tab --soft_max_line_length=65535 --max_line_length=65535 
 build ?= build
 incremental ?= false
 
@@ -17,7 +17,7 @@ incremental ?= false
 .SECONDEXPANSION:
 
 find = $(wildcard $1/*.$2) $(foreach directory,$(wildcard $1/*),$(call find,$(directory),$2))
-hash = $(shell echo $1 | md5sum | cut -d ' ' -f 1)
+hash = $(shell python -c "import hashlib; print(hashlib.md5('$1').hexdigest())")
 
 ifeq ($(dc),gdc)
 -o = -o 
@@ -55,8 +55,8 @@ $(build)/typi : $(sources) $(flags) | $$(dir $$)
 endif
 test := $(call find,test,typi)
 test_output := $(test:%.typi=$(build)/%.js)
-$(test_output): $(build)/%.js : %.typi runtime/runtime.js $(build)/typi | $$(dir $$@)
-	$(build)/typi $< runtime/runtime.js -o $@
+$(test_output): $(build)/%.js : %.typi runtime/runtime.js runtime/main.js $(build)/typi | $$(dir $$@)
+	$(build)/typi runtime/runtime.js $< runtime/main.js -o $@
 test_build : $(test_output)
 .PHONY: test_build
 

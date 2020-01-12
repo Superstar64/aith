@@ -88,8 +88,7 @@ template GetMember(T) {
 
 alias PropertyNameTuple(T) = __traits(derivedMembers, T);
 
-alias PropertyTypeTuple(T) = staticMap!(ReturnType, staticMap!(GetMember!T,
-		PropertyNameTuple!T));
+alias PropertyTypeTuple(T) = staticMap!(ReturnType, staticMap!(GetMember!T, PropertyNameTuple!T));
 
 mixin template Getters(T) {
 	import std.format;
@@ -99,9 +98,7 @@ mixin template Getters(T) {
 		mixin(q{ private ReturnType!(__traits(getMember,T,field)) _%s;}.format(field));
 		mixin(q{ override %s ReturnType!(__traits(getMember,T,field)) %s(){
 				return _%s;
-			}}.format(
-				functionAttributes!(__traits(getMember,
-				T, field)) & FunctionAttribute.ref_ ? "ref" : "", field, field));
+			}}.format(functionAttributes!(__traits(getMember, T, field)) & FunctionAttribute.ref_ ? "ref" : "", field, field));
 	}
 	this(PropertyTypeTuple!T arguments) {
 		static foreach (c, field; PropertyNameTuple!T) {
@@ -110,8 +107,7 @@ mixin template Getters(T) {
 	}
 
 	auto properties()() {
-		mixin(q{return .tuple(} ~ [PropertyNameTuple!T].map!(a => "_" ~ a ~ ",").joiner.array
-				~ q{);});
+		mixin(q{return .tuple(} ~ [PropertyNameTuple!T].map!(a => "_" ~ a ~ ",").joiner.array ~ q{);});
 	}
 
 	import jsast : Json;
@@ -130,13 +126,6 @@ mixin template Getters(T) {
 		}
 		return base;
 	}
-}
-
-class DefaultImpl(T) : T {
-	this() {
-	}
-
-	mixin Getters!T;
 }
 
 template dispatch(alias fun, Types...) {
@@ -226,6 +215,8 @@ struct Section {
 	uint lineEnd;
 	size_t start;
 	size_t end;
+	size_t lineStartPosition;
+	size_t lineEndPosition;
 }
 
 struct Position {
@@ -235,15 +226,16 @@ struct Position {
 
 Position join(Position left, Position right) {
 	assert(left.source == right.source);
-	return Position(left.source, Section(left.section.lineStart,
-			right.section.lineEnd, left.section.start, right.section.end));
+	return Position(left.source, Section(left.section.lineStart, right.section.lineEnd, left.section.start, right.section.end, left.section.lineStartPosition, right.section.lineEndPosition));
 }
 
 //todo rework pretty printing
 string prettyPrint(Position pos, string colorstart = "\x1b[31m", string colorend = "\x1b[0m") {
 	string res;
 	res ~= "in file:" ~ pos.source.fileName ~ " at line:" ~ pos.section.lineStart.to!string ~ "\n";
+	res ~= pos.source.file[pos.section.lineStartPosition .. pos.section.start];
 	res ~= colorstart ~ pos.source.file[pos.section.start .. pos.section.end] ~ colorend;
+	res ~= pos.source.file[pos.section.end .. pos.section.lineEndPosition];
 	return res;
 }
 
@@ -267,8 +259,7 @@ void warn(string message, Position pos) {
 	writeln(prettyPrint(pos));
 }
 
-void check(T)(T expression, string message, Position position,
-		string file = __FILE__, int line = __LINE__) {
+void check(T)(T expression, string message, Position position, string file = __FILE__, int line = __LINE__) {
 	if (!expression) {
 		error(message, position, file, line);
 	}

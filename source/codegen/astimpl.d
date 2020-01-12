@@ -59,19 +59,6 @@ class Impl(T : Expression) : T {
 	}
 }
 
-class Impl(T : ModuleVar) : T {
-	mixin Getters!T;
-	mixin DefaultExpression;
-	mixin DefaultSymbol;
-	Symbol[SymbolId] dependants() {
-		return value.symbols;
-	}
-
-	Json jsonify() {
-		return jsonifyImpl;
-	}
-}
-
 class Impl(T : FunctionLiteral) : T {
 	mixin Getters!T;
 	mixin DefaultExpression;
@@ -104,7 +91,7 @@ Symbol[SymbolId] symbolsImpl(T : Var)(T that) {
 	return null;
 }
 
-Symbol[SymbolId] symbolsImpl(T : ScopeVarDef)(T that) {
+Symbol[SymbolId] symbolsImpl(T : VariableDef)(T that) {
 	with (that)
 		return mergeMaps(value.symbols, last.symbols);
 }
@@ -154,7 +141,7 @@ Symbol[SymbolId] symbolsImpl(T : CastInteger)(T that) {
 
 Symbol[SymbolId] symbolsImpl(T : Length)(T that) {
 	with (that)
-		return value.symbols;
+		return null;
 }
 
 Symbol[SymbolId] symbolsImpl(T : Index)(T that) {

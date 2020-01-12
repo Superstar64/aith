@@ -49,47 +49,12 @@ struct Equivalence {
 	}
 }
 
-Type[PolymorphicVariable] mapSubstitions(Subsitution[] pending) {
-	Type[][PolymorphicVariable] map;
-	foreach (substition; pending) {
-		map[substition.from] ~= substition.to;
-	}
-	loop: while (true) {
-		foreach (key; map.byKey) {
-			if (map[key].length > 1) {
-				auto substitions = mapSubstitions(typeMatch(map[key][0],
-						map[key][1], Position.init));
-				foreach (ref value; map.byValue) {
-					value = value.map!(a => a.specialize(substitions)).array;
-				}
-				map[key].popFront;
-				foreach (substition; substitions.byKey) {
-					map[substition] ~= substitions[substition];
-				}
-				continue loop;
-			}
-		}
-		break;
-	}
-	Type[PolymorphicVariable] solution;
-	foreach (key; map.byKey) {
-		assert(map[key].length == 1);
-		solution[key] = map[key][0];
-	}
-	//todo is this necessary
-	foreach (ref value; solution.byValue) {
-		value = value.specialize(solution);
-	}
-	return solution;
-}
-
 class Context {
-	Var[] locals;
+	Variable[] locals;
 	void delegate(Type left, Type right, Position position, int line) typecheckField;
 	CompileTimeExpression delegate(string name) searchGlobalVariable;
 
-	this(Var[] locals, void delegate(Type left, Type right, Position position,
-			int line) typecheckField, CompileTimeExpression delegate(string name) searchGlobalVariable) {
+	this(Variable[] locals, void delegate(Type left, Type right, Position position, int line) typecheckField, CompileTimeExpression delegate(string name) searchGlobalVariable) {
 		this.locals = locals;
 		this.typecheckField = typecheckField;
 		this.searchGlobalVariable = searchGlobalVariable;
@@ -101,9 +66,9 @@ class Context {
 }
 
 CompileTimeExpression search(Context context, string name) {
-	foreach (var; context.locals.retro) {
-		if (var.name == name) {
-			return var;
+	foreach (variable; context.locals.retro) {
+		if (variable.name == name) {
+			return variable;
 		}
 	}
 	return context.searchGlobalVariable(name);
@@ -128,8 +93,39 @@ void processModule(Module mod) {
 	}
 }
 
-CompileTimeExpression searchGlobal(string name, Module mod,
-		Tuple!()[Parser.ModuleVarDef] recursionCheck) {
+Type[PolymorphicVariable] unifyImpl(Equivalence[] equations) {
+	if (equations.length == 0) {
+		return null;
+	}
+	auto head = equations[0];
+	Type[PolymorphicVariable] substitions = typeMatch(head.left, head.right, head.position);
+	auto tail = equations[1 .. $];
+	foreach (ref equation; tail) {
+		equation.left = equation.left.specialize(substitions);
+		equation.right = equation.right.specialize(substitions);
+	}
+	return mergeMaps(substitions, unifyImpl(tail));
+}
+
+Type[PolymorphicVariable] fixDefers(Type[PolymorphicVariable] substitions) {
+	substitions = substitions.dup;
+	foreach (ref type; substitions) {
+		while (type.generics.byKey.map!(a => a in substitions).any) {
+			type = type.specialize(substitions);
+		}
+	}
+	foreach (type; substitions) {
+		assert(!type.generics.byKey.map!(a => a in substitions).any);
+	}
+	return substitions;
+}
+
+// the heart of the compiler
+Type[PolymorphicVariable] unify(Equivalence[] equations) {
+	return fixDefers(unifyImpl(equations));
+}
+
+CompileTimeExpression searchGlobal(string name, Module mod, Tuple!()[Parser.ModuleVarDef] recursionCheck) {
 	if (name in mod.aliases) {
 		return mod.aliases[name].element;
 	} else if (name in mod.rawSymbols) {
@@ -139,8 +135,7 @@ CompileTimeExpression searchGlobal(string name, Module mod,
 	}
 }
 
-CompileTimeExpression semanticGlobal(Parser.ModuleVarDef symbol, Module mod,
-		Tuple!()[Parser.ModuleVarDef] recursionCheck) {
+CompileTimeExpression semanticGlobal(Parser.ModuleVarDef symbol, Module mod, Tuple!()[Parser.ModuleVarDef] recursionCheck) {
 	if (symbol in recursionCheck) {
 		error("Illegal Recursion", symbol.position);
 	}
@@ -165,10 +160,11 @@ CompileTimeExpression semanticGlobal(Parser.ModuleVarDef symbol, Module mod,
 
 	CompileTimeExpression applyTypeChecks(CompileTimeExpression expression0) {
 		if (auto expression1 = expression0.castTo!Expression) {
-			auto pending = typechecks.map!(check => typeMatch(check.left,
-					check.right, check.position)).joiner.array;
-			Type[PolymorphicVariable] substitions = mapSubstitions(pending);
-			return expression1.specialize(substitions);
+			Type[PolymorphicVariable] substitions = unify(typechecks);
+			//writeln("substition map for ", symbol.name, ": ", substitions);
+			auto result = expression1.specialize(substitions);
+			//writeln("type for ", symbol.name,": ", result.type);
+			return result;
 		} else {
 			return expression0;
 		}
@@ -179,55 +175,24 @@ CompileTimeExpression semanticGlobal(Parser.ModuleVarDef symbol, Module mod,
 		mod.aliases[symbol.name] = ModuleAlias(expression, symbol.visible);
 	}
 
-	if (symbol.global) {
-		auto expression0 = semanticGlobalDispatch(symbol.value, symbol.name,
-				type, context, &preassign);
-		auto expression1 = expression0;
-		auto expression2 = applyTypeChecks(expression1);
-		auto expression3 = expression2.assumePolymorphic(symbol.value.position);
-		auto definition = make!ModuleVar(expression3.type, null, expression3,
-				symbol.name, true, new SymbolId);
-		mod.exports[definition.name] = definition;
-		mod.aliases[symbol.name] = ModuleAlias(definition, symbol.visible);
-
-		return definition;
-	} else {
-		auto expression0 = semanticGlobalDispatch(symbol.value, symbol.name,
-				type, context, &preassign);
-		auto expression1 = applyTypeChecks(expression0);
-		mod.aliases[symbol.name] = ModuleAlias(expression1, symbol.visible);
-		if (auto expression2 = expression1.castTo!Symbol) {
-			if (expression2.strong && expression2.generics.length == 0) {
-				mod.exports[symbol.name] = expression2;
-			}
+	auto expression0 = semanticGlobalDispatch(symbol.value, symbol.name, type, context, &preassign);
+	auto expression1 = applyTypeChecks(expression0);
+	mod.aliases[symbol.name] = ModuleAlias(expression1, symbol.visible);
+	if (auto expression2 = expression1.castTo!Symbol) {
+		if (expression2.strong && expression2.generics.length == 0) {
+			mod.exports[symbol.name] = expression2;
 		}
-		return expression1;
 	}
+	return expression1;
 }
 
-CompileTimeExpression semanticGlobalDispatch(Parser.Expression that, string name, /* nullable */ Type type,
-		Context context, void delegate(CompileTimeExpression) preassign) {
-	return dispatch!(semanticGlobalImpl, Parser.Variable, Parser.TypeTuple, Parser.Index,
-			Parser.TupleIndex, Parser.TupleIndexAddress, Parser.IndexAddress, Parser.Call,
-			Parser.Dot, Parser.TypeBool, Parser.TypeChar, Parser.TypeInt,
-			Parser.Import, Parser.IntLit, Parser.CharLit, Parser.BoolLit,
-			Parser.TupleLit, Parser.If, Parser.While, Parser.New,
-			Parser.NewArray, Parser.Cast, Parser.Infer, Parser.Slice, Parser.Scope,
-			Parser.FuncLit, Parser.StringLit, Parser.ArrayLit, Parser.ExternJs,
-			Parser.Binary!"*", Parser.Binary!"/", Parser.Binary!"%",
-			Parser.Binary!"+", Parser.Binary!"-", Parser.Binary!"~",
-			Parser.Binary!"==", Parser.Binary!"!=", Parser.Binary!"<=",
-			Parser.Binary!">=", Parser.Binary!"<", Parser.Binary!">",
-			Parser.Binary!"&&", Parser.Binary!"||", Parser.Prefix!"-",
-			Parser.Prefix!"*", Parser.Prefix!"!", Parser.Postfix!"(*)",
-			Parser.Postfix!"[*]", Parser.Binary!"->", Parser.UseSymbol)(that,
-			name, type, context, preassign);
+CompileTimeExpression semanticGlobalDispatch(Parser.Expression that, string name, /* nullable */ Type type, Context context, void delegate(CompileTimeExpression) preassign) {
+	return dispatch!(semanticGlobalImpl, Parser.Variable, Parser.TypeTuple, Parser.Index, Parser.TupleIndex, Parser.TupleIndexAddress, Parser.IndexAddress, Parser.Call, Parser.Length, Parser.TypeBool, Parser.TypeChar, Parser.TypeInt, Parser.Import, Parser.IntLit, Parser.CharLit, Parser.BoolLit, Parser.TupleLit, Parser.If, Parser.While, Parser.New, Parser.NewArray, Parser.Cast, Parser.Infer, Parser.Slice, Parser.Scope, Parser.FuncLit, Parser.StringLit, Parser.ArrayLit, Parser.ExternJs, Parser.Binary!"*", Parser.Binary!"/", Parser.Binary!"%", Parser.Binary!"+", Parser.Binary!"-", Parser.Binary!"~", Parser.Binary!"==", Parser.Binary!"!=", Parser.Binary!"<=", Parser.Binary!">=", Parser.Binary!"<", Parser.Binary!">", Parser.Binary!"&&", Parser.Binary!"||", Parser.Prefix!"-", Parser.Prefix!"*", Parser.Prefix!"!", Parser.Postfix!"(*)", Parser.Postfix!"[*]", Parser.Binary!"->", Parser.UseSymbol)(that, name, type, context, preassign);
 }
 
-CompileTimeExpression semanticGlobalImpl(Parser.FuncLit that, string name,
-		Type annotation, Context context, void delegate(CompileTimeExpression) preassign) {
+CompileTimeExpression semanticGlobalImpl(Parser.FuncLit that, string name, Type annotation, Context context, void delegate(CompileTimeExpression) preassign) {
 	auto argument = semanticPattern(that.argument, context);
-	auto returnType = make!NormalPolymorphicVariable();
+	auto returnType = make!Scheme(make!PolymorphicVariable());
 	auto type = make!TypeFunction(returnType, argument.type);
 	auto generics = type.generics;
 	if (annotation) {
@@ -238,15 +203,13 @@ CompileTimeExpression semanticGlobalImpl(Parser.FuncLit that, string name,
 		return semanticPolymorphic(that.text, context);
 	}
 
-	auto result = make!FunctionLiteral(type, generics, name, !!annotation,
-			new SymbolId, argument, defer(&get));
+	auto result = make!FunctionLiteral(type, generics, name, !!annotation, new SymbolId, argument, defer(&get));
 	preassign(result);
 	result.text.eval; // required to collect unification constraints
 	return result;
 }
 
-CompileTimeExpression semanticGlobalImpl(T)(T that, string name, Type annotation,
-		Context context, void delegate(CompileTimeExpression) preassign) {
+CompileTimeExpression semanticGlobalImpl(T)(T that, string name, Type annotation, Context context, void delegate(CompileTimeExpression) preassign) {
 	auto expression = semanticMain(that, context);
 	if (annotation) {
 		// todo fix this
@@ -256,15 +219,12 @@ CompileTimeExpression semanticGlobalImpl(T)(T that, string name, Type annotation
 	return expression;
 }
 
-//todo fix me reimplement using tryInfer with wanted = metaclass
-Type assumeType(CompileTimeExpression value, Position position,
-		string file = __FILE__, int line = __LINE__) {
+Type assumeType(CompileTimeExpression value, Position position, string file = __FILE__, int line = __LINE__) {
 	check(value.castTo!Type, "Expected type", position, file, line);
 	return value.castTo!Type;
 }
 
-Expression assumePolymorphic(CompileTimeExpression value, Position position,
-		string file = __FILE__, int line = __LINE__) {
+Expression assumePolymorphic(CompileTimeExpression value, Position position, string file = __FILE__, int line = __LINE__) {
 	auto result = value.castTo!Expression;
 	check(result, "Expected polymorphic value", position, file, line);
 
@@ -285,20 +245,7 @@ auto semanticMain(Parser.Expression that, Context context) {
 }
 
 CompileTimeExpression semanticImplDispatch(Parser.Expression that, Context context) {
-	return dispatch!(semanticImpl, Parser.Variable, Parser.TypeTuple, Parser.Index,
-			Parser.IndexAddress, Parser.TupleIndex, Parser.TupleIndexAddress, Parser.Call,
-			Parser.Dot, Parser.TypeBool, Parser.TypeChar, Parser.TypeInt,
-			Parser.Import, Parser.IntLit, Parser.CharLit, Parser.BoolLit,
-			Parser.TupleLit, Parser.If, Parser.While, Parser.New,
-			Parser.NewArray, Parser.Cast, Parser.Infer, Parser.Slice, Parser.Scope,
-			Parser.FuncLit, Parser.StringLit, Parser.ArrayLit, Parser.ExternJs,
-			Parser.Binary!"*", Parser.Binary!"/", Parser.Binary!"%",
-			Parser.Binary!"+", Parser.Binary!"-", Parser.Binary!"~",
-			Parser.Binary!"==", Parser.Binary!"!=", Parser.Binary!"<=",
-			Parser.Binary!">=", Parser.Binary!"<", Parser.Binary!">",
-			Parser.Binary!"&&", Parser.Binary!"||", Parser.Prefix!"-",
-			Parser.Prefix!"*", Parser.Prefix!"!", Parser.Postfix!"(*)",
-			Parser.Postfix!"[*]", Parser.Binary!"->", Parser.UseSymbol)(that, context);
+	return dispatch!(semanticImpl, Parser.Variable, Parser.TypeTuple, Parser.Index, Parser.IndexAddress, Parser.TupleIndex, Parser.TupleIndexAddress, Parser.Call, Parser.Length, Parser.TypeBool, Parser.TypeChar, Parser.TypeInt, Parser.Import, Parser.IntLit, Parser.CharLit, Parser.BoolLit, Parser.TupleLit, Parser.If, Parser.While, Parser.New, Parser.NewArray, Parser.Cast, Parser.Infer, Parser.Slice, Parser.Scope, Parser.FuncLit, Parser.StringLit, Parser.ArrayLit, Parser.ExternJs, Parser.Binary!"*", Parser.Binary!"/", Parser.Binary!"%", Parser.Binary!"+", Parser.Binary!"-", Parser.Binary!"~", Parser.Binary!"==", Parser.Binary!"!=", Parser.Binary!"<=", Parser.Binary!">=", Parser.Binary!"<", Parser.Binary!">", Parser.Binary!"&&", Parser.Binary!"||", Parser.Prefix!"-", Parser.Prefix!"*", Parser.Prefix!"!", Parser.Postfix!"(*)", Parser.Postfix!"[*]", Parser.Binary!"->", Parser.UseSymbol)(that, context);
 }
 
 CompileTimeExpression semanticImpl(Parser.Variable that, Context context) {
@@ -322,16 +269,14 @@ CompileTimeExpression semanticImpl(Parser.UseSymbol that, Context context) {
 	return mod.aliases[that.index].element;
 }
 
-CompileTimeExpression semanticImpl(Parser.Dot that, Context context) {
-	auto value = semanticPolymorphic(that.value, context);
-	context.typecheck(value.type,
-			make!TypeArray(make!NormalPolymorphicVariable()), that.position);
-	check(that.index == "length", "Arrays only have .length", that.position);
-	return make!Length(make!TypeInt(0, false), value.generics, value);
+CompileTimeExpression semanticImpl(Parser.Length that, Context context) {
+	auto variable = make!Scheme(make!PolymorphicVariable);
+	auto type = make!TypeFunction(make!TypeInt(0, false), make!TypeArray(variable));
+	return make!Length(type, type.generics);
 }
 
 CompileTimeExpression semanticImpl(Parser.Import that, Context context) {
-	return make!Import(make!TypeImport, that.mod);
+	return make!Import(that.mod);
 }
 
 CompileTimeExpression semanticImpl(Parser.TypeBool that, Context context) {
@@ -362,7 +307,7 @@ CompileTimeExpression semanticImpl(Parser.Postfix!"[*]" that, Context context) {
 }
 
 CompileTimeExpression semanticImpl(Parser.IntLit that, Context context) {
-	PolymorphicVariable variable = make!NumberPolymorphicVariable();
+	auto variable = make!Scheme(make!PolymorphicVariable(), [make!ConstraintNumber.convert!Constraint]);
 	return make!IntLit(variable, variable.generics, that.value);
 }
 
@@ -376,8 +321,7 @@ CompileTimeExpression semanticImpl(Parser.BoolLit that, Context context) {
 
 CompileTimeExpression semanticImpl(Parser.TupleLit that, Context context) {
 	auto values = that.values.map!(a => semanticPolymorphic(a, context)).array;
-	return make!TupleLit(make!TypeStruct(values.map!(a => a.type).array),
-			values.map!(a => a.generics)
+	return make!TupleLit(make!TypeStruct(values.map!(a => a.type).array), values.map!(a => a.generics)
 			.fold!mergeSets(emptySet!PolymorphicVariable), values);
 }
 
@@ -415,10 +359,10 @@ CompileTimeExpression semanticImpl(Parser.NewArray that, Context context) {
 CompileTimeExpression semanticImpl(Parser.Cast that, Context context) {
 	auto wanted = semanticType(that.type, context);
 	auto value = semanticPolymorphic(that.value, context);
-	auto expected = make!NumberPolymorphicVariable();
+	auto expected = make!Scheme(make!PolymorphicVariable, [make!ConstraintNumber.convert!Constraint]);
 	context.typecheck(value.type, expected, that.value.position);
 
-	auto valid = make!NumberPolymorphicVariable();
+	auto valid = make!Scheme(make!PolymorphicVariable, [make!ConstraintNumber.convert!Constraint]);
 	context.typecheck(wanted, valid, that.position);
 
 	return make!CastInteger(wanted, value.generics, value);
@@ -431,71 +375,63 @@ CompileTimeExpression semanticImpl(Parser.Infer that, Context context) {
 	return value;
 }
 
-//todo reimplement indexing tuples
 CompileTimeExpression semanticImpl(Parser.Index that, Context context) {
 	auto array = semanticPolymorphic(that.array, context);
 	auto index = semanticPolymorphic(that.index, context);
-	auto var = make!NormalPolymorphicVariable();
-	auto generics = mergeSets(var.generics, array.generics, index.generics);
-	context.typecheck(array.type, make!TypeArray(var), that.array.position);
+	auto variable = make!Scheme(make!PolymorphicVariable());
+	auto generics = mergeSets(variable.generics, array.generics, index.generics);
+	context.typecheck(array.type, make!TypeArray(variable), that.array.position);
 	context.typecheck(index.type, make!TypeInt(0, false), that.index.position);
-	return make!Index(var, generics, array, index);
+	return make!Index(variable, generics, array, index);
 }
 
 CompileTimeExpression semanticImpl(Parser.IndexAddress that, Context context) {
 	auto array = semanticPolymorphic(that.array, context);
 	auto index = semanticPolymorphic(that.index, context);
-	auto var = make!NormalPolymorphicVariable();
-	auto generics = mergeSets(var.generics, array.generics, index.generics);
-	context.typecheck(array.type, make!TypeArray(var), that.array.position);
+	auto variable = make!Scheme(make!PolymorphicVariable());
+	auto generics = mergeSets(variable.generics, array.generics, index.generics);
+	context.typecheck(array.type, make!TypeArray(variable), that.array.position);
 	context.typecheck(index.type, make!TypeInt(0, false), that.index.position);
-	return make!IndexAddress(make!TypePointer(var), generics, array, index);
+	return make!IndexAddress(make!TypePointer(variable), generics, array, index);
 }
 
 CompileTimeExpression semanticImpl(Parser.TupleIndex that, Context context) {
 	auto tuple = semanticPolymorphic(that.tuple, context);
 	auto index = that.index;
-	PolymorphicVariable[] types = new PolymorphicVariable[index + 1];
-	foreach (ref type; types) {
-		type = make!NormalPolymorphicVariable();
-	}
-	auto type = make!TuplePolymorphicVariable(make!TuplePolymorphicVariableImpl,
-			types.map!(a => a.convert!Type).array);
-	auto generics = mergeSets(type.generics, tuple.generics);
-	context.typecheck(tuple.type, type, that.position);
-	return make!TupleIndex(types[index], generics, tuple, index);
+
+	auto type = make!Scheme(make!PolymorphicVariable);
+	auto tupletype = make!Scheme(make!PolymorphicVariable, [make!ConstraintTuple(that.index, type).convert!Constraint]);
+	auto generics = mergeSets(tupletype.generics, type.generics);
+	context.typecheck(tuple.type, tupletype, that.position);
+	return make!TupleIndex(type, generics, tuple, index);
 }
 
 CompileTimeExpression semanticImpl(Parser.TupleIndexAddress that, Context context) {
 	auto tuple = semanticPolymorphic(that.tuple, context);
 	auto index = that.index;
-	PolymorphicVariable[] types = new PolymorphicVariable[index + 1];
-	foreach (ref type; types) {
-		type = make!NormalPolymorphicVariable();
-	}
-	auto type = make!TypePointer(make!TuplePolymorphicVariable(
-			make!TuplePolymorphicVariableImpl, types.map!(a => a.convert!Type).array));
-	auto generics = mergeSets(type.generics, tuple.generics);
-	context.typecheck(tuple.type, type, that.position);
-	return make!TupleIndexAddress(make!TypePointer(types[index]), generics, tuple, index);
+	auto variable = make!Scheme(make!PolymorphicVariable);
+	auto tupletype = make!TypePointer(make!Scheme(make!PolymorphicVariable, [make!ConstraintTuple(that.index, variable).convert!Constraint]));
+	auto generics = mergeSets(variable.generics, tuple.generics);
+	context.typecheck(tuple.type, tupletype, that.position);
+	return make!TupleIndexAddress(make!TypePointer(variable), generics, tuple, index);
 }
 
 CompileTimeExpression semanticImpl(Parser.Call that, Context context) {
-	auto var = make!NormalPolymorphicVariable();
+	auto variable = make!Scheme(make!PolymorphicVariable());
 
 	auto calle = semanticPolymorphic(that.calle, context);
 	auto argument = semanticPolymorphic(that.argument, context);
 
-	auto generics = mergeSets(var.generics, calle.generics, argument.generics);
-	context.typecheck(calle.type, make!TypeFunction(var, argument.type), that.position);
-	return make!Call(var, generics, calle, argument);
+	auto generics = mergeSets(variable.generics, calle.generics, argument.generics);
+	context.typecheck(calle.type, make!TypeFunction(variable, argument.type), that.position);
+	return make!Call(variable, generics, calle, argument);
 }
 
 CompileTimeExpression semanticImpl(Parser.Slice that, Context context) {
 	auto array = semanticPolymorphic(that.array, context);
 	auto left = semanticPolymorphic(that.left, context);
 	auto right = semanticPolymorphic(that.right, context);
-	auto type = make!TypeArray(make!NormalPolymorphicVariable());
+	auto type = make!TypeArray(make!Scheme(make!PolymorphicVariable()));
 	auto generics = mergeSets(type.generics, array.generics, left.generics, right.generics);
 	context.typecheck(array.type, type, that.position);
 	context.typecheck(left.type, make!TypeInt(0, false), that.position);
@@ -515,8 +451,7 @@ CompileTimeExpression semanticImpl(Parser.Binary!"->" that, Context context) {
 alias ParserBinary = Parser.Binary;
 alias ParserPrefix = Parser.Prefix;
 
-CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context context)
-		if (["<=", ">=", ">", "<"].canFind(op)) {
+CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context context) if (["<=", ">=", ">", "<"].canFind(op)) {
 	auto left = semanticPolymorphic(that.left, context);
 	auto right = semanticPolymorphic(that.right, context);
 	auto generics = mergeSets(left.generics, right.generics);
@@ -524,19 +459,17 @@ CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context cont
 	return make!(Binary!op)(make!TypeBool, generics, left, right);
 }
 
-CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context context)
-		if (["*", "/", "%", "+", "-"].canFind(op)) {
+CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context context) if (["*", "/", "%", "+", "-"].canFind(op)) {
 	auto left = semanticPolymorphic(that.left, context);
 	auto right = semanticPolymorphic(that.right, context);
-	auto type = make!NumberPolymorphicVariable();
+	auto type = make!Scheme(make!PolymorphicVariable, [make!ConstraintNumber.convert!Constraint]);
 	auto generics = mergeSets(type.generics, left.generics, right.generics);
 	context.typecheck(left.type, type, that.position);
 	context.typecheck(right.type, type, that.position);
 	return make!(Binary!op)(left.type, generics, left, right);
 }
 
-CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context context)
-		if (["==", "!="].canFind(op)) {
+CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context context) if (["==", "!="].canFind(op)) {
 	auto left = semanticPolymorphic(that.left, context);
 	auto right = semanticPolymorphic(that.right, context);
 	auto generics = mergeSets(left.generics, right.generics);
@@ -544,8 +477,7 @@ CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context cont
 	return make!(Binary!op)(make!TypeBool(), generics, left, right);
 }
 
-CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context context)
-		if (["&&", "||"].canFind(op)) {
+CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context context) if (["&&", "||"].canFind(op)) {
 	auto left = semanticPolymorphic(that.left, context);
 	auto right = semanticPolymorphic(that.right, context);
 	auto generics = mergeSets(left.generics, right.generics);
@@ -554,8 +486,7 @@ CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context cont
 	return make!(Binary!op)(make!TypeBool, generics, left, right);
 }
 
-CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context context)
-		if (op == "~") {
+CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context context) if (op == "~") {
 	auto left = semanticPolymorphic(that.left, context);
 	auto right = semanticPolymorphic(that.right, context);
 	auto generics = mergeSets(left.generics, right.generics);
@@ -563,78 +494,64 @@ CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context cont
 	return make!(Binary!op)(left.type, generics, left, right);
 }
 
-CompileTimeExpression semanticImpl(string op)(ParserPrefix!op that, Context context)
-		if (op == "!") {
+CompileTimeExpression semanticImpl(string op)(ParserPrefix!op that, Context context) if (op == "!") {
 	auto value = semanticPolymorphic(that.value, context);
 	context.typecheck(value.type, make!TypeBool(), that.position);
 	return make!(Prefix!op)(make!TypeBool, value.generics, value);
 }
 
-CompileTimeExpression semanticImpl(string op)(ParserPrefix!op that, Context context)
-		if (op == "-") {
+CompileTimeExpression semanticImpl(string op)(ParserPrefix!op that, Context context) if (op == "-") {
 	auto value = semanticPolymorphic(that.value, context);
-	auto type = make!NumberPolymorphicVariable();
+	auto type = make!Scheme(make!PolymorphicVariable, [make!ConstraintNumber.convert!Constraint]);
 	auto generics = mergeSets(type.generics, value.generics);
 	context.typecheck(value.type, type, that.position);
 	return make!(Prefix!op)(value.type, generics, value);
 }
 
-CompileTimeExpression semanticImpl(string op)(ParserPrefix!op that, Context context)
-		if (op == "*") {
+CompileTimeExpression semanticImpl(string op)(ParserPrefix!op that, Context context) if (op == "*") {
 	auto value = semanticPolymorphic(that.value, context);
-	auto var = make!NormalPolymorphicVariable();
-	auto generics = mergeSets(var.generics, value.generics);
-	context.typecheck(value.type, make!TypePointer(var), that.position);
-	return make!Deref(var, generics, value);
+	auto variable = make!Scheme(make!PolymorphicVariable());
+	auto generics = mergeSets(variable.generics, value.generics);
+	context.typecheck(value.type, make!TypePointer(variable), that.position);
+	return make!Deref(variable, generics, value);
 }
 
-CompileTimeExpression semanticImpl(string op)(ParserPrefix!op that, Context context)
-		if (["+", "/"].canFind(op)) {
+CompileTimeExpression semanticImpl(string op)(ParserPrefix!op that, Context context) if (["+", "/"].canFind(op)) {
 	error(op ~ " not supported", that.position);
 	return null;
 }
 
 Expression semanticScope(Parser.Statement[] tail, Parser.Expression last, Context context) {
 	if (tail.length == 0) {
-		auto otherwise = make!TupleLit(make!TypeStruct(emptyArray!Type),
-				emptySet!PolymorphicVariable, emptyArray!Expression);
+		auto otherwise = make!TupleLit(make!TypeStruct(emptyArray!Type), emptySet!PolymorphicVariable, emptyArray!Expression);
 		return last ? semanticPolymorphic(last, context) : otherwise;
 	} else {
 		auto head = tail[0];
-		auto node = dispatch!(semanticScopeImpl, Parser.Assign,
-				Parser.ScopeVarDef, Parser.Expression)(head, tail[1 .. $], last, context);
+		auto node = dispatch!(semanticScopeImpl, Parser.Assign, Parser.VariableDef, Parser.Expression)(head, tail[1 .. $], last, context);
 		return node;
 	}
 }
 
-Expression semanticScopeImpl(Parser.Assign that, Parser.Statement[] tail,
-		Parser.Expression last, Context context) {
+Expression semanticScopeImpl(Parser.Assign that, Parser.Statement[] tail, Parser.Expression last, Context context) {
 	auto left = semanticPolymorphic(that.left, context);
 	auto right = semanticPolymorphic(that.right, context);
-	auto var = make!NormalPolymorphicVariable();
-	context.typecheck(left.type, make!TypePointer(var), that.position);
-	context.typecheck(var, right.type, that.position);
+	auto variable = make!Scheme(make!PolymorphicVariable());
+	context.typecheck(left.type, make!TypePointer(variable), that.position);
+	context.typecheck(variable, right.type, that.position);
 	auto end = semanticScope(tail, last, context);
 	auto generics = mergeSets(left.generics, right.generics, end.generics);
 	return make!Assign(end.type, generics, left, right, end);
 }
 
-Expression semanticScopeImpl(Parser.ScopeVarDef that, Parser.Statement[] tail,
-		Parser.Expression last, Context context) {
+Expression semanticScopeImpl(Parser.VariableDef that, Parser.Statement[] tail, Parser.Expression last, Context context) {
 	auto value = semanticPolymorphic(that.value, context);
-	if (that.explicitType) {
-		auto explicitType = semanticType(that.explicitType, context);
-		context.typecheck(value.type, explicitType, that.position);
-	}
-	auto variable = make!ScopeVar(value.type, value.generics, that.name, new VarId);
-	context.locals ~= variable;
+	auto variable = semanticPattern(that.variable, context);
+	context.typecheck(variable.type, value.type, that.position);
 	auto lastSemantic = semanticScope(tail, last, context);
-	return make!ScopeVarDef(lastSemantic.type, mergeSets(variable.generics,
-			lastSemantic.generics), variable, value, lastSemantic);
+	return make!VariableDef(lastSemantic.type, mergeSets(variable.generics, lastSemantic.generics), variable, value, lastSemantic);
 }
 
-Expression semanticScopeImpl(Parser.Expression that, Parser.Statement[] tail,
-		Parser.Expression last, Context context) {
+Expression semanticScopeImpl(Parser.Expression that, Parser.Statement[] tail, Parser.Expression last, Context context) {
 	auto stateful = semanticPolymorphic(that, context);
 	context.typecheck(stateful.type, make!TypeStruct(emptyArray!Type), that.position);
 	auto end = semanticScope(tail, last, context);
@@ -647,21 +564,22 @@ CompileTimeExpression semanticImpl(Parser.Scope that, Context context) {
 }
 
 Pattern semanticPattern(Parser.Pattern pattern, Context context) {
-	return dispatch!(semanticPatternImpl, Parser.NamedArgument, Parser.TupleArgument)(pattern,
-			context);
+	return dispatch!(semanticPatternImpl, Parser.NamedArgument, Parser.TupleArgument)(pattern, context);
 }
 
 Pattern semanticPatternImpl(Parser.NamedArgument pattern, Context context) {
-	PolymorphicVariable variableType = make!NormalPolymorphicVariable();
-	auto variable = make!FunctionArgument(variableType,
-			singleSet(variableType), pattern.name, new VarId);
+	auto type = make!Scheme(make!PolymorphicVariable());
+	auto variable = make!Variable(type, type.generics, pattern.name, new VarId);
 	context.locals ~= variable;
-	return make!NamedPattern(variableType, variable);
+	return make!NamedPattern(type, type.generics, variable);
 }
 
 Pattern semanticPatternImpl(Parser.TupleArgument pattern, Context context) {
 	auto matches = pattern.matches.map!(a => semanticPattern(a, context)).array;
-	return make!TuplePattern(make!TypeStruct(matches.map!(a => a.type).array), matches);
+	auto type = make!TypeStruct(matches.map!(a => a.type).array);
+	auto generics = matches.map!(a => a.generics)
+		.fold!mergeSets(emptySet!PolymorphicVariable);
+	return make!TuplePattern(type, generics, matches);
 }
 
 CompileTimeExpression semanticImpl(Parser.FuncLit that, Context context) {
@@ -674,19 +592,19 @@ CompileTimeExpression semanticImpl(Parser.StringLit that, Context context) {
 }
 
 CompileTimeExpression semanticImpl(Parser.ArrayLit that, Context context) {
-	auto var = make!NormalPolymorphicVariable();
-	auto type = make!TypeArray(var);
+	auto variable = make!Scheme(make!PolymorphicVariable);
+	auto type = make!TypeArray(variable);
 	auto values = that.values.map!(a => semanticPolymorphic(a, context)).array;
 	auto generics = values.map!(a => a.generics)
 		.fold!mergeSets(emptySet!PolymorphicVariable).mergeSets(type.generics);
 	foreach (value; values) {
-		context.typecheck(var, value.type, that.position);
+		context.typecheck(variable, value.type, that.position);
 	}
 
 	return make!ArrayLit(type, generics, values);
 }
 
 CompileTimeExpression semanticImpl(Parser.ExternJs that, Context context) {
-	auto var = make!NormalPolymorphicVariable();
-	return make!ExternJs(var, var.generics, that.name);
+	auto variable = make!Scheme(make!PolymorphicVariable);
+	return make!ExternJs(variable, variable.generics, that.name);
 }

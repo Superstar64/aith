@@ -40,32 +40,22 @@ ref:
 	Expression right();
 }
 
-interface VarDef : Statement {
-ref:
-	string name();
-	Expression explicitType(); //nullable
-	Expression value();
-}
-
 struct Modifier {
 	bool visible;
 	bool global;
 }
 
-interface ScopeVarDef : VarDef {
-override ref:
+interface VariableDef : Statement {
+ref:
 	Position position();
-	string name();
-	Expression explicitType(); //nullable
+	Pattern variable();
 	Expression value();
 }
 
-interface ModuleVarDef : VarDef {
+interface ModuleVarDef {
 	alias modifier this;
 ref:
 	Modifier modifier();
-
-override:
 	Position position();
 	string name();
 	Expression explicitType(); //nullable
@@ -73,6 +63,7 @@ override:
 }
 
 interface Expression : Statement {
+	Pattern patternMatch();
 }
 
 interface TypeBool : Expression {
@@ -176,11 +167,9 @@ ref:
 	Expression value();
 }
 
-interface Dot : Expression {
+interface Length : Expression {
 ref:
 	Position position();
-	Expression value();
-	string index();
 }
 
 interface UseSymbol : Expression {
@@ -233,11 +222,7 @@ ref:
 	Expression right();
 }
 
-interface Binary(string T) : Expression
-		if ([
-				"*", "/", "%", "+", "-", "~", "==", "!=", "<=", ">=", "<", ">",
-				"&&", "||", "->"
-			].canFind(T)) {
+interface Binary(string T) : Expression if (["*", "/", "%", "+", "-", "~", "==", "!=", "<=", ">=", "<", ">", "&&", "||", "->"].canFind(T)) {
 ref:
 	Position position();
 	Expression left();
