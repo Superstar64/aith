@@ -1,252 +1,123 @@
-// utililty
-var tagged = function(id, value) {
-	return {
-		id: id,
-		value: value
-	};
-};
-
-var match = function(union, matches) {
-	return matches[union.id](union.value);
-};
-
-//runtime typi info
-
-var typi_type_int = function(signed, size) {
-	return tagged(0, [signed, size]);
-};
-
-var typi_type_char = tagged(1, []);
-
-var typi_type_bool = tagged(2, []);
-
-var typi_type_tuple = function(types) {
-	return tagged(3, types);
-};
-
-var typi_type_array = function(value) {
-	return tagged(4, value);
-};
-
-var typi_type_pointer = function(value) {
-	return tagged(5, value);
-};
-
-var typi_type_function = function(argument, result) {
-	return tagged(6, [argument, result]);
-};
-
-// type utility
-
-var typi_constant = function(value) {
-	return function(ignore) {
-		return value;
-	};
-};
-
-var typi_assign_vanilla = function(current, index, value) {
-	current[index] = value;
-}
-
-var typi_assign_vanilla_constant = typi_constant(typi_assign_vanilla);
-
-var typi_tuple_assign = function(subtypes) {
-	var subassign = [];
-	for (var i = 0; i < subtypes.length; i++) {
-		subassign[i] = typi_assign(subtypes[i]);
-	}
-	return function(current, index, value) {
-		for (var i = 0; i < subassign.length; i++) {
-			current[index] = current[index] || [];
-			subassign[i](current[index], i, value[i]);
-		}
-	};
-};
-
-var typi_assign = function(type) {
-	var vanilla = typi_assign_vanilla_constant;
-	return match(type, [
-		vanilla,
-		vanilla,
-		vanilla,
-		typi_tuple_assign,
-		vanilla,
-		vanilla,
-		vanilla
-	]);
-};
-
-var typi_pointer_to = function(type) {
-	var assign = typi_assign(type);
-	return function(object, index) {
-		var children = [];
-		return {
-			get: function() {
-				return object[index];
-			},
-			set: function(value) {
-				return assign(object, index, value);
-			},
-			child: type.id == 3 ? function(subindex) {
-				var subtype = type.value[subindex];
-				children[subindex] = children[subindex] || typi_pointer_to(subtype)(object[index], subindex);
-				return children[subindex];
-			} : undefined
-		};
-	};
-};
-
 //comparing
 
-var typi_compare_vanilla = function(left, right) {
-	return left == right;
-};
+const typi_compare_vanilla = (left, right) => left === right;
 
-var typi_compare_vanilla_constant = typi_constant(typi_compare_vanilla);
-
-var typi_tuple_compare = function(subtypes) {
-	var subcompares = [];
-	for (var i = 0; i < subtypes.length; i++) {
-		subcompares[i] = typi_compare(subtypes[i]);
+const typi_array_compare = compare => (left, right) => {
+	if (left.length != right.length) {
+		return false;
 	}
-	return function(left, right) {
-		for (var i = 0; i < subcompares.length; i++) {
-			var subtype = subtypes[i];
-			if (!subcompares[i](left[i], right[i])) {
-				return false;
-			}
-		}
-		return true;
-	};
-};
-
-var typi_array_compare = function(subtype) {
-	var compare = typi_compare(subtype);
-	return function(left, right) {
-		if (left.length != right.length) {
+	for (let i = 0; i < left.length; i++) {
+		if (!compare(left.data[left.start + i], right.data[right.start + i])) {
 			return false;
 		}
-		for (var i = 0; i < left.length; i++) {
-			if (!compare(left.data[left.start + i], right.data[right.start + i])) {
-				return false;
-			}
-		}
-		return true;
-	};
+	}
+	return true;
 };
 
-var typi_compare = function(type) {
-	var vanilla = typi_compare_vanilla_constant;
-	return match(type, [
-		vanilla,
-		vanilla,
-		vanilla,
-		typi_tuple_compare,
-		typi_array_compare,
-		vanilla,
-		function(x) {
-			throw "comparing functions"
+const typi_tuple_compare = subcompares => (left,right) => {
+	for (let i = 0; i < subcompares.length; i++) {
+		if (!subcompares[i](left[i], right[i])) {
+			return false;
 		}
-	]);
+	}
+	return true;
 };
-
 
 //arrays
 
-var typi_new_array = function(type) {
-	var assign = typi_assign(type);
-	return function(length, element) {
-		var fresh = [];
-		for (var i = 0; i < length; i++) {
-			assign(fresh, i, element);
-		}
-		return {
-			data: fresh,
-			start: 0,
-			length: length
-		};
-	};
-};
-
-var typi_index_array = function(array, index) {
-	return array.data[array.start + index];
-};
-
-var typi_array_slice = function(array, start, end) {
+const typi_new_array = (length, element) => {
+	const fresh = [];
+	for (let i = 0; i < length; i++) {
+		fresh[i] = element;
+	}
 	return {
-		data: array.data,
-		start: array.start + start,
-		length: end - start
+		data: fresh,
+		start: 0,
+		length: length
 	};
 };
 
-var typi_array_length = function(array) {
-	return array.length;
+const typi_index_array = (array, index) => array.data[array.start + index];
+
+const typi_array_slice = (array, start, end) => null || {
+	data: array.data,
+	start: array.start + start,
+	length: end - start
 };
 
+const typi_array_length = array => array.length;
 
-var typi_array_literal = function(type, length) {
-	var assign = typi_assign(type);
-	return function(elements) {
-		var fresh = [];
-		for (var i = 0; i < length; i++) {
-			assign(fresh, i, elements[i]);
-		}
-		return {
-			data: fresh,
-			start: 0,
-			length: length
-		};
+const typi_array_literal = length => elements => {
+	const fresh = [];
+	for (let i = 0; i < length; i++) {
+		fresh[i] = elements[i];
+	}
+	return {
+		data: fresh,
+		start: 0,
+		length: length
 	};
 };
 
 //pointers
 
+const typi_util_create_child_pointer = (tuple_pointer, index) => null || {
+	get: () => tuple_pointer.get()[index],
+	set: object => { 
+		let clone = tuple_pointer.get().slice();
+		clone[index] = object;
+		tuple_pointer.set(clone);
+	}
+};
 
-var typi_create_pointer = function(type) {
-	var assign = typi_assign(type);
-	var create = typi_pointer_to(type);
-	return function(value) {
-		var fresh = [null];
-		assign(fresh, 0, value);
-		return create(fresh, 0);
+
+const typi_create_pointer = object => null || {
+	get: () => object,
+	set: value => { object = value; }
+};
+
+const typi_tuple_address_forword = tuple_size => (tuple_pointer, index) => {
+	if(tuple_pointer.children === undefined){
+		tuple_pointer.children = [];
+		for(let i = 0; i < tuple_size; i++){
+			tuple_pointer.children[i] = typi_util_create_child_pointer(tuple_pointer,i);
+		}
+	}
+	return tuple_pointer.children[index]; 
+};
+
+const typi_array_address_of = (array, index) => {
+	array.data.pointers = array.data.pointers || [];
+
+	const pointers = array.data.pointers;
+	const realIndex = array.start + index;
+	pointers[realIndex] = pointers[realIndex] || {
+		get: () => array.data[realIndex],
+		set: object => { array.data[realIndex] = object; }
 	};
-};
-
-var typi_array_address_of = function(type) {
-	var create = typi_pointer_to(type);
-	return function(array, index) {
-		array.data.pointers = array.data.pointers || [];
-
-		var pointers = array.data.pointers;
-		var realIndex = array.start + index;
-		pointers[realIndex] = pointers[realIndex] || create(array.data, realIndex);
-		return pointers[realIndex];
-	};
+	return pointers[realIndex];
 };
 
 
-var typi_tuple_address_forword = function(tuple_pointer, index) {
-	return tuple_pointer.child(index);
-};
-
-var typi_pointer_assign = function(pointer, value) {
+const typi_pointer_assign = (pointer, value) => {
 	return pointer.set(value);
 };
 
-var typi_derefence_pointer = function(pointer) {
+const typi_derefence_pointer = pointer => {
 	return pointer.get();
 };
 
 // misc
 
-var write = function(argument) {
+const write = argument => {
 	console.log(argument.data);
 }
 
-var assert = function(check) {
+const assert = check => {
 	if (!check) {
 		console.trace("Error");
 		throw "Assetion Error";
 	}
 }
+
+// generated code:

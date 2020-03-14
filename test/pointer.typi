@@ -1,54 +1,62 @@
-#/Copyright (C) 2018  Freddy Angel Cubas "Superstar64"
- Boost License
+#/
+ Copyright (C) 2020 Freddy Angel Cubas "Superstar64"
+ Distributed under the Boost Software License, Version 1.0.
+ (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
 /#
 
 void = (&&);
 
-increment = x => {
-	x <- *x + 1;
+increment = x {
+	x <- *x + 1
 };
 
-heap pointer = () => {
+heap pointer = () {
 	pointer = (new 5) : integer 32(*);
-	assert(*pointer == 5);
-	increment(pointer);
-	assert(*pointer == 6);
+	() = assert(*pointer == 5);
+	() = increment(pointer);
+	() = assert(*pointer == 6);
 	
-	assert(pointer == pointer);
+	() = assert(pointer == pointer);
+	()
 };
 
-array pointer = () => {
+array pointer = () {
 	array = [0,10,20] : integer 32[*];
 	index = array&[1];
-	assert(array[1] == 10);
-	increment(index);
-	assert(array[1] == 11);
-	assert(array&[1] == array&[1]);
-	assert(array&[1] != array&[2]);
+	() = assert(array[1] == 10);
+	() = increment(index);
+	() = assert(array[1] == 11);
+	() = assert(array&[1] == array&[1]);
+	() = assert(array&[1] != array&[2]);
+	()
 };
 
 
-record pointer = () => {
+record pointer = () {
 	pair = new (4 : integer 32,10 : integer 32);
-	assert((*pair)_0 == 4);
-	increment(pair&*_0);
-	assert((*pair)_0 == 5);
+	() = assert((*pair)_0 == 4);
+	() = increment(pair&*_0);
+	() = assert((*pair)_0 == 5);
 	
-	assert((*pair)_1 == 10);
-	increment(pair&*_1);
-	assert((*pair)_1 == 11);
+	() = assert((*pair)_1 == 10);
+	() = increment(pair&*_1);
+	() = assert((*pair)_1 == 11);
 	
 	
-	assert(pair&*_0 == pair&*_0);
-	assert(pair&*_0 != pair&*_1);
-	assert(pair == pair);
+	() = assert(pair&*_0 == pair&*_0);
+	() = assert(pair&*_0 != pair&*_1);
+	() = assert(pair == pair);
+	()
 };
 
 
-main : void -> void = () => {
-	heap pointer();
-	array pointer();
-	record pointer();
+main : void -> void;
+main = () {
+	() = heap pointer();
+	() = array pointer();
+	() = record pointer();
+	()
 };
 
-assert : boolean -> void = extern "assert";
+assert : boolean -> void;
+assert = extern "assert";

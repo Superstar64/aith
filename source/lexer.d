@@ -1,5 +1,5 @@
 /+
-	Copyright (C) 2015-2017  Freddy Angel Cubas "Superstar64"
+	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
 	This file is part of Typi.
 
 	Typi is free software: you can redistribute it and/or modify
@@ -26,7 +26,7 @@ import std.array;
 import std.meta;
 import std.utf;
 
-import misc;
+import misc.position;
 
 @property {
 	char front(string str) {
@@ -56,7 +56,7 @@ import misc;
 	}
 }
 
-enum keywords = AliasSeq!("global", "static", "let", "boolean", "cast", "character", "else", "extern", "false", "if", "import", "infer", "integer", "length", "new", "of", "private", "public", "tuple", "then", "true", "natural", "while");
+enum keywords = AliasSeq!("global", "static", "let", "boolean", "cast", "character", "else", "extern", "false", "forall", "if", "import", "infer", "integer", "length", "new", "of", "private", "public", "template", "tuple", "then", "true", "natural", "while");
 struct Keyword(string keyword) if (staticIndexOf!(keyword, keywords) >= 0) {
 	string toString() {
 		return keyword;

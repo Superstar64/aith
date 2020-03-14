@@ -1,4 +1,5 @@
 /+
+	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
 	This file is part of Typi.
 
 	Typi is free software: you can redistribute it and/or modify
@@ -30,7 +31,7 @@ import std.variant;
 import codegen.ast;
 import jsast;
 
-import misc;
+import misc.misc;
 
 //structs are repesented as native arrays
 
@@ -105,25 +106,11 @@ JsExpr generateSymbolImpl(FunctionLiteral that, JsScope depend, Extra extra) {
 	result.args = [argument];
 	auto val = that.text.get.generateJs(result.states, extra);
 	result.states ~= new JsReturn(val);
-
-	auto initializer = new JsFuncLit([], []);
-	foreach (variable, value; extra.context.requests.map!(a => a)) {
-		initializer.states ~= new JsVarDef(variable, value);
-	}
-	initializer.states ~= new JsReturn(result);
-
-	return new JsCall(initializer, []);
-}
-
-JsExpr requestFresh(Extra extra, JsExpr value) {
-	auto variable = new JsVariable(temporary);
-	extra.context.requests ~= tuple(variable, value);
-	return variable;
+	return result;
 }
 
 struct FunctionContext {
 	JsVariable[VarId] variables;
-	Tuple!(JsVariable, JsExpr)[] requests;
 }
 
 class Extra {
@@ -132,32 +119,32 @@ class Extra {
 	JsVariable[SymbolId] symbols;
 }
 
-JsExpr runtimeInfoImpl(TypeInt that) {
-	return new JsCall(new JsExternLit("typi_type_int"), [new JsBoolLit(that.signed), new JsIntLit(that.size)]);
+JsExpr compareInfoImpl(TypeInt that) {
+	return new JsExternLit("typi_compare_vanilla");
 }
 
-JsExpr runtimeInfoImpl(TypeChar that) {
-	return new JsExternLit("typi_type_char");
+JsExpr compareInfoImpl(TypeChar that) {
+	return new JsExternLit("typi_compare_vanilla");
 }
 
-JsExpr runtimeInfoImpl(TypeBool that) {
-	return new JsExternLit("typi_type_bool");
+JsExpr compareInfoImpl(TypeBool that) {
+	return new JsExternLit("typi_compare_vanilla");
 }
 
-JsExpr runtimeInfoImpl(TypeStruct that) {
-	return new JsCall(new JsExternLit("typi_type_tuple"), [new JsArray(that.values.map!(a => a.runtimeInfo).array)]);
+JsExpr compareInfoImpl(TypeStruct that) {
+	return new JsCall(new JsExternLit("typi_tuple_compare"), [new JsArray(that.values.map!(a => a.compareInfo).array)]);
 }
 
-JsExpr runtimeInfoImpl(TypeArray that) {
-	return new JsCall(new JsExternLit("typi_type_array"), [that.array.runtimeInfo]);
+JsExpr compareInfoImpl(TypeArray that) {
+	return new JsCall(new JsExternLit("typi_array_compare"), [that.array.compareInfo]);
 }
 
-JsExpr runtimeInfoImpl(TypePointer that) {
-	return new JsCall(new JsExternLit("typi_type_pointer"), [that.value.runtimeInfo]);
+JsExpr compareInfoImpl(TypePointer that) {
+	return new JsExternLit("typi_compare_vanilla");
 }
 
-JsExpr runtimeInfoImpl(TypeFunction that) {
-	return new JsCall(new JsExternLit("typi_type_function"), [that.argument.runtimeInfo, that.result.runtimeInfo]);
+JsExpr compareInfoImpl(TypeFunction that) {
+	assert(0);
 }
 
 JsExpr indexTuple(JsExpr tuple, JsExpr index) {
@@ -270,7 +257,7 @@ JsExpr generateJsImpl(While that, JsScope depend, Extra extra) {
 }
 
 JsExpr getCreatePointer(Extra extra, Type type) {
-	return extra.requestFresh(new JsCall(new JsExternLit("typi_create_pointer"), [type.runtimeInfo]));
+	return new JsExternLit("typi_create_pointer");
 }
 
 JsExpr generateJsImpl(New that, JsScope depend, Extra extra) {
@@ -279,7 +266,7 @@ JsExpr generateJsImpl(New that, JsScope depend, Extra extra) {
 }
 
 JsExpr getNewArray(Extra extra, Type type) {
-	return extra.requestFresh(new JsCall(new JsExternLit("typi_new_array"), [type.runtimeInfo]));
+	return new JsExternLit("typi_new_array");
 }
 
 JsExpr generateJsImpl(NewArray that, JsScope depend, Extra extra) {
@@ -316,13 +303,17 @@ JsExpr generateJsImpl(TupleIndex that, JsScope depend, Extra extra) {
 	return indexTuple(tuple, that.index);
 }
 
-JsExpr getTuplePointerForwardJs() {
-	return new JsExternLit("typi_tuple_address_forword");
+JsExpr getTuplePointerForwardJs(Extra extra, Type type) {
+	auto pointer = type.castTo!TypePointer;
+	assert(pointer);
+	auto tuple = pointer.value.castTo!TypeStruct;
+	assert(tuple);
+	return new JsCall(new JsExternLit("typi_tuple_address_forword"), [new JsIntLit(tuple.values.length)]);
 }
 
 JsExpr generateJsImpl(TupleIndexAddress that, JsScope depend, Extra extra) {
 	auto tuple = that.tuple.generateJs(depend, extra);
-	return new JsCall(getTuplePointerForwardJs, [tuple, new JsIntLit(that.index)]);
+	return new JsCall(extra.getTuplePointerForwardJs(that.tuple.type), [tuple, new JsIntLit(that.index)]);
 }
 
 JsExpr generateJsImpl(Call that, JsScope depend, Extra extra) {
@@ -343,7 +334,7 @@ JsExpr generateJsImpl(Slice that, JsScope depend, Extra extra) {
 }
 
 auto getArrayLiteral(Extra extra, Type type, size_t length) {
-	return extra.requestFresh(new JsCall(new JsExternLit("typi_array_literal"), [type.runtimeInfo, new JsIntLit(length)]));
+	return new JsCall(new JsExternLit("typi_array_literal"), [new JsIntLit(length)]);
 }
 
 JsExpr generateJsImpl(StringLit that, JsScope depend, Extra extra) {
@@ -360,7 +351,7 @@ JsExpr generateJsImpl(ArrayLit that, JsScope depend, Extra extra) {
 }
 
 JsExpr getCompare(Extra extra, Type type) {
-	return extra.requestFresh(new JsCall(new JsExternLit("typi_compare"), [type.runtimeInfo]));
+	return type.compareInfo;
 }
 
 JsExpr compare(JsExpr left, JsExpr right, Type type, Extra extra) {
@@ -393,7 +384,7 @@ JsExpr generateJsImpl(Deref that, JsScope depend, Extra extra) {
 }
 
 JsExpr getArrayPointerJs(Extra extra, Type type) {
-	return extra.requestFresh(new JsCall(new JsExternLit("typi_array_address_of"), [type.runtimeInfo]));
+	return new JsExternLit("typi_array_address_of");
 }
 
 JsExpr generateJsImpl(IndexAddress that, JsScope depend, Extra extra) {
@@ -425,8 +416,7 @@ JsExpr getAssignPointer() {
 JsExpr generateJsImpl(Assign that, JsScope depend, Extra extra) {
 	auto target = that.left.generateJs(depend, extra);
 	auto source = that.right.generateJs(depend, extra);
-	depend ~= new JsCall(getAssignPointer(), [target, source]);
-	return that.last.generateJs(depend, extra);
+	return new JsCall(getAssignPointer(), [target, source]);
 }
 
 JsExpr generateJsImpl(string op)(Binary!op that, JsScope depend, Extra extra) if (["*", "/", "%", "+", "-"].canFind(op)) {

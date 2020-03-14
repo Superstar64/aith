@@ -1,15 +1,29 @@
-module parser.astimpl;
+/+
+	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
+	This file is part of Typi.
 
-import parser.ast;
-import misc;
+	Typi is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation version 3 of the License.
+
+	Typi is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
++/
+module parser.astimpl;
 
 import std.algorithm;
 import std.array;
 
-class Impl(T : Expression) : T {
-	this() {
-	}
+import parser.ast;
 
+import misc.getters;
+
+class Impl(T : Expression) : T {
 	mixin Getters!T;
 	override Pattern patternMatch() {
 		return patternMatchImpl(this);
@@ -17,9 +31,6 @@ class Impl(T : Expression) : T {
 }
 
 class Impl(T) : T {
-	this() {
-	}
-
 	mixin Getters!T;
 }
 
@@ -28,10 +39,7 @@ Pattern patternMatchImpl(T)(T that) {
 }
 
 Pattern patternMatchImpl(Variable that) {
-	auto result = make!NamedArgument;
-	result.position = that.position;
-	result.name = that.name;
-	return result;
+	return make!NamedArgument(that.position, that.name);
 }
 
 Pattern patternMatchImpl(TupleLit that) {
@@ -39,10 +47,7 @@ Pattern patternMatchImpl(TupleLit that) {
 	if (children.any!(a => a is null)) {
 		return null;
 	} else {
-		auto result = make!TupleArgument;
-		result.position = that.position;
-		result.matches = children;
-		return result;
+		return make!TupleArgument(that.position, children);
 	}
 }
 

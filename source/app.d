@@ -1,5 +1,5 @@
 /+
-	Copyright (C) 2015-2017  Freddy Angel Cubas "Superstar64"
+	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
 	This file is part of Typi.
 
 	Typi is free software: you can redistribute it and/or modify
@@ -28,7 +28,6 @@ import std.stdio;
 import std.file : exists, isDir;
 import core.stdc.stdlib : exit;
 
-import misc;
 import parser.parser;
 import lexer;
 import semantic.semantic;
@@ -82,6 +81,7 @@ enum Help = `typi {optional arguments} [files to compile]
 --Generate-All|-a : generate code for all imported files, default is to only generate code for command line files
 --Add-Search-Dir|-I : add search directory for imports
 --Output|-o : output file, - is the default and means stdout
+--printTypes : don't generate code, print types of all module declarations
 The TYPI_CONFIG enviroment Variable is looked at for a config file(extra arguments sperated by lines)
 Any .js files in [files to compile] are interpeted as runtime files and will be included after the output
 
@@ -96,10 +96,10 @@ void main(string[] args) {
 		return;
 	}
 	bool genAll;
-
+	bool printTypes;
 	string outputFile = "-";
 	void opt(ref string[] s) {
-		getopt(s, "Generate-All|a", &genAll, "Add-Search-Dir|I", &searchDirs, "Output|o", &outputFile);
+		getopt(s, "Generate-All|a", &genAll, "Add-Search-Dir|I", &searchDirs, "Output|o", &outputFile, "printTypes", &printTypes);
 	}
 
 	string configFile = environment.get("TYPI_CONFIG");
@@ -143,7 +143,21 @@ void main(string[] args) {
 		output = File(outputFile, "w");
 	}
 	auto writer = &output.write!(const(char)[]);
-	if (genAll) {
+	if (printTypes) {
+		foreach (file; args) {
+			if (file.endsWith(".typi")) {
+				auto want = wanted[file];
+				auto modulename = file[0 .. $ - ".typi".length];
+				writeln(modulename, "{");
+				foreach (name, variable; want.aliases) {
+					if (auto expression = variable.element.castTo!Expression) {
+						writeln("\t", name, ":", expression.type.to!string);
+					}
+				}
+				writeln("}");
+			}
+		}
+	} else if (genAll) {
 		foreach (mod; all.values) {
 			generateJsModule(mod.toRuntime).toStateString(writer, 0, JsContext());
 			output.writeln;

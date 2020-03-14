@@ -1,12 +1,31 @@
+/+
+	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
+	This file is part of Typi.
+
+	Typi is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation version 3 of the License.
+
+	Typi is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
++/
 module codegen.astimpl;
 
 import std.algorithm;
 import std.conv;
 
-import misc;
 public import codegen.ast;
 import codegen.codegen;
 import jsast;
+
+import misc.json;
+import misc.getters;
+import misc.container;
 
 template make(T) {
 	T make(A...)(A args) {
@@ -78,8 +97,8 @@ class Impl(T : Type) : T {
 		return mangleImpl(this);
 	}
 
-	JsExpr runtimeInfo() {
-		return runtimeInfoImpl(this);
+	JsExpr compareInfo() {
+		return compareInfoImpl(this);
 	}
 
 	Json jsonify() {
@@ -93,7 +112,7 @@ Symbol[SymbolId] symbolsImpl(T : Var)(T that) {
 
 Symbol[SymbolId] symbolsImpl(T : VariableDef)(T that) {
 	with (that)
-		return mergeMaps(value.symbols, last.symbols);
+		return mergeMapsLeft(value.symbols, last.symbols);
 }
 
 Symbol[SymbolId] symbolsImpl(T : IntLit)(T that) {
@@ -111,17 +130,17 @@ Symbol[SymbolId] symbolsImpl(T : BoolLit)(T that) {
 Symbol[SymbolId] symbolsImpl(T : TupleLit)(T that) {
 	with (that)
 		return values.map!(a => a.symbols)
-			.fold!mergeMaps(emptyMap!(SymbolId, Symbol));
+			.fold!mergeMapsLeft(emptyMap!(SymbolId, Symbol));
 }
 
 Symbol[SymbolId] symbolsImpl(T : If)(T that) {
 	with (that)
-		return mergeMaps(cond.symbols, yes.symbols, no.symbols);
+		return mergeMapsLeft(cond.symbols, yes.symbols, no.symbols);
 }
 
 Symbol[SymbolId] symbolsImpl(T : While)(T that) {
 	with (that)
-		return mergeMaps(cond.symbols, state.symbols);
+		return mergeMapsLeft(cond.symbols, state.symbols);
 }
 
 Symbol[SymbolId] symbolsImpl(T : New)(T that) {
@@ -131,7 +150,7 @@ Symbol[SymbolId] symbolsImpl(T : New)(T that) {
 
 Symbol[SymbolId] symbolsImpl(T : NewArray)(T that) {
 	with (that)
-		return mergeMaps(length.symbols, value.symbols);
+		return mergeMapsLeft(length.symbols, value.symbols);
 }
 
 Symbol[SymbolId] symbolsImpl(T : CastInteger)(T that) {
@@ -146,12 +165,12 @@ Symbol[SymbolId] symbolsImpl(T : Length)(T that) {
 
 Symbol[SymbolId] symbolsImpl(T : Index)(T that) {
 	with (that)
-		return mergeMaps(array.symbols, index.symbols);
+		return mergeMapsLeft(array.symbols, index.symbols);
 }
 
 Symbol[SymbolId] symbolsImpl(T : IndexAddress)(T that) {
 	with (that)
-		return mergeMaps(array.symbols, index.symbols);
+		return mergeMapsLeft(array.symbols, index.symbols);
 }
 
 Symbol[SymbolId] symbolsImpl(T : TupleIndex)(T that) {
@@ -166,17 +185,17 @@ Symbol[SymbolId] symbolsImpl(T : TupleIndexAddress)(T that) {
 
 Symbol[SymbolId] symbolsImpl(T : Call)(T that) {
 	with (that)
-		return mergeMaps(calle.symbols, argument.symbols);
+		return mergeMapsLeft(calle.symbols, argument.symbols);
 }
 
 Symbol[SymbolId] symbolsImpl(T : Slice)(T that) {
 	with (that)
-		return mergeMaps(array.symbols, left.symbols, right.symbols);
+		return mergeMapsLeft(array.symbols, left.symbols, right.symbols);
 }
 
 Symbol[SymbolId] symbolsImpl(T : Binary!op, string op)(T that) {
 	with (that)
-		return mergeMaps(left.symbols, right.symbols);
+		return mergeMapsLeft(left.symbols, right.symbols);
 }
 
 Symbol[SymbolId] symbolsImpl(T : Prefix!op, string op)(T that) {
@@ -191,12 +210,12 @@ Symbol[SymbolId] symbolsImpl(T : Deref)(T that) {
 
 Symbol[SymbolId] symbolsImpl(T : Scope)(T that) {
 	with (that)
-		return mergeMaps(pass.symbols, last.symbols);
+		return mergeMapsLeft(pass.symbols, last.symbols);
 }
 
 Symbol[SymbolId] symbolsImpl(T : Assign)(T that) {
 	with (that)
-		return mergeMaps(left.symbols, right.symbols, last.symbols);
+		return mergeMapsLeft(left.symbols, right.symbols);
 }
 
 Symbol[SymbolId] symbolsImpl(T : StringLit)(T that) {
@@ -207,7 +226,7 @@ Symbol[SymbolId] symbolsImpl(T : StringLit)(T that) {
 Symbol[SymbolId] symbolsImpl(T : ArrayLit)(T that) {
 	with (that)
 		return values.map!(a => a.symbols)
-			.fold!mergeMaps(emptyMap!(SymbolId, Symbol));
+			.fold!mergeMapsLeft(emptyMap!(SymbolId, Symbol));
 }
 
 Symbol[SymbolId] symbolsImpl(T : ExternJs)(T that) {

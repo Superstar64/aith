@@ -4,17 +4,32 @@
  (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
 /#
 
-main : void -> void;
-main = () {
-	triplet = (true,false,"test");
-	() = assert(triplet_0 == true);
-	() = assert(triplet_1 == false);
-	() = assert(triplet_2 == "test");
-	()
+ping = x {
+	if x {
+		true
+	} else {
+		true.pong
+	}
 };
 
+pong = x {
+	if x {
+		true
+	} else {
+		true.ping
+	}
+};
 
 void = (&&);
+
+main : void -> void;
+main = () {
+	() = false.ping.assert;
+	() = false.pong.assert;
+	() = true.ping.assert;
+	() = true.pong.assert;
+	()
+};
 
 assert : boolean -> void;
 assert = extern "assert";

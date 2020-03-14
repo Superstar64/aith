@@ -1,39 +1,54 @@
-#/Copyright (C) 2016  Freddy Angel Cubas "Superstar64"
- Boost License
+#/
+ Copyright (C) 2020 Freddy Angel Cubas "Superstar64"
+ Distributed under the Boost Software License, Version 1.0.
+ (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
 /#
 
 void = (&&);
 
-swap = (left,right) => {
+swap : forall a. (&a(*),a(*)&) -> void;
+swap = (left,right) {
 	tmp = *left;
-	left <- *right;
-	right <- tmp;
+	() = left <- *right;
+	() = right <- tmp;
+	()
 };
 
-quick sort : integer 32[*] -> void = array => {
-	if array.length > 1 then {
+quick sort : integer 32[*] -> void;
+quick sort = array {
+	if (array.length > 1) {
 		pivot = array[array.length - 1];
 		middle = new 0;
 		end = new 0;
-		while *end < array.length - 1 then {
+		() = while (*end < array.length - 1) {
 			#0..middle < pivot
 			#middle..end - 1 > pivot
-			if pivot > array[*end] then {
-				swap(array&[*middle], array&[*end]);
-				middle <- *middle + 1;
+			() = if (pivot > array[*end]) {
+				() = swap(array&[*middle], array&[*end]);
+				() = middle <- *middle + 1;
+				()
+			} else {
+				()
 			};
-			end <- *end + 1;
+			() = end <- *end + 1;
+			()
 		};
-		swap(array&[*middle],array&[array.length - 1]);
-		quick sort(array[0..*middle]);
-		quick sort(array[*middle..array.length]);
-	};
+		() = swap(array&[*middle],array&[array.length - 1]);
+		() = quick sort(array[0..*middle]);
+		() = quick sort(array[*middle..array.length]);
+		()
+	} else {
+		()
+	}
 };
 
-main : void -> void = x => {
+main : void -> void;
+main = () {
 	array = [0,7,9,3,8,6,5,1,4,2] : integer 32 [*];
-	quick sort(array);
-	assert(array == [0,1,2,3,4,5,6,7,8,9]); 
+	() = quick sort(array);
+	() = assert(array == [0,1,2,3,4,5,6,7,8,9]);
+	()
 };
 
-assert : boolean -> void = extern "assert";
+assert : boolean -> void;
+assert = extern "assert";

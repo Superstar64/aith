@@ -1,11 +1,29 @@
+/+
+	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
+	This file is part of Typi.
+
+	Typi is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation version 3 of the License.
+
+	Typi is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
+
+	You should have received a copy of the GNU General Public License
+	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
++/
 module codegen.ast;
 public import genericast;
 
 import std.bigint;
 
-import misc;
 import jsast;
 import codegen.codegen : Extra;
+
+import misc.nonstrict;
+import misc.json;
 
 interface Module : Jsonable {
 	Symbol[string] exports();
@@ -191,7 +209,6 @@ interface Assign : Expression {
 	Type type();
 	Expression left();
 	Expression right();
-	Expression last();
 }
 
 interface StringLit : Expression {
@@ -211,7 +228,7 @@ interface ExternJs : Expression {
 
 interface Type : Jsonable {
 	string mangle();
-	JsExpr runtimeInfo();
+	JsExpr compareInfo();
 }
 
 T castTo(T)(Type type) {

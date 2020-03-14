@@ -1,11 +1,15 @@
-#/Copyright (C) 2015  Freddy Angel Cubas "Superstar64"
- Boost License
+#/
+ Copyright (C) 2020 Freddy Angel Cubas "Superstar64"
+ Distributed under the Boost Software License, Version 1.0.
+ (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
 /#
 
 void = (&&);
 
-main : void -> void = () => {
-	write("hello world");
+main : void -> void;
+main = () {
+	write("hello world")
 };
 
-write : character[*] -> void = extern "write";
+write : character[*] -> void;
+write = extern "write";

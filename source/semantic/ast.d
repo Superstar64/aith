@@ -1,5 +1,5 @@
 /+
-	Copyright (C) 2015-2017  Freddy Angel Cubas "Superstar64"
+	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
 	This file is part of Typi.
 
 	Typi is free software: you can redistribute it and/or modify
@@ -21,15 +21,17 @@ import std.meta;
 import std.typecons;
 import std.traits;
 
-import misc;
 import jsast;
 import genericast;
 
 static import Codegen = codegen.ast;
 static import Parser = parser.ast;
-import misc;
 
-public import semantic.astimpl : specialize, toRuntime;
+import misc.nonstrict;
+import misc.position;
+
+import semantic.astimpl : Equivalence;
+public import semantic.astimpl : freeVariables, specialize, toRuntime;
 
 //be catious about https://issues.dlang.org/show_bug.cgi?id=20312
 
@@ -62,8 +64,7 @@ T castTo(T)(CompileTimeExpression expression) {
 
 interface Expression : CompileTimeExpression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
-	Expression specialize(Type[PolymorphicVariable] moves);
+	Expression specialize(Type[TypeVariableId] moves);
 	Codegen.Expression toRuntime();
 }
 
@@ -74,7 +75,6 @@ interface Symbol : Expression {
 
 struct ModuleAlias {
 	CompileTimeExpression element;
-	bool visible;
 }
 
 class Module {
@@ -89,7 +89,7 @@ class Module {
 		Codegen.Symbol[string] result;
 		foreach (key; exports.byKey) {
 			auto value = exports[key];
-			if (value.generics.length == 0) {
+			if (value.type.freeVariables.length == 0) {
 				result[key] = value.toRuntime();
 			}
 		}
@@ -99,26 +99,22 @@ class Module {
 
 interface Pattern : CompileTimeExpression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
-	Pattern specialize(Type[PolymorphicVariable] moves);
+	Pattern specialize(Type[TypeVariableId] moves);
 	Codegen.Pattern toRuntime();
 }
 
 interface NamedPattern : Pattern {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Variable argument();
 }
 
 interface TuplePattern : Pattern {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Pattern[] matches();
 }
 
 interface FunctionLiteral : Symbol {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	string name();
 	bool strong();
 	SymbolId id();
@@ -126,21 +122,23 @@ interface FunctionLiteral : Symbol {
 	Lazy!(Expression) text();
 }
 
-interface _Variable : Expression {
-	Variable specialize(Type[PolymorphicVariable] moves);
+interface Binding : CompileTimeExpression {
+	string name();
+}
+
+interface _Variable : Expression, Binding {
+	Variable specialize(Type[TypeVariableId] moves);
 	override Codegen.Variable toRuntime();
 }
 
-interface Variable : _Variable {
+interface Variable : _Variable, Binding {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	string name();
 	VarId id();
 }
 
 interface VariableDef : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Pattern variable();
 	Expression value();
 	Expression last();
@@ -152,31 +150,26 @@ interface Import : CompileTimeExpression {
 
 interface IntLit : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	BigInt value();
 }
 
 interface CharLit : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	dchar value();
 }
 
 interface BoolLit : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	bool yes();
 }
 
 interface TupleLit : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression[] values();
 }
 
 interface If : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression cond();
 	Expression yes();
 	Expression no();
@@ -184,73 +177,62 @@ interface If : Expression {
 
 interface While : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression cond();
 	Expression state();
 }
 
 interface New : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression value();
 }
 
 interface NewArray : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression length();
 	Expression value();
 }
 
 interface CastInteger : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression value();
 }
 
 interface Length : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 }
 
 interface Index : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression array();
 	Expression index();
 }
 
 interface IndexAddress : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression array();
 	Expression index();
 }
 
 interface TupleIndex : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression tuple();
 	uint index();
 }
 
 interface TupleIndexAddress : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression tuple();
 	uint index();
 }
 
 interface Call : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression calle();
 	Expression argument();
 }
 
 interface Slice : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression array();
 	Expression left();
 	Expression right();
@@ -258,83 +240,105 @@ interface Slice : Expression {
 
 interface Binary(string op) : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression left();
 	Expression right();
 }
 
 interface Prefix(string op) : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression value();
 }
 
 interface Deref : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression value();
 }
 
 interface Scope : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression pass();
 	Expression last();
 }
 
 interface Assign : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression left();
 	Expression right();
-	Expression last();
 }
 
 interface StringLit : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	string value();
 }
 
 interface ArrayLit : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	Expression[] values();
 }
 
 interface ExternJs : Expression {
 	Type type();
-	Tuple!()[PolymorphicVariable] generics();
 	string name();
 }
 
 interface Type : CompileTimeExpression {
-	Tuple!()[PolymorphicVariable] generics();
-	Type specialize(Type[PolymorphicVariable] moves);
+	TypeVariable[TypeVariableId] freeVariables();
+	Type specialize(Type[TypeVariableId] moves);
 	Codegen.Type toRuntime();
 	string toString();
+
+	Type[TypeVariableId] typeMatch(Type right, Position position);
+	Type[TypeVariableId] typeMatchDispatch(TypeVariable left, Position position);
+	Type[TypeVariableId] typeMatchDispatch(TypeBool left, Position position);
+	Type[TypeVariableId] typeMatchDispatch(TypeChar left, Position position);
+	Type[TypeVariableId] typeMatchDispatch(TypeInt left, Position position);
+	Type[TypeVariableId] typeMatchDispatch(TypeStruct left, Position position);
+	Type[TypeVariableId] typeMatchDispatch(TypeArray left, Position position);
+	Type[TypeVariableId] typeMatchDispatch(TypeFunction left, Position position);
+	Type[TypeVariableId] typeMatchDispatch(TypePointer left, Position position);
+
+	Equivalence[] predicateInstantiateDispatch(PredicateNumber left, Position position);
+	Equivalence[] predicateInstantiateDispatch(PredicateTuple left, Position position);
 }
 
-interface PolymorphicVariable : CompileTimeExpression {
+interface PredicateId {
 }
 
-interface Constraint : CompileTimeExpression {
-	Tuple!()[PolymorphicVariable] generics();
-	Constraint specialize(Type[PolymorphicVariable] moves);
+interface Predicate : CompileTimeExpression {
+	PredicateId id();
+	TypeVariable[TypeVariableId] freeVariables();
+	Predicate specialize(Type[TypeVariableId] moves);
 	string toString();
+
+	Equivalence[] predicateInstantiate(Type right, Position position);
+	// this's type must match right
+	Equivalence[] predicateMatch(Predicate right, Position position);
 }
 
-interface ConstraintNumber : Constraint {
+interface PredicateNumber : Predicate {
 }
 
-interface ConstraintTuple : Constraint {
+interface PredicateTuple : Predicate {
 	uint index();
 	Type type();
 }
 
-interface Scheme : Type {
-	PolymorphicVariable variable();
-	Constraint[] constraints();
+interface RigidContext {
+	string name();
+}
+
+interface RigidVariable {
+	string name();
+}
+
+interface TypeVariableId {
+	string name();
+}
+
+interface TypeVariable : Type, Binding {
+	TypeVariableId id();
+	Predicate[PredicateId] constraints();
+	RigidVariable[RigidContext] rigidity();
 }
 
 interface TypeBool : Type {

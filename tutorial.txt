@@ -8,6 +8,7 @@ typi's types:
 	"x(*)": pointer type,where x is any other type
 	"x[*]": array type,where x is any other type
 	"x1 -> x2": function type, where x1 is the return type and x2 is the argument type
+	"forall x. b": generic type
 typi's expressions:
 	name::value use value from other modulee 
 	"123": integer literals
@@ -15,8 +16,8 @@ typi's expressions:
 	"true","false": boolean literals
 	"(x1,x2,x3,...)": tuple literals,if the amount of expressions inside the tuple literal is 1 then the tuple literal get replaced with it's one expression
 	"abc": variable
-	"if x1 then x2 else x3": if expression, x1 must be of bool, x2 and x3 must be the same type,"else x2" is optional and when it is missing it is equivalent to "()";
-	"while x1 then x2": while expression, x1 must be of bool,"then x2 is optional",while will always return "()";
+	"if x1 { x2 } else { x3 }": if expression, x1 must be of bool, x2 and x3 must be the same type, x1 may require parens if it contains operations
+	"while x1 { x2 }": while expression, x1 must be of bool
 	"new x1": new expression,copys x1 to a new heap pointer and returns it
 	"new[x1]x2": new array expression: creates an array with size x1 and inits it with x2, x1 must be of natural 0
 	"cast(x2)x1": integer casting expression,x1 is an expression, x2 is a type
@@ -38,15 +39,14 @@ typi's expressions:
 	"*x1": deference a pointer
 	"x1&*_x2": if x1 is a pointer to tuple, return a pointer one of it's sub elements
 	"x1 <- x2": assign a value to a pointer
-	"{x1;x2;x3;...;x4}": scope expression "x"s are statements and x4 is the return value.
 	"x1 => x2": function literal, x1 is the variable name and x2 is a value. x1 maybe be a pattern match for tuples
+	"x1 { x2 }": function literal
+	"x1 = x2; x3": let in expression, x1 is set to x2 in x3
 	"import "path" ": import a module
 	"x1::x2" : access module field where x1 is a module and x2 is a field inside of a module
 typi's global statements:
 	"a = x" : declare a global
 	"a = t" : declare a type
-type's local statements:
-	"x1=x2": variable decleration,declare variable x1,and assign x2 to it. x1 maybe a pattern match for tuples
-	any expresion : must return void
+	"a : t; a = x" : declared a typed global
 # is used for single line comments
 #/ /# is used for multiline comments

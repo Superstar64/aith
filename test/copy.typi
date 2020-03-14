@@ -1,19 +1,31 @@
+#/
+ Copyright (C) 2020 Freddy Angel Cubas "Superstar64"
+ Distributed under the Boost Software License, Version 1.0.
+ (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
+/#
+
 void = (&&);
 
-copy = (from,to) => {
-	assert(from.length == to.length);
+copy : forall a. (&a[*], a[*]&) -> void;
+copy = (from,to) {
+	() = assert(from.length == to.length);
 	index = new 0;
-	while(*index < from.length) then {
-		to&[*index] <- from[*index];
-		index <- *index + 1;
+	() = while (*index < from.length) {
+		() = to&[*index] <- from[*index];
+		() = index <- *index + 1;
+		()
 	};
+	()
 };
 
-main : void -> void = () => {
+main : void -> void;
+main = () {
 	base = [(true,true),(true,false),(false,false)];
 	target = new[3]((false,false));
-	copy(base,target);
-	assert(target == [(true,true),(true,false),(false,false)]);
+	() = copy(base,target);
+	() = assert(target == [(true,true),(true,false),(false,false)]);
+	()
 };
 
-assert : boolean -> void = extern "assert";
+assert : boolean -> void;
+assert = extern "assert";

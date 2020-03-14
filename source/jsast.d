@@ -1,5 +1,5 @@
 /+
-	Copyright (C) 2015-2017  Freddy Angel Cubas "Superstar64"
+	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
 	This file is part of Typi.
 
 	Typi is free software: you can redistribute it and/or modify
@@ -22,6 +22,21 @@ import std.typecons;
 import std.conv;
 
 import std.range.interfaces;
+
+auto increase(ref uint indent) {
+	indent += 4;
+}
+
+auto decrease(ref uint indent) {
+	indent -= 4;
+}
+
+auto line(scope void delegate(const(char)[]) result, uint indent) {
+	result("\n");
+	foreach (_; 0 .. indent) {
+		result(" ");
+	}
+}
 
 struct JsContext {
 	JsVariable[string] variables;
@@ -56,21 +71,6 @@ abstract class JsState {
 
 	JsContext updateContext(JsContext context) {
 		return context;
-	}
-
-	static increase(ref uint indent) {
-		indent += 4;
-	}
-
-	static decrease(ref uint indent) {
-		indent -= 4;
-	}
-
-	static line(scope void delegate(const(char)[]) result, uint indent) {
-		result("\n");
-		foreach (_; 0 .. indent) {
-			result(" ");
-		}
 	}
 }
 
@@ -366,14 +366,14 @@ class JsVariable : JsExpr {
 	}
 }
 
-abstract class JsBasicLitImpl(JObject) : JObject {
+abstract class JsBasicLitImpl(JObject, Context = JsContext) : JObject {
 	string value;
 
 	this(string value) {
 		this.value = value;
 	}
 
-	override void toExprString(scope void delegate(const(char)[]) result, uint indent, JsContext context) {
+	override void toExprString(scope void delegate(const(char)[]) result, uint indent, Context context) {
 		result(value);
 	}
 
@@ -390,7 +390,7 @@ class JsExternLit : JsBasicLit {
 	}
 }
 
-class JsIntLitImpl(JObject) : JsBasicLitImpl!JObject {
+class JsIntLitImpl(JObject, Context = JsContext) : JsBasicLitImpl!(JObject, Context) {
 	this(long value) {
 		super(value.to!string);
 	}
@@ -404,7 +404,7 @@ class JsIntLitImpl(JObject) : JsBasicLitImpl!JObject {
 
 alias JsIntLit = JsIntLitImpl!JsExpr;
 
-class JsDoubleLitImpl(JObject) : JsBasicLitImpl!JObject {
+class JsDoubleLitImpl(JObject, Context = JsContext) : JsBasicLitImpl!(JObject, Context) {
 	this(double value) {
 		super(value.to!string);
 	}
@@ -412,7 +412,7 @@ class JsDoubleLitImpl(JObject) : JsBasicLitImpl!JObject {
 
 alias JsDoubleLit = JsDoubleLitImpl!JsExpr;
 
-class JsBoolLitImpl(JObject) : JsBasicLitImpl!JObject {
+class JsBoolLitImpl(JObject, Context = JsContext) : JsBasicLitImpl!(JObject, Context) {
 	this(bool value) {
 		if (value) {
 			super("true");
@@ -435,7 +435,7 @@ string escape(dchar d) {
 	return d.to!string;
 }
 
-class JsCharLitImpl(JObject) : JsBasicLitImpl!JObject {
+class JsCharLitImpl(JObject, Context = JsContext) : JsBasicLitImpl!(JObject, Context) {
 	this(dchar value) {
 		super('"' ~ escape(value) ~ '"');
 	}
@@ -572,7 +572,7 @@ class JsFuncLit : JsExpr {
 	}
 }
 
-class JsArrayImpl(JObject) : JObject {
+class JsArrayImpl(JObject, Context = JsContext) : JObject {
 	JObject[] exprs;
 	this() {
 	}
@@ -581,7 +581,7 @@ class JsArrayImpl(JObject) : JObject {
 		this.exprs = exprs;
 	}
 
-	override void toExprString(scope void delegate(const(char)[]) result, uint indent, JsContext context) {
+	override void toExprString(scope void delegate(const(char)[]) result, uint indent, Context context) {
 		result("[");
 		foreach (c, expr; exprs) {
 			expr.toExprString(result, indent, context);
@@ -599,7 +599,7 @@ class JsArrayImpl(JObject) : JObject {
 
 alias JsArray = JsArrayImpl!JsExpr;
 
-class JsObjectImpl(JObject) : JObject {
+class JsObjectImpl(JObject, Context = JsContext) : JObject {
 	Tuple!(string, JObject)[] fields;
 	this() {
 	}
@@ -608,7 +608,7 @@ class JsObjectImpl(JObject) : JObject {
 		this.fields = fields;
 	}
 
-	override void toExprString(scope void delegate(const(char)[]) result, uint indent, JsContext context) {
+	override void toExprString(scope void delegate(const(char)[]) result, uint indent, Context context) {
 		result("{");
 		increase(indent);
 		foreach (c, field; fields.enumerate) {
@@ -689,13 +689,3 @@ class JsModule : JsImplictScope {
 		}
 	}
 }
-
-abstract class Json : JsExpr {
-}
-
-alias JsonInt = JsIntLitImpl!Json;
-alias JsonDouble = JsDoubleLitImpl!Json;
-alias JsonBool = JsBoolLitImpl!Json;
-alias JsonChar = JsCharLitImpl!Json;
-alias JsonArray = JsArrayImpl!Json;
-alias JsonObject = JsObjectImpl!Json;
