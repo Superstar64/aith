@@ -2,11 +2,10 @@ module misc.nonstrict;
 
 class Lazy(T) {
 	T delegate() callback;
-	struct Value {
-		T val;
-	}
-
 	Value* value;
+	struct Value {
+		T inner;
+	}
 
 	this(T delegate() callback) {
 		this.callback = callback;
@@ -14,10 +13,9 @@ class Lazy(T) {
 
 	T get() {
 		if (value is null) {
-			auto v = callback();
-			value = new Value(v);
+			value = new Value(callback());
 		}
-		return value.val;
+		return value.inner;
 	}
 
 	void eval() {

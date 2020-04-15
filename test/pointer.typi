@@ -4,59 +4,67 @@
  (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
 /#
 
-void = (&&);
-
-increment = x {
-	x <- *x + 1
+~ <a extends number & unrestricted> (& a(*), world &) -> world ~
+increment = (x, os) {
+	assign(x, *x + 1, os)
 };
 
-heap pointer = () {
-	pointer = (new 5) : integer 32(*);
-	() = assert(*pointer == 5);
-	() = increment(pointer);
-	() = assert(*pointer == 6);
+~ world -> world ~
+heap pointer = os {
+	(owner, |os|) = new(5: integer32, os);
+	(pointer,|owner|) = owner.borrow;
+	|os| = assert(*pointer == 5, os);
+	|os| = increment(pointer, os);
+	|os| = assert(*pointer == 6, os);
+	|os| = assert(pointer == pointer, os);
+	(a, |os|) = delete(owner, os);
+	os
+};
+
+~ world -> world ~
+array pointer = os {
+	owner = [0,10,20] : integer32[!];
+	(array,|owner|) = owner.borrow array;
+	(index, |os|) = index address(array, 1, os);
+	|os| = assert(array[1] == 10, os);
+	|os| = increment(index, os);
+	|os| = assert(array[1] == 11, os);
+	(index1, |os|) = index address(array, 1, os);
+	(index2, |os|) = index address(array, 2, os);
+	|os| = assert(index == index1, os);
+	|os| = assert(index != index2, os);
+	() = owner.delete array;
+	os
+};
+
+~ world -> world ~
+record pointer = os {
+	(owner, |os|) = new((4 : integer32,10 : integer32), os);
+	(pair, |owner|) = owner.borrow;
+	|os| = assert((*pair)_0 == 4, os);
+	|os| = increment(pair&*_0, os);
+	|os| = assert((*pair)_0 == 5, os);
 	
-	() = assert(pointer == pointer);
-	()
-};
-
-array pointer = () {
-	array = [0,10,20] : integer 32[*];
-	index = array&[1];
-	() = assert(array[1] == 10);
-	() = increment(index);
-	() = assert(array[1] == 11);
-	() = assert(array&[1] == array&[1]);
-	() = assert(array&[1] != array&[2]);
-	()
-};
-
-
-record pointer = () {
-	pair = new (4 : integer 32,10 : integer 32);
-	() = assert((*pair)_0 == 4);
-	() = increment(pair&*_0);
-	() = assert((*pair)_0 == 5);
-	
-	() = assert((*pair)_1 == 10);
-	() = increment(pair&*_1);
-	() = assert((*pair)_1 == 11);
+	|os| = assert((*pair)_1 == 10, os);
+	|os| = increment(pair&*_1, os);
+	|os| = assert((*pair)_1 == 11, os);
 	
 	
-	() = assert(pair&*_0 == pair&*_0);
-	() = assert(pair&*_0 != pair&*_1);
-	() = assert(pair == pair);
-	()
+	|os| = assert(pair&*_0 == pair&*_0, os);
+	|os| = assert(pair&*_0 != pair&*_1, os);
+	|os| = assert(pair == pair, os);
+	(a, |os|) = delete(owner, os);
+	os
 };
 
 
-main : void -> void;
-main = () {
-	() = heap pointer();
-	() = array pointer();
-	() = record pointer();
-	()
+~ world -> world ~
+symbol main = os {
+	|os| = os.heap pointer;
+	|os| = os.array pointer;
+	|os| = os.record pointer;
+	os
 };
 
-assert : boolean -> void;
+~ (& boolean, world &) -> world ~
 assert = extern "assert";

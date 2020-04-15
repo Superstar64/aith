@@ -22,11 +22,8 @@ import std.conv;
 import std.algorithm;
 import std.range;
 
-import genericast;
-
 public import semantic.ast;
-static import Codegen = codegen.astimpl;
-static import Parser = parser.ast;
+import Parser = parser.ast;
 
 import misc.nonstrict;
 import misc.getters;
@@ -40,39 +37,28 @@ template make(T) {
 	}
 }
 
-mixin template DefaultCast() {
-	Expression castToExpression() {
-		return cast(Expression) this;
-	}
-
-	Symbol castToSymbol() {
-		return cast(Symbol) this;
-	}
-
-	Type castToType() {
-		return cast(Type) this;
-	}
-
-	Import castToImport() {
-		return cast(Import) this;
-	}
-}
-
 mixin template DefaultSpecialize(T) {
-	T specialize(Type[TypeVariableId] moves) {
-		return visit!(make!T, a => a.specialize(moves))(this);
+	T specialize(Dictonary!(TypeVariableId, Type) moves) {
+		return visit!(make!T, a => a.specialize(moves), a => a.specialize(moves), a => a.specialize(moves), a => a)(this);
 	}
 }
 
 mixin template DefaultMorph(T) {
 	mixin DefaultSpecialize!T;
-
-	RuntimeType!T toRuntime() {
-		return visit!(Codegen.make!(RuntimeType!T), a => a.toRuntime())(this);
-	}
 }
 
+// todo remove global state
 PredicateId predicateId(T : PredicateNumber)(PredicateNumber predicate) {
+	static __gshared value = make!PredicateId();
+	return value;
+}
+
+PredicateId predicateId(T : PredicateEqual)(PredicateEqual predicate) {
+	static __gshared value = make!PredicateId();
+	return value;
+}
+
+PredicateId predicateId(T : PredicateUnrestricted)(PredicateUnrestricted predicate) {
 	static __gshared value = make!PredicateId();
 	return value;
 }
@@ -87,14 +73,14 @@ PredicateId predicateId(T : PredicateTuple)(PredicateTuple predicate) {
 
 class Impl(T) : T {
 	mixin Getters!T;
-	mixin DefaultCast;
 }
 
 class Impl(T : TypeVariableId) : T {
 	mixin Getters!T;
 	override string toString() {
 		if (name == "") {
-			return (cast(void*) this).to!string;
+			return this.castTo!(void*)
+				.to!string;
 		} else {
 			return name;
 		}
@@ -104,70 +90,118 @@ class Impl(T : TypeVariableId) : T {
 class Impl(T : Pattern) : T {
 	mixin Getters!T;
 	mixin DefaultMorph!T;
-	mixin DefaultCast;
+	import Js = jsast;
+	import codegen.codegen : Extra, generatePatternMatchImpl;
+	import semantic.semantic;
+
+	Js.JsPattern generatePatternMatch(Extra extra) {
+		return generatePatternMatchImpl(this, extra);
+	}
+
+	void removeBindings(Context context, Position position) {
+		removeBindingsImpl(this, context, position);
+	}
 }
 
-class Impl(T : Expression) : T {
+class Impl(T : Term) : T {
 	mixin Getters!T;
 	mixin DefaultMorph!T;
-	mixin DefaultCast;
+
+	import Js = jsast;
+	import codegen.codegen : Extra, generateJsImpl, generateSymbolImpl;
+
+	Js.JsExpr generateJs(Js.JsScope depend, Extra extra) {
+		return generateJsImpl(this, depend, extra);
+	}
+
+	static if (is(T : Symbol)) {
+		Dictonary!(Tuple!(SymbolId, TypeHash), Symbol) dependants() {
+			return visit!(mergeMapsLeft, a => a.symbols, a => emptyMap!(Tuple!(SymbolId, TypeHash), Symbol), a => emptyMap!(Tuple!(SymbolId, TypeHash), Symbol), a => emptyMap!(Tuple!(SymbolId, TypeHash), Symbol))(this);
+		}
+
+		Dictonary!(Tuple!(SymbolId, TypeHash), Symbol) symbols() {
+			return [tuple(id, type.typeHash): this.convert!Symbol].fromAALiteral;
+		}
+
+		Js.JsExpr generateSymbol(Js.JsScope depend, Extra extra) {
+			return generateSymbolImpl(this, depend, extra);
+		}
+	} else {
+		Dictonary!(Tuple!(SymbolId, TypeHash), Symbol) symbols() {
+			return visit!(mergeMapsLeft, a => a.symbols, a => emptyMap!(Tuple!(SymbolId, TypeHash), Symbol), a => emptyMap!(Tuple!(SymbolId, TypeHash), Symbol), a => emptyMap!(Tuple!(SymbolId, TypeHash), Symbol))(this);
+		}
+	}
 }
 
 class Impl(T : Type) : T {
 	mixin Getters!T;
 
-	TypeVariable[TypeVariableId] freeVariables() {
-		return unknownImpl(this);
-	}
-
-	mixin DefaultCast;
-
 	override string toString() {
 		return toStringImpl(this);
 	}
 
-	Type[TypeVariableId] typeMatch(Type right, Position position) {
+	Dictonary!(TypeVariableId, Type) typeMatch(Type right, Position position) {
 		return right.typeMatchDispatch(this, position);
 	}
 
-	Type[TypeVariableId] typeMatchDispatch(TypeVariable left, Position position) {
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeVariable left, Position position) {
 		return typeMatchImpl(left, this, position);
 	}
 
-	Type[TypeVariableId] typeMatchDispatch(TypeBool left, Position position) {
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeBool left, Position position) {
 		return typeMatchImpl(left, this, position);
 	}
 
-	Type[TypeVariableId] typeMatchDispatch(TypeChar left, Position position) {
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeChar left, Position position) {
 		return typeMatchImpl(left, this, position);
 	}
 
-	Type[TypeVariableId] typeMatchDispatch(TypeInt left, Position position) {
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeInt left, Position position) {
 		return typeMatchImpl(left, this, position);
 	}
 
-	Type[TypeVariableId] typeMatchDispatch(TypeStruct left, Position position) {
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeStruct left, Position position) {
 		return typeMatchImpl(left, this, position);
 	}
 
-	Type[TypeVariableId] typeMatchDispatch(TypeArray left, Position position) {
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeArray left, Position position) {
 		return typeMatchImpl(left, this, position);
 	}
 
-	Type[TypeVariableId] typeMatchDispatch(TypeFunction left, Position position) {
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeFunction left, Position position) {
 		return typeMatchImpl(left, this, position);
 	}
 
-	Type[TypeVariableId] typeMatchDispatch(TypePointer left, Position position) {
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypePointer left, Position position) {
 		return typeMatchImpl(left, this, position);
 	}
 
-	Equivalence[] predicateInstantiateDispatch(PredicateNumber left, Position position) {
-		return predicateInstantiateImpl(left, this, position);
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeOwnPointer left, Position position) {
+		return typeMatchImpl(left, this, position);
 	}
 
-	Equivalence[] predicateInstantiateDispatch(PredicateTuple left, Position position) {
-		return predicateInstantiateImpl(left, this, position);
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeOwnArray left, Position position) {
+		return typeMatchImpl(left, this, position);
+	}
+
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeWorld left, Position position) {
+		return typeMatchImpl(left, this, position);
+	}
+
+	Dictonary!(TypeVariableId, Type) predicateInstantiateDispatch(PredicateEqual left, Dictonary!(TypeVariableId, Type) current, Position position) {
+		return predicateInstantiateImpl(left, this, current, position);
+	}
+
+	Dictonary!(TypeVariableId, Type) predicateInstantiateDispatch(PredicateNumber left, Dictonary!(TypeVariableId, Type) current, Position position) {
+		return predicateInstantiateImpl(left, this, current, position);
+	}
+
+	Dictonary!(TypeVariableId, Type) predicateInstantiateDispatch(PredicateTuple left, Dictonary!(TypeVariableId, Type) current, Position position) {
+		return predicateInstantiateImpl(left, this, current, position);
+	}
+
+	Dictonary!(TypeVariableId, Type) predicateInstantiateDispatch(PredicateUnrestricted left, Dictonary!(TypeVariableId, Type) current, Position position) {
+		return predicateInstantiateImpl(left, this, current, position);
 	}
 
 	static if (is(T : TypeVariable)) {
@@ -175,7 +209,7 @@ class Impl(T : Type) : T {
 			return id.name;
 		}
 
-		override Type specialize(Type[TypeVariableId] moves) {
+		override Type specialize(Dictonary!(TypeVariableId, Type) moves) {
 			if (id in moves) {
 				return moves[id];
 			} else {
@@ -183,11 +217,38 @@ class Impl(T : Type) : T {
 			}
 		}
 
-		override Codegen.Type toRuntime() {
+		Dictonary!(TypeVariableId, TypeVariable) freeVariables() {
+			auto extra = .freeVariables(constraints.byValue);
+			return mergeMapsLeft(extra, [id: this.convert!TypeVariable].fromAALiteral);
+		}
+
+		import Js = jsast;
+		import codegen.codegen : Extra, mangleImpl, compareInfoImpl;
+
+		Js.JsExpr compareInfo(Extra extra) {
+			assert(0);
+		}
+
+		string mangle() {
 			assert(0);
 		}
 	} else {
 		mixin DefaultMorph!T;
+
+		Dictonary!(TypeVariableId, TypeVariable) freeVariables() {
+			return visit!(.freeVariables, a => a, a => a, a => { static assert(0); }, a => emptyArray!Type)(this);
+		}
+
+		import Js = jsast;
+		import codegen.codegen : Extra, mangleImpl, compareInfoImpl;
+
+		Js.JsExpr compareInfo(Extra extra) {
+			return compareInfoImpl(this, extra);
+		}
+
+		string mangle() {
+			return mangleImpl(this);
+		}
 	}
 }
 
@@ -198,21 +259,20 @@ class Impl(T : Predicate) : T {
 		return predicateId!T(this);
 	}
 
-	TypeVariable[TypeVariableId] freeVariables() {
-		return unknownImpl(this);
+	Dictonary!(TypeVariableId, TypeVariable) freeVariables() {
+		return visit!(.freeVariables, a => a, a => a, a => { static assert(0); }, a => emptyArray!Type)(this);
 	}
 
 	mixin DefaultSpecialize!T;
-	mixin DefaultCast;
 
-	Equivalence[] predicateInstantiate(Type right, Position position) {
-		return right.predicateInstantiateDispatch(this, position);
+	Dictonary!(TypeVariableId, Type) predicateInstantiate(Type right, Dictonary!(TypeVariableId, Type) current, Position position) {
+		return right.predicateInstantiateDispatch(this, current, position);
 	}
 
-	Equivalence[] predicateMatch(Predicate right0, Position position) {
-		auto right1 = cast(typeof(this))(right0);
+	Dictonary!(TypeVariableId, Type) predicateMatch(Predicate right0, Dictonary!(TypeVariableId, Type) current, Position position) {
+		auto right1 = right0.castTo!(typeof(this));
 		assert(right1);
-		return predicateMatchImpl(this, right1, position);
+		return predicateMatchImpl(this, right1, current, position);
 	}
 
 	override string toString() {
@@ -220,235 +280,170 @@ class Impl(T : Predicate) : T {
 	}
 }
 
-auto visit(alias construct, alias f, T : NamedPattern)(T that) {
+// visitors, where f is other expressions, p is pattern matches, t are types, and i is for misc data
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : NamedPattern)(T that) {
 	with (that)
-		return construct(f(type), f(argument));
+		return construct(t(type), f(argument));
 }
 
-auto visit(alias construct, alias f, T : TuplePattern)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : TuplePattern)(T that) {
 	with (that)
-		return construct(f(type), f(matches));
+		return construct(t(type), f(matches));
 }
 
-auto visit(alias construct, alias f, T : FunctionLiteral)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : FunctionLiteral)(T that) {
 	with (that)
-		return construct(f(type), name, strong, id, f(argument), f(text));
+		return construct(t(type), i(name), i(linkage), i(id), p(argument), f(text));
 }
 
-auto visit(alias construct, alias f, T : Variable)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : Variable)(T that) {
 	with (that)
-		return construct(f(type), name, id);
+		return construct(t(type), i(name), i(id));
 }
 
-auto visit(alias construct, alias f, T : VariableDef)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : VariableDefinition)(T that) {
 	with (that)
-		return construct(f(type), f(variable), f(value), f(last));
+		return construct(t(type), p(variable), f(value), f(last));
 }
 
-auto visit(alias construct, alias f, T : IntLit)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : Desugar!name, string name)(T that) {
 	with (that)
-		return construct(f(type), value);
+		return construct(t(type));
 }
 
-auto visit(alias construct, alias f, T : CharLit)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : DesugarContext!name, string name)(T that) {
 	with (that)
-		return construct(f(type), value);
+		return construct(t(type), t(context));
 }
 
-auto visit(alias construct, alias f, T : BoolLit)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : IntLit)(T that) {
 	with (that)
-		return construct(f(type), yes);
+		return construct(t(type), i(value));
 }
 
-auto visit(alias construct, alias f, T : TupleLit)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : CharLit)(T that) {
 	with (that)
-		return construct(f(type), f(values));
+		return construct(t(type), i(value));
 }
 
-auto visit(alias construct, alias f, T : If)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : BoolLit)(T that) {
 	with (that)
-		return construct(f(type), f(cond), f(yes), f(no));
+		return construct(t(type), i(yes));
 }
 
-auto visit(alias construct, alias f, T : While)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : TupleLit)(T that) {
 	with (that)
-		return construct(f(type), f(cond), f(state));
+		return construct(t(type), f(values));
 }
 
-auto visit(alias construct, alias f, T : New)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : If)(T that) {
 	with (that)
-		return construct(f(type), f(value));
+		return construct(t(type), f(cond), f(yes), f(no));
 }
 
-auto visit(alias construct, alias f, T : NewArray)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : CastInteger)(T that) {
 	with (that)
-		return construct(f(type), f(length), f(value));
+		return construct(t(type), t(contextWanted), t(contextInput));
 }
 
-auto visit(alias construct, alias f, T : CastInteger)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : TupleIndex)(T that) {
 	with (that)
-		return construct(f(type), f(value));
+		return construct(t(type), i(index));
 }
 
-auto visit(alias construct, alias f, T : Length)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : TupleIndexAddress)(T that) {
 	with (that)
-		return construct(f(type));
+		return construct(t(type), i(index), t(context));
 }
 
-auto visit(alias construct, alias f, T : Index)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : Call)(T that) {
 	with (that)
-		return construct(f(type), f(array), f(index));
+		return construct(t(type), f(calle), f(argument));
 }
 
-auto visit(alias construct, alias f, T : IndexAddress)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : StringLit)(T that) {
 	with (that)
-		return construct(f(type), f(array), f(index));
+		return construct(t(type), i(value));
 }
 
-auto visit(alias construct, alias f, T : TupleIndex)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : ArrayLit)(T that) {
 	with (that)
-		return construct(f(type), f(tuple), index);
+		return construct(t(type), f(values));
 }
 
-auto visit(alias construct, alias f, T : TupleIndexAddress)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : ExternJs)(T that) {
 	with (that)
-		return construct(f(type), f(tuple), index);
+		return construct(t(type), i(name));
 }
 
-auto visit(alias construct, alias f, T : Call)(T that) {
-	with (that)
-		return construct(f(type), f(calle), f(argument));
-}
-
-auto visit(alias construct, alias f, T : Slice)(T that) {
-	with (that)
-		return construct(f(type), f(array), f(left), f(right));
-}
-
-auto visit(alias construct, alias f, T : Binary!op, string op)(T that) {
-	with (that)
-		return construct(f(type), f(left), f(right));
-}
-
-auto visit(alias construct, alias f, T : Prefix!op, string op)(T that) {
-	with (that)
-		return construct(f(type), f(value));
-}
-
-auto visit(alias construct, alias f, T : Deref)(T that) {
-	with (that)
-		return construct(f(type), f(value));
-}
-
-auto visit(alias construct, alias f, T : Scope)(T that) {
-	with (that)
-		return construct(f(type), f(pass), f(last));
-}
-
-auto visit(alias construct, alias f, T : Assign)(T that) {
-	with (that)
-		return construct(f(type), f(left), f(right));
-}
-
-auto visit(alias construct, alias f, T : StringLit)(T that) {
-	with (that)
-		return construct(f(type), value);
-}
-
-auto visit(alias construct, alias f, T : ArrayLit)(T that) {
-	with (that)
-		return construct(f(type), f(values));
-}
-
-auto visit(alias construct, alias f, T : ExternJs)(T that) {
-	with (that)
-		return construct(f(type), name);
-}
-
-auto visit(alias construct, alias f, T : TypeBool)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : TypeBool)(T that) {
 	with (that)
 		return construct();
 }
 
-auto visit(alias construct, alias f, T : TypeChar)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : TypeChar)(T that) {
 	with (that)
 		return construct();
 }
 
-auto visit(alias construct, alias f, T : TypeInt)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : TypeInt)(T that) {
 	with (that)
-		return construct(size, signed);
+		return construct(i(size), i(signed));
 }
 
-auto visit(alias construct, alias f, T : TypeStruct)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : TypeStruct)(T that) {
 	with (that)
 		return construct(f(values));
 }
 
-auto visit(alias construct, alias f, T : TypeArray)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : TypeArray)(T that) {
 	with (that)
 		return construct(f(array));
 }
 
-auto visit(alias construct, alias f, T : TypeFunction)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : TypeFunction)(T that) {
 	with (that)
 		return construct(f(result), f(argument));
 }
 
-auto visit(alias construct, alias f, T : TypePointer)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : TypePointer)(T that) {
 	with (that)
 		return construct(f(value));
 }
 
-auto visit(alias construct, alias f, T : PredicateNumber)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : TypeOwnPointer)(T that) {
+	with (that)
+		return construct(f(value));
+}
+
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : TypeOwnArray)(T that) {
+	with (that)
+		return construct(f(array));
+}
+
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : TypeWorld)(T that) {
 	with (that)
 		return construct();
 }
 
-auto visit(alias construct, alias f, T : PredicateTuple)(T that) {
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : PredicateEqual)(T that) {
 	with (that)
-		return construct(index, f(type));
+		return construct();
 }
 
-TypeVariable[TypeVariableId] unknownImpl(TypeBool that) {
-	return null;
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : PredicateNumber)(T that) {
+	with (that)
+		return construct();
 }
 
-TypeVariable[TypeVariableId] unknownImpl(TypeChar that) {
-	return null;
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : PredicateUnrestricted)(T that) {
+	with (that)
+		return construct();
 }
 
-TypeVariable[TypeVariableId] unknownImpl(TypeInt that) {
-	return null;
-}
-
-TypeVariable[TypeVariableId] unknownImpl(TypeStruct that) {
-	return that.values.freeVariables;
-}
-
-TypeVariable[TypeVariableId] unknownImpl(TypeArray that) {
-	return that.array.freeVariables;
-}
-
-TypeVariable[TypeVariableId] unknownImpl(TypeFunction that) {
-	return freeVariables(that.result, that.argument);
-}
-
-TypeVariable[TypeVariableId] unknownImpl(TypePointer that) {
-	return that.value.freeVariables;
-}
-
-TypeVariable[TypeVariableId] unknownImpl(TypeVariable that) {
-	auto extra = that.constraints.byValue.freeVariables;
-	return mergeMapsLeft(extra, [that.id: that]);
-}
-
-TypeVariable[TypeVariableId] unknownImpl(PredicateNumber that) {
-	return null;
-}
-
-TypeVariable[TypeVariableId] unknownImpl(PredicateTuple that) {
-	return that.type.freeVariables;
+auto visit(alias construct, alias f, alias p, alias t, alias i, T : PredicateTuple)(T that) {
+	with (that)
+		return construct(i(index), f(type));
 }
 
 string toStringImpl(TypeBool that) {
@@ -464,23 +459,35 @@ string toStringImpl(TypeInt that) {
 }
 
 string toStringImpl(TypeStruct that) {
-	return "(" ~ that.values
+	return "(&" ~ that.values
 		.map!(a => a.toString ~ ",")
 		.joiner
 		.array
-		.to!string ~ ")";
+		.to!string ~ "&)";
 }
 
 string toStringImpl(TypeArray that) {
-	return that.array.toString() ~ "[]";
+	return that.array.toString ~ "[*]";
 }
 
 string toStringImpl(TypeFunction that) {
-	return that.argument.toString ~ "->" ~ that.result.toString;
+	return that.argument.toString ~ " -> " ~ that.result.toString;
 }
 
 string toStringImpl(TypePointer that) {
-	return that.value.toString() ~ "(*)";
+	return that.value.toString ~ "(*)";
+}
+
+string toStringImpl(TypeOwnPointer that) {
+	return that.value.toString ~ "(!)";
+}
+
+string toStringImpl(TypeOwnArray that) {
+	return that.array.toString ~ "[!]";
+}
+
+string toStringImpl(TypeWorld that) {
+	return "world";
 }
 
 string toStringImpl(TypeVariable that) {
@@ -497,8 +504,16 @@ string toStringImpl(TypeVariable that) {
 	return result;
 }
 
+string toStringImpl(PredicateEqual that) {
+	return "equal";
+}
+
 string toStringImpl(PredicateNumber that) {
 	return "number";
+}
+
+string toStringImpl(PredicateUnrestricted that) {
+	return "unrestricted";
 }
 
 string toStringImpl(PredicateTuple that) {
@@ -518,11 +533,11 @@ struct Equivalence {
 		assert(right);
 	}
 
-	TypeVariable[TypeVariableId] freeVariables() {
+	Dictonary!(TypeVariableId, TypeVariable) freeVariables() {
 		return .freeVariables(left, right);
 	}
 
-	Equivalence specialize(Type[TypeVariableId] moves) {
+	Equivalence specialize(Dictonary!(TypeVariableId, Type) moves) {
 		return Equivalence(left.specialize(moves), right.specialize(moves), position);
 	}
 
@@ -531,37 +546,37 @@ struct Equivalence {
 	}
 }
 
-TypeVariable[TypeVariableId] substitutionRange(Type[TypeVariableId] substitution) {
+Dictonary!(TypeVariableId, TypeVariable) substitutionRange(Dictonary!(TypeVariableId, Type) substitution) {
 	return substitution.byValue.freeVariables;
 }
 
-Type[TypeVariableId] freshSubstitution(T...)(T items) {
+Dictonary!(TypeVariableId, Type) freshSubstitution(T...)(T items) {
 	auto variables = freeVariables(items);
-	Type[TypeVariableId] result;
-	foreach (id, variable; variables) {
+	Dictonary!(TypeVariableId, Type) result;
+	foreach (id, variable; variables.range) {
 		result[id] = make!TypeVariable(make!TypeVariableId(id.name), variable.constraints, variable.rigidity);
 	}
-	foreach (ref variable; result) {
-		variable = variable.specialize(result);
+	foreach (id, variable; result.range) {
+		result = result.insert(id, variable.specialize(result));
 	}
 	return result;
 }
 
-Type[TypeVariableId] freshFlexibleSubstitution(T...)(T items) {
+Dictonary!(TypeVariableId, Type) freshFlexibleSubstitution(T...)(T items) {
 	auto variables = freeVariables(items);
-	Type[TypeVariableId] result;
-	foreach (id, variable; variables) {
-		result[id] = make!TypeVariable(make!TypeVariableId(id.name), variable.constraints, null);
+	Dictonary!(TypeVariableId, Type) result;
+	foreach (id, variable; variables.range) {
+		result[id] = make!TypeVariable(make!TypeVariableId(id.name), variable.constraints, emptyMap!(RigidContext, RigidVariable));
 	}
-	foreach (ref variable; result) {
-		variable = variable.specialize(result);
+	foreach (id, variable; result.range) {
+		result = result.insert(id, variable.specialize(result));
 	}
 	return result;
 }
 
-Type[TypeVariableId] removeTemporaries(TypeVariable[TypeVariableId] temporaries, Type[TypeVariableId] future) {
-	Type[TypeVariableId] result;
-	foreach (variable, type; future) {
+Dictonary!(TypeVariableId, Type) removeTemporaries(Dictonary!(TypeVariableId, TypeVariable) temporaries, Dictonary!(TypeVariableId, Type) future) {
+	Dictonary!(TypeVariableId, Type) result;
+	foreach (variable, type; future.range) {
 		if (!(variable in temporaries)) {
 			result[variable] = type;
 		}
@@ -569,7 +584,7 @@ Type[TypeVariableId] removeTemporaries(TypeVariable[TypeVariableId] temporaries,
 	return result;
 }
 
-void assertCombineProperties(Type[TypeVariableId] current, Type[TypeVariableId] future) {
+void assertCombineProperties(Dictonary!(TypeVariableId, Type) current, Dictonary!(TypeVariableId, Type) future) {
 	auto currentDomain = current.byKey;
 	auto futureRange = future.substitutionRange;
 	foreach (variable; currentDomain) {
@@ -577,7 +592,7 @@ void assertCombineProperties(Type[TypeVariableId] current, Type[TypeVariableId] 
 	}
 }
 
-Type[TypeVariableId] combineSubstitutions(Type[TypeVariableId] current0, Type[TypeVariableId] future0) {
+Dictonary!(TypeVariableId, Type) combineSubstitutions(Dictonary!(TypeVariableId, Type) current0, Dictonary!(TypeVariableId, Type) future0) {
 	assertCombineProperties(current0, future0);
 	auto temporaries = current0.substitutionRange;
 	auto current1 = current0.specialize(future0);
@@ -585,13 +600,13 @@ Type[TypeVariableId] combineSubstitutions(Type[TypeVariableId] current0, Type[Ty
 	return mergeMapsUnique(current1, future1);
 }
 
-Type[TypeVariableId] continueSubsitution(T)(Type[TypeVariableId] current, T equation) {
+Dictonary!(TypeVariableId, Type) continueSubsitution(T)(Dictonary!(TypeVariableId, Type) current, T equation) {
 	auto future = typeMatch(equation.specialize(current));
 	auto result = combineSubstitutions(current, future);
 	return result;
 }
 
-void assertProperties(TypeVariable[TypeVariableId] input, Type[TypeVariableId] solution) {
+void assertProperties(Dictonary!(TypeVariableId, TypeVariable) input, Dictonary!(TypeVariableId, Type) solution) {
 	foreach (variable; input.byKey) {
 		auto range = solution.substitutionRange;
 		assert(!(variable in range), variable.to!string ~ " found in " ~ range.to!string);
@@ -599,18 +614,17 @@ void assertProperties(TypeVariable[TypeVariableId] input, Type[TypeVariableId] s
 	foreach (variable; input.byKey) {
 		assert(variable in solution);
 	}
-	foreach (variable, type; solution) {
+	foreach (variable, type; solution.range) {
 		assert(variable in input);
 	}
 }
 
 // no type variables from any of the equations should appear in range of result
 // all type variables from all of the equations must appear in the domain of the result
-Type[TypeVariableId] typeMatch(Equivalence[] equations) {
+Dictonary!(TypeVariableId, Type) typeMatch(Equivalence[] equations) {
 	if (equations.empty) {
-		return null;
+		return emptyMap!(TypeVariableId, Type);
 	}
-
 	auto head = equations.front;
 	auto remainder = equations.dropOne;
 
@@ -625,21 +639,30 @@ Type[TypeVariableId] typeMatch(Equivalence[] equations) {
 	return result;
 }
 
-Type[TypeVariableId] typeMatch(Equivalence equation) {
+Dictonary!(TypeVariableId, Type) typeMatch(Equivalence equation) {
 	return typeMatch(equation.left, equation.right, equation.position);
 }
 
-Type[TypeVariableId] typeMatch(Type left, Type right, Position position) {
+Dictonary!(TypeVariableId, Type) typeMatch(Type left, Type right, Position position) {
 	return left.typeMatch(right, position);
 }
 
+Dictonary!(TypeVariableId, Type) typeMatchImpl(T1, T2)(T1 left, T2 right, Position position) {
+	auto result = typeMatchImplReal(left, right, position);
+	version (assert) {
+		auto input = freeVariables(left, right);
+		assertProperties(input, result);
+	}
+	return result;
+}
+
 bool checkRigidity(TypeVariable left, TypeVariable right) {
-	auto leftRigidity = left.rigidity.mapValues!(a => tuple());
-	auto rightRigidity = right.rigidity.mapValues!(a => tuple());
-	auto leftConstraints = left.constraints.mapValues!(a => tuple());
-	auto rightConstraints = right.constraints.mapValues!(a => tuple());
+	auto leftRigidity = left.rigidity.keys;
+	auto rightRigidity = right.rigidity.keys;
+	auto leftConstraints = left.constraints.keys;
+	auto rightConstraints = right.constraints.keys;
 	auto common = intersectSets(leftRigidity, rightRigidity);
-	auto valid = common.byKey.map!(context => left.rigidity[context] is right.rigidity[context]).all;
+	auto valid = common.range.map!(context => left.rigidity[context] is right.rigidity[context]).all;
 	if (left.rigidity.length != 0) {
 		valid &= isSubSet(rightConstraints, leftConstraints);
 	}
@@ -649,31 +672,28 @@ bool checkRigidity(TypeVariable left, TypeVariable right) {
 	return valid;
 }
 
-Type[TypeVariableId] typeMatchImpl(T1, T2)(T1 left, T2 right, Position position) {
-	auto result = typeMatchImplReal(left, right, position);
-	version (assert) {
-		auto input = freeVariables(left, right);
-		assertProperties(input, result);
-	}
-	return result;
+Tuple!(Dictonary!(PredicateId, Predicate), Dictonary!(TypeVariableId, Type)) matchConstraints(Dictonary!(PredicateId, Predicate) left, Dictonary!(PredicateId, Predicate) right, Position position) {
+	auto fresh = freshSubstitution(left, right);
+	auto clashing = intersectMaps(left, right);
+	auto result = clashing.byValue.fold!((current, pair) => pair[0].predicateMatch(pair[1], current, position))(fresh);
+	auto total = mergeMapsLeft(left, right).specialize(result);
+	return tuple(total, result);
 }
 
 //the heart of the compiler
 
 // no type variables from left or right, should appear in the range of the result
 // all type variables from left or right should in domain of result
-Type[TypeVariableId] typeMatchImplReal(T1, T2)(T1 left, T2 right, Position position) {
+Dictonary!(TypeVariableId, Type) typeMatchImplReal(T1, T2)(T1 left, T2 right, Position position) {
 	static if (is(T1 : TypeVariable) && is(T2 : TypeVariable)) {
 		if (checkRigidity(left, right)) {
-			auto fresh = freshSubstitution(left.constraints, right.constraints);
-			auto clashing = intersectMaps(left.constraints, right.constraints);
-			auto pending = clashing.byValue.map!(a => a[0].predicateMatch(a[1], position)).joiner.array;
-			auto result = continueSubsitution(fresh, pending);
-			auto total = mergeMapsLeft(left.constraints, right.constraints).specialize(result);
+			auto matched = matchConstraints(left.constraints, right.constraints, position);
+			auto total = matched[0];
+			auto result = matched[1];
 
 			auto rigid = mergeMapsLeft(left.rigidity, right.rigidity);
 			auto joined = make!TypeVariable(make!TypeVariableId(""), total, rigid);
-			return mergeMapsLeft([left.id: joined.convert!Type, right.id: joined.convert!Type], result);
+			return mergeMapsLeft([left.id: joined.convert!Type, right.id: joined.convert!Type].fromAALiteral, result);
 		}
 	} else static if (is(T1 : TypeVariable) && !is(T2 : TypeVariable)) {
 		if (left.rigidity.length == 0) {
@@ -686,12 +706,12 @@ Type[TypeVariableId] typeMatchImplReal(T1, T2)(T1 left, T2 right, Position posit
 			return qualifiedInstantiate(right, left, position);
 		}
 	} else static if (is(T1 : TypeBool) && is(T2 : TypeBool)) {
-		return null;
+		return emptyMap!(TypeVariableId, Type);
 	} else static if (is(T1 : TypeChar) && is(T2 : TypeChar)) {
-		return null;
+		return emptyMap!(TypeVariableId, Type);
 	} else static if (is(T1 : TypeInt) && is(T2 : TypeInt)) {
 		if (left.size == right.size && left.signed == right.signed) {
-			return null;
+			return emptyMap!(TypeVariableId, Type);
 		}
 	} else static if (is(T1 : TypeStruct) && is(T2 : TypeStruct)) {
 		if (left.values.length == right.values.length) {
@@ -703,7 +723,14 @@ Type[TypeVariableId] typeMatchImplReal(T1, T2)(T1 left, T2 right, Position posit
 		return only(Equivalence(left.result, right.result, position), Equivalence(left.argument, right.argument, position)).array.typeMatch;
 	} else static if (is(T1 : TypePointer) && is(T2 : TypePointer)) {
 		return typeMatch(left.value, right.value, position);
+	} else static if (is(T1 : TypeOwnPointer) && is(T2 : TypeOwnPointer)) {
+		return typeMatch(left.value, right.value, position);
+	} else static if (is(T1 : TypeOwnArray) && is(T2 : TypeOwnArray)) {
+		return typeMatch(left.array, right.array, position);
+	} else static if (is(T1 : TypeWorld) && is(T2 : TypeWorld)) {
+		return emptyMap!(TypeVariableId, Type);
 	}
+
 	error("Can't match " ~ left.toString ~ " to " ~ right.toString, position);
 	assert(0);
 }
@@ -714,10 +741,9 @@ void occuranceCheck(TypeVariable qualified, Type type, Position position) {
 	}
 }
 
-Type[TypeVariableId] qualifiedInstantiate(TypeVariable qualified, Type type, Position position) {
+Dictonary!(TypeVariableId, Type) qualifiedInstantiate(TypeVariable qualified, Type type, Position position) {
 	auto fresh = freshSubstitution(type, qualified.constraints);
-	auto pending = qualified.constraints.byValue.map!(a => predicateInstantiate(a, type, position)).joiner.array;
-	auto result = continueSubsitution(fresh, pending);
+	auto result = qualified.constraints.byValue.fold!((current, constraint) => predicateInstantiate(constraint, type, current, position))(fresh);
 	result[qualified.id] = type.specialize(result);
 	version (assert) {
 		auto input = freeVariables(qualified, type);
@@ -726,60 +752,126 @@ Type[TypeVariableId] qualifiedInstantiate(TypeVariable qualified, Type type, Pos
 	return result;
 }
 
-Equivalence[] predicateInstantiate(Predicate predicate, Type type, Position position) {
-	return predicate.predicateInstantiate(type, position);
+Dictonary!(TypeVariableId, Type) predicateInstantiate(Predicate predicate, Type type, Dictonary!(TypeVariableId, Type) current, Position position) {
+	return predicate.predicateInstantiate(type, current, position);
 }
 
-Equivalence[] predicateInstantiateImpl(C, T)(C constraint, T type, Position position) {
-	static if (is(C : PredicateNumber) && is(T : TypeInt)) {
-		return [];
+Dictonary!(TypeVariableId, Type) predicateInstantiateImpl(C, T)(C constraint, T type, Dictonary!(TypeVariableId, Type) current, Position position) {
+	static if (is(C : PredicateEqual)) {
+		static if (is(T : TypeBool)) {
+			return current;
+		} else static if (is(T : TypeChar)) {
+			return current;
+		} else static if (is(T : TypeInt)) {
+			return current;
+		} else static if (is(T : TypeStruct)) {
+			Dictonary!(TypeVariableId, TypeVariable) temporaries;
+			Predicate predicate = make!PredicateEqual();
+			foreach (subType; type.values) {
+				auto fresh = make!TypeVariable(make!TypeVariableId(""), [predicate.id: predicate].fromAALiteral, emptyMap!(RigidContext, RigidVariable));
+				temporaries[fresh.id] = fresh;
+				current = continueSubsitution(current, Equivalence(subType, fresh, position));
+			}
+			return removeTemporaries(temporaries, current);
+		} else static if (is(T : TypeArray)) {
+			Dictonary!(TypeVariableId, TypeVariable) temporaries;
+			Predicate predicate = make!PredicateEqual();
+			auto fresh = make!TypeVariable(make!TypeVariableId(""), [predicate.id: predicate].fromAALiteral, emptyMap!(RigidContext, RigidVariable));
+			temporaries[fresh.id] = fresh;
+			current = continueSubsitution(current, Equivalence(type.array, fresh, position));
+			return removeTemporaries(temporaries, current);
+		} else static if (is(T : TypePointer)) {
+			return current;
+		}
+	} else static if (is(C : PredicateNumber) && is(T : TypeInt)) {
+		return current;
 	} else static if (is(C : PredicateTuple) && is(T : TypeStruct)) {
 		if (constraint.index < type.values.length) {
-			return [Equivalence(constraint.type, type.values[constraint.index], position)];
+			return continueSubsitution(current, Equivalence(constraint.type, type.values[constraint.index], position));
+		}
+	} else static if (is(C : PredicateUnrestricted)) {
+		static if (is(T : TypeBool)) {
+			return current;
+		} else static if (is(T : TypeChar)) {
+			return current;
+		} else static if (is(T : TypeInt)) {
+			return current;
+		} else static if (is(T : TypeStruct)) {
+			Dictonary!(TypeVariableId, TypeVariable) temporaries;
+			Predicate predicate = make!PredicateUnrestricted();
+			foreach (subType; type.values) {
+				auto fresh = make!TypeVariable(make!TypeVariableId(""), [predicate.id: predicate].fromAALiteral, emptyMap!(RigidContext, RigidVariable));
+				temporaries[fresh.id] = fresh;
+				current = continueSubsitution(current, Equivalence(subType, fresh, position));
+			}
+			return removeTemporaries(temporaries, current);
+		} else static if (is(T : TypeArray)) {
+			return current;
+		} else static if (is(T : TypePointer)) {
+			return current;
+		} else static if (is(T : TypeFunction)) {
+			return current;
 		}
 	}
 	error("Can't match constraint " ~ constraint.toString ~ " to " ~ type.toString, position);
 	assert(0);
 }
 
-Equivalence[] predicateMatchImpl(C)(C left, C right, Position position) {
-	static if (is(C : PredicateNumber)) {
-		return [];
+Dictonary!(TypeVariableId, Type) predicateMatchImpl(C)(C left, C right, Dictonary!(TypeVariableId, Type) current, Position position) {
+	static if (is(C : PredicateEqual)) {
+		return current;
+	} else static if (is(C : PredicateNumber)) {
+		return current;
 	} else static if (is(C : PredicateTuple)) {
 		assert(left.index == right.index);
-		return [Equivalence(left.type, right.type, position)];
+		return continueSubsitution(current, Equivalence(left.type, right.type, position));
+	} else static if (is(C : PredicateUnrestricted)) {
+		return current;
 	} else {
 		static assert(0);
 	}
 }
 
-TypeVariable[TypeVariableId] freeVariables(T)(T item) if (is(T : Type) || is(T : Predicate)) {
+Dictonary!(TypeVariableId, TypeVariable) freeVariables(T)(T item) if (is(T : Type) || is(T : Predicate)) {
 	return item.freeVariables;
 }
 
-TypeVariable[TypeVariableId] freeVariables(R)(R data) if (isInputRange!R) {
+Dictonary!(TypeVariableId, TypeVariable) freeVariables(R)(R data) if (isInputRange!R) {
 	return data.map!(a => a.freeVariables)
 		.fold!mergeMapsLeft(emptyMap!(TypeVariableId, TypeVariable));
 }
 
-TypeVariable[TypeVariableId] freeVariables(T...)(T arguments) if (T.length > 1) {
+Dictonary!(TypeVariableId, TypeVariable) freeVariables(T...)(T arguments) if (T.length > 1) {
 	return mergeMapsLeft(arguments[0 .. $ - 1].freeVariables, arguments[$ - 1].freeVariables);
 }
 
-TypeVariable[TypeVariableId] freeVariables(K, V)(V[K] data) {
+Dictonary!(TypeVariableId, TypeVariable) freeVariables(K, V)(Dictonary!(K, V) data) {
 	return data.byValue.freeVariables;
 }
 
-auto specialize(T)(T[] data, Type[TypeVariableId] moves) {
+Dictonary!(TypeVariableId, TypeVariable) freeVariables() {
+	return emptyMap!(TypeVariableId, TypeVariable);
+}
+
+auto specialize(T)(T[] data, Dictonary!(TypeVariableId, Type) moves) {
 	return data.map!(a => a.specialize(moves)).array;
 }
 
-auto specialize(K, V)(V[K] data, Type[TypeVariableId] moves) {
+auto specialize(K, V)(Dictonary!(K, V) data, Dictonary!(TypeVariableId, Type) moves) {
 	return data.mapValues!(a => a.specialize(moves));
 }
 
-auto specialize(T)(Lazy!T data, Type[TypeVariableId] moves) {
+auto specialize(T)(Lazy!T data, Dictonary!(TypeVariableId, Type) moves) {
 	return defer(() => data.get.specialize(moves));
+}
+
+auto symbols(T)(Lazy!T data) {
+	return data.get.symbols;
+}
+
+auto symbols(T)(T[] data) {
+	return data.map!(a => a.symbols)
+		.fold!mergeMapsLeft(emptyMap!(Tuple!(SymbolId, TypeHash), Symbol));
 }
 
 auto toRuntime(T)(T[] data) {

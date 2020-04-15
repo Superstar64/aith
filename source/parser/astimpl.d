@@ -22,11 +22,37 @@ import std.array;
 import parser.ast;
 
 import misc.getters;
+import misc.position;
 
 class Impl(T : Expression) : T {
 	mixin Getters!T;
 	override Pattern patternMatch() {
 		return patternMatchImpl(this);
+	}
+
+	import Semantic = semantic.ast;
+	import semantic.semantic : Context, semanticImpl, semanticGlobalImpl;
+
+	override Semantic.Expression semanticMain(Context context) {
+		return semanticImpl(this, context);
+	}
+
+	override Semantic.Expression semanticGlobal(bool strong, string name, Semantic.Type type, Context context, ModuleVarDef symbol) {
+		return semanticGlobalImpl(this, strong, name, type, context, symbol);
+	}
+}
+
+class Impl(T : Pattern) : T {
+	mixin Getters!T;
+	import Semantic = semantic.ast;
+	import semantic.semantic : Context, semanticImpl, semanticGlobalImpl;
+
+	override Semantic.Expression semanticMain(Context context) {
+		return semanticImpl(this, context);
+	}
+
+	override Semantic.Expression semanticGlobal(bool strong, string name, Semantic.Type type, Context context, ModuleVarDef symbol) {
+		return semanticGlobalImpl(this, strong, name, type, context, symbol);
 	}
 }
 
@@ -35,20 +61,16 @@ class Impl(T) : T {
 }
 
 Pattern patternMatchImpl(T)(T that) {
-	return null;
+	error("Expected pattern", that.position);
+	assert(0);
 }
 
 Pattern patternMatchImpl(Variable that) {
-	return make!NamedArgument(that.position, that.name);
+	return make!NamedArgument(that.position, that.name, that.shadow);
 }
 
 Pattern patternMatchImpl(TupleLit that) {
-	auto children = that.values.map!(a => a.patternMatch).array;
-	if (children.any!(a => a is null)) {
-		return null;
-	} else {
-		return make!TupleArgument(that.position, children);
-	}
+	return make!TupleArgument(that.position, that.values.map!(a => a.patternMatch).array);
 }
 
 auto make(T, A...)(A arguments) {

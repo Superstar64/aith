@@ -16,91 +16,82 @@
 +/
 module semantic.ast;
 
+import std.algorithm : canFind;
 import std.bigint;
 import std.meta;
 import std.typecons;
 import std.traits;
 
-import jsast;
-import genericast;
+import misc.container;
 
-static import Codegen = codegen.ast;
-static import Parser = parser.ast;
+import jsast;
 
 import misc.nonstrict;
 import misc.position;
 
 import semantic.astimpl : Equivalence;
-public import semantic.astimpl : freeVariables, specialize, toRuntime;
+import semantic.semantic : RecursionChecker;
+public import semantic.astimpl : freeVariables, specialize;
 
 //be catious about https://issues.dlang.org/show_bug.cgi?id=20312
 
-interface CompileTimeExpression {
-	Expression castToExpression();
-	Symbol castToSymbol();
-	Type castToType();
-	Import castToImport();
-
-	T castTo(T : Expression)() {
-		return castToExpression;
-	}
-
-	T castTo(T : Symbol)() {
-		return castToSymbol;
-	}
-
-	T castTo(T : Type)() {
-		return castToType;
-	}
-
-	T castTo(T : Import)() {
-		return castToImport;
-	}
-}
-
-T castTo(T)(CompileTimeExpression expression) {
-	return expression.castTo!T;
-}
-
-interface Expression : CompileTimeExpression {
-	Type type();
-	Expression specialize(Type[TypeVariableId] moves);
-	Codegen.Expression toRuntime();
-}
-
-interface Symbol : Expression {
-	bool strong();
-	Codegen.Symbol toRuntime();
-}
-
-struct ModuleAlias {
-	CompileTimeExpression element;
+struct ModuleDefinition {
+	Expression get;
+	bool freshen;
 }
 
 class Module {
-	ModuleAlias[string] aliases;
-	Symbol[string] exports;
-	Parser.ModuleVarDef[string] rawSymbols;
-	Parser.ModuleVarDef[] rawSymbolsOrdered;
-
-	Codegen.Module toRuntime() {
-		import codegen.astimpl : make;
-
-		Codegen.Symbol[string] result;
-		foreach (key; exports.byKey) {
-			auto value = exports[key];
-			if (value.type.freeVariables.length == 0) {
-				result[key] = value.toRuntime();
-			}
-		}
-		return make!(Codegen.Module)(result);
-	}
+	Dictonary!(string, ModuleDefinition delegate(RecursionChecker)) aliases;
+	ModuleDefinition delegate(RecursionChecker)[] orderedAliases;
 }
 
-interface Pattern : CompileTimeExpression {
+ModuleDefinition get(ModuleDefinition delegate(RecursionChecker) that) {
+	return that(RecursionChecker());
+}
+
+interface Expression {
+}
+
+interface Term : Expression {
+	import codegen.codegen : Extra;
+	import Js = jsast;
+
 	Type type();
-	Pattern specialize(Type[TypeVariableId] moves);
-	Codegen.Pattern toRuntime();
+	Term specialize(Dictonary!(TypeVariableId, Type) moves);
+	Dictonary!(Tuple!(SymbolId, TypeHash), Symbol) symbols();
+	Js.JsExpr generateJs(Js.JsScope depend, Extra extra);
+}
+
+class SymbolId {
+}
+
+enum Linkage {
+	strong,
+	weak,
+	inner
+};
+
+interface Symbol : Term {
+	import codegen.codegen : Extra;
+	import Js = jsast;
+
+	string name();
+	Linkage linkage();
+	SymbolId id();
+	Dictonary!(Tuple!(SymbolId, TypeHash), Symbol) dependants();
+	Js.JsExpr generateSymbol(Js.JsScope depend, Extra extra);
+}
+
+interface Pattern : Expression {
+	import codegen.codegen : Extra;
+	import Js = jsast;
+
+	import semantic.semantic : Context;
+
+	Type type();
+	Pattern specialize(Dictonary!(TypeVariableId, Type) moves);
+	Js.JsPattern generatePatternMatch(Extra extra);
+	void removeBindings(Context context, Position position);
 }
 
 interface NamedPattern : Pattern {
@@ -116,19 +107,21 @@ interface TuplePattern : Pattern {
 interface FunctionLiteral : Symbol {
 	Type type();
 	string name();
-	bool strong();
+	Linkage linkage();
 	SymbolId id();
 	Pattern argument();
-	Lazy!(Expression) text();
+	Lazy!(Term) text();
 }
 
-interface Binding : CompileTimeExpression {
+interface Binding : Expression {
 	string name();
 }
 
-interface _Variable : Expression, Binding {
-	Variable specialize(Type[TypeVariableId] moves);
-	override Codegen.Variable toRuntime();
+interface _Variable : Term, Binding {
+	Variable specialize(Dictonary!(TypeVariableId, Type) moves);
+}
+
+class VarId {
 }
 
 interface Variable : _Variable, Binding {
@@ -137,182 +130,145 @@ interface Variable : _Variable, Binding {
 	VarId id();
 }
 
-interface VariableDef : Expression {
+interface VariableDefinition : Term {
 	Type type();
 	Pattern variable();
-	Expression value();
-	Expression last();
+	Term value();
+	Term last();
 }
 
-interface Import : CompileTimeExpression {
+interface Call : Term {
+	Type type();
+	Term calle();
+	Term argument();
+}
+
+interface Desugar(string name) : Term if (["new", "new array", "length", "index", "index address", "slice", "and", "or", "not", "derefence", "assign", "delete", "borrow", "delete array", "borrow array"].canFind(name)) {
+	Type type();
+}
+
+interface DesugarContext(string name) : Term if (["equal", "not equal", "less equal", "greater equal", "less", "greater", "multiply", "divide", "modulus", "add", "subtract", "negate"].canFind(name)) {
+	Type type();
+	Type context();
+}
+
+interface Import : Expression {
 	Module mod();
 }
 
-interface IntLit : Expression {
+interface IntLit : Term {
 	Type type();
 	BigInt value();
 }
 
-interface CharLit : Expression {
+interface CharLit : Term {
 	Type type();
 	dchar value();
 }
 
-interface BoolLit : Expression {
+interface BoolLit : Term {
 	Type type();
 	bool yes();
 }
 
-interface TupleLit : Expression {
+interface TupleLit : Term {
 	Type type();
-	Expression[] values();
+	Term[] values();
 }
 
-interface If : Expression {
+interface If : Term {
 	Type type();
-	Expression cond();
-	Expression yes();
-	Expression no();
+	Term cond();
+	Term yes();
+	Term no();
 }
 
-interface While : Expression {
+interface CastInteger : Term {
 	Type type();
-	Expression cond();
-	Expression state();
+	Type contextWanted();
+	Type contextInput();
 }
 
-interface New : Expression {
+interface TupleIndex : Term {
 	Type type();
-	Expression value();
-}
-
-interface NewArray : Expression {
-	Type type();
-	Expression length();
-	Expression value();
-}
-
-interface CastInteger : Expression {
-	Type type();
-	Expression value();
-}
-
-interface Length : Expression {
-	Type type();
-}
-
-interface Index : Expression {
-	Type type();
-	Expression array();
-	Expression index();
-}
-
-interface IndexAddress : Expression {
-	Type type();
-	Expression array();
-	Expression index();
-}
-
-interface TupleIndex : Expression {
-	Type type();
-	Expression tuple();
 	uint index();
 }
 
-interface TupleIndexAddress : Expression {
+interface TupleIndexAddress : Term {
 	Type type();
-	Expression tuple();
 	uint index();
+	Type context();
 }
 
-interface Call : Expression {
-	Type type();
-	Expression calle();
-	Expression argument();
-}
-
-interface Slice : Expression {
-	Type type();
-	Expression array();
-	Expression left();
-	Expression right();
-}
-
-interface Binary(string op) : Expression {
-	Type type();
-	Expression left();
-	Expression right();
-}
-
-interface Prefix(string op) : Expression {
-	Type type();
-	Expression value();
-}
-
-interface Deref : Expression {
-	Type type();
-	Expression value();
-}
-
-interface Scope : Expression {
-	Type type();
-	Expression pass();
-	Expression last();
-}
-
-interface Assign : Expression {
-	Type type();
-	Expression left();
-	Expression right();
-}
-
-interface StringLit : Expression {
+interface StringLit : Term {
 	Type type();
 	string value();
 }
 
-interface ArrayLit : Expression {
+interface ArrayLit : Term {
 	Type type();
-	Expression[] values();
+	Term[] values();
 }
 
-interface ExternJs : Expression {
+interface ExternJs : Term {
 	Type type();
 	string name();
 }
 
-interface Type : CompileTimeExpression {
-	TypeVariable[TypeVariableId] freeVariables();
-	Type specialize(Type[TypeVariableId] moves);
-	Codegen.Type toRuntime();
+struct TypeHash {
+	string hash;
+}
+
+interface Type : Expression {
+	import codegen.codegen : Extra;
+	import Js = jsast;
+
+	Dictonary!(TypeVariableId, TypeVariable) freeVariables();
+	Type specialize(Dictonary!(TypeVariableId, Type) moves);
 	string toString();
 
-	Type[TypeVariableId] typeMatch(Type right, Position position);
-	Type[TypeVariableId] typeMatchDispatch(TypeVariable left, Position position);
-	Type[TypeVariableId] typeMatchDispatch(TypeBool left, Position position);
-	Type[TypeVariableId] typeMatchDispatch(TypeChar left, Position position);
-	Type[TypeVariableId] typeMatchDispatch(TypeInt left, Position position);
-	Type[TypeVariableId] typeMatchDispatch(TypeStruct left, Position position);
-	Type[TypeVariableId] typeMatchDispatch(TypeArray left, Position position);
-	Type[TypeVariableId] typeMatchDispatch(TypeFunction left, Position position);
-	Type[TypeVariableId] typeMatchDispatch(TypePointer left, Position position);
+	Dictonary!(TypeVariableId, Type) typeMatch(Type right, Position position);
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeVariable left, Position position);
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeBool left, Position position);
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeChar left, Position position);
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeInt left, Position position);
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeStruct left, Position position);
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeArray left, Position position);
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeFunction left, Position position);
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypePointer left, Position position);
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeOwnPointer left, Position position);
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeOwnArray left, Position position);
+	Dictonary!(TypeVariableId, Type) typeMatchDispatch(TypeWorld left, Position position);
 
-	Equivalence[] predicateInstantiateDispatch(PredicateNumber left, Position position);
-	Equivalence[] predicateInstantiateDispatch(PredicateTuple left, Position position);
+	Dictonary!(TypeVariableId, Type) predicateInstantiateDispatch(PredicateEqual left, Dictonary!(TypeVariableId, Type) current, Position position);
+	Dictonary!(TypeVariableId, Type) predicateInstantiateDispatch(PredicateNumber left, Dictonary!(TypeVariableId, Type) current, Position position);
+	Dictonary!(TypeVariableId, Type) predicateInstantiateDispatch(PredicateTuple left, Dictonary!(TypeVariableId, Type) current, Position position);
+	Dictonary!(TypeVariableId, Type) predicateInstantiateDispatch(PredicateUnrestricted left, Dictonary!(TypeVariableId, Type) current, Position position);
+
+	string mangle();
+	Js.JsExpr compareInfo(Extra extra);
+
+}
+
+TypeHash typeHash(Type type) {
+	return TypeHash(type.mangle);
 }
 
 interface PredicateId {
 }
 
-interface Predicate : CompileTimeExpression {
+interface Predicate : Expression {
 	PredicateId id();
-	TypeVariable[TypeVariableId] freeVariables();
-	Predicate specialize(Type[TypeVariableId] moves);
+	Dictonary!(TypeVariableId, TypeVariable) freeVariables();
+	Predicate specialize(Dictonary!(TypeVariableId, Type) moves);
 	string toString();
 
-	Equivalence[] predicateInstantiate(Type right, Position position);
+	Dictonary!(TypeVariableId, Type) predicateInstantiate(Type right, Dictonary!(TypeVariableId, Type) current, Position position);
 	// this's type must match right
-	Equivalence[] predicateMatch(Predicate right, Position position);
+	Dictonary!(TypeVariableId, Type) predicateMatch(Predicate right, Dictonary!(TypeVariableId, Type) current, Position position);
+}
+
+interface PredicateEqual : Predicate {
 }
 
 interface PredicateNumber : Predicate {
@@ -321,6 +277,9 @@ interface PredicateNumber : Predicate {
 interface PredicateTuple : Predicate {
 	uint index();
 	Type type();
+}
+
+interface PredicateUnrestricted : Predicate {
 }
 
 interface RigidContext {
@@ -337,8 +296,8 @@ interface TypeVariableId {
 
 interface TypeVariable : Type, Binding {
 	TypeVariableId id();
-	Predicate[PredicateId] constraints();
-	RigidVariable[RigidContext] rigidity();
+	Dictonary!(PredicateId, Predicate) constraints();
+	Dictonary!(RigidContext, RigidVariable) rigidity();
 }
 
 interface TypeBool : Type {
@@ -369,40 +328,13 @@ interface TypePointer : Type {
 	Type value();
 }
 
-alias RuntimeType(T : Pattern) = Codegen.Pattern;
-alias RuntimeType(T : NamedPattern) = Codegen.NamedPattern;
-alias RuntimeType(T : TuplePattern) = Codegen.TuplePattern;
-alias RuntimeType(T : FunctionLiteral) = Codegen.FunctionLiteral;
-alias RuntimeType(T : Variable) = Codegen.Variable;
-alias RuntimeType(T : VariableDef) = Codegen.VariableDef;
-alias RuntimeType(T : IntLit) = Codegen.IntLit;
-alias RuntimeType(T : CharLit) = Codegen.CharLit;
-alias RuntimeType(T : BoolLit) = Codegen.BoolLit;
-alias RuntimeType(T : TupleLit) = Codegen.TupleLit;
-alias RuntimeType(T : If) = Codegen.If;
-alias RuntimeType(T : While) = Codegen.While;
-alias RuntimeType(T : New) = Codegen.New;
-alias RuntimeType(T : NewArray) = Codegen.NewArray;
-alias RuntimeType(T : CastInteger) = Codegen.CastInteger;
-alias RuntimeType(T : Length) = Codegen.Length;
-alias RuntimeType(T : Index) = Codegen.Index;
-alias RuntimeType(T : IndexAddress) = Codegen.IndexAddress;
-alias RuntimeType(T : TupleIndex) = Codegen.TupleIndex;
-alias RuntimeType(T : TupleIndexAddress) = Codegen.TupleIndexAddress;
-alias RuntimeType(T : Call) = Codegen.Call;
-alias RuntimeType(T : Slice) = Codegen.Slice;
-alias RuntimeType(T : Binary!op, string op) = Codegen.Binary!op;
-alias RuntimeType(T : Prefix!op, string op) = Codegen.Prefix!op;
-alias RuntimeType(T : Deref) = Codegen.Deref;
-alias RuntimeType(T : Scope) = Codegen.Scope;
-alias RuntimeType(T : Assign) = Codegen.Assign;
-alias RuntimeType(T : StringLit) = Codegen.StringLit;
-alias RuntimeType(T : ArrayLit) = Codegen.ArrayLit;
-alias RuntimeType(T : ExternJs) = Codegen.ExternJs;
-alias RuntimeType(T : TypeChar) = Codegen.TypeChar;
-alias RuntimeType(T : TypeBool) = Codegen.TypeBool;
-alias RuntimeType(T : TypeInt) = Codegen.TypeInt;
-alias RuntimeType(T : TypeStruct) = Codegen.TypeStruct;
-alias RuntimeType(T : TypeArray) = Codegen.TypeArray;
-alias RuntimeType(T : TypePointer) = Codegen.TypePointer;
-alias RuntimeType(T : TypeFunction) = Codegen.TypeFunction;
+interface TypeOwnPointer : Type {
+	Type value();
+}
+
+interface TypeOwnArray : Type {
+	Type array();
+}
+
+interface TypeWorld : Type {
+}

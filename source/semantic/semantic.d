@@ -24,9 +24,8 @@ import std.meta;
 import std.range;
 import std.typecons;
 
-import genericast;
-
-static import Parser = parser.ast;
+import app : knownSymbols, readSemanticModule;
+import Parser = parser.ast;
 import semantic.astimpl;
 
 import misc.nonstrict;
@@ -34,199 +33,459 @@ import misc.position;
 import misc.container;
 import misc.misc;
 
-class Context {
-	Module mod;
+struct TypeCheckerFrame {
+	TypeCheckerFrame* next;
+	TypeChecker* typeChecker;
+	bool referenced;
 
-	Parser.ModuleVarDef preassignSymbol;
-	CompileTimeExpression preassignExpression; //nullable
+	void unifyTypeCheckers() {
+		if (next) {
+			next.referenced = true;
+			moveTypeChecker(*next.typeChecker, *typeChecker);
+			*next.typeChecker = *typeChecker;
+			next.unifyTypeCheckers();
+		}
+	}
+}
 
-	Expression[string] passdownGlobals;
-	Position[TypeVariableId] freshVariables;
+class TypeChecker {
+	Dictonary!(Parser.ModuleVarDef, Term) bindingGroup;
+	Dictonary!(TypeVariableId, Position) freshVariables;
 	Equivalence[] typeChecks;
+}
 
-	Binding[string] locals;
+void evaluateTypeChecks(TypeChecker typeChecker) {
+	auto substitution = typeMatch(typeChecker.typeChecks);
+	foreach (symbol, expression0; typeChecker.bindingGroup.range) {
+		auto allowed = expression0.type.specialize(substitution).freeVariables.keys;
+		foreach (variable, position; typeChecker.freshVariables.range) {
+			auto valid = variable in substitution && isSubSet(substitution[variable].freeVariables.keys, allowed);
+			if (!valid) {
+				error("Unable to infer type variable", position);
+			}
+		}
 
-	Context previous;
-	bool passdown;
+		auto expression1 = expression0.specialize(substitution);
+		//remove rigidity
+		auto fresh = expression1.type.freshFlexibleSubstitution;
+		auto expression2 = expression1.specialize(fresh);
+
+		knownSymbols[symbol] = expression2;
+	}
+}
+
+void moveTypeChecker(TypeChecker from, TypeChecker to) {
+	if (from is to) {
+		return;
+	}
+	foreach (def, term; from.bindingGroup.range) {
+		to.bindingGroup[def] = term;
+	}
+	foreach (id, position; from.freshVariables.range) {
+		to.freshVariables[id] = position;
+	}
+	foreach (check; from.typeChecks) {
+		to.typeChecks ~= check;
+	}
+}
+
+struct SelfReferential {
+	//nullable
+	Expression expression;
+	TypeCheckerFrame* children;
+}
+
+struct RecursionChecker {
+	TypeCheckerFrame* frame;
+	Dictonary!(Parser.ModuleVarDef, SelfReferential) recursive;
+}
+
+enum Linearity {
+	unused,
+	linear,
+	unrestricted
+}
+
+Linearity use(Linearity uses) {
+	if (uses == Linearity.unused) {
+		return Linearity.linear;
+	} else {
+		return Linearity.unrestricted;
+	}
+}
+
+Linearity both(Linearity left, Linearity right) {
+	if (left == Linearity.unused) {
+		return right;
+	} else if (right == Linearity.unused) {
+		return left;
+	} else {
+		return Linearity.unrestricted;
+	}
+}
+
+Linearity branch(Linearity left, Linearity right) {
+	if (left == Linearity.unused && right == Linearity.unused) {
+		return Linearity.unused;
+	} else if (left == Linearity.linear && right == Linearity.linear) {
+		return Linearity.linear;
+	} else {
+		return Linearity.unrestricted;
+	}
+}
+
+class Context {
+	// initialized when processing symbol
+	Dictonary!(string, Parser.ModuleVarDef) rawGlobalSymbols;
+	RigidContext rigidContext;
+	RecursionChecker recursionCheck;
+
+	// mutable data
+	TypeChecker typeChecker;
+	Dictonary!(string, Binding[]) locals;
+	Dictonary!(VarId, Linearity) uses;
+
+	this(Dictonary!(string, Parser.ModuleVarDef) rawGlobalSymbols, string symbolName, RecursionChecker recursionCheck) {
+		this.rawGlobalSymbols = rawGlobalSymbols;
+		this.rigidContext = make!RigidContext(symbolName);
+		this.typeChecker = new TypeChecker;
+		recursionCheck.frame.typeChecker = &typeChecker;
+		this.recursionCheck = recursionCheck;
+	}
 
 	void typeCheck(Type left, Type right, Position position) {
-		typeChecks ~= Equivalence(left, right, position);
+		typeChecker.typeChecks ~= Equivalence(left, right, position);
 	}
 
-	this(Module mod, Parser.ModuleVarDef preassignSymbol, Context previous) {
-		this.mod = mod;
-		this.preassignSymbol = preassignSymbol;
-		this.previous = previous;
-	}
+	void bindTypeVariable(TypeVariable variable, Position position, bool duplicate) {
+		locals = locals.insertIfMissing(variable.name, emptyArray!Binding);
 
-	void bindVariable(Binding variable, Position position) {
-		if (variable.name in locals) {
+		if (!duplicate && locals[variable.name].length != 0) {
 			error("duplicate name", position);
 		}
-		locals[variable.name] = variable;
+		locals[variable.name] = locals[variable.name] ~ variable;
 	}
 
-	void pass() {
-		assert(!!previous);
-		assert(passdown);
-		foreach (name, variable; passdownGlobals) {
-			previous.passdownGlobals[name] = variable;
-		}
+	void bindTermVariable(Variable variable, Position position, bool duplicate) {
+		locals = locals.insertIfMissing(variable.name, emptyArray!Binding);
 
-		foreach (variable, position; freshVariables) {
-			previous.freshVariables[variable] = position;
+		if (!duplicate && locals[variable.name].length != 0) {
+			error("duplicate name", position);
 		}
+		locals[variable.name] = locals[variable.name] ~ variable;
+		uses[variable.id] = Linearity.unused;
+	}
 
-		foreach (equation; typeChecks) {
-			previous.typeChecks ~= equation;
+	void removeTermVariable(Variable variable, Position position) {
+		import misc.container : remove;
+
+		if (uses[variable.id] != Linearity.linear) {
+			auto fresh = this.freshTypeVariable(position, make!PredicateUnrestricted.constraintsFrom);
+			this.typeCheck(variable.type, fresh, position);
 		}
+		locals[variable.name] = locals[variable.name][0 .. $ - 1];
+		uses.remove(variable.id);
 	}
 }
 
-ContextRange range(Context context) {
-	return ContextRange(context);
-}
-
-struct ContextRange {
-	Context item;
-	bool empty() {
-		return item is null;
-	}
-
-	Context front() {
-		return item;
-	}
-
-	void popFront() {
-		item = item.previous;
-	}
-}
-
-CompileTimeExpression search(Context context, string name, Position position) {
-	if (name in context.locals) {
-		return context.locals[name];
-	}
-	return searchGlobal(context.mod, context, name, position);
-}
-
-CompileTimeExpression searchGlobal(Module mod, Context context, string name, Position position) {
-	if (name in mod.aliases) {
-		return mod.aliases[name].element;
-	} else if (name in mod.rawSymbols) {
-		auto symbol = mod.rawSymbols[name];
-		auto recursive = context.range.find!(a => a.preassignSymbol is symbol);
-		if (recursive.empty) {
-			return semanticGlobal(symbol, mod, context);
-		} else {
-			Context original = recursive.front;
-			assert(original.preassignSymbol is symbol);
-			check(!!original.preassignExpression, "Illegal recursion", position);
-			context.range
-				.until!(a => a.preassignSymbol is symbol)
-				.each!(frame => frame.passdown = true);
-			return original.preassignExpression;
+Expression search(Context context, string name, Position position) {
+	if (name in context.locals && context.locals[name].length > 0) {
+		if (auto variable = context.locals[name][$ - 1].castTo!Variable) {
+			assert(variable.id in context.uses);
+			context.uses[variable.id] = context.uses[variable.id].use;
 		}
+		return context.locals[name][$ - 1];
+	}
+	return searchGlobal(context, name, position);
+}
+
+Expression builtinImpl(string name : "new")() {
+	auto variable = freshGlobalTypeVariable;
+	auto argument = typeStructFrom(variable, make!TypeWorld);
+	auto result = typeStructFrom(make!TypeOwnPointer(variable), make!TypeWorld);
+	auto type = make!TypeFunction(result, argument);
+	return make!(Desugar!"new")(type);
+}
+
+Expression builtinImpl(string name : "delete")() {
+	auto variable = freshGlobalTypeVariable;
+	auto argument = typeStructFrom(make!TypeOwnPointer(variable), make!TypeWorld);
+	auto result = typeStructFrom(variable, make!TypeWorld);
+	auto type = make!TypeFunction(result, argument);
+	return make!(Desugar!"delete")(type);
+}
+
+Expression builtinImpl(string name : "borrow")() {
+	auto variable = freshGlobalTypeVariable;
+	auto type = make!TypeFunction(typeStructFrom(make!TypePointer(variable), make!TypeOwnPointer(variable)), make!TypeOwnPointer(variable));
+	return make!(Desugar!"borrow")(type);
+}
+
+Expression builtinImpl(string name : "true")() {
+	return make!BoolLit(make!TypeBool(), true);
+}
+
+Expression builtinImpl(string name : "false")() {
+	return make!BoolLit(make!TypeBool(), false);
+}
+
+Expression builtinImpl(string name : "cast")() {
+	auto wanted = freshGlobalTypeVariable(make!PredicateNumber.constraintsFrom);
+	auto input = freshGlobalTypeVariable(make!PredicateNumber.constraintsFrom);
+	auto type = make!TypeFunction(wanted, input);
+	return make!CastInteger(type, wanted, input);
+}
+
+Expression builtinImpl(string name : "length")() {
+	auto variable = freshGlobalTypeVariable;
+	auto type = make!TypeFunction(make!TypeInt(0, false), make!TypeArray(variable));
+	return make!(Desugar!"length")(type);
+}
+
+Expression builtinImpl(string name : "new array")() {
+	auto variable = freshGlobalTypeVariable(make!PredicateUnrestricted.constraintsFrom);
+	auto arguments = typeStructFrom(make!TypeInt(0, false), variable);
+	auto type = make!TypeFunction(make!TypeOwnArray(variable), arguments);
+	return make!(Desugar!"new array")(type);
+}
+
+Expression builtinImpl(string name : "delete array")() {
+	auto variable = freshGlobalTypeVariable;
+	auto type = make!TypeFunction(typeStructFrom, make!TypeOwnArray(variable));
+	return make!(Desugar!"delete array")(type);
+}
+
+Expression builtinImpl(string name : "borrow array")() {
+	auto variable = freshGlobalTypeVariable;
+	auto result = typeStructFrom(make!TypeArray(variable), make!TypeOwnArray(variable));
+	auto type = make!TypeFunction(result, make!TypeOwnArray(variable));
+	return make!(Desugar!"borrow array")(type);
+}
+
+Expression builtinImpl(string name : "boolean")() {
+	return make!TypeBool();
+}
+
+Expression builtinImpl(string name : "character")() {
+	return make!TypeChar();
+}
+
+Expression builtinImpl(string name : "equal")() {
+	return make!PredicateEqual;
+}
+
+Expression builtinImpl(string name : "number")() {
+	return make!PredicateNumber;
+}
+
+Expression builtinImpl(string name : "unrestricted")() {
+	return make!PredicateUnrestricted;
+}
+
+Expression builtinImpl(string name : "world")() {
+	return make!TypeWorld;
+}
+
+Expression builtinImpl(string name : "index address")() {
+	auto variable = freshGlobalTypeVariable();
+	auto argument = typeStructFrom(make!TypeArray(variable), make!TypeInt(0, false), make!TypeWorld);
+	auto result = typeStructFrom(make!TypePointer(variable), make!TypeWorld);
+	auto type = make!TypeFunction(result, argument);
+	return make!(Desugar!"index address")(type);
+}
+
+Expression builtinImpl(string name : "assign")() {
+	auto variable = freshGlobalTypeVariable(make!PredicateUnrestricted.constraintsFrom);
+	auto argument = typeStructFrom(make!TypePointer(variable), variable, make!TypeWorld);
+	auto result = make!TypeWorld;
+	auto type = make!TypeFunction(result, argument);
+	return make!(Desugar!"assign")(type);
+}
+
+Expression builtinImpl(string name : "integer")() {
+	return make!TypeInt(0, true);
+}
+
+Expression builtinImpl(string name : "integer8")() {
+	return make!TypeInt(8, true);
+}
+
+Expression builtinImpl(string name : "integer16")() {
+	return make!TypeInt(16, true);
+}
+
+Expression builtinImpl(string name : "integer32")() {
+	return make!TypeInt(32, true);
+}
+
+Expression builtinImpl(string name : "integer64")() {
+	return make!TypeInt(64, true);
+}
+
+Expression builtinImpl(string name : "natural")() {
+	return make!TypeInt(0, false);
+}
+
+Expression builtinImpl(string name : "natural8")() {
+	return make!TypeInt(8, false);
+}
+
+Expression builtinImpl(string name : "natural16")() {
+	return make!TypeInt(16, false);
+}
+
+Expression builtinImpl(string name : "natural32")() {
+	return make!TypeInt(32, false);
+}
+
+Expression builtinImpl(string name : "natural64")() {
+	return make!TypeInt(64, false);
+}
+
+ModuleDefinition builtin(string name)() {
+	return ModuleDefinition(builtinImpl!name, true);
+}
+
+enum builtins = AliasSeq!("new", "true", "false", "cast", "length", "new array", "boolean", "character", "equal", "number", "unrestricted", "delete", "borrow", "delete array", "borrow array", "world", "index address", "assign", "integer", "integer8", "integer16", "integer32", "integer64", "natural", "natural8", "natural16", "natural32", "natural64");
+
+Expression searchGlobal(Context context, string name, Position position) {
+	static foreach (built; builtins) {
+		if (name == built) {
+			return context.unpackModuleDefinition(builtin!built, position);
+		}
+	}
+	if (name in context.rawGlobalSymbols) {
+		auto symbol = context.rawGlobalSymbols[name];
+		auto resolved = resolveSymbol(context.rawGlobalSymbols, symbol, context.recursionCheck);
+		return context.unpackModuleDefinition(resolved, position);
 	} else {
 		return null;
 	}
 }
 
-Module lazyCreateModule(Parser.Module parser) {
-	auto mod = new Module();
-	foreach (symbol; parser.symbols) {
-		check(!(symbol.name in mod.rawSymbols), "Symbol already exists", symbol.position);
-		mod.rawSymbols[symbol.name] = symbol;
-		mod.rawSymbolsOrdered ~= symbol;
-	}
-	return mod;
-}
-
-void processModule(Module mod) {
-	foreach (symbol; mod.rawSymbolsOrdered) {
-		if (symbol.name in mod.aliases) {
-			continue;
+Expression unpackModuleDefinition(Context context, ModuleDefinition resolved, Position position) {
+	if (resolved.freshen) {
+		if (auto term = resolved.get.castTo!Term) {
+			auto fresh = term.type.freshSubstitution;
+			fresh.freeVariables.byKey.each!(variable => context.typeChecker.freshVariables[variable] = position);
+			return term.specialize(fresh);
+		} else {
+			return resolved.get;
 		}
-		semanticGlobal(symbol, mod, null);
+	} else {
+		return resolved.get;
 	}
 }
 
-TypeVariable freshTypeVariable(Context context, Position position, Predicate[] constraints = null, string name = null, RigidVariable[RigidContext] rigidity = null) {
+ModuleDefinition resolveSymbol(Dictonary!(string, Parser.ModuleVarDef) rawSymbols, Parser.ModuleVarDef symbol, RecursionChecker recursionCheck) {
+	if (symbol in knownSymbols) {
+		return ModuleDefinition(knownSymbols[symbol], true);
+	} else if (recursionCheck.frame && symbol in recursionCheck.frame.typeChecker.bindingGroup) {
+		return ModuleDefinition(recursionCheck.frame.typeChecker.bindingGroup[symbol], false);
+	} else if (symbol in recursionCheck.recursive) {
+		auto assign = recursionCheck.recursive[symbol];
+		if (assign.expression is null) {
+			error("Illegal self reference", symbol.position);
+		}
+		assign.children.unifyTypeCheckers;
+		return ModuleDefinition(assign.expression, false);
+	} else {
+		return ModuleDefinition(semanticGlobal(rawSymbols, symbol, recursionCheck), true);
+	}
+}
+
+Module createModule(Parser.Module parser) {
+	Dictonary!(string, Parser.ModuleVarDef) rawSymbols;
+	foreach (symbol; parser.symbols) {
+		check(!(symbol.name in rawSymbols), "Symbol already exists", symbol.position);
+		rawSymbols[symbol.name] = symbol;
+	}
+	ModuleDefinition delegate(RecursionChecker) resolveSymbolThunk(Parser.ModuleVarDef symbol) {
+		ModuleDefinition thunk(RecursionChecker recursionCheck) {
+			return resolveSymbol(rawSymbols, symbol, recursionCheck);
+		}
+
+		return &thunk;
+	}
+
+	Dictonary!(string, ModuleDefinition delegate(RecursionChecker)) aliases;
+	ModuleDefinition delegate(RecursionChecker)[] orderedAliases;
+	foreach (symbol; parser.symbols) {
+		auto value = resolveSymbolThunk(symbol);
+		orderedAliases ~= value;
+		aliases[symbol.name] = value;
+	}
+	auto ret = new Module;
+	ret.aliases = aliases;
+	ret.orderedAliases = orderedAliases;
+	return ret;
+}
+
+void validateModule(Module mod) {
+	foreach (symbol; mod.orderedAliases) {
+		symbol(RecursionChecker());
+	}
+}
+
+Dictonary!(PredicateId, Predicate) constraintsFrom(Predicate predicate) {
+	return [predicate.id: predicate].fromAALiteral;
+}
+
+Dictonary!(PredicateId, Predicate) constraintsFrom(T...)(Predicate predicate, T tail) {
+	return constraintsFrom(tail).insert(predicate.id, predicate);
+}
+
+TypeVariable freshGlobalTypeVariable(Dictonary!(PredicateId, Predicate) constraints = emptyMap!(PredicateId, Predicate), string name = null) {
 	auto id = make!TypeVariableId(name);
-	context.freshVariables[id] = position;
-	Predicate[PredicateId] constraintsMap;
-	foreach (constraint; constraints) {
-		constraintsMap[constraint.id] = constraint;
-	}
-	auto qualified = make!TypeVariable(id, constraintsMap, rigidity);
-	return qualified;
+	return make!TypeVariable(id, constraints, emptyMap!(RigidContext, RigidVariable));
 }
 
-CompileTimeExpression semanticGlobal(Parser.ModuleVarDef symbol, Module mod, Context previous) {
-	foreach (frame; previous.range) {
-		assert(!(symbol is frame.preassignSymbol));
+TypeVariable freshTypeVariable(Context context, Position position, Dictonary!(PredicateId, Predicate) constraints = emptyMap!(PredicateId, Predicate), Dictonary!(RigidContext, RigidVariable) rigidity = emptyMap!(RigidContext, RigidVariable), string name = null) {
+	auto id = make!TypeVariableId(name);
+	context.typeChecker.freshVariables[id] = position;
+	return make!TypeVariable(id, constraints, rigidity);
+}
+
+Expression semanticGlobal(Dictonary!(string, Parser.ModuleVarDef) parserGlobals, Parser.ModuleVarDef symbol, RecursionChecker recursionCheck) {
+	assert(!(symbol in recursionCheck.recursive));
+
+	auto frame = TypeCheckerFrame(null, null, false);
+	if (recursionCheck.frame) {
+		assert(!recursionCheck.frame.next);
+		recursionCheck.frame.next = &frame;
+	}
+	scope (exit) {
+		if (recursionCheck.frame) {
+			assert(recursionCheck.frame.next);
+			recursionCheck.frame.next = null;
+		}
 	}
 
-	Context context = new Context(mod, symbol, previous);
-	auto rigidContext = make!RigidContext(symbol.name);
-	foreach (polymorphicVariable; symbol.polymorphicVariables) {
-		auto rigidity = [rigidContext : make!RigidVariable(polymorphicVariable)];
-		auto variable = freshTypeVariable(context, symbol.position, null, polymorphicVariable, rigidity);
-		context.bindVariable(variable, symbol.position);
-	}
+	Context context = new Context(parserGlobals, symbol.name, RecursionChecker(&frame, recursionCheck.recursive));
+
 	Type type;
 	if (symbol.explicitType) {
 		type = symbol.explicitType.semanticType(context);
 	}
 
-	// for recursive ast nodes that may reference them selfs
-	void preassign(CompileTimeExpression expression) {
-		context.preassignExpression = expression;
-	}
+	auto expression = symbol.value.semanticGlobal(symbol.strong, symbol.name, type, context, symbol);
 
-	auto expression = semanticGlobalDispatch(symbol.value, symbol.name, type, context, &preassign);
-
-	if (auto expression1 = expression.castTo!Expression) {
-		context.passdownGlobals[symbol.name] = expression1;
-	}
-	if (context.passdown) {
-		context.pass;
-	} else {
-		auto substitution = typeMatch(context.typeChecks);
-		foreach (name, expression1; context.passdownGlobals) {
-
-			foreach (variable, position; context.freshVariables) {
-				auto free = (variable in substitution) ? substitution[variable].freeVariables.mapValues!(a => tuple()) : null;
-				if (!isSubSet(free, expression1.type.specialize(substitution).freeVariables.mapValues!(a => tuple()))) {
-					error("Unable to infer type variable", position);
-				}
-			}
-
-			expression1 = expression1.specialize(substitution);
-			//remove rigidity
-			auto fresh = expression1.type.freshFlexibleSubstitution;
-			expression1 = expression1.specialize(fresh);
-
-			mod.aliases[name] = ModuleAlias(expression1);
-			if (auto expression2 = expression1.castTo!Symbol) {
-				if (expression2.strong && expression2.type.freeVariables.length == 0) {
-					mod.exports[symbol.name] = expression2;
-				}
-			}
-			expression = expression1;
+	if (auto expression1 = expression.castTo!Term) {
+		context.typeChecker.bindingGroup[symbol] = expression1;
+		if (frame.referenced) {
+			return expression;
+		} else {
+			evaluateTypeChecks(context.typeChecker);
+			return knownSymbols[symbol];
 		}
+	} else {
+		assert(!frame.referenced);
+		knownSymbols[symbol] = expression;
+		return expression;
 	}
-	// ugly hack
-	if (!expression.castTo!Expression) {
-		mod.aliases[symbol.name] = ModuleAlias(expression);
-	}
-	return expression;
 }
 
-CompileTimeExpression semanticGlobalDispatch(Parser.Expression that, string name, /* nullable */ Type type, Context context, void delegate(CompileTimeExpression) preassign) {
-	return dispatch!(semanticGlobalImpl, Parser.Variable, Parser.TypeTuple, Parser.Index, Parser.TupleIndex, Parser.TupleIndexAddress, Parser.IndexAddress, Parser.Call, Parser.Length, Parser.TypeBool, Parser.TypeChar, Parser.TypeInt, Parser.Import, Parser.IntLit, Parser.CharLit, Parser.BoolLit, Parser.TupleLit, Parser.If, Parser.While, Parser.New, Parser.NewArray, Parser.Cast, Parser.Infer, Parser.Slice, Parser.Assign, Parser.VariableDef, Parser.FuncLit, Parser.StringLit, Parser.ArrayLit, Parser.ExternJs, Parser.Binary!"*", Parser.Binary!"/", Parser.Binary!"%", Parser.Binary!"+", Parser.Binary!"-", Parser.Binary!"~", Parser.Binary!"==", Parser.Binary!"!=", Parser.Binary!"<=", Parser.Binary!">=", Parser.Binary!"<", Parser.Binary!">", Parser.Binary!"&&", Parser.Binary!"||", Parser.Prefix!"-", Parser.Prefix!"*", Parser.Prefix!"!", Parser.Postfix!"(*)", Parser.Postfix!"[*]", Parser.Binary!"->", Parser.UseSymbol)(that, name, type, context, preassign);
-}
-
-CompileTimeExpression semanticGlobalImpl(Parser.FuncLit that, string name, Type annotation, Context context, void delegate(CompileTimeExpression) preassign) {
+Expression semanticGlobalImpl(Parser.FuncLit that, bool strong, string name, Type annotation, Context context, Parser.ModuleVarDef symbol) {
 	auto argument = semanticPattern(that.argument, context);
 	auto returnType = context.freshTypeVariable(that.position);
 	auto type = make!TypeFunction(returnType, argument.type);
@@ -234,35 +493,52 @@ CompileTimeExpression semanticGlobalImpl(Parser.FuncLit that, string name, Type 
 		context.typeCheck(type, annotation, that.position);
 	}
 	// has side effects
-	Expression get() {
+	Term get() {
 		return semanticExpression(that.text, context);
 	}
 
-	auto result = make!FunctionLiteral(type, name, !!annotation, new SymbolId, argument, defer(&get));
-	preassign(result);
+	auto result = make!FunctionLiteral(type, name, strong ? Linkage.strong : Linkage.weak, new SymbolId, argument, defer(&get));
+	context.recursionCheck.recursive[symbol] = SelfReferential(result, context.recursionCheck.frame);
 	result.text.eval; // required to collect unification constraints
 	context.typeCheck(result.text.get.type, returnType, that.position);
+	argument.removeBindings(context, that.position);
 	return result;
 }
 
-CompileTimeExpression semanticGlobalImpl(T)(T that, string name, Type annotation, Context context, void delegate(CompileTimeExpression) preassign) {
+Expression semanticGlobalImpl(T)(T that, bool strong, string name, Type annotation, Context context, Parser.ModuleVarDef symbol) {
+	context.recursionCheck.recursive[symbol] = SelfReferential(null, context.recursionCheck.frame);
+	if (strong) {
+		error("Expected symbol", that.position);
+	}
 	auto expression = semanticMain(that, context);
 	if (annotation) {
 		// todo fix this
-		auto runtime = expression.assumeExpression(that.position);
+		auto runtime = expression.assumeTerm(that.position);
 		context.typeCheck(runtime.type, annotation, that.position);
 	}
 	return expression;
 }
 
-Type assumeType(CompileTimeExpression value, Position position, string file = __FILE__, int line = __LINE__) {
+Type assumeType(Expression value, Position position, string file = __FILE__, int line = __LINE__) {
 	check(value.castTo!Type, "Expected type", position, file, line);
 	return value.castTo!Type;
 }
 
-Expression assumeExpression(CompileTimeExpression value, Position position, string file = __FILE__, int line = __LINE__) {
-	auto result = value.castTo!Expression;
-	check(result, "Expected polymorphic value", position, file, line);
+Predicate assumeConstraint(Expression value, Position position, string file = __FILE__, int line = __LINE__) {
+	check(value.castTo!Predicate, "Expected constraint", position, file, line);
+	return value.castTo!Predicate;
+}
+
+Term assumeTerm(Expression value, Position position, string file = __FILE__, int line = __LINE__) {
+	auto result = value.castTo!Term;
+	check(result, "Expected a term", position, file, line);
+
+	return result;
+}
+
+Pattern assumePattern(Expression value, Position position, string file = __FILE__, int line = __LINE__) {
+	auto result = value.castTo!Pattern;
+	check(result, "Expected pattern", position, file, line);
 
 	return result;
 }
@@ -271,201 +547,201 @@ Type semanticType(Parser.Expression that, Context context, string file = __FILE_
 	return assumeType(semanticMain(that, context), that.position, file, line);
 }
 
-Expression semanticExpression(Parser.Expression that, Context context, string file = __FILE__, int line = __LINE__) {
-	return assumeExpression(semanticMain(that, context), that.position, file, line);
+Predicate semanticConstraint(Parser.Expression that, Context context, string file = __FILE__, int line = __LINE__) {
+	return assumeConstraint(semanticMain(that, context), that.position, file, line);
 }
 
-auto semanticMain(Parser.Expression that, Context context) {
-	auto result = semanticImplDispatch(that, context);
-	return result;
+Term semanticExpression(Parser.Expression that, Context context, string file = __FILE__, int line = __LINE__) {
+	return assumeTerm(semanticMain(that, context), that.position, file, line);
 }
 
-CompileTimeExpression semanticImplDispatch(Parser.Expression that, Context context) {
-	return dispatch!(semanticImpl, Parser.Variable, Parser.TypeTuple, Parser.Index, Parser.IndexAddress, Parser.TupleIndex, Parser.TupleIndexAddress, Parser.Call, Parser.Length, Parser.TypeBool, Parser.TypeChar, Parser.TypeInt, Parser.Import, Parser.IntLit, Parser.CharLit, Parser.BoolLit, Parser.TupleLit, Parser.If, Parser.While, Parser.New, Parser.NewArray, Parser.Cast, Parser.Infer, Parser.Slice, Parser.Assign, Parser.VariableDef, Parser.FuncLit, Parser.StringLit, Parser.ArrayLit, Parser.ExternJs, Parser.Binary!"*", Parser.Binary!"/", Parser.Binary!"%", Parser.Binary!"+", Parser.Binary!"-", Parser.Binary!"~", Parser.Binary!"==", Parser.Binary!"!=", Parser.Binary!"<=", Parser.Binary!">=", Parser.Binary!"<", Parser.Binary!">", Parser.Binary!"&&", Parser.Binary!"||", Parser.Prefix!"-", Parser.Prefix!"*", Parser.Prefix!"!", Parser.Postfix!"(*)", Parser.Postfix!"[*]", Parser.Binary!"->", Parser.UseSymbol)(that, context);
+Pattern semanticPattern(Parser.Pattern that, Context context, string file = __FILE__, int line = __LINE__) {
+	return assumePattern(semanticMain(that, context), that.position, file, line);
 }
 
-CompileTimeExpression semanticImpl(Parser.Variable that, Context context) {
+auto semanticMain(Parser.Node that, Context context) {
+	return that.semanticMain(context);
+}
+
+Expression semanticImpl(Parser.Forall that, Context context) {
+	auto previous = context.locals;
+	assert(context.rigidContext);
+	foreach (binding; that.bindings) {
+
+		auto rigidity = [context.rigidContext: make!RigidVariable(binding.name)].fromAALiteral;
+		auto constraints = binding.constraints
+			.map!(a => semanticConstraint(a, context))
+			.array
+			.map!(a => tuple(a.id, a))
+			.rangeToMap;
+		auto variable = freshTypeVariable(context, that.position, constraints, rigidity, binding.name);
+		context.bindTypeVariable(variable, that.position, false);
+	}
+
+	auto value = semanticMain(that.value, context);
+
+	context.locals = previous;
+	return value;
+}
+
+Expression semanticImpl(Parser.ConstraintTuple that, Context context) {
+	auto type = semanticType(that.type, context);
+	return make!PredicateTuple(that.index, type);
+}
+
+Expression semanticImpl(Parser.Variable that, Context context) {
 	auto variable = context.search(that.name, that.position);
 	check(!(variable is null), "Undefined variable", that.position);
 	return variable;
 }
 
-CompileTimeExpression semanticImpl(Parser.Import that, Context context) {
-	return make!Import(that.mod);
+Expression semanticImpl(Parser.Import that, Context context) {
+	auto semanticModule = readSemanticModule(that.value.get);
+	return make!Import(semanticModule);
 }
 
-CompileTimeExpression semanticImpl(Parser.UseSymbol that, Context context) {
+Expression semanticImpl(Parser.UseSymbol that, Context context) {
 	auto value = semanticMain(that.value, context);
-	auto mod = value.castTo!Import.mod;
-	check(mod, "scope resolution expect a module", that.position);
-	auto variable = mod.searchGlobal(context, that.index, that.position);
-	check(!(variable is null), "Undefined variable", that.position);
-	return variable;
+	auto Import = value.castTo!Import.mod;
+	check(Import, "scope resolution expect an import", that.position);
+	check(that.index in Import.aliases, "Undefined variable", that.position);
+	return context.unpackModuleDefinition(Import.aliases[that.index](context.recursionCheck), that.position);
 }
 
-CompileTimeExpression semanticImpl(Parser.TypeTuple that, Context context) {
+Type typeStructFrom(T...)(T types) {
+	static if (types.length == 0) {
+		return make!TypeStruct(emptyArray!Type);
+	} else {
+		return make!TypeStruct([types[0].convert!Type, types[1 .. $]]);
+	}
+}
+
+Expression semanticImpl(Parser.TypeTuple that, Context context) {
 	auto types = that.values.map!(a => semanticType(a, context)).array;
 	return make!TypeStruct(types);
 }
 
-CompileTimeExpression semanticImpl(Parser.Length that, Context context) {
-	auto variable = context.freshTypeVariable(that.position);
-	auto type = make!TypeFunction(make!TypeInt(0, false), make!TypeArray(variable));
-	return make!Length(type);
-}
-
-CompileTimeExpression semanticImpl(Parser.TypeBool that, Context context) {
-	return make!TypeBool();
-}
-
-CompileTimeExpression semanticImpl(Parser.TypeChar that, Context context) {
-	return make!TypeChar();
-}
-
-void checkIntSize(int size, Position position) {
-	check(size == 0 || size == 8 || size == 16 || size == 32, "Bad TypeInt Size", position);
-}
-
-CompileTimeExpression semanticImpl(Parser.TypeInt that, Context context) {
-	checkIntSize(that.size, that.position);
-	return make!TypeInt(that.size, that.signed);
-}
-
-CompileTimeExpression semanticImpl(Parser.Postfix!"(*)" that, Context context) {
+Expression semanticImpl(Parser.Postfix!"(*)" that, Context context) {
 	auto value = semanticType(that.value, context);
 	return make!TypePointer(value);
 }
 
-CompileTimeExpression semanticImpl(Parser.Postfix!"[*]" that, Context context) {
+Expression semanticImpl(Parser.Postfix!"[*]" that, Context context) {
 	auto value = semanticType(that.value, context);
 	return make!TypeArray(value);
 }
 
-CompileTimeExpression semanticImpl(Parser.IntLit that, Context context) {
-	auto variable = context.freshTypeVariable(that.position, [make!PredicateNumber.convert!Predicate]);
+Expression semanticImpl(Parser.Postfix!"(!)" that, Context context) {
+	auto value = semanticType(that.value, context);
+	return make!TypeOwnPointer(value);
+}
+
+Expression semanticImpl(Parser.Postfix!"[!]" that, Context context) {
+	auto value = semanticType(that.value, context);
+	return make!TypeOwnArray(value);
+}
+
+Expression semanticImpl(Parser.IntLit that, Context context) {
+	auto variable = context.freshTypeVariable(that.position, make!PredicateNumber.constraintsFrom);
 	return make!IntLit(variable, that.value);
 }
 
-CompileTimeExpression semanticImpl(Parser.CharLit that, Context context) {
+Expression semanticImpl(Parser.CharLit that, Context context) {
 	return make!CharLit(make!TypeChar(), that.value);
 }
 
-CompileTimeExpression semanticImpl(Parser.BoolLit that, Context context) {
-	return make!BoolLit(make!TypeBool(), that.yes);
-}
-
-CompileTimeExpression semanticImpl(Parser.TupleLit that, Context context) {
+Expression semanticImpl(Parser.TupleLit that, Context context) {
 	auto values = that.values.map!(a => semanticExpression(a, context)).array;
 	return make!TupleLit(make!TypeStruct(values.map!(a => a.type).array), values);
 }
 
-CompileTimeExpression semanticImpl(Parser.If that, Context context) {
+Expression semanticImpl(Parser.If that, Context context) {
 	auto cond = semanticExpression(that.cond, context);
+
+	auto initial = context.uses;
+
+	context.uses = context.uses.mapValues!(_ => Linearity.unused);
 	auto yes = semanticExpression(that.yes, context);
+	auto yesUses = context.uses;
+
+	context.uses = context.uses.mapValues!(_ => Linearity.unused);
 	auto no = semanticExpression(that.no, context);
+	auto noUses = context.uses;
+
+	context.uses = mergeMaps!both(initial, mergeMaps!branch(yesUses, noUses));
+
 	context.typeCheck(cond.type, make!TypeBool(), that.cond.position);
 	context.typeCheck(yes.type, no.type, that.position);
 	return make!If(yes.type, cond, yes, no);
 }
 
-CompileTimeExpression semanticImpl(Parser.While that, Context context) {
-	auto cond = semanticExpression(that.cond, context);
-	auto state = semanticExpression(that.state, context);
-	context.typeCheck(cond.type, make!TypeBool(), that.cond.position);
-	return make!While(make!TypeStruct(emptyArray!Type), cond, state);
-}
-
-CompileTimeExpression semanticImpl(Parser.New that, Context context) {
-	auto value = semanticExpression(that.value, context);
-	return make!New(make!TypePointer(value.type), value);
-}
-
-CompileTimeExpression semanticImpl(Parser.NewArray that, Context context) {
-	auto length = semanticExpression(that.length, context);
-	auto value = semanticExpression(that.value, context);
-	context.typeCheck(length.type, make!TypeInt(0, false), that.length.position);
-	return make!NewArray(make!TypeArray(value.type), length, value);
-}
-
-CompileTimeExpression semanticImpl(Parser.Cast that, Context context) {
-	auto wanted = semanticType(that.type, context);
-	auto value = semanticExpression(that.value, context);
-	auto expected = context.freshTypeVariable(that.position, [make!PredicateNumber.convert!Predicate]);
-	context.typeCheck(value.type, expected, that.value.position);
-
-	auto valid = context.freshTypeVariable(that.position, [make!PredicateNumber.convert!Predicate]);
-	context.typeCheck(wanted, valid, that.position);
-
-	return make!CastInteger(wanted, value);
-}
-
-CompileTimeExpression semanticImpl(Parser.Infer that, Context context) {
+Expression semanticImpl(Parser.Infer that, Context context) {
 	auto argumentType = semanticType(that.type, context);
 	auto value = semanticExpression(that.value, context);
 	context.typeCheck(argumentType, value.type, that.position);
 	return value;
 }
 
-CompileTimeExpression semanticImpl(Parser.Index that, Context context) {
+Expression semanticImpl(Parser.Index that, Context context) {
 	auto array = semanticExpression(that.array, context);
 	auto index = semanticExpression(that.index, context);
+
 	auto variable = context.freshTypeVariable(that.position);
-	context.typeCheck(array.type, make!TypeArray(variable), that.array.position);
-	context.typeCheck(index.type, make!TypeInt(0, false), that.index.position);
-	return make!Index(variable, array, index);
+	auto type = make!TypeFunction(variable, typeStructFrom(make!TypeArray(variable), make!TypeInt(0, false)));
+	return semanticCall(make!(Desugar!"index")(type), [array, index], that.position, context);
 }
 
-CompileTimeExpression semanticImpl(Parser.IndexAddress that, Context context) {
-	auto array = semanticExpression(that.array, context);
-	auto index = semanticExpression(that.index, context);
-	auto variable = context.freshTypeVariable(that.position);
-	context.typeCheck(array.type, make!TypeArray(variable), that.array.position);
-	context.typeCheck(index.type, make!TypeInt(0, false), that.index.position);
-	return make!IndexAddress(make!TypePointer(variable), array, index);
-}
-
-CompileTimeExpression semanticImpl(Parser.TupleIndex that, Context context) {
+Expression semanticImpl(Parser.TupleIndex that, Context context) {
 	auto tuple = semanticExpression(that.tuple, context);
 	auto index = that.index;
 
-	auto type = context.freshTypeVariable(that.position);
-	auto tupletype = context.freshTypeVariable(that.position, [make!PredicateTuple(that.index, type).convert!Predicate]);
-	context.typeCheck(tuple.type, tupletype, that.position);
-	return make!TupleIndex(type, tuple, index);
+	auto returnType = context.freshTypeVariable(that.position);
+	auto argumentType = context.freshTypeVariable(that.position, constraintsFrom(make!PredicateTuple(that.index, returnType), make!PredicateUnrestricted));
+	auto type = make!TypeFunction(returnType, argumentType);
+	return semanticCall(make!TupleIndex(type, index), tuple, that.position, context);
 }
 
-CompileTimeExpression semanticImpl(Parser.TupleIndexAddress that, Context context) {
+Expression semanticImpl(Parser.TupleIndexAddress that, Context context) {
 	auto tuple = semanticExpression(that.tuple, context);
 	auto index = that.index;
-	auto variable = context.freshTypeVariable(that.position);
-	auto tupletype = make!TypePointer(context.freshTypeVariable(that.position, [make!PredicateTuple(that.index, variable).convert!Predicate]));
-	context.typeCheck(tuple.type, tupletype, that.position);
-	return make!TupleIndexAddress(make!TypePointer(variable), tuple, index);
+
+	auto variable1 = context.freshTypeVariable(that.position);
+	auto variable0 = context.freshTypeVariable(that.position, make!PredicateTuple(that.index, variable1).constraintsFrom);
+	auto type = make!TypeFunction(make!TypePointer(variable1), make!TypePointer(variable0));
+	return semanticCall(make!TupleIndexAddress(type, index, variable0), tuple, that.position, context);
 }
 
-CompileTimeExpression semanticImpl(Parser.Call that, Context context) {
-	auto variable = context.freshTypeVariable(that.position);
-
-	auto calle = semanticExpression(that.calle, context);
-	auto argument = semanticExpression(that.argument, context);
-	context.typeCheck(calle.type, make!TypeFunction(variable, argument.type), that.position);
+Term semanticCall(Term calle, Term argument, Position position, Context context) {
+	auto variable = context.freshTypeVariable(position);
+	context.typeCheck(calle.type, make!TypeFunction(variable, argument.type), position);
 	return make!Call(variable, calle, argument);
 }
 
-CompileTimeExpression semanticImpl(Parser.Slice that, Context context) {
+Term semanticCall(Term calle, Term[] arguments, Position position, Context context) {
+	auto type = make!TypeStruct(arguments.map!(a => a.type).array);
+	auto tuple = make!TupleLit(type, arguments);
+	return semanticCall(calle, tuple, position, context);
+}
+
+Expression semanticImpl(Parser.Call that, Context context) {
+	auto calle = semanticExpression(that.calle, context);
+	auto argument = semanticExpression(that.argument, context);
+	return semanticCall(calle, argument, that.position, context);
+}
+
+Expression semanticImpl(Parser.Slice that, Context context) {
 	auto array = semanticExpression(that.array, context);
 	auto left = semanticExpression(that.left, context);
 	auto right = semanticExpression(that.right, context);
-	auto type = make!TypeArray(context.freshTypeVariable(that.position));
-	context.typeCheck(array.type, type, that.position);
-	context.typeCheck(left.type, make!TypeInt(0, false), that.position);
-	context.typeCheck(right.type, make!TypeInt(0, false), that.position);
-	return make!Slice(array.type, array, left, right);
+
+	auto variable = context.freshTypeVariable(that.position);
+	auto type = make!TypeFunction(make!TypeArray(variable), typeStructFrom(make!TypeArray(variable), make!TypeInt(0, false), make!TypeInt(0, false)));
+	return semanticCall(make!(Desugar!"slice")(type), [array, left, right], that.position, context);
 }
 
-CompileTimeExpression semanticImpl(Parser.Binary!"->" that, Context context) {
-	auto left = semanticMain(that.left, context).assumeType(that.left.position);
-	auto right = semanticMain(that.right, context).assumeType(that.right.position);
+Expression semanticImpl(Parser.Binary!"->" that, Context context) {
+	auto left = semanticType(that.left, context);
+	auto right = semanticType(that.right, context);
 	return make!TypeFunction(right, left);
 }
 
@@ -475,117 +751,124 @@ CompileTimeExpression semanticImpl(Parser.Binary!"->" that, Context context) {
 alias ParserBinary = Parser.Binary;
 alias ParserPrefix = Parser.Prefix;
 
-CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context context) if (["<=", ">=", ">", "<"].canFind(op)) {
+enum operaterName(string _ : "<=") = "less equal";
+enum operaterName(string _ : ">=") = "greater equal";
+enum operaterName(string _ : "<") = "less";
+enum operaterName(string _ : ">") = "greater";
+
+Expression semanticImpl(string op)(ParserBinary!op that, Context context) if (["<=", ">=", ">", "<"].canFind(op)) {
 	auto left = semanticExpression(that.left, context);
 	auto right = semanticExpression(that.right, context);
-	context.typeCheck(left.type, right.type, that.position);
-	return make!(Binary!op)(make!TypeBool, left, right);
+	auto variable = context.freshTypeVariable(that.position, make!PredicateEqual.constraintsFrom);
+	auto type = make!TypeFunction(make!TypeBool, typeStructFrom(variable, variable));
+	return semanticCall(make!(DesugarContext!(operaterName!op))(type, variable), [left, right], that.position, context);
 }
 
-CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context context) if (["*", "/", "%", "+", "-"].canFind(op)) {
+enum operaterName(string _ : "*") = "multiply";
+enum operaterName(string _ : "/") = "divide";
+enum operaterName(string _ : "%") = "modulus";
+enum operaterName(string _ : "+") = "add";
+enum operaterName(string _ : "-") = "subtract";
+
+Expression semanticImpl(string op)(ParserBinary!op that, Context context) if (["*", "/", "%", "+", "-"].canFind(op)) {
 	auto left = semanticExpression(that.left, context);
 	auto right = semanticExpression(that.right, context);
-	auto type = context.freshTypeVariable(that.position, [make!PredicateNumber.convert!Predicate]);
-	context.typeCheck(left.type, type, that.position);
-	context.typeCheck(right.type, type, that.position);
-	return make!(Binary!op)(left.type, left, right);
+	auto variable = context.freshTypeVariable(that.position, make!PredicateNumber.constraintsFrom);
+	auto type = make!TypeFunction(variable, typeStructFrom(variable, variable));
+	return semanticCall(make!(DesugarContext!(operaterName!op))(type, variable), [left, right], that.position, context);
 }
 
-CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context context) if (["==", "!="].canFind(op)) {
+enum operaterName(string _ : "==") = "equal";
+enum operaterName(string _ : "!=") = "not equal";
+
+Expression semanticImpl(string op)(ParserBinary!op that, Context context) if (["==", "!="].canFind(op)) {
 	auto left = semanticExpression(that.left, context);
 	auto right = semanticExpression(that.right, context);
-	context.typeCheck(left.type, right.type, that.position);
-	return make!(Binary!op)(make!TypeBool(), left, right);
+	auto variable = context.freshTypeVariable(that.position, make!PredicateEqual.constraintsFrom);
+	auto type = make!TypeFunction(make!TypeBool, typeStructFrom(variable, variable));
+	return semanticCall(make!(DesugarContext!(operaterName!op))(type, variable), [left, right], that.position, context);
 }
 
-CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context context) if (["&&", "||"].canFind(op)) {
+enum operaterName(string _ : "&&") = "and";
+enum operaterName(string _ : "||") = "or";
+
+Expression semanticImpl(string op)(ParserBinary!op that, Context context) if (["&&", "||"].canFind(op)) {
 	auto left = semanticExpression(that.left, context);
 	auto right = semanticExpression(that.right, context);
-	context.typeCheck(left.type, make!TypeBool(), that.position);
-	context.typeCheck(right.type, make!TypeBool(), that.position);
-	return make!(Binary!op)(make!TypeBool, left, right);
+
+	auto type = make!TypeFunction(make!TypeBool, typeStructFrom(make!TypeBool, make!TypeBool));
+	return semanticCall(make!(Desugar!(operaterName!op))(type), [left, right], that.position, context);
 }
 
-CompileTimeExpression semanticImpl(string op)(ParserBinary!op that, Context context) if (op == "~") {
-	auto left = semanticExpression(that.left, context);
-	auto right = semanticExpression(that.right, context);
-	context.typeCheck(left.type, make!TypeArray(right.type), that.position);
-	return make!(Binary!op)(left.type, left, right);
-}
-
-CompileTimeExpression semanticImpl(string op)(ParserPrefix!op that, Context context) if (op == "!") {
+Expression semanticImpl(ParserPrefix!"!" that, Context context) {
 	auto value = semanticExpression(that.value, context);
-	context.typeCheck(value.type, make!TypeBool(), that.position);
-	return make!(Prefix!op)(make!TypeBool, value);
+
+	auto type = make!TypeFunction(make!TypeBool, make!TypeBool);
+	return semanticCall(make!(Desugar!"not")(type), value, that.position, context);
 }
 
-CompileTimeExpression semanticImpl(string op)(ParserPrefix!op that, Context context) if (op == "-") {
+Expression semanticImpl(string op)(ParserPrefix!op that, Context context) if (op == "-") {
 	auto value = semanticExpression(that.value, context);
-	auto type = context.freshTypeVariable(that.position, [make!PredicateNumber.convert!Predicate]);
-	context.typeCheck(value.type, type, that.position);
-	return make!(Prefix!op)(value.type, value);
+	auto variable = context.freshTypeVariable(that.position, make!PredicateNumber.constraintsFrom);
+	auto type = make!TypeFunction(variable, variable);
+	return semanticCall(make!(DesugarContext!"negate")(type, variable), value, that.position, context);
 }
 
-CompileTimeExpression semanticImpl(string op)(ParserPrefix!op that, Context context) if (op == "*") {
+Expression semanticImpl(string op)(ParserPrefix!op that, Context context) if (op == "*") {
 	auto value = semanticExpression(that.value, context);
-	auto variable = context.freshTypeVariable(that.position);
-	context.typeCheck(value.type, make!TypePointer(variable), that.position);
-	return make!Deref(variable, value);
+
+	auto variable = context.freshTypeVariable(that.position, make!PredicateUnrestricted.constraintsFrom);
+	auto type = make!TypeFunction(variable, make!TypePointer(variable));
+	return semanticCall(make!(Desugar!"derefence")(type), value, that.position, context);
 }
 
-CompileTimeExpression semanticImpl(string op)(ParserPrefix!op that, Context context) if (["+", "/"].canFind(op)) {
+Expression semanticImpl(string op)(ParserPrefix!op that, Context context) if (["+", "/"].canFind(op)) {
 	error(op ~ " not supported", that.position);
 	return null;
 }
 
-Expression semanticImpl(Parser.Assign that, Context context) {
-	auto left = semanticExpression(that.left, context);
-	auto right = semanticExpression(that.right, context);
-	auto variable = context.freshTypeVariable(that.position);
-	context.typeCheck(left.type, make!TypePointer(variable), that.position);
-	context.typeCheck(variable, right.type, that.position);
-	return make!Assign(make!TypeStruct(emptyArray!Type), left, right);
-}
-
-Expression semanticImpl(Parser.VariableDef that, Context context) {
-	auto previous = context.locals;
+Term semanticImpl(Parser.VariableDefinition that, Context context) {
 	auto value = semanticExpression(that.value, context);
 	auto variable = semanticPattern(that.variable, context);
 	context.typeCheck(variable.type, value.type, that.position);
 	auto lastSemantic = semanticExpression(that.last, context);
-	context.locals = previous;
-	return make!VariableDef(lastSemantic.type, variable, value, lastSemantic);
+	variable.removeBindings(context, that.position);
+	return make!VariableDefinition(lastSemantic.type, variable, value, lastSemantic);
 }
 
-Pattern semanticPattern(Parser.Pattern pattern, Context context) {
-	return dispatch!(semanticPatternImpl, Parser.NamedArgument, Parser.TupleArgument)(pattern, context);
+void removeBindingsImpl(NamedPattern that, Context context, Position position) {
+	context.removeTermVariable(that.argument, position);
 }
 
-Pattern semanticPatternImpl(Parser.NamedArgument that, Context context) {
+void removeBindingsImpl(TuplePattern that, Context context, Position position) {
+	that.matches.each!(a => a.removeBindings(context, position));
+}
+
+Pattern semanticImpl(Parser.NamedArgument that, Context context) {
 	auto type = context.freshTypeVariable(that.position);
 	auto variable = make!Variable(type, that.name, new VarId);
-	context.bindVariable(variable, that.position);
+	context.bindTermVariable(variable, that.position, that.shadow);
 	return make!NamedPattern(type, variable);
 }
 
-Pattern semanticPatternImpl(Parser.TupleArgument that, Context context) {
+Pattern semanticImpl(Parser.TupleArgument that, Context context) {
 	auto matches = that.matches.map!(a => semanticPattern(a, context)).array;
 	auto type = make!TypeStruct(matches.map!(a => a.type).array);
 	return make!TuplePattern(type, matches);
 }
 
-CompileTimeExpression semanticImpl(Parser.FuncLit that, Context context) {
+Expression semanticImpl(Parser.FuncLit that, Context context) {
 	error("only top level lambda are supported for now", that.position);
 	return null;
 }
 
-CompileTimeExpression semanticImpl(Parser.StringLit that, Context context) {
-	return make!StringLit(make!TypeArray(make!TypeChar()), that.value);
+Expression semanticImpl(Parser.StringLit that, Context context) {
+	return make!StringLit(make!TypeOwnArray(make!TypeChar()), that.value);
 }
 
-CompileTimeExpression semanticImpl(Parser.ArrayLit that, Context context) {
-	auto variable = context.freshTypeVariable(that.position);
-	auto type = make!TypeArray(variable);
+Expression semanticImpl(Parser.ArrayLit that, Context context) {
+	auto variable = context.freshTypeVariable(that.position, make!PredicateUnrestricted.constraintsFrom);
+	auto type = make!TypeOwnArray(variable);
 	auto values = that.values.map!(a => semanticExpression(a, context)).array;
 	foreach (value; values) {
 		context.typeCheck(variable, value.type, that.position);
@@ -594,7 +877,7 @@ CompileTimeExpression semanticImpl(Parser.ArrayLit that, Context context) {
 	return make!ArrayLit(type, values);
 }
 
-CompileTimeExpression semanticImpl(Parser.ExternJs that, Context context) {
+Expression semanticImpl(Parser.ExternJs that, Context context) {
 	auto variable = context.freshTypeVariable(that.position);
 	return make!ExternJs(variable, that.name);
 }

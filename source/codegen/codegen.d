@@ -28,43 +28,41 @@ import std.typecons;
 import std.utf;
 import std.variant;
 
-import codegen.ast;
-import jsast;
-
+import misc.container;
 import misc.misc;
 
-//structs are repesented as native arrays
-
-//arrays are object with a data, start, length 
-// where data may have a pointer array indexed with data.{{num}}_ptr
-//pointers objects with get,and set
-//functions are native js functions
+import semantic.ast;
+import jsast;
 
 JsModule generateJsModule(Module mod) {
 	JsModule result = new JsModule();
 	auto extra = new Extra;
-	Symbol[SymbolId] symbols;
+	Dictonary!(Tuple!(SymbolId, TypeHash), Symbol) symbols;
 
-	foreach (symbol; mod.exports) {
-		symbols = addDependants(symbol, symbols);
+	foreach (candidate; mod.orderedAliases) {
+		if (auto symbol = candidate.get.get.castTo!Symbol) {
+			if (symbol.type.freeVariables.length == 0) {
+				symbols = addDependants(symbol, symbols);
+			}
+		}
 	}
 
-	foreach (symbol; symbols) {
-		extra.symbols[symbol.id] = nameSymbol(symbol);
+	foreach (key, symbol; symbols.range) {
+		extra.symbols[key] = nameSymbol(symbol);
 	}
 
-	foreach (symbol; symbols) {
-		result ~= new JsVarDef(extra.symbols[symbol.id], symbol.generateSymbol(result, extra));
+	foreach (key, symbol; symbols.range) {
+		result ~= new JsVarDef(extra.symbols[key], symbol.generateSymbol(result, extra), true);
 	}
 	return result;
 }
 
-Symbol[SymbolId] addDependants(Symbol symbol, Symbol[SymbolId] symbols) {
-	if (symbol.id in symbols) {
+Dictonary!(Tuple!(SymbolId, TypeHash), Symbol) addDependants(Symbol symbol, Dictonary!(Tuple!(SymbolId, TypeHash), Symbol) symbols) {
+	if (tuple(symbol.id, symbol.type.typeHash) in symbols) {
 		return symbols;
 	} else {
-		symbols[symbol.id] = symbol;
-		foreach (dependant; symbol.dependants) {
+		symbols[tuple(symbol.id, symbol.type.typeHash)] = symbol;
+		foreach (dependant; symbol.dependants.byValue) {
 			symbols = addDependants(dependant, symbols);
 		}
 		return symbols;
@@ -72,121 +70,144 @@ Symbol[SymbolId] addDependants(Symbol symbol, Symbol[SymbolId] symbols) {
 }
 
 JsVariable nameSymbol(Symbol symbol) {
-	if (symbol.strong) {
+	if (symbol.linkage == Linkage.strong) {
 		return new JsVariable(defaultNaming(symbol.name));
 	} else {
 		return new JsVariable(defaultNaming(symbol.name ~ "_" ~ symbol.type.mangle));
 	}
 }
 
-JsVariable symbolSubName(Pattern pattern, JsScope depend, Extra extra) {
-	return dispatch!(symbolSubNameImpl, NamedPattern, TuplePattern)(pattern, depend, extra);
-}
-
-JsVariable symbolSubNameImpl(NamedPattern pattern, JsScope depend, Extra extra) {
-	auto result = new JsVariable(defaultNaming(pattern.argument.name));
-	extra.context.variables[pattern.argument.id] = result;
+JsPattern generatePatternMatchImpl(NamedPattern that, Extra extra) {
+	auto result = new JsVariable(defaultNaming(that.argument.name));
+	extra.context.variables[that.argument.id] = result;
 	return result;
 }
 
-JsVariable symbolSubNameImpl(TuplePattern pattern, JsScope depend, Extra extra) {
-	auto result = new JsVariable(temporary);
-	foreach (c, match; pattern.matches.enumerate) {
-		auto sub = symbolSubName(match, depend, extra);
-		depend ~= new JsVarDef(sub, indexTuple(result, c));
-	}
-	return result;
+JsPattern generatePatternMatchImpl(TuplePattern that, Extra extra) {
+	auto matches = that.matches.map!(a => a.generatePatternMatch(extra)).array;
+	return new JsArrayPattern(matches);
 }
 
 JsExpr generateSymbolImpl(FunctionLiteral that, JsScope depend, Extra extra) {
-	auto argumentType = that.argument.type;
 	extra.context = FunctionContext();
-	JsFuncLit result = new JsFuncLit([], []);
-	auto argument = symbolSubName(that.argument, result.states, extra);
-	result.args = [argument];
+
+	auto pattern = that.argument.generatePatternMatch(extra);
+	auto result = new JsLambda([pattern], []);
+
 	auto val = that.text.get.generateJs(result.states, extra);
 	result.states ~= new JsReturn(val);
 	return result;
 }
 
 struct FunctionContext {
-	JsVariable[VarId] variables;
+	Dictonary!(VarId, JsVariable) variables;
 }
 
 class Extra {
 	FunctionContext context;
-
-	JsVariable[SymbolId] symbols;
-}
-
-JsExpr compareInfoImpl(TypeInt that) {
-	return new JsExternLit("typi_compare_vanilla");
-}
-
-JsExpr compareInfoImpl(TypeChar that) {
-	return new JsExternLit("typi_compare_vanilla");
-}
-
-JsExpr compareInfoImpl(TypeBool that) {
-	return new JsExternLit("typi_compare_vanilla");
-}
-
-JsExpr compareInfoImpl(TypeStruct that) {
-	return new JsCall(new JsExternLit("typi_tuple_compare"), [new JsArray(that.values.map!(a => a.compareInfo).array)]);
-}
-
-JsExpr compareInfoImpl(TypeArray that) {
-	return new JsCall(new JsExternLit("typi_array_compare"), [that.array.compareInfo]);
-}
-
-JsExpr compareInfoImpl(TypePointer that) {
-	return new JsExternLit("typi_compare_vanilla");
-}
-
-JsExpr compareInfoImpl(TypeFunction that) {
-	assert(0);
-}
-
-JsExpr indexTuple(JsExpr tuple, JsExpr index) {
-	return new JsIndex(tuple, index);
-}
-
-JsExpr indexTuple(JsExpr tuple, size_t index) {
-	return indexTuple(tuple, new JsIntLit(index));
-}
-
-JsExpr castInt(JsExpr expr, Type type) {
-	type = type;
-	if (auto i = type.castTo!TypeInt) {
-		if (i.signed) {
-			if (i.size == 32 || i.size == 0) {
-				return new JsBinary!"|"(expr, new JsIntLit(0));
-			} else {
-				assert(0, "todo support size" ~ i.size.to!string);
-			}
-		} else {
-			if (i.size == 32 || i.size == 0) {
-				return new JsBinary!">>>"(expr, new JsIntLit(0));
-			} else {
-				assert(0, "todo support size" ~ i.size.to!string);
-			}
-		}
-	} else {
-		assert(0);
+	Dictonary!(Tuple!(SymbolId, TypeHash), JsVariable) symbols;
+	JsExpr requestExtern(string name)() {
+		return new JsExternLit(name);
 	}
 }
 
-void generateJsVarDefImpl(T)(T that, JsVariable target, JsScope depend, Extra extra) {
-	depend ~= new JsVarDef(target, that.generateJs(depend, extra));
+JsExpr compareInfoImpl(TypeInt that, Extra extra) {
+	return extra.requestExtern!"typi_compare_vanilla";
 }
 
-void generateJsVarImpl(T)(T that, JsVariable target, JsScope depend, Extra extra) {
-	depend ~= new JsBinary!"="(target, that.generateJs(depend, extra));
+JsExpr compareInfoImpl(TypeChar that, Extra extra) {
+	return extra.requestExtern!"typi_compare_vanilla";
+}
+
+JsExpr compareInfoImpl(TypeBool that, Extra extra) {
+	return extra.requestExtern!"typi_compare_vanilla";
+}
+
+JsExpr compareInfoImpl(TypeStruct that, Extra extra) {
+	return new JsCall(extra.requestExtern!"typi_tuple_compare", [new JsArray(that.values.map!(a => a.compareInfo(extra)).array)]);
+}
+
+JsExpr compareInfoImpl(TypeArray that, Extra extra) {
+	return new JsCall(extra.requestExtern!"typi_array_compare", [that.array.compareInfo(extra)]);
+}
+
+JsExpr compareInfoImpl(TypePointer that, Extra extra) {
+	return extra.requestExtern!"typi_compare_vanilla";
+}
+
+JsExpr compareInfoImpl(TypeOwnPointer that, Extra extra) {
+	assert(0);
+}
+
+JsExpr compareInfoImpl(TypeOwnArray that, Extra extra) {
+	assert(0);
+}
+
+JsExpr compareInfoImpl(TypeFunction that, Extra extra) {
+	assert(0);
+}
+
+JsExpr compareInfoImpl(TypeWorld that, Extra extra) {
+	assert(0);
+}
+
+string mangleImpl(TypeBool) {
+	return "boolean";
+}
+
+string mangleImpl(TypeChar) {
+	return "character";
+}
+
+string mangleImpl(TypeInt that) {
+	with (that)
+		return (signed ? "integer" : "natural") ~ size.to!string;
+}
+
+string mangleImpl(TypeStruct that) {
+	with (that) {
+		if (values.length == 0) {
+			return "void";
+		}
+		return "tuple_of_" ~ values[0 .. $ - 1].map!(a => a.mangle ~ "_and_")
+			.joiner
+			.to!string ~ values[$ - 1].mangle ~ "_end";
+	}
+}
+
+string mangleImpl(TypeArray that) {
+	with (that)
+		return array.mangle ~ "_array";
+}
+
+string mangleImpl(TypeFunction that) {
+	with (that)
+		return "function_of_" ~ argument.mangle ~ "_to_" ~ result.mangle ~ "_end";
+}
+
+string mangleImpl(TypePointer that) {
+	with (that)
+		return value.mangle ~ "_pointer";
+}
+
+string mangleImpl(TypeOwnPointer that) {
+	with (that)
+		return value.mangle ~ "_own_pointer";
+}
+
+string mangleImpl(TypeOwnArray that) {
+	with (that)
+		return array.mangle ~ "_own_pointer";
+}
+
+string mangleImpl(TypeWorld that) {
+	with (that)
+		return "world";
 }
 
 JsExpr generateJsImpl(Symbol that, JsScope depend, Extra extra) {
-	assert(that.id in extra.symbols, "unknown symbol " ~ that.name);
-	return extra.symbols[that.id];
+	assert(tuple(that.id, that.type.typeHash) in extra.symbols, "unknown symbol " ~ that.name);
+	return extra.symbols[tuple(that.id, that.type.typeHash)];
 }
 
 JsExpr generateJsImpl(IntLit that, JsScope depend, Extra extra) {
@@ -198,11 +219,7 @@ JsExpr generateJsImpl(ExternJs that, JsScope depend, Extra extra) {
 }
 
 JsExpr generateJsImpl(BoolLit that, JsScope depend, Extra extra) {
-	if (that.yes) {
-		return new JsBoolLit(true);
-	} else {
-		return new JsBoolLit(false);
-	}
+	return new JsBoolLit(that.yes);
 }
 
 JsExpr generateJsImpl(CharLit that, JsScope depend, Extra extra) {
@@ -219,101 +236,63 @@ JsExpr generateJsImpl(Variable that, JsScope depend, Extra extra) {
 
 JsExpr generateJsImpl(If that, JsScope depend, Extra extra) {
 	auto variable = new JsVariable(temporary);
-	that.generateJsVarDef(variable, depend, extra);
+	auto If = new JsIf();
+	depend ~= new JsVarDef(variable, null, false);
+	If.cond = that.cond.generateJs(depend, extra);
+	If.yes ~= new JsBinary!"="(variable, that.yes.generateJs(If.yes, extra));
+	If.no ~= new JsBinary!"="(variable, that.no.generateJs(If.no, extra));
+	depend ~= If;
 	return variable;
 }
 
-void generateJsVarDefImpl(If that, JsVariable target, JsScope depend, Extra extra) {
-	auto If = new JsIf();
-	depend ~= new JsVarDef(target, new JsArray([]));
-	If.cond = that.cond.generateJs(depend, extra);
-	that.yes.generateJsVar(target, If.yes, extra);
-	that.no.generateJsVar(target, If.no, extra);
-	depend ~= If;
+JsExpr generateJsImpl(Desugar!"new" that, JsScope depend, Extra extra) {
+	return extra.requestExtern!"typi_create_pointer";
 }
 
-void generateJsVarImpl(If that, JsVariable target, JsScope depend, Extra extra) {
-	auto If = new JsIf();
-	If.cond = that.cond.generateJs(depend, extra);
-	that.yes.generateJsVar(target, If.yes, extra);
-	that.no.generateJsVar(target, If.no, extra);
-	depend ~= If;
+JsExpr generateJsImpl(Desugar!"borrow" that, JsScope depend, Extra extra) {
+	return extra.requestExtern!"typi_borrow_pointer";
 }
 
-JsExpr generateJsImpl(While that, JsScope depend, Extra extra) {
-	auto While = new JsWhile();
-	auto cond = that.cond.generateJs(While.states, extra);
-
-	if (While.states.length == 0) {
-		While.cond = cond;
-		depend ~= that.state.generateJs(While.states, extra);
-	} else {
-		While.cond = new JsBoolLit(true);
-		While.states ~= new JsIf(new JsPrefix!"!"(cond), [new JsBreak()], []);
-		depend ~= that.state.generateJs(While.states, extra);
-	}
-	depend ~= While;
-	return new JsArray([]);
+JsExpr generateJsImpl(Desugar!"delete" that, JsScope depend, Extra extra) {
+	return extra.requestExtern!"typi_delete_pointer";
 }
 
-JsExpr getCreatePointer(Extra extra, Type type) {
-	return new JsExternLit("typi_create_pointer");
+JsExpr generateJsImpl(Desugar!"new array" that, JsScope depend, Extra extra) {
+	return extra.requestExtern!"typi_new_array";
 }
 
-JsExpr generateJsImpl(New that, JsScope depend, Extra extra) {
-	auto value = that.value.generateJs(depend, extra);
-	return new JsCall(extra.getCreatePointer(that.value.type), [value]);
+JsExpr generateJsImpl(Desugar!"borrow array" that, JsScope depend, Extra extra) {
+	return extra.requestExtern!"typi_borrow_array";
 }
 
-JsExpr getNewArray(Extra extra, Type type) {
-	return new JsExternLit("typi_new_array");
-}
-
-JsExpr generateJsImpl(NewArray that, JsScope depend, Extra extra) {
-	auto length = that.length.generateJs(depend, extra);
-	auto expression = that.value.generateJs(depend, extra);
-	return new JsCall(extra.getNewArray(that.value.type), [length, expression]);
+JsExpr generateJsImpl(Desugar!"delete array" that, JsScope depend, Extra extra) {
+	return extra.requestExtern!"typi_delete_array";
 }
 
 JsExpr generateJsImpl(CastInteger that, JsScope depend, Extra extra) {
-	auto value = that.value.generateJs(depend, extra);
-	return castInt(value, that.type);
+	return applyNumber(applyNumber(extra.requestExtern!"typi_cast_integer", that.contextWanted), that.contextInput);
 }
 
-JsExpr getArrayLength() {
-	return new JsExternLit("typi_array_length");
+JsExpr generateJsImpl(Desugar!"length" that, JsScope depend, Extra extra) {
+	return extra.requestExtern!"typi_array_length";
 }
 
-JsExpr generateJsImpl(Length that, JsScope depend, Extra extra) {
-	return getArrayLength;
-}
-
-JsExpr getIndexArray() {
-	return new JsExternLit("typi_index_array");
-}
-
-JsExpr generateJsImpl(Index that, JsScope depend, Extra extra) {
-	auto array = that.array.generateJs(depend, extra);
-	auto index = that.index.generateJs(depend, extra);
-	return new JsCall(getIndexArray, [array, index]);
+JsExpr generateJsImpl(Desugar!"index" that, JsScope depend, Extra extra) {
+	return extra.requestExtern!"typi_index_array";
 }
 
 JsExpr generateJsImpl(TupleIndex that, JsScope depend, Extra extra) {
-	auto tuple = that.tuple.generateJs(depend, extra);
-	return indexTuple(tuple, that.index);
+	return new JsCall(extra.requestExtern!"typi_index_tuple", [new JsIntLit(that.index)]);
 }
 
-JsExpr getTuplePointerForwardJs(Extra extra, Type type) {
-	auto pointer = type.castTo!TypePointer;
-	assert(pointer);
-	auto tuple = pointer.value.castTo!TypeStruct;
+JsExpr getTuplePointerForwardJs(Extra extra, Type type, int index) {
+	auto tuple = type.castTo!TypeStruct;
 	assert(tuple);
-	return new JsCall(new JsExternLit("typi_tuple_address_forword"), [new JsIntLit(tuple.values.length)]);
+	return new JsCall(extra.requestExtern!"typi_tuple_address_forword", [new JsIntLit(index), new JsIntLit(tuple.values.length)]);
 }
 
 JsExpr generateJsImpl(TupleIndexAddress that, JsScope depend, Extra extra) {
-	auto tuple = that.tuple.generateJs(depend, extra);
-	return new JsCall(extra.getTuplePointerForwardJs(that.tuple.type), [tuple, new JsIntLit(that.index)]);
+	return extra.getTuplePointerForwardJs(that.context, that.index);
 }
 
 JsExpr generateJsImpl(Call that, JsScope depend, Extra extra) {
@@ -322,19 +301,12 @@ JsExpr generateJsImpl(Call that, JsScope depend, Extra extra) {
 	return new JsCall(functionPointer, [argument]);
 }
 
-JsExpr getArraySlice() {
-	return new JsExternLit("typi_array_slice");
+JsExpr generateJsImpl(Desugar!"slice" that, JsScope depend, Extra extra) {
+	return extra.requestExtern!"typi_array_slice";
 }
 
-JsExpr generateJsImpl(Slice that, JsScope depend, Extra extra) {
-	auto array = that.array.generateJs(depend, extra);
-	auto left = that.left.generateJs(depend, extra);
-	auto right = that.right.generateJs(depend, extra);
-	return new JsCall(getArraySlice, [array, left, right]);
-}
-
-auto getArrayLiteral(Extra extra, Type type, size_t length) {
-	return new JsCall(new JsExternLit("typi_array_literal"), [new JsIntLit(length)]);
+auto getArrayLiteral(Extra extra, size_t length) {
+	return new JsCall(extra.requestExtern!"typi_array_literal", [new JsIntLit(length)]);
 }
 
 JsExpr generateJsImpl(StringLit that, JsScope depend, Extra extra) {
@@ -342,95 +314,93 @@ JsExpr generateJsImpl(StringLit that, JsScope depend, Extra extra) {
 		.map!(a => new JsCharLit(a))
 		.map!(a => a.convert!JsExpr)
 		.array;
-	return new JsCall(extra.getArrayLiteral(that.type.castTo!TypeArray.array, internal.length), [new JsArray(internal)]);
+	return new JsCall(extra.getArrayLiteral(internal.length), [new JsArray(internal)]);
 }
 
 JsExpr generateJsImpl(ArrayLit that, JsScope depend, Extra extra) {
 	auto internal = that.values.map!(a => a.generateJs(depend, extra)).array;
-	return new JsCall(extra.getArrayLiteral(that.type.castTo!TypeArray.array, internal.length), [new JsArray(internal)]);
+	return new JsCall(extra.getArrayLiteral(internal.length), [new JsArray(internal)]);
 }
 
-JsExpr getCompare(Extra extra, Type type) {
-	return type.compareInfo;
+JsExpr generateJsImpl(DesugarContext!"equal" that, JsScope depend, Extra extra) {
+	return that.context.compareInfo(extra);
 }
 
-JsExpr compare(JsExpr left, JsExpr right, Type type, Extra extra) {
-	return new JsCall(extra.getCompare(type), [left, right]);
+JsExpr generateJsImpl(DesugarContext!"not equal" that, JsScope depend, Extra extra) {
+	return new JsCall(extra.requestExtern!"typi_compare_not", [that.context.compareInfo(extra)]);
 }
 
-JsExpr generateJsImpl(Binary!"==" that, JsScope depend, Extra extra) {
-	auto left = that.left.generateJs(depend, extra);
-	auto right = that.right.generateJs(depend, extra);
-	return compare(left, right, that.left.type, extra);
+JsExpr generateJsImpl(Desugar!"derefence" that, JsScope depend, Extra extra) {
+	return extra.requestExtern!"typi_derefence_pointer";
 }
 
-JsExpr generateJsImpl(Binary!"!=" that, JsScope depend, Extra extra) {
-	auto left = that.left.generateJs(depend, extra);
-	auto right = that.right.generateJs(depend, extra);
-	return new JsPrefix!"!"(compare(left, right, that.left.type, extra));
+JsExpr generateJsImpl(Desugar!"index address" that, JsScope depend, Extra extra) {
+	return extra.requestExtern!"typi_array_address_of";
 }
 
-JsExpr generateJsImpl(Binary!"~" that, JsScope depend, Extra extra) {
-	assert(0, "todo implement ~");
-}
-
-JsExpr getDereferencePointer() {
-	return new JsExternLit("typi_derefence_pointer");
-}
-
-JsExpr generateJsImpl(Deref that, JsScope depend, Extra extra) {
-	auto value = that.value.generateJs(depend, extra);
-	return new JsCall(getDereferencePointer, [value]);
-}
-
-JsExpr getArrayPointerJs(Extra extra, Type type) {
-	return new JsExternLit("typi_array_address_of");
-}
-
-JsExpr generateJsImpl(IndexAddress that, JsScope depend, Extra extra) {
-	auto array = that.array.generateJs(depend, extra);
-	auto index = that.index.generateJs(depend, extra);
-	return new JsCall(extra.getArrayPointerJs(that.type.castTo!TypePointer.value), [array, index]);
-}
-
-JsExpr generateJsImpl(Scope that, JsScope depend, Extra extra) {
-	depend ~= that.pass.generateJs(depend, extra);
+JsExpr generateJsImpl(VariableDefinition that, JsScope depend, Extra extra) {
+	depend ~= new JsVarDef(that.variable.generatePatternMatch(extra), that.value.generateJs(depend, extra), true);
 	return that.last.generateJs(depend, extra);
 }
 
-JsExpr generateJsImpl(VariableDef that, JsScope depend, Extra extra) {
-	JsScope temp = new JsScope;
-	auto variable = symbolSubName(that.variable, temp, extra);
-	that.value.generateJsVarDef(variable, depend, extra);
-	//todo: clean this
-	foreach (state; temp) {
-		depend ~= temp;
-	}
-	return that.last.generateJs(depend, extra);
+JsExpr generateJsImpl(Desugar!"assign" that, JsScope depend, Extra extra) {
+	return extra.requestExtern!"typi_pointer_assign";
 }
 
-JsExpr getAssignPointer() {
-	return new JsExternLit("typi_pointer_assign");
+JsExpr applyNumber(JsExpr builtin, Type type) {
+	auto number = type.castTo!TypeInt;
+	assert(number);
+	return new JsCall(builtin, [new JsIntLit(number.size), new JsBoolLit(number.signed)]);
 }
 
-JsExpr generateJsImpl(Assign that, JsScope depend, Extra extra) {
-	auto target = that.left.generateJs(depend, extra);
-	auto source = that.right.generateJs(depend, extra);
-	return new JsCall(getAssignPointer(), [target, source]);
+JsExpr generateJsImpl(DesugarContext!"multiply" that, JsScope depend, Extra extra) {
+	return applyNumber(extra.requestExtern!"typi_multiply", that.context);
 }
 
-JsExpr generateJsImpl(string op)(Binary!op that, JsScope depend, Extra extra) if (["*", "/", "%", "+", "-"].canFind(op)) {
-	auto left = that.left.generateJs(depend, extra);
-	auto right = that.right.generateJs(depend, extra);
-	return castInt(new JsBinary!op(left, right), that.type);
+JsExpr generateJsImpl(DesugarContext!"divide" that, JsScope depend, Extra extra) {
+	return applyNumber(extra.requestExtern!"typi_divide", that.context);
 }
 
-JsExpr generateJsImpl(string op)(Binary!op that, JsScope depend, Extra extra) if (["<=", ">=", "<", ">", "&&", "||"].canFind(op)) {
-	auto left = that.left.generateJs(depend, extra);
-	auto right = that.right.generateJs(depend, extra);
-	return new JsBinary!op(left, right);
+JsExpr generateJsImpl(DesugarContext!"modulus" that, JsScope depend, Extra extra) {
+	return applyNumber(extra.requestExtern!"typi_modulus", that.context);
 }
 
-JsExpr generateJsImpl(string op)(Prefix!op that, JsScope depend, Extra extra) if (["-", "!"].canFind(op)) {
-	return new JsPrefix!op(that.value.generateJs(depend, extra));
+JsExpr generateJsImpl(DesugarContext!"add" that, JsScope depend, Extra extra) {
+	return applyNumber(extra.requestExtern!"typi_add", that.context);
+}
+
+JsExpr generateJsImpl(DesugarContext!"subtract" that, JsScope depend, Extra extra) {
+	return applyNumber(extra.requestExtern!"typi_subtract", that.context);
+}
+
+JsExpr generateJsImpl(DesugarContext!"less equal" that, JsScope depend, Extra extra) {
+	return applyNumber(extra.requestExtern!"typi_lessthan_equal", that.context);
+}
+
+JsExpr generateJsImpl(DesugarContext!"greater equal" that, JsScope depend, Extra extra) {
+	return applyNumber(extra.requestExtern!"typi_greater_equal", that.context);
+}
+
+JsExpr generateJsImpl(DesugarContext!"less" that, JsScope depend, Extra extra) {
+	return applyNumber(extra.requestExtern!"typi_lessthan", that.context);
+}
+
+JsExpr generateJsImpl(DesugarContext!"greater" that, JsScope depend, Extra extra) {
+	return applyNumber(extra.requestExtern!"typi_greater", that.context);
+}
+
+JsExpr generateJsImpl(Desugar!"and" that, JsScope depend, Extra extra) {
+	return extra.requestExtern!"typi_and";
+}
+
+JsExpr generateJsImpl(Desugar!"or" that, JsScope depend, Extra extra) {
+	return extra.requestExtern!"typi_or";
+}
+
+JsExpr generateJsImpl(DesugarContext!"negate" that, JsScope depend, Extra extra) {
+	return applyNumber(extra.requestExtern!"typi_negate", that.context);
+}
+
+JsExpr generateJsImpl(Desugar!"not" that, JsScope depend, Extra extra) {
+	return extra.requestExtern!"typi_not";
 }

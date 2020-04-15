@@ -4,51 +4,57 @@
  (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
 /#
 
-void = (&&);
-
-swap : forall a. (&a(*),a(*)&) -> void;
-swap = (left,right) {
+~ <a extends unrestricted> (& a(*),a(*) , world &) -> world ~
+swap = (left,right, os) {
 	tmp = *left;
-	() = left <- *right;
-	() = right <- tmp;
-	()
+	|os| = assign(left, *right, os);
+	|os| = assign(right, tmp, os);
+	os
 };
 
-quick sort : integer 32[*] -> void;
-quick sort = array {
-	if (array.length > 1) {
-		pivot = array[array.length - 1];
-		middle = new 0;
-		end = new 0;
-		() = while (*end < array.length - 1) {
-			#0..middle < pivot
-			#middle..end - 1 > pivot
-			() = if (pivot > array[*end]) {
-				() = swap(array&[*middle], array&[*end]);
-				() = middle <- *middle + 1;
-				()
-			} else {
-				()
-			};
-			() = end <- *end + 1;
-			()
-		};
-		() = swap(array&[*middle],array&[array.length - 1]);
-		() = quick sort(array[0..*middle]);
-		() = quick sort(array[*middle..array.length]);
-		()
+
+quick sort exchange = (array, pivot, middle, end, os) {
+	if (end < array.length - 1){
+		if (pivot > array[end]){
+			(middle pointer,|os|) = index address(array, middle, os);
+			(end pointer, |os|) = index address(array, end, os);
+			|os| = swap(middle pointer, end pointer, os);
+			quick sort exchange(array, pivot, middle + 1, end + 1, os)
+		} else {
+			quick sort exchange(array, pivot, middle, end + 1, os)
+		}
 	} else {
-		()
+		(middle pointer, |os|) = index address(array, middle, os);
+		(end pointer, |os|) = index address(array, array.length - 1, os); 
+		|os| = swap(middle pointer,end pointer, os);
+		|os| = quick sort(array[0..middle], os);
+		|os| = quick sort(array[middle..array.length], os);
+		os
 	}
 };
 
-main : void -> void;
-main = () {
-	array = [0,7,9,3,8,6,5,1,4,2] : integer 32 [*];
-	() = quick sort(array);
-	() = assert(array == [0,1,2,3,4,5,6,7,8,9]);
-	()
+~ (& integer32[*], world &) -> world ~
+quick sort = (array,os) {
+	if (array.length > 1) {
+		pivot = array[array.length - 1];
+		quick sort exchange(array, pivot, 0, 0, os)
+	} else {
+		os
+	}
 };
 
-assert : boolean -> void;
+~ world -> world ~
+symbol main = os {
+	array owner = [0,7,9,3,8,6,5,1,4,2] : integer32 [!];
+	(array, |array owner|) = array owner.borrow array; 
+	|os| = quick sort(array, os);
+	target owner = [0,1,2,3,4,5,6,7,8,9];
+	(target, |target owner|) = target owner.borrow array;
+	|os| = assert(array == target, os);
+	() = target owner.delete array;
+	() = array owner.delete array;
+	os
+};
+
+~ (& boolean, world &) -> world ~
 assert = extern "assert";

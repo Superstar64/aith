@@ -4,12 +4,14 @@
  (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
 /#
 
-void = (&&);
-
-main : void -> void;
-main = () {
-	write("hello world")
+~ world -> world ~
+symbol main = os {
+	owner = "hello world";
+	(text, |owner|) = owner.borrow array;
+	|os| = write(text, os);
+	() = owner.delete array;
+	os
 };
 
-write : character[*] -> void;
+~ (& character[*], world &) -> world ~
 write = extern "write";

@@ -28,26 +28,40 @@ import std.stdio;
 import std.file : exists, isDir;
 import core.stdc.stdlib : exit;
 
-import parser.parser;
-import lexer;
-import semantic.semantic;
-import codegen.codegen;
+import misc.misc;
+import misc.container;
 
-static import Parser = parser.ast;
-import semantic.ast;
-import jsast;
+import Lexer = lexer;
+import Parser = parser.ast;
+import Semantic = semantic.ast;
+import JsAst = jsast;
 
-Module[string] all;
+import ParserEval = parser.parser;
+import SemanticEval = semantic.semantic;
+import CodegenEval = codegen.codegen;
+
 string[] searchDirs = ["."];
 MmFile[] maps;
 
-Module findAndReadModule(string name) {
-	if (name in all) {
-		return all[name];
+Dictonary!(Parser.ModuleVarDef, Semantic.Expression) knownSymbols;
+
+Dictonary!(string, Parser.Module) parserModules;
+Dictonary!(Parser.Module, Semantic.Module) semanticModules;
+
+Parser.Module readParserModule(string name) {
+	if (name in parserModules) {
+		return parserModules[name];
 	}
 	foreach (dir; searchDirs) {
-		if (exists(dir ~ dirSeparator ~ name)) {
-			return readModule(dir ~ dirSeparator ~ name);
+		auto fileName = dir ~ dirSeparator ~ name;
+		if (exists(fileName)) {
+			auto file = new MmFile(fileName);
+			maps ~= file;
+			auto buffer = file[].castTo!string;
+			auto lexer = Lexer.Lexer(fileName, buffer);
+			auto result = ParserEval.parseModule(lexer);
+			parserModules[name] = result;
+			return result;
 		}
 	}
 	stderr.writeln("can't find module " ~ name);
@@ -55,26 +69,13 @@ Module findAndReadModule(string name) {
 	assert(0);
 }
 
-Module readModule(string name) {
-	auto parserMod = new Parser.Module();
-	auto map = new MmFile(name);
-	maps ~= map;
-	auto buffer = cast(string) map[];
-	auto lexer = Lexer(name, buffer);
-	parseModule(lexer, parserMod);
-	auto semanticMod = lazyCreateModule(parserMod);
-	all[name] = semanticMod;
-	return semanticMod;
-}
-
-void readFiles(string[] fileNames, out Module[string] wanted) {
-	foreach (name; fileNames) {
-		if (!exists(name)) {
-			stderr.writeln(name ~ " doesn't exist");
-			exit(1);
-		}
-		wanted[name] = readModule(name);
+Semantic.Module readSemanticModule(Parser.Module parserModule) {
+	if (parserModule in semanticModules) {
+		return semanticModules[parserModule];
 	}
+	auto result = SemanticEval.createModule(parserModule);
+	semanticModules[parserModule] = result;
+	return result;
 }
 
 enum Help = `typi {optional arguments} [files to compile]
@@ -133,9 +134,11 @@ void main(string[] args) {
 		}
 	}
 
-	Module[string] wanted;
-	readFiles(modFiles, wanted);
-	all.each!(a => processModule(a));
+	Semantic.Module[string] wanted;
+	foreach (file; modFiles) {
+		wanted[file] = readSemanticModule(readParserModule(file));
+	}
+	semanticModules.byValue.each!(a => SemanticEval.validateModule(a));
 	File output;
 	if (outputFile == "-") {
 		output = stdout;
@@ -149,8 +152,8 @@ void main(string[] args) {
 				auto want = wanted[file];
 				auto modulename = file[0 .. $ - ".typi".length];
 				writeln(modulename, "{");
-				foreach (name, variable; want.aliases) {
-					if (auto expression = variable.element.castTo!Expression) {
+				foreach (name, variable; want.aliases.range) {
+					if (auto expression = Semantic.get(variable).get.castTo!(Semantic.Term)) {
 						writeln("\t", name, ":", expression.type.to!string);
 					}
 				}
@@ -158,23 +161,23 @@ void main(string[] args) {
 			}
 		}
 	} else if (genAll) {
-		foreach (mod; all.values) {
-			generateJsModule(mod.toRuntime).toStateString(writer, 0, JsContext());
+		foreach (mod; semanticModules.byValue) {
+			CodegenEval.generateJsModule(mod).toStateString(writer, 0, JsAst.JsContext());
 			output.writeln;
 		}
 		foreach (file; args) {
 			if (file.endsWith(".js")) {
-				File(file, "r").byChunk(4096).map!(a => cast(const(char)[]) a).copy(writer);
+				File(file, "r").byChunk(4096).map!(castTo!(const(char)[])).copy(writer);
 			}
 		}
 	} else {
 		foreach (file; args) {
 			if (file.endsWith(".typi")) {
-				auto want = wanted[file].toRuntime;
+				auto want = wanted[file];
 				//writeln(want.jsonify.to!string);
-				generateJsModule(want).toStateString(writer, 0, JsContext());
+				CodegenEval.generateJsModule(want).toStateString(writer, 0, JsAst.JsContext());
 			} else {
-				File(file, "r").byChunk(4096).map!(a => cast(const(char)[]) a).copy(writer);
+				File(file, "r").byChunk(4096).map!(castTo!(const(char)[])).copy(writer);
 			}
 		}
 	}

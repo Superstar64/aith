@@ -40,7 +40,7 @@ template Pack(T...) {
 template dispatch(alias fun, Types...) {
 	auto dispatch(Base, T...)(Base base, auto ref T args) {
 		foreach (Type; Types) {
-			if (cast(Type) base) {
+			if (base.castTo!Type) {
 				return fun(cast(Type) base, args);
 			}
 		}
@@ -51,5 +51,12 @@ template dispatch(alias fun, Types...) {
 template convert(T) {
 	T convert(Base)(Base node) {
 		return node;
+	}
+}
+
+template castTo(T) {
+	T castTo(Base)(Base node) {
+		static assert(!is(Base : T), "use convert for safe casts");
+		return cast(T)(node);
 	}
 }

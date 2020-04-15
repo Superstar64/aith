@@ -4,17 +4,14 @@
  (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
 /#
 
-main : void -> void;
-main = () {
-	triplet = (true,false,"test");
-	() = assert(triplet_0 == true);
-	() = assert(triplet_1 == false);
-	() = assert(triplet_2 == "test");
-	()
+~ world -> world ~
+symbol main = os {
+	triplet = (true,false,1 : integer32);
+	|os| = assert(triplet_0 == true, os);
+	|os| = assert(triplet_1 == false, os);
+	|os| = assert(triplet_2 == 1, os);
+	os
 };
 
-
-void = (&&);
-
-assert : boolean -> void;
+~ (& boolean, world &) -> world ~
 assert = extern "assert";

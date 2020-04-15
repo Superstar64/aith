@@ -4,28 +4,33 @@
  (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
 /#
 
-void = (&&);
-
-copy : forall a. (&a[*], a[*]&) -> void;
-copy = (from,to) {
-	() = assert(from.length == to.length);
-	index = new 0;
-	() = while (*index < from.length) {
-		() = to&[*index] <- from[*index];
-		() = index <- *index + 1;
-		()
-	};
-	()
+~ <a extends unrestricted> (&a[*], a[*], world &) -> world ~
+copy = (from,to, os) {
+	|os| = assert(from.length == to.length, os);
+	if (from.length == 0) {
+		os
+	} else {
+		(zero,|os|) = index address(to, 0, os);
+		|os| = assign(zero, from[0], os);
+		copy(from[1..from.length], to[1..to.length], os)
+	}
 };
 
-main : void -> void;
-main = () {
-	base = [(true,true),(true,false),(false,false)];
-	target = new[3]((false,false));
-	() = copy(base,target);
-	() = assert(target == [(true,true),(true,false),(false,false)]);
-	()
+~ world -> world ~
+symbol main = os {
+	base owner = [(true,true),(true,false),(false,false)];
+	expected owner = [(true,true),(true,false),(false,false)];
+	target owner = new array(3, ((false,false))); 
+	(base, |base owner|) = base owner.borrow array;
+	(expected, |expected owner|) = expected owner.borrow array;
+	(target, |target owner|) = target owner.borrow array;
+	|os| = copy(base,target, os);
+	|os| = assert(target == expected, os);
+	() = base owner.delete array;
+	() = expected owner.delete array;
+	() = target owner.delete array;
+	|os|
 };
 
-assert : boolean -> void;
+~ (& boolean, world &) -> world ~
 assert = extern "assert";

@@ -20,21 +20,25 @@ import std.algorithm;
 import std.bigint;
 
 import misc.position;
-
-static import Semantic = semantic.ast;
+import misc.nonstrict;
 
 class Module {
 	ModuleVarDef[] symbols;
 }
 
 interface Node {
+	import Semantic = semantic.ast;
+	import semantic.semantic : Context;
+
 	Position position();
+	Semantic.Expression semanticMain(Context context);
+	Semantic.Expression semanticGlobal(bool strong, string name, Semantic.Type type, Context context, ModuleVarDef symbol);
 }
 
 interface ModuleVarDef {
 	Position position();
-	string[] polymorphicVariables();
 	string name();
+	bool strong();
 	Expression explicitType(); //nullable
 	Expression value();
 }
@@ -43,36 +47,33 @@ interface Expression : Node {
 	Pattern patternMatch();
 }
 
-interface Assign : Expression {
-	Position position();
-	Expression left();
-	Expression right();
-}
-
-interface VariableDef : Expression {
+interface VariableDefinition : Expression {
 	Position position();
 	Pattern variable();
 	Expression value();
 	Expression last();
 }
 
-interface TypeBool : Expression {
+interface ConstraintTuple : Expression {
 	Position position();
-}
-
-interface TypeChar : Expression {
-	Position position();
-}
-
-interface TypeInt : Expression {
-	Position position();
-	int size();
-	bool signed();
+	uint index();
+	Expression type();
 }
 
 interface Import : Expression {
 	Position position();
-	Semantic.Module mod();
+	Lazy!Module value();
+}
+
+struct ForallBinding {
+	string name;
+	Expression[] constraints;
+}
+
+interface Forall : Expression {
+	Position position();
+	ForallBinding[] bindings();
+	Expression value();
 }
 
 interface IntLit : Expression {
@@ -83,11 +84,6 @@ interface IntLit : Expression {
 interface CharLit : Expression {
 	Position position();
 	dchar value();
-}
-
-interface BoolLit : Expression {
-	Position position();
-	bool yes();
 }
 
 interface TypeTuple : Expression {
@@ -103,6 +99,7 @@ interface TupleLit : Expression {
 interface Variable : Expression {
 	Position position();
 	string name();
+	bool shadow();
 }
 
 interface If : Expression {
@@ -112,37 +109,10 @@ interface If : Expression {
 	Expression no();
 }
 
-interface While : Expression {
-	Position position();
-	Expression cond();
-	Expression state();
-}
-
-interface New : Expression {
-	Position position();
-	Expression value();
-}
-
-interface NewArray : Expression {
-	Position position();
-	Expression length();
-	Expression value();
-}
-
-interface Cast : Expression {
-	Position position();
-	Expression type();
-	Expression value();
-}
-
 interface Infer : Expression {
 	Position position();
 	Expression type();
 	Expression value();
-}
-
-interface Length : Expression {
-	Position position();
 }
 
 interface UseSymbol : Expression {
@@ -152,12 +122,6 @@ interface UseSymbol : Expression {
 }
 
 interface Index : Expression {
-	Position position();
-	Expression array();
-	Expression index();
-}
-
-interface IndexAddress : Expression {
 	Position position();
 	Expression array();
 	Expression index();
@@ -188,7 +152,7 @@ interface Slice : Expression {
 	Expression right();
 }
 
-interface Binary(string T) : Expression if (["*", "/", "%", "+", "-", "~", "==", "!=", "<=", ">=", "<", ">", "&&", "||", "->"].canFind(T)) {
+interface Binary(string T) : Expression if (["*", "/", "%", "+", "-", "==", "!=", "<=", ">=", "<", ">", "&&", "||", "->"].canFind(T)) {
 	Position position();
 	Expression left();
 	Expression right();
@@ -199,7 +163,7 @@ interface Prefix(string T) : Expression if (["-", "*", "!"].canFind(T)) {
 	Expression value();
 }
 
-interface Postfix(string T) : Expression if (["(*)", "[*]"].canFind(T)) {
+interface Postfix(string T) : Expression if (["(*)", "[*]", "(!)", "[!]"].canFind(T)) {
 	Position position();
 	Expression value();
 }
@@ -210,6 +174,7 @@ interface Pattern : Node {
 interface NamedArgument : Pattern {
 	Position position();
 	string name();
+	bool shadow();
 }
 
 interface TupleArgument : Pattern {

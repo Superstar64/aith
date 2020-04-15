@@ -56,7 +56,8 @@ import misc.position;
 	}
 }
 
-enum keywords = AliasSeq!("global", "static", "let", "boolean", "cast", "character", "else", "extern", "false", "forall", "if", "import", "infer", "integer", "length", "new", "of", "private", "public", "template", "tuple", "then", "true", "natural", "while");
+enum keywords = AliasSeq!("else", "extern", "extends", "forall", "if", "import", "then", "has", "symbol");
+
 struct Keyword(string keyword) if (staticIndexOf!(keyword, keywords) >= 0) {
 	string toString() {
 		return keyword;
@@ -68,7 +69,7 @@ auto keyword(string key)() {
 }
 
 //must be sorted according to string length
-enum operators = AliasSeq!("[*]", "(*)", ":::", "==", "!=", "<=", ">=", "&&", "||", "::", "->", "..", "&[", "&*_", "<-", "=>", "(&", "&)", "<", ">", "+", "-", "*", "/", "%", "=", "!", "~", "&", "|", "^", ":", "$", "@", "{", "}", "(", ")", "[", "]", ".", ",", ";", "_");
+enum operators = AliasSeq!("[*]", "(*)", "(!)", "[!]", ":::", "==", "!=", "<=", ">=", "&&", "||", "::", "->", "..", "&[", "&*_", "<-", "=>", "(&", "&)", "~~", "<", ">", "+", "-", "*", "/", "%", "=", "!", "~", "&", "|", "^", ":", "$", "@", "{", "}", "(", ")", "[", "]", ".", ",", ";", "_");
 
 struct Operator(string operator) if (staticIndexOf!(operator, operators) >= 0) {
 	string toString() {
@@ -326,7 +327,9 @@ struct Lexer {
 				untilLine = sliced.length;
 			}
 			auto end = unslice(source.file, sliced);
-			auto lineCount = cast(uint) source.file[index .. end].filter!(a => a == '\n').count;
+			auto lineCount = source.file[index .. end].filter!(a => a == '\n')
+				.count
+				.to!uint;
 
 			return Position(source, Section(line, line + lineCount, index, end, lineStart, end + untilLine));
 		}
@@ -346,7 +349,9 @@ struct Lexer {
 					if (nextLine != -1) {
 						lineStart = end - nextLine;
 					}
-					line += cast(int) source.file[index .. end].filter!(a => a == '\n').count;
+					line += source.file[index .. end].filter!(a => a == '\n')
+						.count
+						.to!int;
 					index = end;
 					return;
 				}

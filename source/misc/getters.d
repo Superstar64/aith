@@ -51,9 +51,9 @@ mixin template Getters(T) {
 	import misc.json;
 
 	Json jsonifyImpl()() {
-		static import std.typecons;
-		static import std.conv;
-		static import misc.json;
+		import std.typecons;
+		import std.conv;
+		import misc.json;
 
 		JsonObject base = new JsonObject;
 		base.fields ~= std.typecons.tuple("_name", misc.json.jsonify(T.stringof));

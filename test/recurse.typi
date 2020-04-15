@@ -20,16 +20,14 @@ pong = x {
 	}
 };
 
-void = (&&);
-
-main : void -> void;
-main = () {
-	() = false.ping.assert;
-	() = false.pong.assert;
-	() = true.ping.assert;
-	() = true.pong.assert;
-	()
+~ world -> world ~
+symbol main = os {
+	|os| = assert(false.ping, os);
+	|os| = assert(false.pong, os);
+	|os| = assert(true.ping, os);
+	|os| = assert(true.pong, os);
+	os
 };
 
-assert : boolean -> void;
+~ (& boolean, world &) -> world ~
 assert = extern "assert";

@@ -26,8 +26,12 @@ import jsast;
 import misc.nonstrict;
 
 abstract class Json {
-	void toExprString(scope void delegate(const(char)[]) result, uint indent, Tuple!() context);
-	uint pred();
+	void toExprStringImpl(scope void delegate(const(char)[]) result, uint indent, Tuple!() context);
+	final void toExprString(scope void delegate(const(char)[]) result, uint indent, Tuple!() context) {
+		toExprStringImpl(result, indent, context);
+	}
+
+	uint precedence();
 
 	override string toString() {
 		string result;

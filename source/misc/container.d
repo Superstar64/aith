@@ -17,82 +17,159 @@
 
 module misc.container;
 
+import std.algorithm : map, filter, all;
+import std.array;
+import std.range;
 import std.typecons;
 
-Tuple!()[T] arrayToSet(T)(T[] data) {
-	Tuple!()[T] result;
-	foreach (d; data) {
-		result[d] = tuple();
+import std.conv;
+
+struct Dictonary(K, V) {
+	V[K] internal;
+
+	V opIndex(K key) {
+		return internal[key];
 	}
-	return result;
+
+	void opIndexAssign(V value, K key) {
+		auto copy = internal.dup;
+		copy[key] = value;
+		internal = copy;
+	}
+
+	bool opBinaryRight(string op : "in")(K key) {
+		return !!(key in internal);
+	}
+
+	size_t length() {
+		return internal.length;
+	}
+
+	auto range() {
+		return internal.byPair;
+	}
+
+	auto byKey() {
+		return internal.byKey;
+	}
+
+	auto byValue() {
+		return internal.byValue;
+	}
+
+	string toString() {
+		return internal.to!string;
+	}
+}
+
+Dictonary!(K, V) insertIfMissing(K, V)(Dictonary!(K, V) that, K key, V value) {
+	if (!(key in that)) {
+		return that.insert(key, value);
+	} else {
+		return that;
+	}
+}
+
+Dictonary!(K, V) insert(K, V)(Dictonary!(K, V) that, K key, V value) {
+	return that.insertRange(tuple(key, value).only);
+}
+
+Dictonary!(K, V) insertRange(R, K, V)(Dictonary!(K, V) that, R range) {
+	auto copy = that.internal;
+	foreach (key, value; range) {
+		copy[key] = value;
+	}
+	return Dictonary!(K, V)(copy);
+}
+
+Dictonary!(K, V) rangeToMap(R, K = typeof(R.init.front[0]), V = typeof(R.init.front[1]))(R range) {
+	return emptyMap!(K, V).insertRange(range);
+}
+
+Dictonary!(K, V) remove(K, V)(Dictonary!(K, V) that, K key) {
+	return that.removeRange(key.only);
+}
+
+Dictonary!(K, V) removeRange(R, K, V)(Dictonary!(K, V) that, R range) {
+	auto copy = that.internal;
+	foreach (key; range) {
+		copy.remove(key);
+	}
+	return Dictonary!(K, V)(copy);
+}
+
+Dictonary!(K, V) fromAALiteral(K, V)(V[K] literal) {
+	assert(literal !is null);
+	return Dictonary!(K, V)(literal);
+}
+
+Set!K keys(K, V)(Dictonary!(K, V) that) {
+	return that.byKey.rangeToSet;
+}
+
+struct Set(T) {
+	Dictonary!(T, Tuple!()) internal;
+
+	auto range() {
+		return internal.byKey;
+	}
+
+	bool opBinaryRight(string op : "in")(T item) {
+		return item in internal;
+	}
+
+	string toString() {
+		return range.to!string;
+	}
+}
+
+Set!T insert(T)(Set!T that, T value) {
+	return that.insertRange(value.only);
+}
+
+Set!T insertRange(R, T)(Set!T that, R range) {
+	return Set!T(that.internal.insertRange(range.map!(a => tuple(a, tuple()))));
+}
+
+Set!T rangeToSet(R, T = ElementType!R)(R range) {
+	return emptySet!T().insertRange(range);
 }
 
 T[] emptyArray(T)() {
 	return null;
 }
 
-Tuple!()[T] emptySet(T)() {
-	return null;
+Set!T emptySet(T)() {
+	return Set!T();
 }
 
-V[K] emptyMap(K, V)() {
-	return null;
+Dictonary!(K, V) emptyMap(K, V)() {
+	return Dictonary!(K, V)();
 }
 
-Tuple!()[T] singleSet(T)(T data) {
-	return arrayToSet([data]);
+Set!T intersectSets(T)(Set!T left, Set!T right) {
+	return left.range.filter!(a => a in right).rangeToSet;
 }
 
-Tuple!()[T] mergeSets(T)(Tuple!()[T] left, Tuple!()[T] right) {
-	return arrayToSet(left.keys ~ right.keys);
+bool isSubSet(T)(Set!T smaller, Set!T bigger) {
+	return smaller.range.map!(a => a in bigger).all;
 }
 
-auto mergeSets(H, T...)(H first, H second, T tail) if (tail.length > 0) {
-	return mergeSets(mergeSets(first, second), tail);
+Dictonary!(K, Tuple!(V, V)) intersectMaps(K, V)(Dictonary!(K, V) left, Dictonary!(K, V) right) {
+	auto keys = left.byKey.filter!(a => a in right);
+	return keys.map!(key => tuple(key, tuple(left[key], right[key]))).rangeToMap;
 }
 
-auto intersectSets(T)(Tuple!()[T] left, Tuple!()[T] right) {
-	Tuple!()[T] result;
-	foreach (e; left.byKey) {
-		if (e in right) {
-			result[e] = tuple();
-		}
-	}
-	return result;
+Dictonary!(K, V) mergeMaps(alias combine, K, V)() {
+	return Dictonary!(K, V)();
 }
 
-bool isSubSet(T)(Tuple!()[T] smaller, Tuple!()[T] bigger) {
-	foreach (key; smaller.byKey) {
-		if (!(key in bigger)) {
-			return false;
-		}
-	}
-	return true;
+Dictonary!(K, V) mergeMaps(alias combine, K, V)(Dictonary!(K, V) that) {
+	return that;
 }
 
-Tuple!(V, V)[K] intersectMaps(K, V)(V[K] left, V[K] right) {
-	Tuple!(V, V)[K] result;
-	foreach (leftKey, leftValue; left) {
-		if (leftKey in right) {
-			result[leftKey] = tuple(leftValue, right[leftKey]);
-		}
-	}
-	return result;
-}
-
-V[K] mergeMaps(alias combine, K, V)(V[K] left, V[K] right) {
-	V[K] result;
-	foreach (k; left.byKey) {
-		result[k] = left[k];
-	}
-	foreach (k; right.byKey) {
-		if (k in result) {
-			result[k] = combine(result[k], right[k]);
-		} else {
-			result[k] = right[k];
-		}
-	}
-	return result;
+Dictonary!(K, V) mergeMaps(alias combine, K, V)(Dictonary!(K, V) left, Dictonary!(K, V) right) {
+	return left.insertRange(right.range.map!(a => tuple(a[0], a[0] in left ? combine(left[a[0]], a[1]) : a[1])));
 }
 
 auto mergeMaps(alias combine, H, T...)(H first, H second, T tail) if (tail.length > 0) {
@@ -123,10 +200,10 @@ auto mergeMapsCombine(T...)(T arguments) {
 	return mergeMaps!appendCombine(arguments);
 }
 
-auto mapValues(alias fun, K, V)(V[K] data) {
-	typeof(fun(V.init))[K] fresh;
-	foreach (key, value; data) {
-		fresh[key] = fun(value);
+auto mapValues(alias fun, K, V)(Dictonary!(K, V) data) {
+	Dictonary!(K, typeof(fun(V.init))) result;
+	foreach (key, value; data.range) {
+		result = result.insert(key, fun(value));
 	}
-	return fresh;
+	return result;
 }
