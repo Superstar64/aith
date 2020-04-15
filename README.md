@@ -1,12 +1,10 @@
 Typi is a toy language with a native language look and feel that compiles to javascript. 
 This language is not intended for practical use.
 
-see LICENSE for License info
-
-
 Typi uses basic hindly milner for type inferance, entire functions can be inferred without type annotations.
 
 Typi has linear types, which are use once types. As of how, linear types prevent double free and forget to free, but unsafe borrowing is still used.
+
 Typi functions require a `world` type to preform side effects, and said world must be used linearly.
 
 	# is used for single line comments
@@ -16,7 +14,7 @@ Typi's types:
 
 	world # type need for io actions, must be used linearly
 	boolean # boolean type
-	character # character type,utf-32, variable length encoding such as utf-8 is not supported
+	character # character type, utf-32
 	integer # signed integer type, platform dependent size
 	integer8
 	integer16
@@ -33,8 +31,8 @@ Typi's types:
 	t(!) # owning pointer, must be used linearly
 	t[!] # owning array, must be used linearly
 	t -> t' # function type
-	<x,y> t # generic type, where x and y are type variables in t
-	<x extends a & b> t # constrainted generic type by a and b
+	<x,x'> t # generic type, where x and y are type variables in t
+	<x extends c & c'> t # constrainted generic type by c and c'
 
 Owner pointers and owner arrays are only used for allocating, they must be borrowed to perform other actions on.
 
@@ -43,6 +41,7 @@ Typi's constraints:
 	equal # comparable types
 	number # numeric types
 	unrestricted # non linear types
+	has n : t # tuple with element t at index n
 	
 Typi's builtin functions:
 
@@ -56,8 +55,8 @@ Typi's builtin functions:
 	
 	cast : <a extends number, b extends number> a -> b # integer casting
 	length : <a> a[*] -> natural # builtin length function
-	index address : (& a[*], natural, world) -> (& a(*), world &) # get pointer to array index
-	assign : (& a(*), a, world &) -> world # assign value to pointer
+	index address : <a> (& a[*], natural, world) -> (& a(*), world &) # get pointer to array index
+	assign : <a extends unrestricted> (& a(*), a, world &) -> world # assign value to pointer
 	
 Typi's expressions:
 
@@ -65,8 +64,9 @@ Typi's expressions:
 	p { e } # function literal
 	x = e; e' # let in expression, x is set to e in e'
 	x # variable
-	123 # integer literals
+	1 # integer literals
 	'a' # character literals
+	"a" # string literals, returns owner array of characters
 	true # boolean literals
 	false #
 	(e) # parenthesis
@@ -95,7 +95,7 @@ Typi's pattern matches:
 
 	x # named pattern match
 	(p,p',p'') # tuple pattern match
-	|abc| # shadowing pattern match, shadow previously declared variables
+	|x| # shadowing pattern match, shadow previously declared variables
 	
 Typi's global statements:
 
