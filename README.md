@@ -101,5 +101,5 @@ Typi's global statements:
 
 	x = e  # declare a global
 	x = t  # declare a type
-	~ t ~ x = e"  # declared a typed global
-
+	~ t ~ x = e  # declared a typed global
+	symbol x = e # declare a symbol generating global, must not be generic
