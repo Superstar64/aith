@@ -1,9 +1,11 @@
-Aith is a toy language that compiles to javascript.
-Aith uses basic hindly milner with qualified types for type inference, entire functions can be inferred without type annotations.
+Aith is a toy language that compiles to javascript. Aith uses basic hindly milner with qualified types for type inference. This means that entire functions can be inferred without type annotations.
+
 Aith has referential transparency up to non termination, if your programs halts, it's referentially transparent.
+
 Aith has linear types, which are use once types. As of how, linear types are only used to preserve referential transparency.
 Eventually, linear types will be used to handle memory management when a C backend is added.
 Aith functions require a `world` type to preform side effects, and said world must be used linearly.
+
 Aith has a lambda calculus style macros system on terms. Macros will be beta reduced before code generation.
 Aith's kind system prevent macro types from escaping into runtime types.
 
@@ -62,6 +64,7 @@ Aith's builtin functions:
 	length : ~ <a> raw a[] ~> natural ~ # length of array
 	
 Aith's expressions:
+
 	p => e # macro literal, p is a pattern match
 	p { e } # macro literal
 	x = e; e' # let in expression, x is set to e in e', e must be of kind runtime
@@ -104,13 +107,18 @@ Aith's expressions:
 `e[e']`, `*e`, and `e <- e` are side effects, they return a macro of type `world ~> (& t , world &)`
 
 Aith's has an expression based do notation. As of now do notation only desugars into a state monad(terms of type `world ~> (& t , world &)`).
+
 `do { e }` takes a pure `e` with some `try` sub expressions and wraps e in a state monad while apply the effects.
+
 `try { e }` contain side effects and are moved outside their surrounding corrisponding do expression. 
+
 `run e; e'` is the equivalent of `() = try { e }; e'`.
+
 Currently do expressions don't work well with `if` expressions.
 
 
 Aith's pattern matches:
+
 	x # named pattern match, x must of kind runtime
 	~x # lazy named pattern match, x may be any stage
 	(p,p',p'') # tuple pattern match, cannot have lazy pattern matches
