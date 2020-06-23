@@ -103,7 +103,7 @@ Aith's expressions:
 	try => # try expression
 	try { e }
 	run e; e' # run expression
-	extern "abc" # extern expression, must be inside extern global state
+	extern "abc" # extern expression, must be inside extern global statement
 
 `e[e']`, `*e`, `e <- e`, array literals and string literals are side effects, they return a macro of type `world ~> (& t , world &)`
 
