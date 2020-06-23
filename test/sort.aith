@@ -47,9 +47,9 @@ symbol quick sort = (array,os) {
 
 ~ world -> (& (&&), world &) ~
 symbol main = do {
-	array = [0,7,9,3,8,6,5,1,4,2] : raw integer32[];
+	array = try { [0,7,9,3,8,6,5,1,4,2] } : raw integer32[];
 	run curry(quick sort`)(array);
-	target = [0,1,2,3,4,5,6,7,8,9];
+	target = try => [0,1,2,3,4,5,6,7,8,9];
 	run assert(array == target);
 	()
 };

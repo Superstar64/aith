@@ -1107,7 +1107,7 @@ Expression semanticImpl(string op)(ParserPrefix!op that, Context context) if (["
 }
 
 Expression semanticImpl(Parser.StringLit that, Context context) {
-	return make!StringLit(make!TypeArray(make!StageRuntime, make!TypeChar(make!StageRuntime)), that.value);
+	return context.semanticDesugar!"effect"(that.position, make!StringLit(make!TypeArray(make!StageRuntime, make!TypeChar(make!StageRuntime)), that.value));
 }
 
 Expression semanticImpl(Parser.ArrayLit that, Context context) {
@@ -1119,7 +1119,7 @@ Expression semanticImpl(Parser.ArrayLit that, Context context) {
 		context.typeCheck(variable, value.type, that.position);
 	}
 
-	return make!ArrayLit(type, values);
+	return context.semanticDesugar!"effect"(that.position, make!ArrayLit(type, values));
 }
 
 Expression semanticImpl(Parser.ExternJs that, Context context) {

@@ -21,8 +21,8 @@ template copy = ((from,to), os) {
 
 ~ world -> (& (&&), world &) ~
 symbol main = do {
-	base = [(true,true),(true,false),(false,false)];
-	expected = [(true,true),(true,false),(false,false)];
+	base = try => [(true,true),(true,false),(false,false)];
+	expected = try => [(true,true),(true,false),(false,false)];
 	target = try => new array(3)(false,false); 
 	run curry(copy`)(base, target);
 	run assert(target == expected);

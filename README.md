@@ -72,7 +72,7 @@ Aith's expressions:
 	x # variable
 	1 # integer literals
 	'a' # character literals
-	"a" # string literals, returns owner array of characters
+	"a" # string literals, returns owner array of characters, side effect
 	true # boolean literals
 	false
 	(e) # parenthesis
@@ -82,9 +82,12 @@ Aith's expressions:
 	e(e') # macro call
 	e` # convert runtime function into macro
 	e.e' # right to left macro call, calls e' with e
+	e[e'] # array index expression, e' must be of natural 0, side effect
 	e[e'..e''] # slice expression, e' and e'' must be of type natural 0
-	[e, e', e''] # array literals
+	[e, e', e''] # array literals, side effect
 	e_x # tuple index e is the tuple, x an integer literal
+	*e # deference a pointer, side effect
+	e <- e' # assign a value to a pointer, e must be a pointer, side effect
 	e&*_x # tuple forward, given e is a pointer to tuple return a pointer to a sub element
 	math/logic binary operators(in order of precedence by row): both left and right sides must be the exact same type
 		"*","/","%",
@@ -93,9 +96,6 @@ Aith's expressions:
 		"&&","||",
 	math/logic prefix operators:
 		"-","!"
-	e[e'] # array index expression, e' must be of natural 0, side effect
-	*e # deference a pointer, side effect
-	e <- e' # assign a value to a pointer, e must be a pointer, side effect
 	import "path" # import a module
 	m::x  # access module field, where m is a module and x is a field inside of a module
 	do => e # do expression
@@ -105,7 +105,7 @@ Aith's expressions:
 	run e; e' # run expression
 	extern "abc" # extern expression, must be inside extern global state
 
-`e[e']`, `*e`, and `e <- e` are side effects, they return a macro of type `world ~> (& t , world &)`
+`e[e']`, `*e`, `e <- e`, array literals and string literals are side effects, they return a macro of type `world ~> (& t , world &)`
 
 Aith's has an expression based do notation. As of now do notation only desugars into a state monad(terms of type `world ~> (& t , world &)`).
 

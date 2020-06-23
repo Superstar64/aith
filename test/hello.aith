@@ -6,6 +6,6 @@
 
 ~ world -> (& (&&), world &) ~
 symbol main = do {
-	run write("hello world");
+	run write(try => "hello world");
 	()
 };

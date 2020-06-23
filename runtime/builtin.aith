@@ -1,9 +1,7 @@
 
 inline curry = ~f => ~a => ~b => f(a,b);
 
-inline pure = ~item => ~os => (item, os);
-
-inline desugar pure = pure;
+inline desugar pure = ~item => ~os => (item, os);
 
 inline desugar bind = ~monad => ~continue => ~os {
 	(x, |os|) = monad(os);
@@ -39,6 +37,16 @@ extern length impl = extern "aith_array_length";
 ~ <a> raw a[] ~> natural ~
 inline length = length impl`;
 
+
+~ <a extends number, b extends number> a -> b ~
+extern cast impl = extern "aith_cast_integer";
+
+~ <a extends number, b extends number> a ~> b ~
+inline cast = cast impl`;
+
+~ <a> a ~> world ~> (& a, world &) ~
+inline desugar effect = desugar pure;
+
 ~ <a> (& raw a[], natural &) -> raw a* ~
 extern desugar index address impl = extern "aith_array_address_of";
 
@@ -49,11 +57,6 @@ extern desugar assign impl = extern "aith_pointer_assign";
 
 inline desugar assign = ~pointer => ~item => ~world => ((), desugar assign impl`(pointer, item, world));
 
-~ <a extends number, b extends number> a -> b ~
-extern cast impl = extern "aith_cast_integer";
-
-~ <a extends number, b extends number> a ~> b ~
-inline cast = cast impl`;
 
 ~ <a> (& raw a[], natural, world &) -> (& a, world &) ~
 extern desugar index impl = extern "aith_index_array";

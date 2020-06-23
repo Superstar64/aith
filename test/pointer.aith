@@ -23,7 +23,7 @@ symbol heap pointer = do {
 
 ~ world -> (& (&&), world &) ~
 symbol array pointer = do {
-	array = [0,10,20] : raw integer32[];
+	array = try { [0,10,20] } : raw integer32[];
 	run assert(try{ array[1] } == 10);
 	run curry(increment`)(array&[1]);
 	run assert(try { array[1] } == 11);
