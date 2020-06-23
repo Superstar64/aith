@@ -1,0 +1,31 @@
+#{
+ Copyright (C) 2020 Freddy Angel Cubas "Superstar64"
+ Distributed under the Boost Software License, Version 1.0.
+ (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
+#}
+
+~ <a extends number & equal & unrestricted> a -> a ~
+template ping = x {
+	if (x == 100) {
+		x
+	} else {
+		pong`(x+1)
+	}
+};
+
+~ <b extends number & equal & unrestricted> b -> b ~
+template pong = x {
+	if (x == 100) {
+		x
+	} else {
+		ping`(x+1)
+	}
+};
+
+~ world -> (& (&&), world &) ~
+symbol main = do {
+	run assert(ping`(1 : integer32) == 100);
+	run assert(pong`(1 : natural32) == 100);
+	()
+};
+

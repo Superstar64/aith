@@ -1,18 +1,18 @@
 /+
 	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
-	This file is part of Typi.
+	This file is part of Aith.
 
-	Typi is free software: you can redistribute it and/or modify
+	Aith is free software: you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
 	the Free Software Foundation version 3 of the License.
 
-	Typi is distributed in the hope that it will be useful,
+	Aith is distributed in the hope that it will be useful,
 	but WITHOUT ANY WARRANTY; without even the implied warranty of
 	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 	GNU General Public License for more details.
 
 	You should have received a copy of the GNU General Public License
-	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
+	along with Aith.  If not, see <http://www.gnu.org/licenses/>.
 +/
 
 module misc.misc;
@@ -59,4 +59,14 @@ template castTo(T) {
 		static assert(!is(Base : T), "use convert for safe casts");
 		return cast(T)(node);
 	}
+}
+
+T* wrap(T)(T term) {
+	struct Wrapper {
+		T inner;
+	}
+
+	auto object = new Wrapper;
+	object.inner = term;
+	return &object.inner;
 }

@@ -1,8 +1,8 @@
 //comparing
 
-const typi_compare_vanilla = ([left, right]) => left === right;
+const aith_compare_vanilla = ([left, right]) => left === right;
 
-const typi_array_compare = compare => ([left, right]) => {
+const aith_array_compare = compare => ([left, right]) => {
 	if (left.length != right.length) {
 		return false;
 	}
@@ -14,7 +14,7 @@ const typi_array_compare = compare => ([left, right]) => {
 	return true;
 };
 
-const typi_tuple_compare = subcompares => ([left,right]) => {
+const aith_tuple_compare = subcompares => ([left,right]) => {
 	for (let i = 0; i < subcompares.length; i++) {
 		if (!subcompares[i]([left[i], right[i]])) {
 			return false;
@@ -23,37 +23,34 @@ const typi_tuple_compare = subcompares => ([left,right]) => {
 	return true;
 };
 
-const typi_compare_not = compare => ([left,right]) => !compare([left,right]);
+const aith_compare = compare => ([left, right]) => compare([left, right]);
+const aith_compare_not = compare => ([left,right]) => !compare([left,right]);
 
 //arrays
 
-const typi_new_array = ([length, element]) => {
+const aith_new_array = _ => ([length, element, _]) => {
 	const fresh = [];
 	for (let i = 0; i < length; i++) {
 		fresh[i] = element;
 	}
-	return {
+	return [{
 		data: fresh,
 		start: 0,
 		length: length
-	};
+	}, undefined];
 };
 
-const typi_borrow_array = array => [array,array];
+const aith_index_array = ([array, index, _]) => [array.data[array.start + index], undefined];
 
-const typi_delete_array = array => [];
-
-const typi_index_array = ([array, index]) => array.data[array.start + index];
-
-const typi_array_slice = ([array, start, end]) => null || {
+const aith_array_slice = ([array, start, end]) => null || {
 	data: array.data,
 	start: array.start + start,
 	length: end - start
 };
 
-const typi_array_length = array => array.length;
+const aith_array_length = array => array.length;
 
-const typi_array_literal = length => elements => {
+const aith_array_literal = length => elements => {
 	const fresh = [];
 	for (let i = 0; i < length; i++) {
 		fresh[i] = elements[i];
@@ -67,7 +64,7 @@ const typi_array_literal = length => elements => {
 
 //pointers
 
-const typi_util_create_child_pointer = (tuple_pointer, index) => null || {
+const aith_util_create_child_pointer = (tuple_pointer, index) => null || {
 	get: () => tuple_pointer.get()[index],
 	set: object => { 
 		let clone = tuple_pointer.get().slice();
@@ -77,26 +74,22 @@ const typi_util_create_child_pointer = (tuple_pointer, index) => null || {
 };
 
 
-const typi_create_pointer = ([object, world]) => [{
+const aith_create_pointer = _ => ([object, world]) => [{
 	get: () => object,
 	set: value => { object = value; }
 }, undefined];
 
-const typi_borrow_pointer = pointer => [pointer, pointer];
-
-const typi_delete_pointer = ([pointer, world]) => [pointer.get(), undefined];
-
-const typi_tuple_address_forword = (index,tuple_size) => tuple_pointer => {
+const aith_tuple_address_forword = (index,tuple_size) => tuple_pointer => {
 	if(tuple_pointer.children === undefined){
 		tuple_pointer.children = [];
 		for(let i = 0; i < tuple_size; i++){
-			tuple_pointer.children[i] = typi_util_create_child_pointer(tuple_pointer,i);
+			tuple_pointer.children[i] = aith_util_create_child_pointer(tuple_pointer,i);
 		}
 	}
 	return tuple_pointer.children[index]; 
 };
 
-const typi_array_address_of = ([array, index, world]) => {
+const aith_array_address_of = ([array, index]) => {
 	array.data.pointers = array.data.pointers || [];
 
 	const pointers = array.data.pointers;
@@ -105,51 +98,51 @@ const typi_array_address_of = ([array, index, world]) => {
 		get: () => array.data[realIndex],
 		set: object => { array.data[realIndex] = object; }
 	};
-	return [pointers[realIndex], undefined];
+	return pointers[realIndex]
 };
 
 
-const typi_pointer_assign = ([pointer, value]) => {
+const aith_pointer_assign = ([pointer, value]) => {
 	pointer.set(value);
 	return [];
 };
 
-const typi_derefence_pointer = pointer => {
-	return pointer.get();
+const aith_derefence_pointer = ([pointer,_]) => {
+	return [pointer.get(), undefined];
 };
 
 // logic
 
-const typi_and = ([left,right]) => {
+const aith_and = ([left,right]) => {
 	return left && right;
 };
 
-const typi_or = ([left,right]) => {
+const aith_or = ([left,right]) => {
 	return left || right;
 }
 
-const typi_not = boolean => !boolean;
+const aith_not = boolean => !boolean;
 
 
 // numbers
 
-const typi_lessthan = (size, signed) => ([left,right]) => {
+const aith_lessthan = ([size, signed]) => ([left,right]) => {
 	return left < right;
 };
 
-const typi_lessthan_equal = (size, signed) => ([left,right]) => {
+const aith_lessthan_equal = ([size, signed]) => ([left,right]) => {
 	return left <= right;
 };
 
-const typi_greater = (size, signed) => ([left,right]) => {
+const aith_greater = ([size, signed]) => ([left,right]) => {
 	return left > right;
 };
 
-const typi_greater_equal = (size, signed) => ([left,right]) => {
+const aith_greater_equal = ([size, signed]) => ([left,right]) => {
 	return left >= right;
 };
 
-const typi_add = (size, signed) => ([left,right]) => {
+const aith_add = ([size, signed]) => ([left,right]) => {
 	if(size == 0) size = 32;
 	if(signed && size == 32){
 		return left + right | 0;
@@ -160,7 +153,7 @@ const typi_add = (size, signed) => ([left,right]) => {
 	}
 };
 
-const typi_subtract = (size, signed) => ([left,right]) => {
+const aith_subtract = ([size, signed]) => ([left,right]) => {
 	if(size == 0) size = 32;
 	if(signed && size == 32){
 		return left - right | 0;
@@ -170,7 +163,7 @@ const typi_subtract = (size, signed) => ([left,right]) => {
 		throw "Bad number size";
 	}
 };
-const typi_multiply = (size, signed) => ([left,right]) => {
+const aith_multiply = ([size, signed]) => ([left,right]) => {
 	if(size == 0) size = 32;
 	if(signed && size == 32){
 		return left * right | 0;
@@ -181,7 +174,7 @@ const typi_multiply = (size, signed) => ([left,right]) => {
 	}
 };
 
-const typi_divide = (size, signed) => ([left,right]) => {
+const aith_divide = ([size, signed]) => ([left,right]) => {
 	if(size == 0) size = 32;
 	if(signed && size == 32){
 		return left / right | 0;
@@ -192,7 +185,7 @@ const typi_divide = (size, signed) => ([left,right]) => {
 	}
 };
 
-const typi_modulus = (size, signed) => ([left,right]) => {
+const aith_modulus = ([size, signed]) => ([left,right]) => {
 	if(size == 0) size = 32;
 	if(signed && size == 32){
 		return left % right | 0;
@@ -203,7 +196,7 @@ const typi_modulus = (size, signed) => ([left,right]) => {
 	}
 };
 
-const typi_negate = (size, signed) => number => {
+const aith_negate = ([size, signed]) => number => {
 	if(size == 0) size = 32;
 	if(signed && size == 32){
 		return -number | 0;
@@ -214,7 +207,7 @@ const typi_negate = (size, signed) => number => {
 	}
 }
 
-const typi_cast_integer = (size, signed) => (input_size, input_signed) => number => {
+const aith_cast_integer = ([input_size, input_signed], [size, signed]) => number => {
 	if(size == 0) size = 32;
 	if(signed && size == 32){
 		return number | 0;
@@ -227,7 +220,7 @@ const typi_cast_integer = (size, signed) => (input_size, input_signed) => number
 
 // tuples
 
-const typi_index_tuple = index => tuple => {
+const aith_index_tuple = index => tuple => {
 	return tuple[index];
 }; 
 

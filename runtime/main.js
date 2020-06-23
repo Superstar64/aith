@@ -1,1 +1,1 @@
-main(undefined);
+const [[], _] = main(undefined);

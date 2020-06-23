@@ -1,18 +1,18 @@
 /+
 	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
-	This file is part of Typi.
+	This file is part of Aith.
 
-	Typi is free software: you can redistribute it and/or modify
+	Aith is free software: you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
 	the Free Software Foundation version 3 of the License.
 
-	Typi is distributed in the hope that it will be useful,
+	Aith is distributed in the hope that it will be useful,
 	but WITHOUT ANY WARRANTY; without even the implied warranty of
 	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 	GNU General Public License for more details.
 
 	You should have received a copy of the GNU General Public License
-	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
+	along with Aith.  If not, see <http://www.gnu.org/licenses/>.
 +/
 module parser.parser;
 
@@ -31,7 +31,6 @@ import app : readParserModule;
 import misc.position;
 import misc.nonstrict;
 
-//todo this is ugly fix it
 Module parseModule(ref Lexer lexer) {
 	auto ret = new Module;
 	while (true) {
@@ -46,17 +45,28 @@ Module parseModule(ref Lexer lexer) {
 			explicitType = parseExpression(lexer);
 			lexer.parseToken!(Operator!"~");
 		}
-		bool strong;
+		SymbolSort sort;
 		if (lexer.front == keyword!"symbol") {
-			strong = true;
+			sort = SymbolSort.symbol;
 			lexer.popFront;
+		} else if (lexer.front == keyword!"template") {
+			sort = SymbolSort.generative;
+			lexer.popFront;
+		} else if (lexer.front == keyword!"inline") {
+			sort = SymbolSort.inline;
+			lexer.popFront;
+		} else if (lexer.front == keyword!"extern") {
+			sort = SymbolSort.external;
+			lexer.popFront;
+		} else {
+			error("Expected symbol qualifier", lexer.front.position);
 		}
 		auto name = lexer.parseToken!(Lex.Identifier);
 		lexer.parseToken!(Operator!"=");
 
 		auto value = parseExpression(lexer);
 		auto position = positionStart.join(lexer.front.position);
-		ret.symbols ~= make!ModuleVarDef(position, name, strong, explicitType, value);
+		ret.symbols ~= make!ModuleVarDef(position, name, sort, explicitType, value);
 		lexer.parseToken!(Operator!";");
 	}
 	assert(0);
@@ -105,7 +115,7 @@ auto parseToken(T)(ref Lexer lexer) {
 }
 
 Expression parseExpression(ref Lexer lexer) {
-	return parseBinary!("->", parseBinary!("&&", "||", parseBinary!("==", "!=", "<=", ">=", "<", ">", parseBinary!("+", "-", parseBinary!("*", "/", "%", parsePrefix!("-", "*", "!"))))))(lexer);
+	return parseBinary!("->", "~>", parseBinary!("&&", "||", parseBinary!("==", "!=", "<=", ">=", "<", ">", parseBinary!("+", "-", parseBinary!("*", "/", "%", parsePrefix!("-", "*", "!"))))))(lexer);
 }
 
 Expression parseBinary(args...)(ref Lexer lexer) {
@@ -145,13 +155,69 @@ Expression parseWithPostfix(ref Lexer lexer) {
 
 alias parseCore = parseWrap!parseCoreImpl;
 Expression delegate(Position) parseCoreImpl(ref Lexer lexer) {
-	auto value = dispatchLexerFailable!(parseCoreDispatch, Operator!"(&", Lex.IntLiteral, Lex.CharLiteral, Operator!"(", Lex.Identifier, Keyword!"if", Keyword!"import", Lex.StringLiteral, Operator!"[", Keyword!"extern", Operator!"<", Keyword!"has", Operator!"|")(null, lexer);
+	auto value = dispatchLexerFailable!(parseCoreDispatch, Operator!"(&", Lex.IntLiteral, Lex.CharLiteral, Operator!"(", Lex.Identifier, Keyword!"if", Keyword!"import", Lex.StringLiteral, Operator!"[", Keyword!"extern", Operator!"<", Keyword!"has", Operator!"|", Keyword!"raw", Keyword!"unique", Keyword!"do", Keyword!"try", Keyword!"run", Operator!"~")(null, lexer);
 	if (value) {
 		return value;
 	}
 
 	error("Expected expression", lexer.front.position);
 	assert(0);
+}
+
+Expression delegate(Position) parseCoreDispatch(Keyword!"do", ref Lexer lexer) {
+	if (lexer.front == operator!"=>") {
+		lexer.popFront;
+		auto internal = lexer.parseExpression;
+		return position => make!Do(position, internal);
+	} else {
+		lexer.parseToken!(Operator!"{");
+		auto internal = lexer.parseExpression;
+		lexer.parseToken!(Operator!"}");
+		return position => make!Do(position, internal);
+	}
+}
+
+Expression delegate(Position) parseCoreDispatch(Keyword!"try", ref Lexer lexer) {
+	if (lexer.front == operator!"=>") {
+		lexer.popFront;
+		auto internal = lexer.parseExpression;
+		return position => make!Try(position, internal);
+	} else {
+		lexer.parseToken!(Operator!"{");
+		auto internal = lexer.parseExpression;
+		lexer.parseToken!(Operator!"}");
+		return position => make!Try(position, internal);
+	}
+}
+
+Expression delegate(Position) parseCoreDispatch(Keyword!"run", ref Lexer lexer) {
+	auto value = lexer.parseExpression;
+	lexer.parseToken!(Operator!";");
+	auto last = lexer.parseExpression;
+	return position => make!Run(position, value, last);
+}
+
+Expression delegate(Position) parseCoreDispatch(Operator!"~", ref Lexer lexer) {
+	bool shadow;
+	Lex.Identifier name;
+	if (lexer.front == operator!"|") {
+		lexer.popFront;
+		name = lexer.parseToken!(Lex.Identifier);
+		lexer.parseToken!(Operator!"|");
+		shadow = true;
+	} else {
+		name = lexer.parseToken!(Lex.Identifier);
+	}
+	if (lexer.front == operator!"=>") {
+		lexer.popFront;
+		auto text = lexer.parseExpression;
+		return position => make!MacroFunctionLiteral(position, text, name, shadow);
+	} else {
+		lexer.parseToken!(Operator!"{");
+		auto text = lexer.parseExpression;
+		lexer.parseToken!(Operator!"}");
+		return position => make!MacroFunctionLiteral(position, text, name, shadow);
+	}
 }
 
 Expression[] parseExtendsList(ref Lexer lexer) {
@@ -164,6 +230,20 @@ Expression[] parseExtendsList(ref Lexer lexer) {
 		lexer.popFront;
 	}
 	return constraints;
+}
+
+Expression delegate(Position) parseCoreDispatch(string word)(Keyword!word, ref Lexer lexer) if (word == "raw" || word == "unique") {
+	auto value = lexer.parseCore;
+	if (lexer.front == operator!"*") {
+		lexer.popFront;
+		return position => make!(TypePointer!word)(position, value);
+	} else if (lexer.front == operator!"[") {
+		lexer.popFront;
+		lexer.parseToken!(Operator!"]");
+		return position => make!(TypeArray!word)(position, value);
+	}
+	error("Expected pointer or array", lexer.front.position);
+	assert(0);
 }
 
 Expression delegate(Position) parseCoreDispatch(Operator!"<", ref Lexer lexer) {
@@ -304,7 +384,7 @@ Expression delegate(Position) parseCoreDispatch(Keyword!"extern", ref Lexer lexe
 
 Expression parsePostfix(ref Lexer lexer, Expression current) {
 	auto position = lexer.front.position;
-	return dispatchLexerFailable!(parsePostfixDispatch, Operator!".", Operator!"[", Operator!"(", Operator!"(*)", Operator!"[*]", Operator!"(!)", Operator!"[!]", Operator!"::", Operator!"_", Operator!":", Operator!"&*_", Operator!"=>", Operator!"{", Operator!"=")(current, lexer, current, position);
+	return dispatchLexerFailable!(parsePostfixDispatch, Operator!".", Operator!"[", Operator!"&[", Operator!"(", Operator!"::", Operator!"_", Operator!":", Operator!"&*_", Operator!"=>", Operator!"{", Operator!"=", Operator!"<-", Operator!"`")(current, lexer, current, position);
 }
 
 Expression parsePostfixDispatch(T)(T operator, ref Lexer lexer, Expression current, Position postfixStart) {
@@ -328,14 +408,20 @@ Expression delegate(Position) parsePostfixDispatchImpl(Operator!"&*_", ref Lexer
 Expression delegate(Position) parsePostfixDispatchImpl(Operator!"=>", ref Lexer lexer, Expression current, Position postfixStart) {
 	auto pattern = current.patternMatch;
 	auto text = parseExpression(lexer);
-	return position => make!FuncLit(position, text, pattern);
+	return position => make!FunctionLiteral(position, text, pattern);
+}
+
+Expression delegate(Position) parsePostfixDispatchImpl(Operator!"(", ref Lexer lexer, Expression current, Position postfixStart) {
+	auto argument = parseTupleEnd!(operator!")")(lexer);
+	lexer.popFront;
+	return position => make!Call(position, current, argument(postfixStart.join(lexer.front.position)));
 }
 
 Expression delegate(Position) parsePostfixDispatchImpl(Operator!"{", ref Lexer lexer, Expression current, Position postfixStart) {
 	auto pattern = current.patternMatch;
 	auto text = parseExpression(lexer);
 	lexer.parseToken!(Operator!"}");
-	return position => make!FuncLit(position, text, pattern);
+	return position => make!FunctionLiteral(position, text, pattern);
 }
 
 Expression delegate(Position) parsePostfixDispatchImpl(Operator!"::", ref Lexer lexer, Expression current, Position postfixStart) {
@@ -352,6 +438,12 @@ Expression delegate(Position) parsePostfixDispatchImpl(Operator!".", ref Lexer l
 Expression delegate(Position) parsePostfixDispatchImpl(Operator!":", ref Lexer lexer, Expression current, Position postfixStart) {
 	auto type = parseExpression(lexer);
 	return position => make!Infer(position, type, current);
+}
+
+Expression delegate(Position) parsePostfixDispatchImpl(Operator!"&[", ref Lexer lexer, Expression current, Position postfixStart) {
+	auto argument = lexer.parseExpression;
+	lexer.parseToken!(Operator!"]");
+	return position => make!IndexAddress(position, current, argument);
 }
 
 Expression delegate(Position) parsePostfixDispatchImpl(Operator!"[", ref Lexer lexer, Expression current, Position postfixStart) {
@@ -372,20 +464,19 @@ Expression delegate(Position) parsePostfixBraceDispatch(Operator!"]", ref Lexer 
 	return position => make!Index(position, current, index);
 }
 
-Expression delegate(Position) parsePostfixDispatchImpl(Operator!"(", ref Lexer lexer, Expression current, Position postfixStart) {
-	auto argument = parseTupleEnd!(operator!")")(lexer);
-	lexer.popFront;
-	return position => make!Call(position, current, argument(postfixStart.join(lexer.front.position)));
-}
-
-Expression delegate(Position) parsePostfixDispatchImpl(string op)(Operator!op, ref Lexer lexer, Expression current, Position) if (["(*)", "[*]", "(!)", "[!]"].canFind(op)) {
-	return position => make!(Postfix!op)(position, current);
-}
-
 Expression delegate(Position) parsePostfixDispatchImpl(Operator!"=", ref Lexer lexer, Expression current, Position) {
 	auto pattern = current.patternMatch();
 	auto value = parseExpression(lexer);
 	lexer.parseToken!(Operator!";");
 	auto last = parseExpression(lexer);
 	return position => make!VariableDefinition(position, pattern, value, last);
+}
+
+Expression delegate(Position) parsePostfixDispatchImpl(Operator!"<-", ref Lexer lexer, Expression current, Position) {
+	auto argument = lexer.parseExpression;
+	return position => make!(Binary!"<-")(position, current, argument);
+}
+
+Expression delegate(Position) parsePostfixDispatchImpl(Operator!"`", ref Lexer lexer, Expression current, Position) {
+	return position => make!FromRuntime(position, current);
 }

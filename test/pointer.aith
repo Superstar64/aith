@@ -1,0 +1,60 @@
+#{
+ Copyright (C) 2020 Freddy Angel Cubas "Superstar64"
+ Distributed under the Boost Software License, Version 1.0.
+ (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
+#}
+
+~ <a extends number & unrestricted> (& raw a*, world &) -> (& (&&), world &) ~
+template increment = (x, os) {
+	do {
+		try => x <- try{*x} + 1
+	}(os)
+};
+
+~ world -> (& (&&), world &) ~
+symbol heap pointer = do {
+	pointer = try => new(5: integer32);
+	run assert(try{*pointer} == 5);
+	run curry(increment`)(pointer);
+	run assert(try{*pointer} == 6);
+	run assert(pointer == pointer);
+	()
+};
+
+~ world -> (& (&&), world &) ~
+symbol array pointer = do {
+	array = [0,10,20] : raw integer32[];
+	run assert(try{ array[1] } == 10);
+	run curry(increment`)(array&[1]);
+	run assert(try { array[1] } == 11);
+	run assert(array&[1] == array&[1]);
+	run assert(array&[1] != array&[2]);
+	()
+};
+
+~ world -> (& (&&), world &) ~
+symbol record pointer = do{
+	pair = try => new(4 : integer32,10 : integer32);
+	run assert(try {*pair}_0 == 4);
+	run curry(increment`)(pair&*_0);
+	run assert(try {*pair}_0 == 5);
+	
+	run assert( try {*pair}_1 == 10);
+	run curry(increment`)(pair&*_1);
+	run assert( try {*pair}_1 == 11);
+	
+	
+	run assert(pair&*_0 == pair&*_0);
+	run assert(pair&*_0 != pair&*_1);
+	run assert(pair == pair);
+	()
+};
+
+
+~ world -> (& (&&), world &) ~
+symbol main = do {
+	run heap pointer`;
+	run array pointer`;
+	run record pointer`;
+	()
+};

@@ -7,6 +7,10 @@ class Lazy(T) {
 		T inner;
 	}
 
+	this(T value) {
+		this.value = new Value(value);
+	}
+
 	this(T delegate() callback) {
 		this.callback = callback;
 	}
@@ -15,6 +19,7 @@ class Lazy(T) {
 		if (value is null) {
 			value = new Value(callback());
 		}
+		callback = null;
 		return value.inner;
 	}
 
@@ -25,4 +30,8 @@ class Lazy(T) {
 
 Lazy!T defer(T)(T delegate() callback) {
 	return new Lazy!T(callback);
+}
+
+Lazy!T eager(T)(T value) {
+	return new Lazy!T(value);
 }

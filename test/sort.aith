@@ -1,0 +1,56 @@
+#{
+ Copyright (C) 2020 Freddy Angel Cubas "Superstar64"
+ Distributed under the Boost Software License, Version 1.0.
+ (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
+#}
+
+~ <a extends unrestricted> (& (& raw a*,raw a* &), world &) -> (& (&&), world &) ~
+template swap = ((left,right),os) {
+	do {
+		tmp = try => *left;
+		run left <- try { *right } ;
+		run right <- tmp;
+		()
+	}(os)
+};
+
+
+symbol quick sort exchange = ((array, pivot, middle, end), os) {
+	(last, |os|) = array[end](os);
+	if (end < array.length - 1){
+		if (pivot > last){
+			middle pointer = array&[middle];
+			end pointer = array&[end];
+			((), |os|) = swap`((middle pointer, end pointer), os);
+			quick sort exchange`((array, pivot, middle + 1, end + 1), os)
+		} else {
+			quick sort exchange`((array, pivot, middle, end + 1), os)
+		}
+	} else {
+		middle pointer = array&[middle];
+		end pointer = array&[array.length - 1]; 
+		((), |os|) = swap`((middle pointer,end pointer), os);
+		((), |os|) = quick sort`(array[0..middle], os);
+		quick sort`(array[middle..array.length], os)
+	}
+};
+
+~ (& raw integer32[], world &) -> (& (&&), world &) ~
+symbol quick sort = (array,os) {
+	if (array.length > 1) {
+		(pivot, |os|) = array[array.length - 1](os);
+		quick sort exchange`((array, pivot, 0, 0), os)
+	} else {
+		((), os)
+	}
+};
+
+~ world -> (& (&&), world &) ~
+symbol main = do {
+	array = [0,7,9,3,8,6,5,1,4,2] : raw integer32[];
+	run curry(quick sort`)(array);
+	target = [0,1,2,3,4,5,6,7,8,9];
+	run assert(array == target);
+	()
+};
+

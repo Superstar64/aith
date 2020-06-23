@@ -1,0 +1,30 @@
+#{
+ Copyright (C) 2020 Freddy Angel Cubas "Superstar64"
+ Distributed under the Boost Software License, Version 1.0.
+ (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
+#}
+
+~ <a extends unrestricted> (& (& raw a[], raw a[] &), world &) -> (& (&&), world &) ~
+template copy = ((from,to), os) {
+	((), |os|) = assert(from.length == to.length)(os);
+	if (from.length == 0) {
+		((), os)
+	} else {
+		((), |os|) = do {
+			try => to&[0] <- try{from[0]}
+		}(os);
+		((), |os|) = copy`((from[1..from.length], to[1..to.length]), os);
+		((), os)
+	}
+};
+
+
+~ world -> (& (&&), world &) ~
+symbol main = do {
+	base = [(true,true),(true,false),(false,false)];
+	expected = [(true,true),(true,false),(false,false)];
+	target = try => new array(3)(false,false); 
+	run curry(copy`)(base, target);
+	run assert(target == expected);
+	()
+};

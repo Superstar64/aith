@@ -1,18 +1,18 @@
 /+
 	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
-	This file is part of Typi.
+	This file is part of Aith.
 
-	Typi is free software: you can redistribute it and/or modify
+	Aith is free software: you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
 	the Free Software Foundation version 3 of the License.
 
-	Typi is distributed in the hope that it will be useful,
+	Aith is distributed in the hope that it will be useful,
 	but WITHOUT ANY WARRANTY; without even the implied warranty of
 	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 	GNU General Public License for more details.
 
 	You should have received a copy of the GNU General Public License
-	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
+	along with Aith.  If not, see <http://www.gnu.org/licenses/>.
 +/
 module jsast;
 
@@ -40,24 +40,24 @@ auto line(scope void delegate(const(char)[]) result, uint indent) {
 	}
 }
 
-struct JsContext {
-	Dictonary!(string, JsVariable) variables;
-	Dictonary!(JsVariable, string) names;
+class JsContext {
+	OwnerDictonary!(string, JsVariable) variables;
+	OwnerDictonary!(JsVariable, string) names;
 
-	JsContext insert(JsVariable variable) {
-		auto clone = this;
-		return clone.insertImpl(variable);
-	}
-
-	JsContext insertImpl(JsVariable variable) {
+	void insert(JsVariable variable) {
 		foreach (name; variable.convention) {
 			if (!(name in variables)) {
-				variables[name] = variable;
-				names[variable] = name;
-				return this;
+				variables.insert(name, variable);
+				names.insert(variable, name);
+				return;
 			}
 		}
 		assert(0);
+	}
+
+	void remove(JsVariable variable) {
+		variables.remove(names[variable]);
+		names.remove(variable);
 	}
 }
 
@@ -81,21 +81,22 @@ class JsVariable : JsExpr, JsPattern {
 		return precedenceLiteral;
 	}
 
-	override JsContext updateContext(JsContext context) {
-		return context.insert(this);
+	override void insertContext(JsContext context) {
+		context.insert(this);
+	}
+
+	override void removeContext(JsContext context) {
+		context.remove(this);
 	}
 }
 
 abstract class JsState {
 	void toStateString(scope void delegate(const(char)[]) result, uint indent, JsContext context);
-	override string toString() {
-		string result;
-		toStateString((const(char)[] str) { result ~= str; }, 0, JsContext());
-		return result;
+	void insertContext(JsContext context) {
 	}
 
-	JsContext updateContext(JsContext context) {
-		return context;
+	void removeContext(JsContext context) {
+
 	}
 }
 
@@ -128,9 +129,13 @@ class JsScope : JsLabel {
 		increase(indent);
 		foreach (state; states) {
 			line(result, indent);
-			context = state.updateContext(context);
+			state.insertContext(context);
 			state.toStateString(result, indent, context);
 		}
+		scope (exit)
+			foreach (state; states) {
+				state.removeContext(context);
+			}
 		decrease(indent);
 		line(result, indent);
 		result("}");
@@ -242,11 +247,15 @@ class JsFor : JsLabel {
 		super.toStateString(result, indent, context);
 		result("for (");
 		if (vardef) {
-			context = vardef.updateContext(context);
+			vardef.insertContext(context);
 			vardef.toStateString(result, indent, context);
 		} else {
 			result(";");
 		}
+		scope (exit)
+			if (vardef) {
+				vardef.removeContext(context);
+			}
 		if (cond) {
 			cond.toExprString(result, indent, context);
 		}
@@ -261,7 +270,8 @@ class JsFor : JsLabel {
 
 interface JsPattern {
 	void toPatternString(scope void delegate(const(char)[]) result, uint indent, JsContext context);
-	JsContext updateContext(JsContext context);
+	void insertContext(JsContext context);
+	void removeContext(JsContext context);
 }
 
 class JsArrayPattern : JsPattern {
@@ -281,8 +291,12 @@ class JsArrayPattern : JsPattern {
 		result("]");
 	}
 
-	JsContext updateContext(JsContext context) {
-		return matches.fold!((context, match) => match.updateContext(context))(context);
+	void insertContext(JsContext context) {
+		matches.each!(match => match.insertContext(context));
+	}
+
+	void removeContext(JsContext context) {
+		matches.each!(match => match.removeContext(context));
 	}
 }
 
@@ -311,10 +325,13 @@ class JsVarDef : JsState {
 		result(";");
 	}
 
-	override JsContext updateContext(JsContext context) {
-		return pattern.updateContext(context);
+	override void insertContext(JsContext context) {
+		return pattern.insertContext(context);
 	}
 
+	override void removeContext(JsContext context) {
+		return pattern.removeContext(context);
+	}
 }
 
 class JsReturn : JsState {
@@ -409,7 +426,7 @@ abstract class JsExpr : JsState {
 
 auto defaultNaming(string name) {
 	name = name.replace(" ", "_");
-	return chain(only(name), iota(0, uint.max).map!(a => name ~ a.to!string));
+	return choose(name == "", temporary, chain(only(name), iota(0, uint.max).map!(a => name ~ a.to!string)));
 }
 
 auto temporary() {
@@ -604,8 +621,12 @@ class JsLambda : JsExpr {
 
 	override void toExprStringImpl(scope void delegate(const(char)[]) result, uint indent, JsContext context) {
 		foreach (argument; arguments) {
-			context = argument.updateContext(context);
+			argument.insertContext(context);
 		}
+		scope (exit)
+			foreach (argument; arguments) {
+				argument.removeContext(context);
+			}
 		result("(");
 		foreach (c, argument; arguments) {
 			argument.toPatternString(result, indent, context);
@@ -731,8 +752,12 @@ class JsModule : JsImplictScope {
 	alias states this;
 	override void toStateString(scope void delegate(const(char)[]) result, uint indent, JsContext context) {
 		foreach (state; states) {
-			context = state.updateContext(context);
+			state.insertContext(context);
 		}
+		scope (exit)
+			foreach (state; states) {
+				state.removeContext(context);
+			}
 		foreach (state; states) {
 			state.toStateString(result, indent, context);
 			result("\n");

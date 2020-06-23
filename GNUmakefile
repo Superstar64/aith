@@ -4,20 +4,19 @@
 # dformatter : formatter
 # dformatter_flags : formatter flags
 # build : build directory
-# incremental : if true then do incremental build
+# no_objects : if exists then compile everything at once
 
-dc ?= ldc2
+dc ?= dmd
 dflags ?=
 dformatter ?= dfmt
 dformatter_flags ?= --inplace --brace_style=otbs --indent_style=tab --soft_max_line_length=65535 --max_line_length=65535 
 build ?= build
-incremental ?= false
 
 
 .SECONDEXPANSION:
 
 find = $(wildcard $1/*.$2) $(foreach directory,$(wildcard $1/*),$(call find,$(directory),$2))
-hash = $(shell python -c "import hashlib; print(hashlib.md5('$1').hexdigest())")
+hash = $(shell python -c "import hashlib; print(hashlib.sha256('$1').hexdigest())")
 
 ifeq ($(dc),gdc)
 -o = -o 
@@ -28,7 +27,7 @@ endif
 -c = -c
 
 
-$(build)/typi:
+$(build)/aith:
 
 %/:
 	mkdir -p $@
@@ -41,22 +40,22 @@ $(flags): | $$(dir $$@)
 	touch $@
 
 sources := $(call find,source,d)
-ifeq ($(incremental),true)
+ifndef no_objects
 objects = $(sources:%.d=$(build)/%.o)
-$(objects) : $(build)/%.o : %.d $(flags)
+$(objects) : $(build)/%.o : %.d $(sources) $(flags)
 	$(dc) $(dflags)  $(-o)$@ $< $(-c) $(-I)source
 
 
-$(build)/typi: $(objects) $(flags) | $$(dir $$)
+$(build)/aith: $(objects) $(flags) | $$(dir $$)
 	$(dc) $(dflags) $(-o)$@ $(objects)
 else
-$(build)/typi : $(sources) $(flags) | $$(dir $$)
+$(build)/aith : $(sources) $(flags) | $$(dir $$)
 	$(dc) $(dflags) $(-o)$@ $(sources)
 endif
-test := $(call find,test,typi)
-test_output := $(test:%.typi=$(build)/%.js)
-$(test_output): $(build)/%.js : %.typi runtime/runtime.js runtime/main.js $(build)/typi | $$(dir $$@)
-	$(build)/typi runtime/runtime.js $< runtime/main.js -o $@
+test := $(call find,test,aith)
+test_output := $(test:%.aith=$(build)/%.js)
+$(test_output): $(build)/%.js : %.aith runtime/builtin.aith runtime/runtime.js runtime/main.js $(build)/aith | $$(dir $$@)
+	$(build)/aith --builtin runtime/builtin.aith runtime/runtime.js $< runtime/main.js -o $@
 test_build : $(test_output)
 .PHONY: test_build
 

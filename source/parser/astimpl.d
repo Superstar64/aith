@@ -1,18 +1,18 @@
 /+
 	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
-	This file is part of Typi.
+	This file is part of Aith.
 
-	Typi is free software: you can redistribute it and/or modify
+	Aith is free software: you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
 	the Free Software Foundation version 3 of the License.
 
-	Typi is distributed in the hope that it will be useful,
+	Aith is distributed in the hope that it will be useful,
 	but WITHOUT ANY WARRANTY; without even the implied warranty of
 	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 	GNU General Public License for more details.
 
 	You should have received a copy of the GNU General Public License
-	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
+	along with Aith.  If not, see <http://www.gnu.org/licenses/>.
 +/
 module parser.astimpl;
 
@@ -24,40 +24,40 @@ import parser.ast;
 import misc.getters;
 import misc.position;
 
-class Impl(T : Expression) : T {
-	mixin Getters!T;
+class Impl(T : Expression) : Getters!T {
+	this(A...)(A arguments) {
+		super(arguments);
+	}
+
 	override Pattern patternMatch() {
 		return patternMatchImpl(this);
 	}
 
 	import Semantic = semantic.ast;
-	import semantic.semantic : Context, semanticImpl, semanticGlobalImpl;
+	import semantic.semantic : Context, semanticImpl;
 
 	override Semantic.Expression semanticMain(Context context) {
 		return semanticImpl(this, context);
 	}
-
-	override Semantic.Expression semanticGlobal(bool strong, string name, Semantic.Type type, Context context, ModuleVarDef symbol) {
-		return semanticGlobalImpl(this, strong, name, type, context, symbol);
-	}
 }
 
-class Impl(T : Pattern) : T {
-	mixin Getters!T;
+class Impl(T : Pattern) : Getters!T {
+	this(A...)(A arguments) {
+		super(arguments);
+	}
+
 	import Semantic = semantic.ast;
-	import semantic.semantic : Context, semanticImpl, semanticGlobalImpl;
+	import semantic.semantic : Context, semanticImpl;
 
 	override Semantic.Expression semanticMain(Context context) {
 		return semanticImpl(this, context);
 	}
-
-	override Semantic.Expression semanticGlobal(bool strong, string name, Semantic.Type type, Context context, ModuleVarDef symbol) {
-		return semanticGlobalImpl(this, strong, name, type, context, symbol);
-	}
 }
 
-class Impl(T) : T {
-	mixin Getters!T;
+class Impl(T) : Getters!T {
+	this(A...)(A arguments) {
+		super(arguments);
+	}
 }
 
 Pattern patternMatchImpl(T)(T that) {

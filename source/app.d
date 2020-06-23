@@ -1,18 +1,18 @@
 /+
 	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
-	This file is part of Typi.
+	This file is part of Aith.
 
-	Typi is free software: you can redistribute it and/or modify
+	Aith is free software: you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
 	the Free Software Foundation version 3 of the License.
 
-	Typi is distributed in the hope that it will be useful,
+	Aith is distributed in the hope that it will be useful,
 	but WITHOUT ANY WARRANTY; without even the implied warranty of
 	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 	GNU General Public License for more details.
 
 	You should have received a copy of the GNU General Public License
-	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
+	along with Aith.  If not, see <http://www.gnu.org/licenses/>.
 +/
 module app;
 
@@ -27,6 +27,7 @@ import std.range;
 import std.stdio;
 import std.file : exists, isDir;
 import core.stdc.stdlib : exit;
+import std.typecons;
 
 import misc.misc;
 import misc.container;
@@ -43,10 +44,17 @@ import CodegenEval = codegen.codegen;
 string[] searchDirs = ["."];
 MmFile[] maps;
 
-Dictonary!(Parser.ModuleVarDef, Semantic.Expression) knownSymbols;
+T freshId(T)() {
+	static size_t global = 0;
+	return T(global++);
+}
 
-Dictonary!(string, Parser.Module) parserModules;
-Dictonary!(Parser.Module, Semantic.Module) semanticModules;
+OwnerDictonary!(Parser.ModuleVarDef, Semantic.ModuleDefinition) knownSymbols;
+
+OwnerDictonary!(string, Parser.Module) parserModules;
+OwnerDictonary!(Parser.Module, Semantic.Module) semanticModules;
+
+Semantic.Module builtin;
 
 Parser.Module readParserModule(string name) {
 	if (name in parserModules) {
@@ -60,7 +68,7 @@ Parser.Module readParserModule(string name) {
 			auto buffer = file[].castTo!string;
 			auto lexer = Lexer.Lexer(fileName, buffer);
 			auto result = ParserEval.parseModule(lexer);
-			parserModules[name] = result;
+			parserModules.insert(name, result);
 			return result;
 		}
 	}
@@ -73,16 +81,28 @@ Semantic.Module readSemanticModule(Parser.Module parserModule) {
 	if (parserModule in semanticModules) {
 		return semanticModules[parserModule];
 	}
-	auto result = SemanticEval.createModule(parserModule);
-	semanticModules[parserModule] = result;
+	auto result = SemanticEval.createModule(parserModule, builtin);
+	semanticModules.insert(parserModule, result);
 	return result;
 }
 
-enum Help = `typi {optional arguments} [files to compile]
+auto stringifyVariable(Semantic.TypeVariableId var, Semantic.TypeRequirement requirement) {
+	import semantic.astimpl : make;
+
+	string result = "v" ~ var.raw.to!string;
+	if (requirement.predicates.length > 0) {
+		result ~= " extends ";
+		result ~= requirement.predicates.byValue.map!(a => a.to!string).joiner(" & ").to!string;
+	}
+	return result;
+}
+
+enum Help = `aith {optional arguments} [files to compile]
 --Generate-All|-a : generate code for all imported files, default is to only generate code for command line files
 --Add-Search-Dir|-I : add search directory for imports
 --Output|-o : output file, - is the default and means stdout
 --printTypes : don't generate code, print types of all module declarations
+--builtin : signify builtin module
 The TYPI_CONFIG enviroment Variable is looked at for a config file(extra arguments sperated by lines)
 Any .js files in [files to compile] are interpeted as runtime files and will be included after the output
 
@@ -99,8 +119,9 @@ void main(string[] args) {
 	bool genAll;
 	bool printTypes;
 	string outputFile = "-";
+	string builtinFile;
 	void opt(ref string[] s) {
-		getopt(s, "Generate-All|a", &genAll, "Add-Search-Dir|I", &searchDirs, "Output|o", &outputFile, "printTypes", &printTypes);
+		getopt(s, "Generate-All|a", &genAll, "Add-Search-Dir|I", &searchDirs, "Output|o", &outputFile, "printTypes", &printTypes, "builtin", &builtinFile);
 	}
 
 	string configFile = environment.get("TYPI_CONFIG");
@@ -125,18 +146,22 @@ void main(string[] args) {
 
 	string[] modFiles;
 	foreach (file; args) {
-		if (!(file.endsWith(".typi") || file.endsWith(".js"))) {
-			writeln(file, " is not a typi file");
+		if (!(file.endsWith(".aith") || file.endsWith(".js"))) {
+			writeln(file, " is not a aith file");
 			return;
 		}
-		if (file.endsWith(".typi")) {
+		if (file.endsWith(".aith")) {
 			modFiles ~= file;
 		}
 	}
 
+	if (builtinFile != "") {
+		builtin = builtinFile.readParserModule.readSemanticModule;
+	}
+
 	Semantic.Module[string] wanted;
 	foreach (file; modFiles) {
-		wanted[file] = readSemanticModule(readParserModule(file));
+		wanted[file] = file.readParserModule.readSemanticModule;
 	}
 	semanticModules.byValue.each!(a => SemanticEval.validateModule(a));
 	File output;
@@ -148,13 +173,22 @@ void main(string[] args) {
 	auto writer = &output.write!(const(char)[]);
 	if (printTypes) {
 		foreach (file; args) {
-			if (file.endsWith(".typi")) {
+			if (file.endsWith(".aith")) {
 				auto want = wanted[file];
-				auto modulename = file[0 .. $ - ".typi".length];
+				auto modulename = file[0 .. $ - ".aith".length];
 				writeln(modulename, "{");
-				foreach (name, variable; want.aliases.range) {
-					if (auto expression = Semantic.get(variable).get.castTo!(Semantic.Term)) {
-						writeln("\t", name, ":", expression.type.to!string);
+				foreach (variable; want.orderedAliases) {
+					auto name = want.aliases.range.find!(a => a.value is variable).front.key;
+					if (auto expression = Semantic.get(variable).matrix.castTo!(Semantic.Term)) {
+						string forall = "";
+						auto prefix = Semantic.get(variable).typePrefix;
+						if (prefix.length > 0) {
+							forall ~= "<";
+							forall ~= prefix.range.map!(a => stringifyVariable(a.key, a.value)).joiner(", ").to!string;
+							forall ~= "> ";
+						}
+						writeln("\t", name, " : ", forall, expression.type.to!string);
+						writeln("\t", name, " @ ", expression.type.type.to!string);
 					}
 				}
 				writeln("}");
@@ -162,7 +196,7 @@ void main(string[] args) {
 		}
 	} else if (genAll) {
 		foreach (mod; semanticModules.byValue) {
-			CodegenEval.generateJsModule(mod).toStateString(writer, 0, JsAst.JsContext());
+			CodegenEval.generateJsModule(mod).toStateString(writer, 0, new JsAst.JsContext());
 			output.writeln;
 		}
 		foreach (file; args) {
@@ -172,10 +206,10 @@ void main(string[] args) {
 		}
 	} else {
 		foreach (file; args) {
-			if (file.endsWith(".typi")) {
+			if (file.endsWith(".aith")) {
 				auto want = wanted[file];
 				//writeln(want.jsonify.to!string);
-				CodegenEval.generateJsModule(want).toStateString(writer, 0, JsAst.JsContext());
+				CodegenEval.generateJsModule(want).toStateString(writer, 0, new JsAst.JsContext());
 			} else {
 				File(file, "r").byChunk(4096).map!(castTo!(const(char)[])).copy(writer);
 			}

@@ -1,66 +1,75 @@
 /+
 	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
-	This file is part of Typi.
+	This file is part of Aith.
 
-	Typi is free software: you can redistribute it and/or modify
+	Aith is free software: you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
 	the Free Software Foundation version 3 of the License.
 
-	Typi is distributed in the hope that it will be useful,
+	Aith is distributed in the hope that it will be useful,
 	but WITHOUT ANY WARRANTY; without even the implied warranty of
 	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 	GNU General Public License for more details.
 
 	You should have received a copy of the GNU General Public License
-	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
+	along with Aith.  If not, see <http://www.gnu.org/licenses/>.
 +/
 
 module misc.getters;
 
-import std.traits;
-import std.meta;
+import std.traits : ReturnType;
+import std.meta : staticMap;
 
 template GetMember(T) {
-	alias GetMember(string name) = AliasSeq!(__traits(getMember, T, name));
+	alias GetMember(string name) = __traits(getMember, T, name);
 }
 
-alias PropertyNameTuple(T) = __traits(derivedMembers, T);
+alias PropertyTypeTuple(T) = staticMap!(ReturnType, staticMap!(GetMember!T, __traits(derivedMembers, T)));
 
-alias PropertyTypeTuple(T) = staticMap!(ReturnType, staticMap!(GetMember!T, PropertyNameTuple!T));
+abstract class Getters(T) : T {
+	import std.format : format;
+	import std.algorithm : canFind;
+	import std.traits : ReturnType, Parameters, MemberFunctionsTuple;
 
-mixin template Getters(T) {
-	import std.format;
-	import std.traits;
+	enum _properties = cast(string[])[__traits(derivedMembers, T)];
 
-	static foreach (field; PropertyNameTuple!T) {
-		mixin(q{ private ReturnType!(__traits(getMember,T,field)) _%s;}.format(field));
-		mixin(q{ override %s ReturnType!(__traits(getMember,T,field)) %s(){
-				return _%s;
-			}}.format(functionAttributes!(__traits(getMember, T, field)) & FunctionAttribute.ref_ ? "ref" : "", field, field));
+	static foreach (member; __traits(allMembers, T)) {
+		static if (!_properties.canFind(member)) {
+			static foreach (instance; MemberFunctionsTuple!(T, member)) {
+				mixin(q{
+					override abstract ReturnType!instance %s (Parameters!instance arguments);
+				}.format(member));
+			}
+		}
 	}
+
+	static foreach (field; _properties) {
+		mixin(q{
+			private ReturnType!(__traits(getMember,T,field)) _%s;
+			override ReturnType!(__traits(getMember,T,field)) %s(){
+				return _%s;
+			}
+		}.format(field, field, field));
+	}
+
 	this(PropertyTypeTuple!T arguments) {
-		static foreach (c, field; PropertyNameTuple!T) {
+		static foreach (c, field; _properties) {
 			mixin(q{this._%s = arguments[c];}.format(field));
 		}
 	}
 
-	auto properties()() {
-		mixin(q{return .tuple(} ~ [PropertyNameTuple!T].map!(a => "_" ~ a ~ ",").joiner.array ~ q{);});
+	auto _fields()() {
+		import std.typecons : tuple;
+		import std.conv : to;
+		import std.algorithm : map, joiner;
+
+		mixin(q{ return tuple (} ~ _properties.map!(a => a ~ ",")
+				.joiner
+				.to!string ~ q{);});
 	}
 
-	import misc.json;
+}
 
-	Json jsonifyImpl()() {
-		import std.typecons;
-		import std.conv;
-		import misc.json;
-
-		JsonObject base = new JsonObject;
-		base.fields ~= std.typecons.tuple("_name", misc.json.jsonify(T.stringof));
-		//base.fields ~= std.typecons.tuple("_address", misc.jsonify(std.conv.to!string(cast(void*)(this))) );
-		static foreach (c, field; PropertyNameTuple!T) {
-			mixin(q{base.fields ~= std.typecons.tuple("%s",this.%s.jsonify);}.format(field, field));
-		}
-		return base;
-	}
+auto destructure(alias c, T)(Getters!T object) {
+	return c(object._fields.expand);
 }

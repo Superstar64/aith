@@ -1,18 +1,18 @@
 /+
 	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
-	This file is part of Typi.
+	This file is part of Aith.
 
-	Typi is free software: you can redistribute it and/or modify
+	Aith is free software: you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
 	the Free Software Foundation version 3 of the License.
 
-	Typi is distributed in the hope that it will be useful,
+	Aith is distributed in the hope that it will be useful,
 	but WITHOUT ANY WARRANTY; without even the implied warranty of
 	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 	GNU General Public License for more details.
 
 	You should have received a copy of the GNU General Public License
-	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
+	along with Aith.  If not, see <http://www.gnu.org/licenses/>.
 +/
 module parser.ast;
 
@@ -32,13 +32,19 @@ interface Node {
 
 	Position position();
 	Semantic.Expression semanticMain(Context context);
-	Semantic.Expression semanticGlobal(bool strong, string name, Semantic.Type type, Context context, ModuleVarDef symbol);
+}
+
+enum SymbolSort {
+	symbol,
+	generative,
+	inline,
+	external
 }
 
 interface ModuleVarDef {
 	Position position();
 	string name();
-	bool strong();
+	SymbolSort sort();
 	Expression explicitType(); //nullable
 	Expression value();
 }
@@ -50,6 +56,12 @@ interface Expression : Node {
 interface VariableDefinition : Expression {
 	Position position();
 	Pattern variable();
+	Expression value();
+	Expression last();
+}
+
+interface Run : Expression {
+	Position position();
 	Expression value();
 	Expression last();
 }
@@ -67,13 +79,48 @@ interface Import : Expression {
 
 struct ForallBinding {
 	string name;
-	Expression[] constraints;
+	Expression[] predicates;
 }
 
 interface Forall : Expression {
 	Position position();
 	ForallBinding[] bindings();
 	Expression value();
+}
+
+interface FunctionLiteral : Expression {
+	Position position();
+	Expression text();
+	Pattern argument();
+}
+
+interface Call : Expression {
+	Position position();
+	Expression calle();
+	Expression argument();
+}
+
+interface FromRuntime : Expression {
+	Position position();
+	Expression value();
+}
+
+interface MacroFunctionLiteral : Expression {
+	Position position();
+	Expression text();
+	string argument();
+	bool shadow();
+}
+
+interface NamedArgument : Pattern {
+	Position position();
+	string name();
+	bool shadow();
+}
+
+interface TupleArgument : Pattern {
+	Position position();
+	Pattern[] matches();
 }
 
 interface IntLit : Expression {
@@ -127,6 +174,12 @@ interface Index : Expression {
 	Expression index();
 }
 
+interface IndexAddress : Expression {
+	Position position();
+	Expression array();
+	Expression index();
+}
+
 interface TupleIndex : Expression {
 	Position position();
 	Expression tuple();
@@ -139,12 +192,6 @@ interface TupleIndexAddress : Expression {
 	uint index();
 }
 
-interface Call : Expression {
-	Position position();
-	Expression calle();
-	Expression argument();
-}
-
 interface Slice : Expression {
 	Position position();
 	Expression array();
@@ -152,7 +199,7 @@ interface Slice : Expression {
 	Expression right();
 }
 
-interface Binary(string T) : Expression if (["*", "/", "%", "+", "-", "==", "!=", "<=", ">=", "<", ">", "&&", "||", "->"].canFind(T)) {
+interface Binary(string T) : Expression if (["*", "/", "%", "+", "-", "==", "!=", "<=", ">=", "<", ">", "&&", "||", "->", "<-", "~>"].canFind(T)) {
 	Position position();
 	Expression left();
 	Expression right();
@@ -163,29 +210,27 @@ interface Prefix(string T) : Expression if (["-", "*", "!"].canFind(T)) {
 	Expression value();
 }
 
-interface Postfix(string T) : Expression if (["(*)", "[*]", "(!)", "[!]"].canFind(T)) {
+interface Do : Expression {
+	Position position();
+	Expression value();
+}
+
+interface Try : Expression {
+	Position position();
+	Expression value();
+}
+
+interface TypePointer(string type) : Expression if (["raw", "unique"].canFind(type)) {
+	Position position();
+	Expression value();
+}
+
+interface TypeArray(string type) : Expression if (["raw", "unique"].canFind(type)) {
 	Position position();
 	Expression value();
 }
 
 interface Pattern : Node {
-}
-
-interface NamedArgument : Pattern {
-	Position position();
-	string name();
-	bool shadow();
-}
-
-interface TupleArgument : Pattern {
-	Position position();
-	Pattern[] matches();
-}
-
-interface FuncLit : Expression {
-	Position position();
-	Expression text();
-	Pattern argument();
 }
 
 interface StringLit : Expression {

@@ -1,0 +1,17 @@
+#{
+ Copyright (C) 2020 Freddy Angel Cubas "Superstar64"
+ Distributed under the Boost Software License, Version 1.0.
+ (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
+#}
+
+template inc = x => x + 1;
+
+
+~ world -> (& (&&), world &) ~
+symbol main = do {
+	nat = 1 : natural32;
+	int = 2 : integer32;
+	run assert(nat.(inc`) == 2);
+	run assert(int.(inc`) == 3);
+	()
+};

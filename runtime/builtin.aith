@@ -1,0 +1,146 @@
+
+inline curry = ~f => ~a => ~b => f(a,b);
+
+inline pure = ~item => ~os => (item, os);
+
+inline desugar pure = pure;
+
+inline desugar bind = ~monad => ~continue => ~os {
+	(x, |os|) = monad(os);
+	continue(x)(os)
+};
+
+~ (& boolean, world &) -> world ~
+extern assert impl = extern "assert";
+
+inline assert = ~check => ~os => ((), assert impl`(check, os));
+
+~ (& raw character[], world &) -> world ~
+extern write impl = extern "write";
+
+inline write = ~string => ~os => ((), write impl`(string, os));
+
+~ <a extends unrestricted> (& a, world &) -> (& raw a*, world &) ~
+extern new impl = extern "aith_create_pointer";
+
+~ <a extends unrestricted> a ~> world ~> (& raw a*, world &) ~
+inline new = ~item => ~os => new impl`(item, os);
+
+
+~ <a extends unrestricted> (& natural, a, world &) -> (& raw a[] , world &) ~
+extern new array impl = extern "aith_new_array";
+
+~ <a extends unrestricted> natural ~> a ~> world ~> (& raw a[] , world &) ~
+inline new array = ~count => ~item => ~os => new array impl`(count,item,os);
+
+~ <a> raw a[] -> natural ~
+extern length impl = extern "aith_array_length";
+
+~ <a> raw a[] ~> natural ~
+inline length = length impl`;
+
+~ <a> (& raw a[], natural &) -> raw a* ~
+extern desugar index address impl = extern "aith_array_address_of";
+
+inline desugar index address = ~array => ~index => desugar index address impl`(array, index);
+
+~ <a> (& raw a*, a, world &) -> world ~
+extern desugar assign impl = extern "aith_pointer_assign";
+
+inline desugar assign = ~pointer => ~item => ~world => ((), desugar assign impl`(pointer, item, world));
+
+~ <a extends number, b extends number> a -> b ~
+extern cast impl = extern "aith_cast_integer";
+
+~ <a extends number, b extends number> a ~> b ~
+inline cast = cast impl`;
+
+~ <a> (& raw a[], natural, world &) -> (& a, world &) ~
+extern desugar index impl = extern "aith_index_array";
+
+inline desugar index = ~array => ~index => ~world => desugar index impl`(array, index, world);
+
+~ <a> (& raw a[], natural, natural &) -> raw a[] ~
+extern desugar slice impl = extern "aith_array_slice";
+
+inline desugar slice = ~array => ~left => ~right => desugar slice impl`(array, left, right);
+
+~ boolean -> boolean ~ 
+extern desugar not impl = extern "aith_not";
+
+inline desugar not = ~x => desugar not impl`(x);
+
+~ <a extends number> a -> a ~
+extern desugar negate impl = extern "aith_negate";
+
+inline desugar negate = ~x => desugar negate impl`(x);
+
+~ <a> (& raw a*, world &) -> (& a, world &) ~
+extern desugar derefence impl = extern "aith_derefence_pointer";
+
+inline desugar derefence = ~pointer => ~os => desugar derefence impl`(pointer, os);
+
+~ <a extends number> (& a, a &) -> boolean ~
+extern desugar less equal impl = extern "aith_lessthan_equal";
+
+inline desugar less equal = ~left => ~right => desugar less equal impl`(left, right);
+
+~ <a extends number> (& a, a &) -> boolean ~
+extern desugar greater equal impl = extern "aith_greater_equal";
+
+inline desugar greater equal = ~left => ~right => desugar greater equal impl`(left, right);
+
+~ <a extends number> (& a, a &) -> boolean ~
+extern desugar less impl = extern "aith_lessthan";
+
+inline desugar less = ~left => ~right => desugar less impl`(left, right);
+
+~ <a extends number> (& a, a &) -> boolean ~
+extern desugar greater impl = extern "aith_greater";
+
+inline desugar greater = ~left => ~right => desugar greater impl`(left, right);
+
+~ <a extends number> (& a, a &) -> a ~
+extern desugar multiply impl = extern "aith_multiply";
+
+inline desugar multiply = ~left => ~right => desugar multiply impl`(left, right);
+
+~ <a extends number> (& a, a &) -> a ~
+extern desugar divide impl = extern "aith_divide";
+
+inline desugar divide = ~left => ~right => desugar divide impl`(left, right);
+
+~ <a extends number> (& a, a &) -> a ~
+extern desugar modulus impl = extern "aith_modulus";
+
+inline desugar modulus = ~left => ~right => desugar modulus impl`(left, right);
+
+~ <a extends number> (& a, a &) -> a ~
+extern desugar add impl = extern "aith_add";
+
+inline desugar add = ~left => ~right => desugar add impl`(left, right);
+
+~ <a extends number> (& a, a &) -> a ~
+extern desugar subtract impl = extern "aith_subtract";
+
+inline desugar subtract = ~left => ~right => desugar subtract impl`(left, right);
+
+~ <a extends equal> (& a, a &) -> boolean ~
+extern desugar equal impl = extern "aith_compare";
+
+inline desugar equal = ~left => ~right => desugar equal impl`(left, right);
+
+~ <a extends equal> (& a, a &) -> boolean ~
+extern desugar not equal impl = extern "aith_compare_not";
+
+inline desugar not equal = ~left => ~right => desugar not equal impl`(left, right);
+
+~ (& boolean , boolean &) -> boolean ~
+extern desugar and impl = extern "aith_and";
+
+inline desugar and = ~left => ~right => desugar and impl`(left, right);
+
+~ (& boolean , boolean &) -> boolean ~
+extern desugar or impl = extern "aith_or";
+
+inline desugar or = ~left => ~right => desugar or impl`(left, right);

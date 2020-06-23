@@ -1,18 +1,18 @@
 /+
 	Copyright (C) 2020  Freddy Angel Cubas "Superstar64"
-	This file is part of Typi.
+	This file is part of Aith.
 
-	Typi is free software: you can redistribute it and/or modify
+	Aith is free software: you can redistribute it and/or modify
 	it under the terms of the GNU General Public License as published by
 	the Free Software Foundation version 3 of the License.
 
-	Typi is distributed in the hope that it will be useful,
+	Aith is distributed in the hope that it will be useful,
 	but WITHOUT ANY WARRANTY; without even the implied warranty of
 	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 	GNU General Public License for more details.
 
 	You should have received a copy of the GNU General Public License
-	along with Typi.  If not, see <http://www.gnu.org/licenses/>.
+	along with Aith.  If not, see <http://www.gnu.org/licenses/>.
 +/
 module lexer;
 import std.algorithm;
@@ -56,7 +56,7 @@ import misc.position;
 	}
 }
 
-enum keywords = AliasSeq!("else", "extern", "extends", "forall", "if", "import", "then", "has", "symbol");
+enum keywords = AliasSeq!("do", "try", "run", "else", "extern", "extends", "forall", "has", "if", "import", "raw", "symbol", "inline", "template", "then", "unique");
 
 struct Keyword(string keyword) if (staticIndexOf!(keyword, keywords) >= 0) {
 	string toString() {
@@ -69,7 +69,7 @@ auto keyword(string key)() {
 }
 
 //must be sorted according to string length
-enum operators = AliasSeq!("[*]", "(*)", "(!)", "[!]", ":::", "==", "!=", "<=", ">=", "&&", "||", "::", "->", "..", "&[", "&*_", "<-", "=>", "(&", "&)", "~~", "<", ">", "+", "-", "*", "/", "%", "=", "!", "~", "&", "|", "^", ":", "$", "@", "{", "}", "(", ")", "[", "]", ".", ",", ";", "_");
+enum operators = AliasSeq!("==", "!=", "<=", ">=", "&&", "||", "::", "->", "~>", "..", "&[", "&*_", "<-", "=>", "(&", "&)", "~~", "<", ">", "+", "-", "*", "/", "%", "=", "!", "~", "&", "|", "^", ":", "$", "@", "{", "}", "(", ")", "[", "]", ".", ",", ";", "_", "`");
 
 struct Operator(string operator) if (staticIndexOf!(operator, operators) >= 0) {
 	string toString() {
@@ -241,8 +241,8 @@ Nullable!Eof parseEOF(ref string file, void delegate(string) error) {
 }
 
 void removeMultiLine(ref string file) {
-	while (!file.startsWith("/#")) {
-		if (file.startsWith("#/")) {
+	while (!file.startsWith("#}")) {
+		if (file.startsWith("#{")) {
 			file.popFrontN(2);
 			removeMultiLine(file);
 		}
@@ -274,7 +274,7 @@ void removeComments(ref string file) {
 		file.popFront;
 		file.removeComments;
 	}
-	if (file.startsWith("#/")) {
+	if (file.startsWith("#{")) {
 		file.popFrontN(2);
 		file.removeMultiLine;
 		file.removeComments;
@@ -299,11 +299,13 @@ struct Lexer {
 	Source source;
 	uint line;
 	size_t index;
-	size_t lineStart;
+	Line startingLine;
 
 	this(string fileName, string file) {
 		this.source = Source(fileName, file);
 		this.line = 1;
+		auto lineEnd = file.countUntil("\n");
+		this.startingLine = Line(0, lineEnd == -1 ? file.length : lineEnd);
 		popFront;
 	}
 
@@ -322,16 +324,17 @@ struct Lexer {
 		sliced.removeComments;
 
 		Position position() {
-			auto untilLine = countUntil(sliced, "\n");
-			if (untilLine == -1) {
-				untilLine = sliced.length;
-			}
 			auto end = unslice(source.file, sliced);
-			auto lineCount = source.file[index .. end].filter!(a => a == '\n')
-				.count
-				.to!uint;
-
-			return Position(source, Section(line, line + lineCount, index, end, lineStart, end + untilLine));
+			auto nextLineStart = countUntil(sliced, "\n");
+			if (nextLineStart == -1) {
+				nextLineStart = sliced.length;
+			}
+			auto nextLineEnd = source.file[0 .. end].retro.countUntil("\n");
+			if (nextLineEnd == -1) {
+				nextLineEnd = end;
+			}
+			auto endingLine = Line(end - nextLineEnd, end + nextLineStart);
+			return Position(source, Section(line, index, end, startingLine, endingLine));
 		}
 
 		void quit(string message) {
@@ -345,9 +348,12 @@ struct Lexer {
 					front.value = typeof(front.value)(token.get);
 					front.position = position();
 					auto end = unslice(source.file, sliced);
-					size_t nextLine = source.file[index .. end].retro.countUntil("\n");
-					if (nextLine != -1) {
-						lineStart = end - nextLine;
+					size_t nextLineStart = source.file[index .. end].retro.countUntil("\n");
+					if (nextLineStart != -1) {
+						auto lineStart = end - nextLineStart;
+						auto nextLineEnd = source.file[lineStart .. $].countUntil("\n");
+						auto lineEnd = nextLineEnd == -1 ? source.file.length : lineStart + nextLineEnd;
+						startingLine = Line(lineStart, lineEnd);
 					}
 					line += source.file[index .. end].filter!(a => a == '\n')
 						.count
