@@ -42,6 +42,7 @@ Aith's types:
 Owner pointers and owner arrays are only used for allocating, they must be borrowed to perform other actions on.
 
 Aith's kinds:
+
 	runtime # kind of runtime type
 	k ~*> k' # kind of macro
 
