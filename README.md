@@ -109,13 +109,13 @@ Aith's expressions:
 
 Aith's has an expression based do notation. As of now do notation only desugars into a state monad(terms of type `world ~> (& t , world &)`).
 
-`do { e }` takes a pure `e` with some `try` sub expressions and wraps e in a state monad while apply the effects.
+`do { e }` takes a pure `e` with some `try` sub expressions and wraps `e` in a state monad while apply the effects.
 
 `try { e }` contain side effects and are moved outside their surrounding corrisponding do expression. 
 
 `run e; e'` is the equivalent of `() = try { e }; e'`.
 
-Currently do expressions don't work well with `if` expressions.
+Currently do expressions don't work well with `if` expressions(the effects happen for both branches).
 
 
 Aith's pattern matches:
