@@ -5,18 +5,16 @@
 #}
 
 ~ <a extends unrestricted> (& (& raw a[], raw a[] &), world &) -> (& (&&), world &) ~
-template copy = ((from,to), os) {
-	((), |os|) = assert(from.length == to.length)(os);
-	if (from.length == 0) {
-		((), os)
+template copy = (from,to) { do =>
+	run assert(from.length == to.length);
+	if(from.length == 0){
+		()
 	} else {
-		((), |os|) = do {
-			try => to&[0] <- try{from[0]}
-		}(os);
-		((), |os|) = copy`((from[1..from.length], to[1..to.length]), os);
-		((), os)
+		run to&[0] <- try{from[0]};
+		run curry(copy`)(from[1..from.length], to[1..to.length]);
+		()
 	}
-};
+}.uncurry;
 
 
 ~ world -> (& (&&), world &) ~

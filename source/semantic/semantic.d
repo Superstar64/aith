@@ -282,6 +282,10 @@ Linearity branch(Linearity left, Linearity right) {
 	}
 }
 
+class DoBlock {
+	Term delegate(Term)[] thunks;
+}
+
 class Context {
 	// initialized when processing symbol
 	Dictonary!(string, Parser.ModuleVarDef) rawGlobalSymbols;
@@ -293,7 +297,7 @@ class Context {
 	TypeChecker typeChecker;
 	Dictonary!(string, Expression[]) locals;
 	Dictonary!(VariableId, Linearity) uses;
-	Term delegate(Term) doBlock; // nullable
+	DoBlock doBlock; // nullable
 
 	this(Dictonary!(string, Parser.ModuleVarDef) rawGlobalSymbols, RecursionChecker recursionCheck, Module parent) {
 		this.rawGlobalSymbols = rawGlobalSymbols;
@@ -787,85 +791,50 @@ Term semanticMacro(Term calle, Term argument, Position position, Context context
 	return make!MacroCall(freshType, calle, argument);
 }
 
+Term foldDoBlock(Term effectless, Term delegate(Term)[] doBlock, Position position, Context context) {
+	auto effect = context.semanticDesugar!"pure"(position, effectless);
+	foreach (thunk; doBlock.retro) {
+		effect = thunk(effect);
+	}
+	return effect;
+}
+
 Expression semanticImpl(Parser.Do that, Context context) {
 	auto previous = context.doBlock;
 	scope (exit) {
 		context.doBlock = previous;
 	}
-	context.doBlock = a => a;
-	auto internal = that.value.semanticTerm(context);
-	auto effectless = context.semanticDesugar!"pure"(that.position, internal);
-	return context.doBlock(effectless);
+	context.doBlock = new DoBlock;
+	auto effectless = that.value.semanticTerm(context);
+
+	return foldDoBlock(effectless, context.doBlock.thunks, that.position, context);
 }
 
-Term delegate(Term) makeTryClosure(Term internal, Variable variable, Position position, Context context) {
+Term delegate(Term) makeTryClosure(Term effect, Variable variable, Position position, Context context) {
 	Term closure(Term dependent) {
 		auto type = make!TypeMacro(make!StageMacro(dependent.type.type, variable.type.type), dependent.type, variable.type);
 		auto continuation = make!MacroFunctionLiteral(type, Argument(variable.id, variable.name), dependent);
-		return context.semanticDesugar!"bind"(position, [internal, continuation]);
+		return context.semanticDesugar!"bind"(position, [effect, continuation]);
 	}
 
 	return &closure;
 }
 
-Term semanticTry(Term internal, Position position, Context context) {
+Term semanticTry(Term effect, Position position, Context context) {
 	auto id = new VariableId();
 	auto stage = context.freshStageVariable(position);
 	auto type = context.freshTypeVariable(stage, position);
 
 	auto variable = make!Variable(type, "", id);
-
-	auto outer = context.doBlock;
-	auto inner = makeTryClosure(internal, variable, position, context);
-	context.doBlock = dependent => outer(inner(dependent));
+	assert(context.doBlock);
+	context.doBlock.thunks ~= makeTryClosure(effect, variable, position, context);
 	return variable;
 }
 
 Expression semanticImpl(Parser.Try that, Context context) {
 	check(context.doBlock, "Expected do block for try", that.position);
-	auto internal = semanticTerm(that.value, context);
-	return semanticTry(internal, that.position, context);
-}
-
-Term delegate(Term) makeVariableDefinitionBinder(Term value, Pattern variable, Position position, Context context) {
-	Term closure(Term dependent) {
-		auto id = new VariableId();
-		auto stage = context.freshStageVariable(position);
-		auto type = context.freshTypeVariable(stage, position);
-
-		auto os = make!Variable(type, "os", id);
-
-		auto term = semanticMacro(dependent, os, position, context);
-		auto definition = make!VariableDefinition(term.type, variable, value, term);
-		auto wtype = make!TypeMacro(make!StageMacro(definition.type.type, os.type.type), definition.type, os.type);
-		auto wrapper = make!MacroFunctionLiteral(wtype, Argument(os.id, os.name), definition);
-		return wrapper;
-	}
-
-	return &closure;
-}
-
-Term semanticImpl(Parser.VariableDefinition that, Context context) {
-	auto value = semanticRuntime(that.value, context);
-	auto variable = semanticPattern(that.variable, context);
-	context.typeCheck(variable.type, value.type, that.position);
-	addBindings(variable, that.variable.position, context);
-	auto varDo = context.doBlock;
-	if (context.doBlock) {
-		context.doBlock = a => a;
-	}
-
-	auto last = semanticTerm(that.last, context);
-	removeBindings(variable, that.variable.position, context);
-	auto valDo = context.doBlock;
-	if (context.doBlock) {
-		assert(varDo);
-		auto binder = makeVariableDefinitionBinder(value, variable, that.position, context);
-		context.doBlock = dependent => varDo(binder(valDo(dependent)));
-		return last;
-	} else {
-		return make!VariableDefinition(last.type, variable, value, last);
-	}
+	auto effect = semanticTerm(that.value, context);
+	return semanticTry(effect, that.position, context);
 }
 
 Term semanticImpl(Parser.Run that, Context context) {
@@ -874,15 +843,28 @@ Term semanticImpl(Parser.Run that, Context context) {
 	auto value = semanticTry(semanticTerm(that.value, context), that.position, context);
 	auto variable = make!TuplePattern(typeStructFrom(), emptyArray!Pattern);
 	context.typeCheck(variable.type, value.type, that.position);
-	auto varDo = context.doBlock;
-	context.doBlock = a => a;
+	context.doBlock.thunks ~= dependent => make!VariableDefinition(dependent.type, variable, value, dependent);
 
-	auto last = semanticRuntime(that.last, context);
-	auto valDo = context.doBlock;
+	return semanticTerm(that.last, context);
+}
 
-	auto binder = makeVariableDefinitionBinder(value, variable, that.position, context);
-	context.doBlock = dependent => varDo(binder(valDo(dependent)));
-	return last;
+Term semanticImpl(Parser.VariableDefinition that, Context context) {
+	auto value = semanticTerm(that.value, context);
+	auto variable = semanticPattern(that.variable, context);
+	context.typeCheck(variable.type, value.type, that.position);
+	addBindings(variable, that.variable.position, context);
+
+	if (context.doBlock) {
+		context.doBlock.thunks ~= dependent => make!VariableDefinition(dependent.type, variable, value, dependent);
+	}
+
+	auto last = semanticTerm(that.last, context);
+	removeBindings(variable, that.variable.position, context);
+	if (context.doBlock) {
+		return last;
+	} else {
+		return make!VariableDefinition(last.type, variable, value, last);
+	}
 }
 
 void addBindings(Pattern variable, Position position, Context context) {
@@ -981,47 +963,70 @@ Expression semanticImpl(Parser.TupleLit that, Context context) {
 }
 
 Expression semanticImpl(Parser.If that, Context context) {
-	auto cond = semanticRuntime(that.cond, context);
-
-	auto initial = context.uses;
-
+	auto cond = semanticTerm(that.cond, context);
+	auto condUses = context.uses;
 	context.uses = context.uses.mapValues!(_ => Linearity.unused);
-	auto yes = semanticRuntime(that.yes, context);
+	Term delegate(Term)[] condDo;
+	if (context.doBlock) {
+		condDo = context.doBlock.thunks;
+		context.doBlock.thunks = [];
+	}
+
+	auto yes = semanticTerm(that.yes, context);
 	auto yesUses = context.uses;
-
 	context.uses = context.uses.mapValues!(_ => Linearity.unused);
-	auto no = semanticRuntime(that.no, context);
-	auto noUses = context.uses;
+	Term delegate(Term)[] yesDo;
+	if (context.doBlock) {
+		yesDo = context.doBlock.thunks;
+		context.doBlock.thunks = [];
+	}
 
-	context.uses = mergeMaps!both(initial, mergeMaps!branch(yesUses, noUses));
+	auto no = semanticTerm(that.no, context);
+	auto noUses = context.uses;
+	context.uses = context.uses.mapValues!(_ => Linearity.unused);
+	Term delegate(Term)[] noDo;
+	if (context.doBlock) {
+		noDo = context.doBlock.thunks;
+		context.doBlock.thunks = [];
+	}
 
 	context.typeCheck(cond.type, make!TypeBool(make!StageRuntime), that.cond.position);
 	context.typeCheck(yes.type, no.type, that.position);
-	return make!If(yes.type, cond, yes, no);
+
+	context.uses = mergeMaps!both(condUses, mergeMaps!branch(yesUses, noUses));
+	if (context.doBlock) {
+		context.doBlock.thunks = condDo;
+		auto yesEffect = foldDoBlock(yes, yesDo, that.yes.position, context);
+		auto noEffect = foldDoBlock(no, noDo, that.no.position, context);
+		auto effect = context.semanticDesugar!"choose"(that.position, [cond, yesEffect, noEffect]);
+		return semanticTry(effect, that.position, context);
+	} else {
+		return make!If(yes.type, cond, yes, no);
+	}
 }
 
 Expression semanticImpl(Parser.Infer that, Context context) {
 	auto argumentType = semanticType(that.type, context);
-	auto value = semanticRuntime(that.value, context);
+	auto value = semanticTerm(that.value, context);
 	context.typeCheck(argumentType, value.type, that.position);
 	return value;
 }
 
 Expression semanticImpl(Parser.Index that, Context context) {
-	auto array = semanticRuntime(that.array, context);
-	auto index = semanticRuntime(that.index, context);
+	auto array = semanticTerm(that.array, context);
+	auto index = semanticTerm(that.index, context);
 	return context.semanticDesugar!"index"(that.position, [array, index]);
 }
 
 Expression semanticImpl(Parser.IndexAddress that, Context context) {
-	auto array = semanticRuntime(that.array, context);
-	auto index = semanticRuntime(that.index, context);
+	auto array = semanticTerm(that.array, context);
+	auto index = semanticTerm(that.index, context);
 	return context.semanticDesugar!"index address"(that.position, [array, index]);
 }
 
 Expression semanticImpl(Parser.Binary!"<-" that, Context context) {
-	auto pointer = semanticRuntime(that.left, context);
-	auto target = semanticRuntime(that.right, context);
+	auto pointer = semanticTerm(that.left, context);
+	auto target = semanticTerm(that.right, context);
 	return context.semanticDesugar!"assign"(that.position, [pointer, target]);
 }
 
@@ -1048,9 +1053,9 @@ Expression semanticImpl(Parser.TupleIndexAddress that, Context context) {
 }
 
 Expression semanticImpl(Parser.Slice that, Context context) {
-	auto array = semanticRuntime(that.array, context);
-	auto left = semanticRuntime(that.left, context);
-	auto right = semanticRuntime(that.right, context);
+	auto array = semanticTerm(that.array, context);
+	auto left = semanticTerm(that.left, context);
+	auto right = semanticTerm(that.right, context);
 	return context.semanticDesugar!"slice"(that.position, [array, left, right]);
 }
 
@@ -1087,8 +1092,8 @@ enum operaterName(string _ : "&&") = "and";
 enum operaterName(string _ : "||") = "or";
 
 Expression semanticImpl(string op)(ParserBinary!op that, Context context) if (["<=", ">=", ">", "<", "*", "/", "%", "+", "-", "==", "!=", "&&", "||"].canFind(op)) {
-	auto left = semanticRuntime(that.left, context);
-	auto right = semanticRuntime(that.right, context);
+	auto left = semanticTerm(that.left, context);
+	auto right = semanticTerm(that.right, context);
 	return context.semanticDesugar!(operaterName!op)(that.position, [left, right]);
 }
 
@@ -1097,7 +1102,7 @@ enum prefixOperaterName(string _ : "-") = "negate";
 enum prefixOperaterName(string _ : "*") = "derefence";
 
 Expression semanticImpl(string op)(ParserPrefix!op that, Context context) if (["!", "-", "*"].canFind(op)) {
-	auto value = semanticRuntime(that.value, context);
+	auto value = semanticTerm(that.value, context);
 	return context.semanticDesugar!(prefixOperaterName!op)(that.position, value);
 }
 
@@ -1114,7 +1119,7 @@ Expression semanticImpl(Parser.ArrayLit that, Context context) {
 	auto variable = context.freshTypeVariable(make!StageRuntime, that.position);
 	context.predicateCheck(make!PredicateUnrestricted, variable, that.position);
 	auto type = make!TypeArray(make!StageRuntime, variable);
-	auto values = that.values.map!(a => semanticRuntime(a, context)).cache.array;
+	auto values = that.values.map!(a => semanticTerm(a, context)).cache.array;
 	foreach (value; values) {
 		context.typeCheck(variable, value.type, that.position);
 	}

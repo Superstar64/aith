@@ -5,45 +5,47 @@
 #}
 
 ~ <a extends unrestricted> (& (& raw a*,raw a* &), world &) -> (& (&&), world &) ~
-template swap = ((left,right),os) {
-	do {
-		tmp = try => *left;
-		run left <- try { *right } ;
-		run right <- tmp;
-		()
-	}(os)
-};
+template swap = (left,right) { do =>
+	tmp = try => *left;
+	run left <- try { *right } ;
+	run right <- tmp;
+	()
+}.uncurry;
 
 
-symbol quick sort exchange = ((array, pivot, middle, end), os) {
-	(last, |os|) = array[end](os);
+symbol quick sort exchange = (array, pivot, middle, end) { do =>
+	last = try { array[end] };
 	if (end < array.length - 1){
 		if (pivot > last){
 			middle pointer = array&[middle];
 			end pointer = array&[end];
-			((), |os|) = swap`((middle pointer, end pointer), os);
-			quick sort exchange`((array, pivot, middle + 1, end + 1), os)
+			run curry(swap`)(middle pointer, end pointer);
+			run curry(quick sort exchange`)(array, pivot, middle + 1, end + 1);
+			()
 		} else {
-			quick sort exchange`((array, pivot, middle, end + 1), os)
+			run curry(quick sort exchange`)(array, pivot, middle, end + 1);
+			()
 		}
 	} else {
 		middle pointer = array&[middle];
 		end pointer = array&[array.length - 1]; 
-		((), |os|) = swap`((middle pointer,end pointer), os);
-		((), |os|) = quick sort`(array[0..middle], os);
-		quick sort`(array[middle..array.length], os)
+		run curry(swap`)(middle pointer,end pointer);
+		run curry(quick sort`)(array[0..middle]);
+		run curry(quick sort`)(array[middle..array.length]);
+		()
 	}
-};
+}.uncurry;
 
 ~ (& raw integer32[], world &) -> (& (&&), world &) ~
-symbol quick sort = (array,os) {
+symbol quick sort = array { do =>
 	if (array.length > 1) {
-		(pivot, |os|) = array[array.length - 1](os);
-		quick sort exchange`((array, pivot, 0, 0), os)
+		pivot = try { array[array.length - 1] };
+		run curry(quick sort exchange`)(array, pivot, 0, 0);
+		()
 	} else {
-		((), os)
+		()
 	}
-};
+}.uncurry;
 
 ~ world -> (& (&&), world &) ~
 symbol main = do {

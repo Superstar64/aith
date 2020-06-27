@@ -115,8 +115,6 @@ Aith's has an expression based do notation. As of now do notation only desugars 
 
 `run e; e'` is the equivalent of `() = try { e }; e'`.
 
-Currently do expressions don't work well with `if` expressions(the effects happen for both branches).
-
 
 Aith's pattern matches:
 

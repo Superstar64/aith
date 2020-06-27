@@ -211,6 +211,7 @@ JsExpr generateJsImpl(TupleLit that, JsScope depend, Extra extra) {
 }
 
 JsExpr generateJsImpl(Variable that, JsScope depend, Extra extra) {
+	assert(that.id in extra.variables, "Unscoped variable: " ~ that.name);
 	return extra.variables[that.id];
 }
 

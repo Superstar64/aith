@@ -5,11 +5,9 @@
 #}
 
 ~ <a extends number & unrestricted> (& raw a*, world &) -> (& (&&), world &) ~
-template increment = (x, os) {
-	do {
-		try => x <- try{*x} + 1
-	}(os)
-};
+template increment = x { do =>
+	try => x <- try{*x} + 1
+}.uncurry;
 
 ~ world -> (& (&&), world &) ~
 symbol heap pointer = do {
@@ -33,7 +31,7 @@ symbol array pointer = do {
 };
 
 ~ world -> (& (&&), world &) ~
-symbol record pointer = do{
+symbol record pointer = do {
 	pair = try => new(4 : integer32,10 : integer32);
 	run assert(try {*pair}_0 == 4);
 	run curry(increment`)(pair&*_0);

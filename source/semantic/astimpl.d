@@ -190,12 +190,13 @@ override:
 		}
 	} else static if (is(T : VariableDefinition)) {
 		Term reduceMacros() {
+			auto last = last.reduceMacros;
 			if (auto lambda = last.castTo!MacroFunctionLiteral) {
 				auto inner = make!VariableDefinition(lambda.text.type, variable, value, lambda.text);
 				auto outer = make!MacroFunctionLiteral(lambda.type, lambda.argument, inner);
 				return outer.reduceMacros;
 			} else {
-				return this.destructure!(mapTerm!(a => a.reduceMacros, T, make!T));
+				return make!VariableDefinition(type, variable, value.reduceMacros, last);
 			}
 		}
 	} else {

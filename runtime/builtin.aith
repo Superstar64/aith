@@ -1,11 +1,21 @@
 
 inline curry = ~f => ~a => ~b => f(a,b);
 
+inline uncurry = ~f => (a,b) => f(a)(b);
+
 inline desugar pure = ~item => ~os => (item, os);
 
 inline desugar bind = ~monad => ~continue => ~os {
 	(x, |os|) = monad(os);
 	continue(x)(os)
+};
+
+inline desugar choose = ~choice => ~left => ~right => ~os {
+	if choice {
+		left(os)
+	} else {
+		right(os)
+	}
 };
 
 ~ (& boolean, world &) -> world ~
@@ -50,6 +60,7 @@ inline desugar effect = desugar pure;
 ~ <a> (& raw a[], natural &) -> raw a* ~
 extern desugar index address impl = extern "aith_array_address_of";
 
+~ <a> raw a[] ~> natural ~> raw a* ~
 inline desugar index address = ~array => ~index => desugar index address impl`(array, index);
 
 ~ <a> (& raw a*, a, world &) -> world ~
