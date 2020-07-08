@@ -39,8 +39,6 @@ Aith's types:
 	<x,x'> t # generic type, where x and y are type variables in t
 	<x extends c & c'> t # constrainted generic type by c and c'
 
-Owner pointers and owner arrays are only used for allocating, they must be borrowed to perform other actions on.
-
 Aith's kinds:
 
 	runtime # kind of runtime type
