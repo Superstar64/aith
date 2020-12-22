@@ -65,3 +65,4 @@ See ``/documentation`` for typing rules.
 
 # Copyright
 Copyright © Freddy A Cubas, "Superstar64"
+Licensed under GPL3 only, See LICENSE for more info.
