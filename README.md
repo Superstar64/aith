@@ -17,6 +17,8 @@ See ``/documentation`` for typing rules.
 * [ ] Runtime Lambda Calculus
 * [ ] Runtime Primatives
 * [ ] Hindley Milner Subset
+* [ ] C Code Generation
+* [ ] Javascript Code Generation
 
 # Syntax
 ## Terms(e)
@@ -56,7 +58,7 @@ See ``/documentation`` for typing rules.
 | Runtime | ``%runtime`` |
 | Macro | ``s -> s'`` |
 
-## Kinds
+## Kinds(κ)
 | Description | Syntax |
 |-|-|
 | Type | `` l @ s`` |
