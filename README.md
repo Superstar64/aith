@@ -60,3 +60,6 @@ See ``/documentation`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Type | `` l @ s`` |
+
+# Copyright
+Copyright © Freddy A Cubas, "Superstar64"
