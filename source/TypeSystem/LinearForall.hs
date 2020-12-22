@@ -1,40 +1,46 @@
 module TypeSystem.LinearForall where
 
-import Data.Proxy (Proxy (..), asProxyTypeOf)
 import Data.Set as Set (delete)
 import Data.Type.Equality ((:~:) (..))
 import Misc.Identifier
-import Misc.Util (Same, same')
+import Misc.Util (Same, same)
 import TypeSystem.Linear
+import TypeSystem.Linearity
 import TypeSystem.Methods
 import TypeSystem.Type
 import TypeSystem.Variable
 
-data LinearForall l s σ = LinearForall Identifier σ deriving (Show, Functor, Foldable, Traversable)
-
-phonyl :: LinearForall l s σ -> Proxy l
-phonyl _ = Proxy
-
-phonys :: LinearForall l s σ -> Proxy s
-phonys _ = Proxy
+data LinearForall ls l s σ = LinearForall Identifier σ deriving (Show, Functor, Foldable, Traversable)
 
 class EmbedLinearForall σ where
-  linearForall' :: LinearForall l s σ -> σ
+  linearForall' :: LinearForall ls l s σ -> σ
 
 linearForall x σ = linearForall' (LinearForall x σ)
 
 class CheckLinearForall m p σ where
-  checkLinearForall :: p -> σ -> m (LinearForall l s σ)
+  checkLinearForall :: p -> σ -> m (LinearForall ls l s σ)
 
-instance (Monad m, EmbedType l s κ, EmbedLinear l, SubstituteSame l, Positioned σ p, AugmentEnvironmentWithLinear m p, CheckType m p κ l s, TypeCheck m σ κ) => TypeCheckImpl m p (LinearForall l s σ) κ where
-  typeCheckImpl p f@(LinearForall x σ) = do
-    (z, Type l s) <- checkType' (phonyl f) (phonys f) (location σ) =<< augmentEnvironmentWithLinear p x (typeCheck σ)
-    pure $ flip asProxyTypeOf z $ typex (substituteSame linear x l) s
+instance
+  ( Monad m,
+    EmbedType l s κ,
+    EmbedLinearity ls,
+    EmbedLinear l,
+    SubstituteSame l,
+    Positioned σ p,
+    AugmentEnvironment m p ls,
+    CheckType m p κ l s,
+    TypeCheck κ m σ
+  ) =>
+  TypeCheckImpl m p (LinearForall ls l s σ) κ
+  where
+  typeCheckImpl p (LinearForall x σ) = do
+    Type l s <- checkType @l @s (location σ) =<< augmentEnvironment p x (linearity @ls) (typeCheck @κ σ)
+    pure $ typex @κ (substituteSame linear x l) s
 
-instance (Same u l, FreeVariables σ u) => FreeVariables (LinearForall l s σ) u where
-  freeVariables u f@(LinearForall x σ) = case same' u (phonyl f) of
-    Just Refl -> Set.delete x $ freeVariables u σ
-    Nothing -> freeVariables u σ
+instance (Same u l, FreeVariables σ u) => FreeVariables (LinearForall ls l s σ) u where
+  freeVariables' (LinearForall x σ) = case same @u @l of
+    Just Refl -> Set.delete x $ freeVariables @u σ
+    Nothing -> freeVariables @u σ
 
 instance
   ( σ ~ σ',
@@ -44,8 +50,8 @@ instance
     Substitute l σ,
     Substitute u σ
   ) =>
-  SubstituteImpl (LinearForall l s σ') u σ
+  SubstituteImpl (LinearForall ls l s σ') u σ
   where
-  substituteImpl ux x1 f@(LinearForall x2 σ) = linearForall x2' (substitute ux x1 σ')
+  substituteImpl ux x1 (LinearForall x2 σ) = linearForall x2' (substitute ux x1 σ')
     where
-      (x2', σ') = avoidCapture (phonyl f) (freeVariables (phonyl f) ux) (x2, σ)
+      (x2', σ') = avoidCapture @l (freeVariables @l ux) (x2, σ)

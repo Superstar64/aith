@@ -1,25 +1,26 @@
 module TypeSystem.Variable where
 
-import Data.Proxy (Proxy (..), asProxyTypeOf)
-import Data.Set as Set
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Type.Equality ((:~:) (..))
 import Misc.Identifier
-import Misc.Util (Same, same, same')
+import Misc.Util (Same, same)
 import TypeSystem.Methods
 
-avoidCapture :: (Substitute u b, EmbedVariable u) => Proxy u -> Set Identifier -> (Identifier, b) -> (Identifier, b)
-avoidCapture p disallow (x, σ) = (x', σ')
+avoidCapture :: forall u e. (Substitute u e, EmbedVariable u) => Set Identifier -> (Identifier, e) -> (Identifier, e)
+avoidCapture disallow (x, σ) = (x', σ')
   where
     x' = fresh disallow x
     σ' = case x == x' of
       True -> σ
-      False -> substitute (asProxyTypeOf (variable x') p) x σ
+      False -> substitute (variable @u x') x σ
 
 data Variable e = Variable Identifier deriving (Show)
 
 class EmbedVariable e where
-  variable' :: Variable e' -> e
+  variable' :: Variable e -> e
 
+variable :: forall e. EmbedVariable e => Identifier -> e
 variable x = variable' (Variable x)
 
 instance ReadEnvironmentLinear m p σ lΓ => TypeCheckLinearImpl m p (Variable e) σ lΓ where
@@ -28,11 +29,8 @@ instance ReadEnvironmentLinear m p σ lΓ => TypeCheckLinearImpl m p (Variable e
 instance ReadEnvironment m p κ => TypeCheckImpl m p (Variable e) κ where
   typeCheckImpl p (Variable x) = readEnvironment p x
 
-phony :: Variable e -> Proxy e
-phony _ = Proxy
-
 instance (Same u e) => FreeVariables (Variable e) u where
-  freeVariables u f@(Variable x) = case same' u (phony f) of
+  freeVariables' (Variable x) = case same @u @e of
     Just Refl -> Set.singleton x
     Nothing -> Set.empty
 

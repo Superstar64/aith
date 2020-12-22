@@ -93,9 +93,11 @@ prettyType' _ (LinearForall (Identifier x) σ) = do
 
 prettyType d (CoreType Internal σ) = prettyType' d σ
 
-prettyLinear Linear = tell "%linear"
-prettyLinear Unrestricted = tell "%unrestricted"
-prettyLinear (LinearVariable (Identifier x)) = tell x
+prettyLinear' Linear = tell "%linear"
+prettyLinear' Unrestricted = tell "%unrestricted"
+prettyLinear' (LinearVariable (Identifier x)) = tell x
+
+prettyLinear (CoreLinearity Internal l) = prettyLinear' l
 
 data StagePrecedence = BottomStage | ArrowStage deriving (Eq, Ord)
 

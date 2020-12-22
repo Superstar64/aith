@@ -1,52 +1,55 @@
 module TypeSystem.Forall where
 
-import Data.Proxy (Proxy (..), asProxyTypeOf)
 import Data.Set as Set (delete)
 import Data.Type.Equality ((:~:) (..))
 import Misc.Identifier
-import Misc.Util (Same, proxyOf, same')
+import Misc.Util (Same, same)
 import TypeSystem.Methods
 import TypeSystem.Type
 import TypeSystem.Variable
 
-data Forall l s κ σ = Forall Identifier κ σ deriving (Show, Functor, Foldable, Traversable)
-
-phonyl :: Forall l s κ σ -> Proxy l
-phonyl _ = Proxy
-
-phonys :: Forall l s κ σ -> Proxy s
-phonys _ = Proxy
+data Forall κs l s κ σ = Forall Identifier κ σ deriving (Show, Functor, Foldable, Traversable)
 
 class EmbedForall κ σ where
-  forallx' :: Forall l s κ σ -> σ
+  forallx' :: Forall κs l s κ σ -> σ
 
 forallx x κ σ = forallx' (Forall x κ σ)
 
 class CheckForall m p κ σ where
-  checkForall :: p -> σ -> m (Forall l s κ σ)
-
-instance (FreeVariables σ u, FreeVariables κ u, Same u σ) => FreeVariables (Forall l s κ σ) u where
-  freeVariables u (Forall x κ σ) = case same' u (proxyOf σ) of
-    Just Refl -> Set.delete x (freeVariables u σ)
-    Nothing -> freeVariables u κ <> freeVariables u σ
-
-instance (σ ~ σ', EmbedVariable σ, EmbedForall κ σ, Substitute u σ, Substitute u κ, Substitute σ σ', FreeVariables u σ) => SubstituteImpl (Forall l s κ σ') u σ where
-  substituteImpl ux x1 (Forall x2 κ σ) = forallx x2' (substitute ux x1 κ) (substitute ux x1 σ')
-    where
-      (x2', σ') = avoidCapture (proxyOf σ) (freeVariables (proxyOf σ) ux) (x2, σ)
+  checkForall :: p -> σ -> m (Forall κs l s κ σ)
 
 instance
   ( Monad m,
-    Instantiate m κ' κ,
     Positioned σ p,
     AugmentEnvironment m p κ,
+    TypeCheckInstantiate κs κ m κ',
     EmbedType l s κ,
     CheckType m p κ l s,
-    TypeCheck m σ κ
+    TypeCheck κ m σ
   ) =>
-  TypeCheckImpl m p (Forall l s κ' σ) κ
+  TypeCheckImpl m p (Forall κs l s κ' σ) κ
   where
-  typeCheckImpl p f@(Forall x κ1' σ) = do
-    κ1 <- instantiate κ1'
-    (z, Type l s) <- checkType' (phonyl f) (phonys f) (location σ) =<< augmentEnvironment p x κ1 (typeCheck σ)
-    pure $ flip asProxyTypeOf (proxyOf κ1) $ flip asProxyTypeOf z $ typex l s
+  typeCheckImpl p (Forall x κ1' σ) = do
+    κ1 <- instantiate @κs @κ κ1'
+    Type l s <- checkType @l @s (location σ) =<< augmentEnvironment p x κ1 (typeCheck @κ σ)
+    pure $ typex @κ l s
+
+instance (FreeVariables σ u, FreeVariables κ u, Same u σ) => FreeVariables (Forall κs l s κ σ) u where
+  freeVariables' (Forall x κ σ) = case same @u @σ of
+    Just Refl -> Set.delete x (freeVariables @u σ)
+    Nothing -> freeVariables @u κ <> freeVariables @u σ
+
+instance
+  ( σ ~ σ',
+    EmbedVariable σ,
+    EmbedForall κ σ,
+    Substitute u σ,
+    Substitute u κ,
+    Substitute σ σ',
+    FreeVariables u σ
+  ) =>
+  SubstituteImpl (Forall κs l s κ σ') u σ
+  where
+  substituteImpl ux x1 (Forall x2 κ σ) = forallx x2' (substitute ux x1 κ) (substitute ux x1 σ')
+    where
+      (x2', σ') = avoidCapture @σ (freeVariables @σ ux) (x2, σ)

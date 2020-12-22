@@ -148,11 +148,11 @@ s \Coloneqq & s \alpha \tag*{[Stage Variable]}\\
 
 Examples:
 \begin{align*}
-I \Coloneqq & \Lambda l \alpha, l \alpha', s \alpha, \alpha : \text{Type} (l,s). \lambda^l x : \alpha. x \tag* {[Fully General Identity Macro]} \\
+I \Coloneqq & \Lambda l \alpha, l \alpha', s \alpha, \alpha : \text{Type} (l \alpha,s). \lambda^{l \alpha '} x : \alpha. x \tag* {[Fully General Identity Macro]} \\
 \\
-I \Coloneqq & \Lambda l \alpha, l \alpha', \alpha : \text{Type} (l,\text{void}*). \lambda^l x : \alpha. x \tag* {[Identity Macro On Types that Type Erasure to Pointer]} \\
+I \Coloneqq & \Lambda l \alpha, l \alpha', \alpha : \text{Type} (l \alpha,\text{void}*). \lambda^{l \alpha '} x : \alpha. x \tag* {[Identity Macro On Types that Type Erasure to Pointer]} \\
 \\
-I \Coloneqq & \Lambda l \alpha, \alpha : \text{Type} (\omega,\text{void}*). \lambda^l x : \alpha. x \tag* {[Identity Macro On Unrestricted Types that Type Erasure to Pointer]} \\
+I \Coloneqq & \Lambda l \alpha, \alpha : \text{Type} (\omega,\text{void}*). \lambda^{l \alpha} x : \alpha. x \tag* {[Identity Macro On Unrestricted Types that Type Erasure to Pointer]} \\
 \\ 
 K \Coloneqq & \Lambda l \alpha, l \alpha', l \alpha'', s \alpha, s \alpha', \alpha : \text{Type} (l \alpha, s), \alpha' : \text{Type} (\omega, s'). \\
 & \text{over} (l \alpha > l \alpha''). \lambda^{l\alpha'} x : \alpha. \lambda^{l \alpha''} x' : \alpha'. x \tag* {[Fully General Const Macro]}

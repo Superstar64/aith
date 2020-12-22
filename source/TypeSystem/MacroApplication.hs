@@ -3,7 +3,6 @@ module TypeSystem.MacroApplication where
 import Environment
 import Misc.Util (firstM)
 import TypeSystem.Macro
-import TypeSystem.MacroAbstraction
 import TypeSystem.Methods
 
 data MacroApplication e = MacroApplication e e deriving (Show, Functor, Foldable, Traversable)
@@ -19,7 +18,7 @@ instance
     Positioned e p,
     CheckMacro' m p σ,
     SameType m p σ,
-    TypeCheckLinear m e σ lΓ
+    TypeCheckLinear σ m e lΓ
   ) =>
   TypeCheckLinearImpl m p (MacroApplication e) σ lΓ
   where
@@ -30,7 +29,7 @@ instance
     pure (τ, combine lΓ1 lΓ2)
 
 instance FreeVariables e u => FreeVariables (MacroApplication e) u where
-  freeVariables u e = foldMap (freeVariables u) e
+  freeVariables' e = foldMap (freeVariables @u) e
 
 instance (e ~ e', EmbedMacroApplication e, Substitute u e) => SubstituteImpl (MacroApplication e') u e where
   substituteImpl ux x (MacroApplication e1 e2) = macroApplication (substitute ux x e1) (substitute ux x e2)
@@ -38,12 +37,12 @@ instance (e ~ e', EmbedMacroApplication e, Substitute u e) => SubstituteImpl (Ma
 instance
   ( e ~ e',
     EmbedMacroApplication e,
-    CheckMacroAbstraction' e,
+    MatchAbstraction e,
     Substitute e e',
     Reduce e
   ) =>
   ReduceImpl (MacroApplication e') e
   where
-  reduceImpl (MacroApplication e1 e2) = case checkMacroAbstraction' (reduce e1) of
+  reduceImpl (MacroApplication e1 e2) = case matchAbstraction (reduce e1) of
     Just (x, e) -> reduce (substitute (reduce e2) x e)
     Nothing -> macroApplication (reduce e1) (reduce e2)

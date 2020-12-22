@@ -4,7 +4,6 @@ import Core.Ast
 import Core.Parse
 import Core.Pretty
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 import Environment
 import System.Exit
 import Text.Megaparsec
@@ -21,10 +20,10 @@ main :: IO ()
 main = do
   stdin <- getContents
   e <- tryParse $ parse term "stdin" stdin
-  case runCore (typeCheckLinear e :: Core SourcePos (Error SourcePos) (TypeInternal, Use)) $ CoreState Map.empty Map.empty Set.empty of
+  case runCore (typeCheckLinear e :: Core SourcePos (Error SourcePos) (TypeInternal, Use)) $ CoreState Map.empty Map.empty Map.empty of
     Left f -> putStr "Error: " >> print f
     Right ((σ, _), _) -> do
-      let (Right (κ, _)) = runCore (typeCheck σ :: Core Internal (Error Internal) KindInternal) $ CoreState Map.empty Map.empty Set.empty
+      let (Right (κ, _)) = runCore (typeCheck σ :: Core Internal (Error Internal) KindInternal) $ CoreState Map.empty Map.empty Map.empty
       putStrLn "Term Pretty: " >> putStrLn (showTerm $ Internal <$ e)
       putStrLn ""
       putStrLn "Term β Pretty: " >> putStrLn (showTerm $ reduce $ Internal <$ e)

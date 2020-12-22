@@ -1,16 +1,15 @@
 module TypeSystem.Type where
 
-import Data.Proxy (Proxy (..))
-
 data Type l s κ = Type l s deriving (Show, Functor, Foldable, Traversable)
 
 class CheckType m p κ l s where
-  checkType :: p -> κ -> m (Type l s κ)
+  checkType' :: p -> κ -> m (Type l s κ)
 
-checkType' :: (Functor f, CheckType f p κ l s) => Proxy l -> Proxy s -> p -> κ -> f (Proxy κ, Type l s κ)
-checkType' Proxy Proxy p κ = (\x -> (Proxy, x)) <$> checkType p κ
+checkType :: forall l s κ m p. (CheckType m p κ l s) => p -> κ -> m (Type l s κ)
+checkType = checkType'
 
 class EmbedType l s κ where
   typex' :: Type l s κ -> κ
 
+typex :: forall κ l s. (EmbedType l s κ) => l -> s -> κ
 typex l s = typex' (Type l s)

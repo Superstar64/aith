@@ -1,1 +1,1 @@
-ormolu -i `find source -type f`
+ormolu -o -XTypeApplications -i `find source -type f`
