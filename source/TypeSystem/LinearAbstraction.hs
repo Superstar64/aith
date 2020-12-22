@@ -5,7 +5,7 @@ import Data.Type.Equality ((:~:) (..))
 import Misc.Identifier
 import Misc.Util (Same, same)
 import TypeSystem.LinearForall
-import TypeSystem.Linearity
+import TypeSystem.Multiplicity
 import TypeSystem.Methods
 import TypeSystem.Variable
 
@@ -19,14 +19,14 @@ linearAbstraction x e = linearAbstraction' (LinearAbstraction x e)
 instance
   ( Monad m,
     EmbedLinearForall σ,
-    EmbedLinearity ls,
+    EmbedMultiplicity ls,
     AugmentEnvironment m p ls,
     TypeCheckLinear σ m e lΓ
   ) =>
   TypeCheckLinearImpl m p (LinearAbstraction ls l e) σ lΓ
   where
   typeCheckLinearImpl p (LinearAbstraction x e) = do
-    (σ, lΓ) <- augmentEnvironment p x (linearity @ls) (typeCheckLinear e)
+    (σ, lΓ) <- augmentEnvironment p x (multiplicity @ls) (typeCheckLinear e)
     pure (linearForall x σ, lΓ)
 
 instance (FreeVariables e u, Same u l) => FreeVariables (LinearAbstraction ls l e) u where

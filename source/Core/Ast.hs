@@ -17,7 +17,7 @@ import qualified TypeSystem.Linear as TypeSystem
 import qualified TypeSystem.LinearAbstraction as TypeSystem
 import qualified TypeSystem.LinearApplication as TypeSystem
 import qualified TypeSystem.LinearForall as TypeSystem
-import qualified TypeSystem.Linearity as TypeSystem
+import qualified TypeSystem.Multiplicity as TypeSystem
 import qualified TypeSystem.Macro as TypeSystem
 import qualified TypeSystem.MacroAbstraction as TypeSystem
 import qualified TypeSystem.MacroApplication as TypeSystem
@@ -33,12 +33,12 @@ data Internal = Internal deriving (Show)
 
 data TermF p
   = Variable Identifier
-  | MacroAbstraction Identifier (Linearity p) (Type p) (Term p)
+  | MacroAbstraction Identifier (Multiplicity p) (Type p) (Term p)
   | MacroApplication (Term p) (Term p)
   | TypeAbstraction Identifier (Kind p) (Term p)
   | TypeApplication (Term p) (Type p)
   | LinearAbstraction Identifier (Term p)
-  | LinearApplication (Term p) (Linearity p)
+  | LinearApplication (Term p) (Multiplicity p)
   deriving (Show, Functor)
 
 data Term p = CoreTerm p (TermF p) deriving (Show, Functor)
@@ -48,14 +48,14 @@ projectTerm ::
   Either
     (TypeSystem.Variable (Term p))
     ( Either
-        (TypeSystem.MacroAbstraction LinearitySort LinearityInternal KindInternal (Linearity p) (Type p) (Term p))
+        (TypeSystem.MacroAbstraction MultiplicitySort MultiplicityInternal KindInternal (Multiplicity p) (Type p) (Term p))
         ( Either
             (TypeSystem.MacroApplication (Term p))
             ( Either
                 (TypeSystem.TypeAbstraction KindSort KindInternal TypeInternal (Kind p) (Term p))
                 ( Either
                     (TypeSystem.TypeApplication KindInternal (Type p) (Term p))
-                    (Either (TypeSystem.LinearAbstraction LinearitySort LinearityInternal (Term p)) (TypeSystem.LinearApplication LinearitySort LinearityInternal (Linearity p) (Term p)))
+                    (Either (TypeSystem.LinearAbstraction MultiplicitySort MultiplicityInternal (Term p)) (TypeSystem.LinearApplication MultiplicitySort MultiplicityInternal (Multiplicity p) (Term p)))
                 )
             )
         )
@@ -71,7 +71,7 @@ projectTerm (LinearApplication e l) = Right $ Right $ Right $ Right $ Right $ Ri
 instance i ~ Internal => TypeSystem.EmbedVariable (Term i) where
   variable' (TypeSystem.Variable x) = CoreTerm Internal $ Variable x
 
-instance (i ~ Internal, i' ~ Internal, i'' ~ Internal) => TypeSystem.EmbedMacroAbstraction (Linearity i'') (Type i) (Term i') where
+instance (i ~ Internal, i' ~ Internal, i'' ~ Internal) => TypeSystem.EmbedMacroAbstraction (Multiplicity i'') (Type i) (Term i') where
   macroAbstraction' (TypeSystem.MacroAbstraction x l σ e) = CoreTerm Internal $ MacroAbstraction x l σ e
 
 instance (i ~ Internal) => TypeSystem.EmbedMacroApplication (Term i) where
@@ -86,12 +86,12 @@ instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedTypeApplication (Type 
 instance (i ~ Internal) => TypeSystem.EmbedLinearAbstraction (Term i) where
   linearAbstraction' (TypeSystem.LinearAbstraction x e) = CoreTerm Internal $ LinearAbstraction x e
 
-instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedLinearApplication (Linearity i) (Term i') where
+instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedLinearApplication (Multiplicity i) (Term i') where
   linearApplication' (TypeSystem.LinearApplication e l) = CoreTerm Internal $ LinearApplication e l
 
 data TypeF p
   = TypeVariable Identifier
-  | Macro (Linearity p) (Type p) (Type p)
+  | Macro (Multiplicity p) (Type p) (Type p)
   | Forall Identifier (Kind p) (Type p)
   | LinearForall Identifier (Type p)
   deriving (Show, Functor)
@@ -105,10 +105,10 @@ projectType ::
   Either
     (TypeSystem.Variable (Type p))
     ( Either
-        (TypeSystem.Macro LinearitySort LinearityInternal Stage (Linearity p) (Type p))
+        (TypeSystem.Macro MultiplicitySort MultiplicityInternal Stage (Multiplicity p) (Type p))
         ( Either
-            (TypeSystem.Forall KindSort LinearityInternal Stage (Kind p) (Type p))
-            (TypeSystem.LinearForall LinearitySort LinearityInternal Stage (Type p))
+            (TypeSystem.Forall KindSort MultiplicityInternal Stage (Kind p) (Type p))
+            (TypeSystem.LinearForall MultiplicitySort MultiplicityInternal Stage (Type p))
         )
     )
 projectType (TypeVariable x) = Left $ TypeSystem.Variable x
@@ -119,7 +119,7 @@ projectType (LinearForall x σ) = Right $ Right $ Right $ TypeSystem.LinearForal
 instance i ~ Internal => TypeSystem.EmbedVariable (Type i) where
   variable' (TypeSystem.Variable x) = CoreType Internal $ TypeVariable x
 
-instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedMacro (Linearity i') (Type i) where
+instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedMacro (Multiplicity i') (Type i) where
   macro' (TypeSystem.Macro l σ τ) = CoreType Internal $ Macro l σ τ
 
 instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedForall (Kind i) (Type i') where
@@ -128,41 +128,41 @@ instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedForall (Kind i) (Type 
 instance (i ~ Internal) => TypeSystem.EmbedLinearForall (Type i) where
   linearForall' (TypeSystem.LinearForall x σ) = CoreType Internal $ LinearForall x σ
 
-data LinearityF = Linear | Unrestricted | LinearVariable Identifier deriving (Show)
+data MultiplicityF = Linear | Unrestricted | LinearVariable Identifier deriving (Show)
 
-data Linearity p = CoreLinearity p LinearityF deriving (Show, Functor, Foldable, Traversable)
+data Multiplicity p = CoreMultiplicity p MultiplicityF deriving (Show, Functor, Foldable, Traversable)
 
-type LinearityInternal = Linearity Internal
+type MultiplicityInternal = Multiplicity Internal
 
-projectLinearity ::
-  LinearityF ->
+projectMultiplicity ::
+  MultiplicityF ->
   Either
     (TypeSystem.Variable p)
     (Either TypeSystem.Linear TypeSystem.Unrestricted)
-projectLinearity (LinearVariable x) = Left $ TypeSystem.Variable x
-projectLinearity Linear = Right $ Left $ TypeSystem.Linear
-projectLinearity Unrestricted = Right $ Right $ TypeSystem.Unrestricted
+projectMultiplicity (LinearVariable x) = Left $ TypeSystem.Variable x
+projectMultiplicity Linear = Right $ Left $ TypeSystem.Linear
+projectMultiplicity Unrestricted = Right $ Right $ TypeSystem.Unrestricted
 
-instance (i ~ Internal) => TypeSystem.EmbedVariable (Linearity i) where
-  variable' (TypeSystem.Variable x) = CoreLinearity Internal $ LinearVariable x
+instance (i ~ Internal) => TypeSystem.EmbedVariable (Multiplicity i) where
+  variable' (TypeSystem.Variable x) = CoreMultiplicity Internal $ LinearVariable x
 
-instance (i ~ Internal) => TypeSystem.EmbedLinear (Linearity i) where
-  linear = CoreLinearity Internal Linear
+instance (i ~ Internal) => TypeSystem.EmbedLinear (Multiplicity i) where
+  linear = CoreMultiplicity Internal Linear
 
-instance (i ~ Internal) => TypeSystem.EmbedUnrestricted (Linearity i) where
-  unrestricted = CoreLinearity Internal Unrestricted
+instance (i ~ Internal) => TypeSystem.EmbedUnrestricted (Multiplicity i) where
+  unrestricted = CoreMultiplicity Internal Unrestricted
 
-data LinearitySort = Linearity deriving (Show)
+data MultiplicitySort = Multiplicity deriving (Show)
 
-instance TypeSystem.EmbedLinearity LinearitySort where
-  linearity = Linearity
+instance TypeSystem.EmbedMultiplicity MultiplicitySort where
+  multiplicity = Multiplicity
 
 data Stage = Runtime | StageMacro Stage Stage deriving (Show)
 
 instance TypeSystem.EmbedStageMacro Stage where
   stageMacro' (TypeSystem.StageMacro s s') = StageMacro s s'
 
-data KindF p = Type (Linearity p) Stage deriving (Show, Functor)
+data KindF p = Type (Multiplicity p) Stage deriving (Show, Functor)
 
 data Kind p = CoreKind p (KindF p) deriving (Show, Functor)
 
@@ -170,7 +170,7 @@ type KindInternal = Kind Internal
 
 data KindSort = Kind deriving (Show)
 
-instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedType (Linearity i') Stage (Kind i) where
+instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedType (Multiplicity i') Stage (Kind i) where
   typex' (TypeSystem.Type l s) = CoreKind Internal $ Type l s
 
 instance (i ~ Internal, i' ~ Internal) => Same (Type i) (Term i) where
@@ -185,19 +185,19 @@ instance (i ~ Internal, i' ~ Internal) => Same (Term i) (Type i) where
 instance (i ~ Internal, i' ~ Internal) => Same (Type i) (Type i) where
   same = Just Refl
 
-instance (i ~ Internal, i' ~ Internal) => Same (Linearity i) (Type i') where
+instance (i ~ Internal, i' ~ Internal) => Same (Multiplicity i) (Type i') where
   same = Nothing
 
-instance (i ~ Internal, i' ~ Internal) => Same (Linearity i) (Term i') where
+instance (i ~ Internal, i' ~ Internal) => Same (Multiplicity i) (Term i') where
   same = Nothing
 
-instance (i ~ Internal, i' ~ Internal) => Same (Linearity i) (Linearity i') where
+instance (i ~ Internal, i' ~ Internal) => Same (Multiplicity i) (Multiplicity i') where
   same = Just Refl
 
-instance (i ~ Internal, i' ~ Internal) => Same (Type i) (Linearity i') where
+instance (i ~ Internal, i' ~ Internal) => Same (Type i) (Multiplicity i') where
   same = Nothing
 
-instance (i ~ Internal, i' ~ Internal) => Same (Term i) (Linearity i') where
+instance (i ~ Internal, i' ~ Internal) => Same (Term i) (Multiplicity i') where
   same = Nothing
 
 -- free variables of terms
@@ -207,8 +207,8 @@ instance (i ~ Internal, i' ~ Internal) => FreeVariables (Term i) (Term i') where
 instance (i ~ Internal, i' ~ Internal) => FreeVariables (Term i) (Type i') where
   freeVariables' (CoreTerm Internal e) = freeVariables @TypeInternal $ projectTerm e
 
-instance (i ~ Internal, i' ~ Internal) => FreeVariables (Term i) (Linearity i') where
-  freeVariables' (CoreTerm Internal e) = freeVariables @LinearityInternal $ projectTerm e
+instance (i ~ Internal, i' ~ Internal) => FreeVariables (Term i) (Multiplicity i') where
+  freeVariables' (CoreTerm Internal e) = freeVariables @MultiplicityInternal $ projectTerm e
 
 -- free variables of types
 
@@ -218,24 +218,24 @@ instance (i ~ Internal, i' ~ Internal) => FreeVariables (Type i) (Term i') where
 instance (i ~ Internal, i' ~ Internal) => FreeVariables (Type i) (Type i') where
   freeVariables' (CoreType Internal σ) = freeVariables @TypeInternal $ projectType σ
 
-instance (i ~ Internal, i' ~ Internal) => FreeVariables (Type i) (Linearity i') where
-  freeVariables' (CoreType Internal σ) = freeVariables @LinearityInternal $ projectType σ
+instance (i ~ Internal, i' ~ Internal) => FreeVariables (Type i) (Multiplicity i') where
+  freeVariables' (CoreType Internal σ) = freeVariables @MultiplicityInternal $ projectType σ
 
--- free variables of linearity
+-- free variables of multiplicity
 
-instance (i ~ Internal, i' ~ Internal) => FreeVariables (Linearity i') (Type i) where
+instance (i ~ Internal, i' ~ Internal) => FreeVariables (Multiplicity i') (Type i) where
   freeVariables' _ = Set.empty
 
-instance (i ~ Internal, i' ~ Internal) => FreeVariables (Linearity i) (Term i) where
+instance (i ~ Internal, i' ~ Internal) => FreeVariables (Multiplicity i) (Term i) where
   freeVariables' _ = Set.empty
 
-instance (i ~ Internal, i' ~ Internal) => FreeVariables (Linearity i) (Linearity i') where
-  freeVariables' (CoreLinearity Internal l) = freeVariables @LinearityInternal $ projectLinearity @LinearityInternal l
+instance (i ~ Internal, i' ~ Internal) => FreeVariables (Multiplicity i) (Multiplicity i') where
+  freeVariables' (CoreMultiplicity Internal l) = freeVariables @MultiplicityInternal $ projectMultiplicity @MultiplicityInternal l
 
 -- free variables of kinds
 
-instance (i ~ Internal, i' ~ Internal) => FreeVariables (Kind i) (Linearity i') where
-  freeVariables' (CoreKind Internal (Type l _)) = freeVariables @LinearityInternal l
+instance (i ~ Internal, i' ~ Internal) => FreeVariables (Kind i) (Multiplicity i') where
+  freeVariables' (CoreKind Internal (Type l _)) = freeVariables @MultiplicityInternal l
 
 instance (i ~ Internal, i' ~ Internal) => FreeVariables (Kind i) (Term i') where
   freeVariables' _ = Set.empty
@@ -251,7 +251,7 @@ instance (i ~ Internal, i' ~ Internal) => Substitute (Term i) (Term i') where
 instance (i ~ Internal, i' ~ Internal) => Substitute (Type i) (Term i') where
   substitute σx x (CoreTerm Internal e) = substituteImpl σx x $ projectTerm e
 
-instance (i ~ Internal, i' ~ Internal) => Substitute (Linearity i) (Term i') where
+instance (i ~ Internal, i' ~ Internal) => Substitute (Multiplicity i) (Term i') where
   substitute lx x (CoreTerm Internal e) = substituteImpl lx x $ projectTerm e
 
 -- substitute into type
@@ -265,7 +265,7 @@ instance (i ~ Internal, i' ~ Internal) => Substitute (Type i) (Type i') where
 instance (i ~ Internal) => SubstituteSame (Type i) where
   substituteSame = substitute
 
-instance (i ~ Internal, i' ~ Internal) => Substitute (Linearity i) (Type i') where
+instance (i ~ Internal, i' ~ Internal) => Substitute (Multiplicity i) (Type i') where
   substitute l x (CoreType Internal σ) = substituteImpl l x $ projectType σ
 
 -- substitute into kind
@@ -273,24 +273,24 @@ instance (i ~ Internal, i' ~ Internal) => Substitute (Linearity i) (Type i') whe
 instance Substitute (Type i) (Kind i) where
   substitute _ _ κ = κ
 
-instance (i ~ Internal, i' ~ Internal) => Substitute (Linearity i) (Kind i) where
+instance (i ~ Internal, i' ~ Internal) => Substitute (Multiplicity i) (Kind i) where
   substitute lx x (CoreKind Internal (Type l s)) = CoreKind Internal $ Type (substitute lx x l) s
 
 instance Substitute (Term i) (Kind i) where
   substitute _ _ κ = κ
 
--- substitute into linearity
+-- substitute into multiplicity
 
-instance (i ~ Internal, i' ~ Internal) => Substitute (Linearity i) (Linearity i') where
-  substitute lx x (CoreLinearity Internal l) = substituteImpl lx x $ projectLinearity l
+instance (i ~ Internal, i' ~ Internal) => Substitute (Multiplicity i) (Multiplicity i') where
+  substitute lx x (CoreMultiplicity Internal l) = substituteImpl lx x $ projectMultiplicity l
 
-instance (i ~ Internal) => SubstituteSame (Linearity i) where
+instance (i ~ Internal) => SubstituteSame (Multiplicity i) where
   substituteSame = substitute
 
-instance (i ~ Internal, i' ~ Internal) => Substitute (Type i) (Linearity i') where
+instance (i ~ Internal, i' ~ Internal) => Substitute (Type i) (Multiplicity i') where
   substitute _ _ l = l
 
-instance (i ~ Internal, i' ~ Internal) => Substitute (Term i) (Linearity i') where
+instance (i ~ Internal, i' ~ Internal) => Substitute (Term i) (Multiplicity i') where
   substitute _ _ l = l
 
 instance (i ~ Internal) => Reduce (Term i) where
@@ -310,7 +310,7 @@ data Error p
   | ExpectedType p KindInternal
   | IncompatibleType p TypeInternal TypeInternal
   | IncompatibleKind p KindInternal KindInternal
-  | IncompatibleLinear p LinearityInternal LinearityInternal
+  | IncompatibleLinear p MultiplicityInternal MultiplicityInternal
   | IncompatibleStage p Stage Stage
   | CaptureLinear p Identifier
   | InvalidUsage p Identifier
@@ -328,7 +328,7 @@ instance (i ~ Internal) => FromError i Void where
 data CoreState p = CoreState
   { typeEnvironment :: Map Identifier (p, TypeInternal),
     kindEnvironment :: Map Identifier (p, KindInternal),
-    linearEnvironment :: Map Identifier (p, LinearitySort)
+    linearEnvironment :: Map Identifier (p, MultiplicitySort)
   }
   deriving (Show, Functor)
 
@@ -354,9 +354,9 @@ quit e = Core (lift $ except (Left (fromError e)))
 matchLinear' _ Linear Linear = pure ()
 matchLinear' _ Unrestricted Unrestricted = pure ()
 matchLinear' _ (LinearVariable x) (LinearVariable x') | x == x' = pure ()
-matchLinear' p l l' = quit $ IncompatibleLinear p (CoreLinearity Internal l) (CoreLinearity Internal l')
+matchLinear' p l l' = quit $ IncompatibleLinear p (CoreMultiplicity Internal l) (CoreMultiplicity Internal l')
 
-matchLinear p (CoreLinearity Internal l) (CoreLinearity Internal l') = matchLinear' p l l'
+matchLinear p (CoreMultiplicity Internal l) (CoreMultiplicity Internal l') = matchLinear' p l l'
 
 matchStage _ Runtime Runtime = pure ()
 matchStage p (StageMacro s1 s1') (StageMacro s2 s2') = zipWithM (matchStage p) [s1, s1'] [s2, s2'] >> pure ()
@@ -399,12 +399,12 @@ instance (FromError p q, p ~ p', i ~ Internal) => TypeCheckLinear (Type i) (Core
 instance (FromError p' q, p ~ p', i ~ Internal) => TypeCheck (Kind i) (Core p q) (Type p') where
   typeCheck (CoreType p σ) = typeCheckImpl p $ projectType σ
 
-instance (p ~ p', FromError p q) => TypeCheck LinearitySort (Core p q) (Linearity p') where
-  typeCheck (CoreLinearity p l) = typeCheckImpl p $ projectLinearity l
+instance (p ~ p', FromError p q) => TypeCheck MultiplicitySort (Core p q) (Multiplicity p') where
+  typeCheck (CoreMultiplicity p l) = typeCheckImpl p $ projectMultiplicity l
 
 instance (p ~ p', FromError p q) => TypeCheck KindSort (Core p q) (Kind p') where
   typeCheck (CoreKind _ (Type l _)) = do
-    Linearity <- typeCheck l
+    Multiplicity <- typeCheck l
     pure $ Kind
 
 instance (p ~ p', FromError p q, i ~ Internal, i' ~ Internal) => TypeCheckInstantiate (Kind i) (Type i') (Core p q) (Type p') where
@@ -412,10 +412,10 @@ instance (p ~ p', FromError p q, i ~ Internal, i' ~ Internal) => TypeCheckInstan
     κ <- typeCheck σ
     pure (κ, Internal <$ σ)
 
-instance (p ~ p', i ~ Internal, FromError p q) => TypeCheckInstantiate LinearitySort (Linearity i) (Core p q) (Linearity p') where
+instance (p ~ p', i ~ Internal, FromError p q) => TypeCheckInstantiate MultiplicitySort (Multiplicity i) (Core p q) (Multiplicity p') where
   typeCheckInstantiate l = do
-    Linearity <- typeCheck l
-    pure (Linearity, Internal <$ l)
+    Multiplicity <- typeCheck l
+    pure (Multiplicity, Internal <$ l)
 
 instance (p ~ p', i ~ Internal, FromError p q) => TypeCheckInstantiate KindSort (Kind i) (Core p q) (Kind p') where
   typeCheckInstantiate κ = do
@@ -440,7 +440,7 @@ instance (FromError p' q, i ~ Internal) => TypeSystem.CheckLinearForall (Core p 
   checkLinearForall _ (CoreType Internal (LinearForall x σ)) = pure (TypeSystem.LinearForall x σ)
   checkLinearForall p σ = quit $ ExpectedLinearForall p σ
 
-instance (FromError p' q, i ~ Internal, i' ~ Internal) => TypeSystem.CheckType (Core p q) p' (Kind i) (Linearity i') Stage where
+instance (FromError p' q, i ~ Internal, i' ~ Internal) => TypeSystem.CheckType (Core p q) p' (Kind i) (Multiplicity i') Stage where
   checkType' _ (CoreKind Internal (Type l s)) = pure (TypeSystem.Type l s)
 
 instance (FromError p' q, i ~ Internal) => ReadEnvironmentLinear (Core p q) p' (Type i) Use where
@@ -462,7 +462,7 @@ instance (FromError p' q, p ~ p', i ~ Internal) => AugmentEnvironmentLinear (Cor
       _ -> do
         let (CoreKind Internal (Type l _)) = typeCheckInternal (Internal <$ env) σ
         case l of
-          CoreLinearity Internal Unrestricted -> pure ()
+          CoreMultiplicity Internal Unrestricted -> pure ()
           _ -> quit $ InvalidUsage p x
     pure (σ', Remove x lΓ)
 
@@ -473,7 +473,7 @@ instance (FromError p' q, i ~ Internal) => ReadEnvironment (Core p q) p' (Kind i
       Nothing -> quit $ UnknownIdentfier p x
       Just (_, σ) -> pure σ
 
-instance (p ~ p', FromError p q) => ReadEnvironment (Core p q) p' LinearitySort where
+instance (p ~ p', FromError p q) => ReadEnvironment (Core p q) p' MultiplicitySort where
   readEnvironment p x = do
     env <- Core get
     case linearEnvironment env !? x of
@@ -489,7 +489,7 @@ instance (p ~ p', i ~ Internal) => AugmentEnvironment (Core p q) p' (Kind i) whe
     Core $ put env
     pure c
 
-instance (p ~ p', i ~ Internal) => AugmentEnvironment (Core p q) p' LinearitySort where
+instance (p ~ p', i ~ Internal) => AugmentEnvironment (Core p q) p' MultiplicitySort where
   augmentEnvironment p x ls e = do
     env <- Core get
     let lsΓ = linearEnvironment env
@@ -498,8 +498,8 @@ instance (p ~ p', i ~ Internal) => AugmentEnvironment (Core p q) p' LinearitySor
     Core $ put env
     pure c
 
-instance (FromError p' q, i ~ Internal) => Capture (Core p q) p' (Linearity i) Use where
-  capture _ (CoreLinearity Internal Linear) _ = pure ()
+instance (FromError p' q, i ~ Internal) => Capture (Core p q) p' (Multiplicity i) Use where
+  capture _ (CoreMultiplicity Internal Linear) _ = pure ()
   capture p _ lΓ = do
     let captures = variables lΓ
     env <- Core get
@@ -508,6 +508,6 @@ instance (FromError p' q, i ~ Internal) => Capture (Core p q) p' (Linearity i) U
       let (_, σ) = lΓ ! x'
       let (CoreKind Internal (Type l _)) = typeCheckInternal (Internal <$ env) σ
       case l of
-        CoreLinearity Internal Unrestricted -> pure ()
+        CoreMultiplicity Internal Unrestricted -> pure ()
         _ -> quit $ CaptureLinear p x'
     pure ()

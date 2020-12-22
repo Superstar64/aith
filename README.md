@@ -9,8 +9,8 @@ See ``/documentation`` for typing rules.
 * [x] Macro Beta Reduction
 * [x] System-F
 * [ ] System-F ω
-* [x] Linearity Polymorphism
-* [ ] Linearity Predicates
+* [x] Multiplicity Polymorphism
+* [ ] Multiplicity Predicates
 * [ ] Levity Polymorphism
 * [ ] Stage Polymorphism
 * [ ] Modules
@@ -25,9 +25,9 @@ See ``/documentation`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Linearity Abstraction | ``Λ[x] { e } `` |
-| Linearity Abstraction | ``Λ[x] => e `` |
-| Linearity Application | ``e[l]``
+| Multiplicity Abstraction | ``Λ[x] { e } `` |
+| Multiplicity Abstraction | ``Λ[x] => e `` |
+| Multiplicity Application | ``e[l]``
 | Type Abstraction | ``Λ<x : κ> { e }`` |
 | Type Abstraction | ``Λ<x : κ> => e`` |
 | Type Application | ``e<σ>`` |
@@ -45,7 +45,7 @@ See ``/documentation`` for typing rules.
 | Forall | ``∀<x : κ> => σ`` |
 | Macro | ``σ -[l]> σ'``|
 
-## Linearity (l) 
+## Multiplicity (l) 
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
@@ -65,7 +65,7 @@ See ``/documentation`` for typing rules.
 
 # Papers
 Papers that inspired this language:
-* https://jgbm.github.io/pubs/morris-icfp2016-linearity-extended.pdf
+* https://jgbm.github.io/pubs/morris-icfp2016-Multiplicity-extended.pdf
 * https://www.microsoft.com/en-us/research/wp-content/uploads/2016/11/levity-pldi17.pdf
 
 # Copyright

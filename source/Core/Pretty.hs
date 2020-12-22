@@ -97,7 +97,7 @@ prettyLinear' Linear = tell "%linear"
 prettyLinear' Unrestricted = tell "%unrestricted"
 prettyLinear' (LinearVariable (Identifier x)) = tell x
 
-prettyLinear (CoreLinearity Internal l) = prettyLinear' l
+prettyLinear (CoreMultiplicity Internal l) = prettyLinear' l
 
 data StagePrecedence = BottomStage | ArrowStage deriving (Eq, Ord)
 

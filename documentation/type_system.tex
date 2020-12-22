@@ -8,8 +8,8 @@
 e \tag* {[Terms]}\\
 \sigma, \tau \tag* {[Types]} \\
 \alpha \tag* {[Type Variables]} \\
-l \tag* {[Linearity]} \\
-l \alpha \tag* {[Linearity Variables]} \\
+l \tag* {[Multiplicity]} \\
+l \alpha \tag* {[Multiplicity Variables]} \\
 \rho \tag* {[Representations]} \\
 s \tag* {[Stages]} \\
 s \alpha \tag* {[Stage Variables]} \\
@@ -26,8 +26,8 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & e \sigma \tag*{[Type Application]} \\
 & \Lambda s \alpha. e \tag*{[Stage Lambda]} \\
 & e s \tag*{[Stage Application]} \\
-& \Lambda l \alpha. e \tag*{[Linearity Lambda]} \\ 
-& e l \tag*{[Linearity Application]} \\
+& \Lambda l \alpha. e \tag*{[Multiplicity Lambda]} \\ 
+& e l \tag*{[Multiplicity Application]} \\
 & \text{over} (l \geq l') e \tag*{[Linear Requirement]}\\
 & \text{inst} (e) \tag*{[Linear Evidence]}\\
 \\
@@ -38,7 +38,7 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & \forall l \alpha. \sigma \tag*{[Linear Forall]}\\
 & (l \geq l') \Rightarrow \sigma \tag*{[Linear Predicate]}\\
 \\
-l \Coloneqq & l \alpha \tag*{[Linearity Variable]} \\ 
+l \Coloneqq & l \alpha \tag*{[Multiplicity Variable]} \\ 
 & 1 \tag*{[Linear]}\\
 & \omega \tag*{[Unrestricted]}\\
 \\

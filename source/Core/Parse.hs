@@ -33,11 +33,11 @@ lambda inner = do
     False -> pure ()
   pure e
 
-linear :: Parser (Linearity SourcePos)
+linear :: Parser (Multiplicity SourcePos)
 linear = do
   p <- getSourcePos
   core <- Linear <$ builtin "linear" <|> Unrestricted <$ builtin "unrestricted" <|> LinearVariable <$> identfier
-  pure (CoreLinearity p core)
+  pure (CoreMultiplicity p core)
 
 stageMacro s = do
   token "->"
@@ -121,7 +121,7 @@ linearAbstraction = do
   e <- lambda term
   pure (LinearAbstraction x e)
 
-data Post = MacroApp (Term SourcePos) | TypeApp (Type SourcePos) | LinearApp (Linearity SourcePos)
+data Post = MacroApp (Term SourcePos) | TypeApp (Type SourcePos) | LinearApp (Multiplicity SourcePos)
 
 term :: Parser (Term SourcePos)
 term = do

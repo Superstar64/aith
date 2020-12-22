@@ -1,7 +1,7 @@
 module TypeSystem.Linear where
 
 import qualified Data.Set as Set
-import TypeSystem.Linearity
+import TypeSystem.Multiplicity
 import TypeSystem.Methods
 
 data Linear = Linear
@@ -9,8 +9,8 @@ data Linear = Linear
 class EmbedLinear l where
   linear :: l
 
-instance (Monad m, EmbedLinearity ls) => TypeCheckImpl m p Linear ls where
-  typeCheckImpl _ Linear = pure $ linearity
+instance (Monad m, EmbedMultiplicity ls) => TypeCheckImpl m p Linear ls where
+  typeCheckImpl _ Linear = pure $ multiplicity
 
 instance FreeVariables Linear l where
   freeVariables' Linear = Set.empty

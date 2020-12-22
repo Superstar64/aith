@@ -5,7 +5,7 @@ import Data.Type.Equality ((:~:) (..))
 import Misc.Identifier
 import Misc.Util (Same, same)
 import TypeSystem.Linear
-import TypeSystem.Linearity
+import TypeSystem.Multiplicity
 import TypeSystem.Methods
 import TypeSystem.Type
 import TypeSystem.Variable
@@ -23,7 +23,7 @@ class CheckLinearForall m p σ where
 instance
   ( Monad m,
     EmbedType l s κ,
-    EmbedLinearity ls,
+    EmbedMultiplicity ls,
     EmbedLinear l,
     SubstituteSame l,
     Positioned σ p,
@@ -34,7 +34,7 @@ instance
   TypeCheckImpl m p (LinearForall ls l s σ) κ
   where
   typeCheckImpl p (LinearForall x σ) = do
-    Type l s <- checkType @l @s (location σ) =<< augmentEnvironment p x (linearity @ls) (typeCheck @κ σ)
+    Type l s <- checkType @l @s (location σ) =<< augmentEnvironment p x (multiplicity @ls) (typeCheck @κ σ)
     pure $ typex @κ (substituteSame linear x l) s
 
 instance (Same u l, FreeVariables σ u) => FreeVariables (LinearForall ls l s σ) u where

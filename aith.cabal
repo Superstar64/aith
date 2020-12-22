@@ -21,7 +21,7 @@ executable aith
                  TypeSystem.TypeAbstraction, TypeSystem.TypeApplication, TypeSystem.Macro,
                  TypeSystem.Forall, TypeSystem.LinearForall, TypeSystem.Type,
                  TypeSystem.Linear, TypeSystem.StageMacro, TypeSystem.LinearAbstraction, TypeSystem.LinearApplication
-                 TypeSystem.Unrestricted, TypeSystem.Linearity
+                 TypeSystem.Unrestricted, TypeSystem.Multiplicity
   -- other-extensions:
   build-depends:       base ^>=4.13.0.0, containers ^>= 0.6.2.1, transformers ^>= 0.5.6.2, megaparsec ^>= 8.0.0
   hs-source-dirs:      source
