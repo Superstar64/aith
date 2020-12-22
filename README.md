@@ -63,6 +63,12 @@ See ``/documentation`` for typing rules.
 |-|-|
 | Type | `` l @ s`` |
 
+# Papers
+Papers that inspired this language:
+* https://jgbm.github.io/pubs/morris-icfp2016-linearity-extended.pdf
+* https://www.microsoft.com/en-us/research/wp-content/uploads/2016/11/levity-pldi17.pdf
+
 # Copyright
 Copyright © Freddy A Cubas, "Superstar64"
-Licensed under GPL3 only, See LICENSE for more info.
+
+Licensed under GPL3 only. See LICENSE for more info.
