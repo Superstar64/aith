@@ -151,7 +151,7 @@ class JsImplictScope : JsScope {
 		super(states);
 	}
 
-	invariant() {
+	invariant () {
 		assert(label == "");
 	}
 }

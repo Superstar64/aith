@@ -24,7 +24,6 @@ const aith_tuple_compare = subcompares => ([left,right]) => {
 };
 
 const aith_compare = compare => ([left, right]) => compare([left, right]);
-const aith_compare_not = compare => ([left,right]) => !compare([left,right]);
 
 //arrays
 
@@ -64,30 +63,10 @@ const aith_array_literal = length => elements => {
 
 //pointers
 
-const aith_util_create_child_pointer = (tuple_pointer, index) => null || {
-	get: () => tuple_pointer.get()[index],
-	set: object => { 
-		let clone = tuple_pointer.get().slice();
-		clone[index] = object;
-		tuple_pointer.set(clone);
-	}
-};
-
-
 const aith_create_pointer = _ => ([object, world]) => [{
 	get: () => object,
 	set: value => { object = value; }
 }, undefined];
-
-const aith_tuple_address_forword = (index,tuple_size) => tuple_pointer => {
-	if(tuple_pointer.children === undefined){
-		tuple_pointer.children = [];
-		for(let i = 0; i < tuple_size; i++){
-			tuple_pointer.children[i] = aith_util_create_child_pointer(tuple_pointer,i);
-		}
-	}
-	return tuple_pointer.children[index]; 
-};
 
 const aith_array_address_of = ([array, index]) => {
 	array.data.pointers = array.data.pointers || [];
@@ -104,7 +83,7 @@ const aith_array_address_of = ([array, index]) => {
 
 const aith_pointer_assign = ([pointer, value]) => {
 	pointer.set(value);
-	return [];
+	return [[], undefined];
 };
 
 const aith_derefence_pointer = ([pointer,_]) => {
@@ -126,109 +105,88 @@ const aith_not = boolean => !boolean;
 
 // numbers
 
-const aith_lessthan = ([size, signed]) => ([left,right]) => {
-	return left < right;
-};
+const aith_number_integer32_less = ([left,right]) => left < right;
+const aith_number_integer32_greater = ([left,right]) => left > right;
+const aith_number_integer32_less_equal = ([left,right]) => left <= right;
+const aith_number_integer32_greater_equal = ([left,right]) => left >= right;
+const aith_number_integer32_add = ([left,right]) => left + right | 0;
+const aith_number_integer32_subtract = ([left,right]) => left - right | 0;
+const aith_number_integer32_multiply = ([left,right]) => Math.imul(left,right);
+const aith_number_integer32_divide = ([left,right]) => left / right | 0;
+const aith_number_integer32_modulus = ([left,right]) => left % right | 0;
+const aith_number_integer32_negate = number => -number | 0;
 
-const aith_lessthan_equal = ([size, signed]) => ([left,right]) => {
-	return left <= right;
-};
+const aith_number_natural32_less = ([left,right]) => left < right;
+const aith_number_natural32_greater = ([left,right]) => left > right;
+const aith_number_natural32_less_equal = ([left,right]) => left <= right;
+const aith_number_natural32_greater_equal = ([left,right]) => left >= right;
+const aith_number_natural32_add = ([left,right]) => left + right >>> 0;
+const aith_number_natural32_subtract = ([left,right]) => left - right >>> 0;
+const aith_number_natural32_multiply = ([left,right]) => Math.imul(left,right);
+const aith_number_natural32_divide = ([left,right]) => left / right >>> 0;
+const aith_number_natural32_modulus = ([left,right]) => left % right >>> 0;
+const aith_number_natural32_negate = number => -number >>> 0;
 
-const aith_greater = ([size, signed]) => ([left,right]) => {
-	return left > right;
-};
+const aith_number_integer_less = aith_number_integer32_less;
+const aith_number_integer_greater = aith_number_integer32_greater;
+const aith_number_integer_less_equal = aith_number_integer32_less_equal;
+const aith_number_integer_greater_equal = aith_number_integer32_greater_equal;
+const aith_number_integer_add = aith_number_integer32_add;
+const aith_number_integer_subtract = aith_number_integer32_subtract;
+const aith_number_integer_multiply = aith_number_integer32_multiply;
+const aith_number_integer_divide = aith_number_integer32_divide;
+const aith_number_integer_modulus = aith_number_integer32_modulus;
+const aith_number_integer_negate = aith_number_integer32_negate;
 
-const aith_greater_equal = ([size, signed]) => ([left,right]) => {
-	return left >= right;
-};
+const aith_number_natural_less = aith_number_natural32_less;
+const aith_number_natural_greater = aith_number_natural32_greater;
+const aith_number_natural_less_equal = aith_number_natural32_less_equal;
+const aith_number_natural_greater_equal = aith_number_natural32_greater_equal;
+const aith_number_natural_add = aith_number_natural32_add;
+const aith_number_natural_subtract = aith_number_natural32_subtract;
+const aith_number_natural_multiply = aith_number_natural32_multiply;
+const aith_number_natural_divide = aith_number_natural32_divide;
+const aith_number_natural_modulus = aith_number_natural32_modulus;
+const aith_number_natural_negate = aith_number_natural32_negate;
 
-const aith_add = ([size, signed]) => ([left,right]) => {
-	if(size == 0) size = 32;
-	if(signed && size == 32){
-		return left + right | 0;
-	} else if(!signed && size == 32){
-		return left + right >>> 0;
-	} else {
-		throw "Bad number size";
-	}
-};
 
-const aith_subtract = ([size, signed]) => ([left,right]) => {
-	if(size == 0) size = 32;
-	if(signed && size == 32){
-		return left - right | 0;
-	} else if(!signed && size == 32){
-		return left - right >>> 0;
-	} else {
-		throw "Bad number size";
-	}
-};
-const aith_multiply = ([size, signed]) => ([left,right]) => {
-	if(size == 0) size = 32;
-	if(signed && size == 32){
-		return left * right | 0;
-	} else if(!signed && size == 32){
-		return left * right >>> 0;
-	} else {
-		throw "Bad number size";
-	}
-};
+const aith_number_integer32 = null;
+const aith_number_integer0 = null;
+const aith_number_natural32 = null;
+const aith_number_natural0 = null;
 
-const aith_divide = ([size, signed]) => ([left,right]) => {
-	if(size == 0) size = 32;
-	if(signed && size == 32){
-		return left / right | 0;
-	} else if(!signed && size == 32){
-		return left / right >>> 0;
-	} else {
-		throw "Bad number size";
-	}
-};
-
-const aith_modulus = ([size, signed]) => ([left,right]) => {
-	if(size == 0) size = 32;
-	if(signed && size == 32){
-		return left % right | 0;
-	} else if(!signed && size == 32){
-		return left % right >>> 0;
-	} else {
-		throw "Bad number size";
-	}
-};
-
-const aith_negate = ([size, signed]) => number => {
-	if(size == 0) size = 32;
-	if(signed && size == 32){
-		return -number | 0;
-	} else if(!signed && size == 32){
-		return -number >>> 0;
-	} else {
-		throw "Bad number size";
-	}
-}
-
-const aith_cast_integer = ([input_size, input_signed], [size, signed]) => number => {
-	if(size == 0) size = 32;
-	if(signed && size == 32){
-		return number | 0;
-	} else if(!signed && size == 32){
-		return number >>> 0;
-	} else {
-		throw "Bad number size";
-	}
-};
 
 // tuples
 
-const aith_index_tuple = index => tuple => {
-	return tuple[index];
-}; 
+
+
+const aith_util_create_child_pointer = (tuple_pointer, index) => null || {
+	get: () => tuple_pointer.get()[index],
+	set: object => { 
+		let clone = tuple_pointer.get().slice();
+		clone[index] = object;
+		tuple_pointer.set(clone);
+	}
+};
+
+const aith_has_tuple = (index,tuple_size) => [
+	tuple => tuple[index],
+	tuple_pointer => {
+		if(tuple_pointer.children === undefined){
+			tuple_pointer.children = [];
+			for(let i = 0; i < tuple_size; i++){
+				tuple_pointer.children[i] = aith_util_create_child_pointer(tuple_pointer,i);
+			}
+		}
+		return tuple_pointer.children[index]; 
+	}
+];
 
 // misc
 
 const write = ([argument, world]) => {
 	console.log(argument.data);
-	return undefined;
+	return [[], undefined];
 }
 
 const assert = ([check, world]) => {
@@ -236,7 +194,7 @@ const assert = ([check, world]) => {
 		console.trace("Error");
 		throw "Assetion Error";
 	}
-	return undefined;
+	return [[], undefined];
 }
 
 // generated code:

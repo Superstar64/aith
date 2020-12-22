@@ -4,7 +4,7 @@
  (See accompanying file BSL.txt or copy at https://www.boost.org/LICENSE_1_0.txt)
 #}
 
-~ <a extends number & unrestricted> (& raw a*, world &) -> (& (&&), world &) ~
+~ <a extends add class & number & unrestricted> (& raw a*, world &) -> (& (&&), world &) ~
 template increment = x { do =>
 	try => x <- try{*x} + 1
 }.uncurry;

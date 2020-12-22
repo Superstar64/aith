@@ -56,7 +56,7 @@ import misc.position;
 	}
 }
 
-enum keywords = AliasSeq!("do", "try", "run", "else", "extern", "extends", "forall", "has", "if", "import", "raw", "symbol", "inline", "template", "then", "unique");
+enum keywords = AliasSeq!("do", "try", "run", "else", "extern", "extends", "forall", "has", "if", "import", "instance", "overload", "raw", "require", "symbol", "inline", "template", "then", "unique");
 
 struct Keyword(string keyword) if (staticIndexOf!(keyword, keywords) >= 0) {
 	string toString() {
@@ -69,7 +69,7 @@ auto keyword(string key)() {
 }
 
 //must be sorted according to string length
-enum operators = AliasSeq!("==", "!=", "<=", ">=", "&&", "||", "::", "->", "~>", "..", "&[", "&*_", "<-", "=>", "(&", "&)", "~~", "<", ">", "+", "-", "*", "/", "%", "=", "!", "~", "&", "|", "^", ":", "$", "@", "{", "}", "(", ")", "[", "]", ".", ",", ";", "_", "`");
+enum operators = AliasSeq!("|||", "==", "!=", "<=", ">=", "&&", "||", "::", "->", "~>", "..", "&[", "&*_", "<-", "=>", "(&", "&)", "~~", "<", ">", "+", "-", "*", "/", "%", "=", "!", "~", "&", "|", "^", ":", "$", "@", "{", "}", "(", ")", "[", "]", ".", ",", ";", "_", "`");
 
 struct Operator(string operator) if (staticIndexOf!(operator, operators) >= 0) {
 	string toString() {

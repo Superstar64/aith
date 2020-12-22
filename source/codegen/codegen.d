@@ -35,35 +35,32 @@ import semantic.ast;
 
 import jsast;
 
+import app : knownSymbols;
+
 JsModule generateJsModule(Module mod) {
 	JsModule result = new JsModule();
 	auto extra = new Extra;
-	OwnerDictonary!(SymbolId, SymbolReference) symbols;
 
-	foreach (candidate; mod.orderedAliases) {
-		if (auto symbol = candidate.get.matrix.castTo!SymbolReference) {
-			symbols.insert(symbol.id, symbol);
-			extra.symbols.insert(symbol.id, new JsVariable(defaultNaming(symbol.name)));
-		}
+	foreach (id; mod.exports.map!(a => a())) {
+		extra.symbols.insert(id, new JsVariable(defaultNaming(knownSymbols[id].name)));
 	}
 
-	foreach (key, symbol; symbols) {
+	foreach (id; mod.exports.map!(a => a())) {
 		extra.variables.clear;
 		extra.dictonaries.clear;
 
 		JsVariable[] dictonariesOrdered;
-		foreach (dictonary; symbol.dictonaries) {
-			if (auto variable = dictonary[0].castTo!TypeVariable) {
-				auto argument = new JsVariable(temporary);
-				dictonariesOrdered ~= argument;
-				extra.dictonaries.insert(tuple(variable.id, dictonary[1].id), argument);
-			}
+		foreach (dictonary; knownSymbols[id].dictonaries) {
+			auto variable = dictonary[0];
+			auto argument = new JsVariable(temporary);
+			dictonariesOrdered ~= argument;
+			extra.dictonaries.insert(tuple(variable.id, dictonary[1].id), argument);
 		}
-		auto internal = symbol.source.get.generateJs(result, extra);
+		auto internal = knownSymbols[id].source.generateJs(result, extra);
 		if (dictonariesOrdered.length > 0) {
-			result ~= new JsVarDef(extra.symbols[key], new JsLambda(dictonariesOrdered.map!(convert!JsPattern).array, [new JsReturn(internal)]), true);
+			result ~= new JsVarDef(extra.symbols[id], new JsLambda(dictonariesOrdered.map!(convert!JsPattern).array, [new JsReturn(internal)]), true);
 		} else {
-			result ~= new JsVarDef(extra.symbols[key], internal, true);
+			result ~= new JsVarDef(extra.symbols[id], internal, true);
 		}
 	}
 	return result;
@@ -73,9 +70,10 @@ class Extra {
 	OwnerDictonary!(VariableId, JsVariable) variables;
 	OwnerDictonary!(Tuple!(TypeVariableId, PredicateId), JsVariable) dictonaries;
 	OwnerDictonary!(SymbolId, JsVariable) symbols;
-	JsExpr requestExtern(string name)() {
-		return new JsExternLit(name);
-	}
+}
+
+JsExpr external(string name) {
+	return new JsExternLit(name);
 }
 
 JsPattern generatePatternMatchImpl(NamedPattern that, Extra extra) {
@@ -123,61 +121,84 @@ JsExpr generateJsImpl(SymbolForwardReference that, JsScope depend, Extra extra) 
 	assert(0);
 }
 
-JsExpr infoImpl(P : Predicate)(TypeVariable that, P predicate, Extra extra) {
+JsExpr infoImpl(T)(T that, PredicateTypeMatch predicate, JsScope depend, Extra extra) if (!is(T : TypeVariable)) {
+	return predicate.pattern.typeInfo(that, depend, extra);
+}
+
+JsExpr infoImpl(P : Predicate)(TypeVariable that, P predicate, JsScope depend, Extra extra) {
 	return extra.dictonaries[tuple(that.id, predicate.id)];
 }
 
-JsExpr infoImpl(TypeInt that, PredicateEqual, Extra extra) {
-	return extra.requestExtern!"aith_compare_vanilla";
-}
-
-JsExpr infoImpl(TypeChar that, PredicateEqual, Extra extra) {
-	return extra.requestExtern!"aith_compare_vanilla";
-}
-
-JsExpr infoImpl(TypeBool that, PredicateEqual, Extra extra) {
-	return extra.requestExtern!"aith_compare_vanilla";
-}
-
-JsExpr infoImpl(TypeStruct that, PredicateEqual predicate, Extra extra) {
-	return new JsCall(extra.requestExtern!"aith_tuple_compare", [new JsArray(that.values.map!(a => a.info(predicate, extra)).array)]);
-}
-
-JsExpr infoImpl(TypeArray that, PredicateEqual predicate, Extra extra) {
-	return new JsCall(extra.requestExtern!"aith_array_compare", [that.value.info(predicate, extra)]);
-}
-
-JsExpr infoImpl(TypePointer that, PredicateEqual, Extra extra) {
-	return extra.requestExtern!"aith_compare_vanilla";
-}
-
-JsExpr infoImpl(T)(T, PredicateEqual, Extra extra) if (staticIndexOf!(T, TypeFunction, TypeWorld, TypeOwnArray, TypeOwnPointer, TypeMacro, TypeVariableRigid) != -1) {
+JsExpr infoImpl(P : TypeMatch)(TypeVariable that, P predicate, JsScope depend, Extra extra) {
 	assert(0);
 }
 
-JsExpr infoImpl(TypeInt that, PredicateNumber predicate, Extra extra) {
-	return new JsArray([new JsIntLit(that.size), new JsBoolLit(that.signed)]);
+JsExpr infoImpl(Type that, TypeMatchCustom custom, JsScope depend, Extra extra) {
+	return custom.match.generateJs(depend, extra);
 }
 
-JsExpr infoImpl(T)(T, PredicateNumber, Extra extra) if (!is(T : TypeInt)) {
+JsExpr infoImpl(Type that, TypeMatchOr or, JsScope depend, Extra extra) {
+	if (or.left.match(that)) {
+		return or.left.typeInfo(that, depend, extra);
+	} else {
+		assert(or.right.match(that));
+		return or.right.typeInfo(that, depend, extra);
+	}
+}
+
+JsExpr infoImpl(TypeInt that, TypeMatchEqual, JsScope depend, Extra extra) {
+	return "aith_compare_vanilla".external;
+}
+
+JsExpr infoImpl(TypeChar that, TypeMatchEqual, JsScope depend, Extra extra) {
+	return "aith_compare_vanilla".external;
+}
+
+JsExpr infoImpl(TypeBool that, TypeMatchEqual, JsScope depend, Extra extra) {
+	return "aith_compare_vanilla".external;
+}
+
+import semantic.astimpl : predicateEqual;
+
+JsExpr infoImpl(TypeStruct that, TypeMatchEqual, JsScope depend, Extra extra) {
+	return new JsCall("aith_tuple_compare".external, [new JsArray(that.values.map!(a => predicateEqual.typeInfo(a, depend, extra)).array)]);
+}
+
+JsExpr infoImpl(TypeArray that, TypeMatchEqual, JsScope depend, Extra extra) {
+	return new JsCall("aith_array_compare".external, [predicateEqual.typeInfo(that.value, depend, extra)]);
+}
+
+JsExpr infoImpl(TypePointer that, TypeMatchEqual, JsScope depend, Extra extra) {
+	return "aith_compare_vanilla".external;
+}
+
+JsExpr infoImpl(T)(T, TypeMatchEqual, JsScope depend, Extra extra) if (staticIndexOf!(T, TypeFunction, TypeWorld, TypeOwnArray, TypeOwnPointer, TypeMacro, TypeVariableRigid) != -1) {
 	assert(0);
 }
 
-JsExpr infoImpl(TypeStruct that, PredicateTuple, Extra extra) {
-	return new JsIntLit(that.values.length);
+JsExpr infoImpl(TypeInt that, TypeMatchNumber predicate, JsScope depend, Extra extra) {
+	return external("aith_number_" ~ (that.signed ? "integer" : "natural") ~ that.size.to!string);
 }
 
-JsExpr infoImpl(T)(T, PredicateTuple, Extra extra) if (!is(T : TypeStruct)) {
+JsExpr infoImpl(T)(T, TypeMatchNumber, JsScope depend, Extra extra) if (!is(T : TypeInt)) {
 	assert(0);
 }
 
-JsExpr infoImpl(T)(T, PredicateUnrestricted, Extra extra) {
+JsExpr infoImpl(TypeStruct that, PredicateTuple predicate, JsScope depend, Extra extra) {
+	return new JsCall("aith_has_tuple".external, [new JsIntLit(predicate.index).convert!JsExpr, new JsIntLit(that.values.length).convert!JsExpr]);
+}
+
+JsExpr infoImpl(T)(T, PredicateTuple, JsScope depend, Extra extra) if (!is(T : TypeStruct)) {
+	assert(0);
+}
+
+JsExpr infoImpl(T)(T, TypeMatchUnrestricted, JsScope depend, Extra extra) {
 	return new JsExternLit("undefined");
 }
 
 JsExpr generateJsImpl(SymbolReference that, JsScope depend, Extra extra) {
 	assert(that.id in extra.symbols, "unknown symbol " ~ that.name);
-	JsExpr[] dictonaries = that.dictonaries.map!(a => a[1].typeInfo(a[0], extra)).array;
+	JsExpr[] dictonaries = that.dictonaries.map!(a => a[1].typeInfo(a[0], depend, extra)).array;
 	if (dictonaries.length > 0) {
 		return new JsCall(extra.symbols[that.id], dictonaries);
 	} else {
@@ -186,12 +207,16 @@ JsExpr generateJsImpl(SymbolReference that, JsScope depend, Extra extra) {
 }
 
 JsExpr generateJsImpl(ExternJs that, JsScope depend, Extra extra) {
-	JsExpr[] dictonaries = that.dictonaries.map!(a => a[1].typeInfo(a[0], extra)).array;
+	JsExpr[] dictonaries = that.dictonaries.map!(a => a[1].typeInfo(a[0], depend, extra)).array;
 	if (dictonaries.length > 0) {
 		return new JsCall(new JsExternLit(that.name), dictonaries);
 	} else {
 		return new JsExternLit(that.name);
 	}
+}
+
+JsExpr generateJsImpl(Requirement that, JsScope depend, Extra extra) {
+	return that.requirement.typeInfo(that.context, depend, extra);
 }
 
 JsExpr generateJsImpl(IntLit that, JsScope depend, Extra extra) {
@@ -226,23 +251,8 @@ JsExpr generateJsImpl(If that, JsScope depend, Extra extra) {
 	return variable;
 }
 
-JsExpr generateJsImpl(TupleIndex that, JsScope depend, Extra extra) {
-	return new JsCall(extra.requestExtern!"aith_index_tuple", [new JsIntLit(that.index)]);
-}
-
-JsExpr getTuplePointerForwardJs(Extra extra, Type type, int index) {
-	// todo refactor me
-	import semantic.astimpl : make;
-
-	return new JsCall(extra.requestExtern!"aith_tuple_address_forword", [new JsIntLit(index).convert!JsExpr, type.info(make!PredicateTuple(index, null), extra)]);
-}
-
-JsExpr generateJsImpl(TupleIndexAddress that, JsScope depend, Extra extra) {
-	return extra.getTuplePointerForwardJs(that.context, that.index);
-}
-
 auto getArrayLiteral(Extra extra, size_t length) {
-	return new JsCall(extra.requestExtern!"aith_array_literal", [new JsIntLit(length)]);
+	return new JsCall("aith_array_literal".external, [new JsIntLit(length)]);
 }
 
 JsExpr generateJsImpl(StringLit that, JsScope depend, Extra extra) {

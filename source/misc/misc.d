@@ -30,7 +30,6 @@ import std.format;
 import std.range;
 import std.bigint;
 
-import misc.nonstrict;
 import misc.json;
 
 template Pack(T...) {

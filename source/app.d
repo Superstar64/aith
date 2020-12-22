@@ -41,20 +41,24 @@ import ParserEval = parser.parser;
 import SemanticEval = semantic.semantic;
 import CodegenEval = codegen.codegen;
 
-string[] searchDirs = ["."];
-MmFile[] maps;
+__gshared {
+	string[] searchDirs = ["."];
+	MmFile[] maps;
 
-T freshId(T)() {
-	static size_t global = 0;
-	return T(global++);
+	OwnerDictonary!(Semantic.SymbolId, Semantic.SymbolValue) knownSymbols;
+	OwnerDictonary!(Parser.ModuleBinding, Semantic.ModuleDefinition) knownBindings;
+
+	OwnerDictonary!(Semantic.PredicateId, Semantic.TypeMatch[]) knownPredicateMatches;
+
+	OwnerDictonary!(string, Parser.Module) parserModules;
+	OwnerDictonary!(Parser.Module, Semantic.Module) semanticModules;
+	Semantic.Module builtin;
 }
 
-OwnerDictonary!(Parser.ModuleVarDef, Semantic.ModuleDefinition) knownSymbols;
-
-OwnerDictonary!(string, Parser.Module) parserModules;
-OwnerDictonary!(Parser.Module, Semantic.Module) semanticModules;
-
-Semantic.Module builtin;
+T freshId(T)() {
+	static __gshared size_t global = 0;
+	return T(global++);
+}
 
 Parser.Module readParserModule(string name) {
 	if (name in parserModules) {
@@ -163,7 +167,7 @@ void main(string[] args) {
 	foreach (file; modFiles) {
 		wanted[file] = file.readParserModule.readSemanticModule;
 	}
-	semanticModules.byValue.each!(a => SemanticEval.validateModule(a));
+	wanted.byValue.each!(a => SemanticEval.validateModule(a));
 	File output;
 	if (outputFile == "-") {
 		output = stdout;

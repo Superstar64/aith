@@ -33,6 +33,8 @@ Item!(K, V) item(K, V)(K key, V value) {
 	return Item!(K, V)(key, value);
 }
 
+// D's associative arrays have reference behavior + null, this can lead to bugs
+// so wrap them
 struct OwnerDictonary(K, V) {
 	@disable this(this);
 	V[K] internal;
@@ -186,10 +188,6 @@ Dictonary!(K, V) removeCopy(K, V)(Dictonary!(K, V) that, K key) {
 	return Dictonary!(K, V)(result);
 }
 
-Dictonary!(K, V) singletonMap(K, V)(K key, V value) {
-	return emptyMap!(K, V).insertCopy(key, value);
-}
-
 Dictonary!(K, V) insertRangeMap(R, K, V)(Dictonary!(K, V) that, R range) {
 	auto copy = that.internal.dup;
 	foreach (item; range) {
@@ -206,6 +204,10 @@ Dictonary!(K, V) removeRange(R, K, V)(Dictonary!(K, V) that, R range) {
 		copy.remove(key);
 	}
 	return Dictonary!(K, V)(copy);
+}
+
+Dictonary!(K, V) singletonMap(K, V)(K key, V value) {
+	return emptyMap!(K, V).insertCopy(key, value);
 }
 
 Dictonary!(K, V) removeRangeIfExists(R, K, V)(Dictonary!(K, V) that, R range) {

@@ -23,7 +23,6 @@ import std.typecons;
 import std.bigint;
 
 import jsast;
-import misc.nonstrict;
 
 abstract class Json {
 	void toExprStringImpl(scope void delegate(const(char)[]) result, uint indent, Tuple!() context);
@@ -77,10 +76,6 @@ Json jsonify(V)(V[string] map) {
 		base.fields ~= tuple(name, map[name].jsonify);
 	}
 	return base;
-}
-
-Json jsonify(T)(Lazy!T x) {
-	return x.get.jsonify;
 }
 
 Json jsonify(Jsonable that) {

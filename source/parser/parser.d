@@ -29,7 +29,6 @@ import parser.astimpl;
 import app : readParserModule;
 
 import misc.position;
-import misc.nonstrict;
 
 Module parseModule(ref Lexer lexer) {
 	auto ret = new Module;
@@ -45,28 +44,38 @@ Module parseModule(ref Lexer lexer) {
 			explicitType = parseExpression(lexer);
 			lexer.parseToken!(Operator!"~");
 		}
-		SymbolSort sort;
+		BindingSort sort;
 		if (lexer.front == keyword!"symbol") {
-			sort = SymbolSort.symbol;
+			sort = BindingSort.symbol;
 			lexer.popFront;
 		} else if (lexer.front == keyword!"template") {
-			sort = SymbolSort.generative;
+			sort = BindingSort.generative;
 			lexer.popFront;
 		} else if (lexer.front == keyword!"inline") {
-			sort = SymbolSort.inline;
+			sort = BindingSort.inline;
 			lexer.popFront;
-		} else if (lexer.front == keyword!"extern") {
-			sort = SymbolSort.external;
+		} else if (lexer.front == keyword!"overload") {
+			sort = BindingSort.overload;
 			lexer.popFront;
 		} else {
 			error("Expected symbol qualifier", lexer.front.position);
 		}
 		auto name = lexer.parseToken!(Lex.Identifier);
+		string classTypeVariable;
+		Expression classTypeScheme;
+		if (sort == BindingSort.overload) {
+			lexer.parseToken!(Operator!"{");
+			lexer.parseToken!(Operator!"<");
+			classTypeVariable = lexer.parseToken!(Lex.Identifier);
+			lexer.parseToken!(Operator!">");
+			classTypeScheme = lexer.parseExpression;
+			lexer.parseToken!(Operator!"}");
+		}
 		lexer.parseToken!(Operator!"=");
 
 		auto value = parseExpression(lexer);
 		auto position = positionStart.join(lexer.front.position);
-		ret.symbols ~= make!ModuleVarDef(position, name, sort, explicitType, value);
+		ret.bindings ~= make!ModuleBinding(position, name, sort, explicitType, classTypeVariable, classTypeScheme, value);
 		lexer.parseToken!(Operator!";");
 	}
 	assert(0);
@@ -115,7 +124,7 @@ auto parseToken(T)(ref Lexer lexer) {
 }
 
 Expression parseExpression(ref Lexer lexer) {
-	return parseBinary!("->", "~>", parseBinary!("&&", "||", parseBinary!("==", "!=", "<=", ">=", "<", ">", parseBinary!("+", "-", parseBinary!("*", "/", "%", parsePrefix!("-", "*", "!"))))))(lexer);
+	return parseBinary!("->", "~>", "|||", parseBinary!("&&", "||", parseBinary!("==", "!=", "<=", ">=", "<", ">", parseBinary!("+", "-", parseBinary!("*", "/", "%", parsePrefix!("-", "*", "!"))))))(lexer);
 }
 
 Expression parseBinary(args...)(ref Lexer lexer) {
@@ -155,7 +164,7 @@ Expression parseWithPostfix(ref Lexer lexer) {
 
 alias parseCore = parseWrap!parseCoreImpl;
 Expression delegate(Position) parseCoreImpl(ref Lexer lexer) {
-	auto value = dispatchLexerFailable!(parseCoreDispatch, Operator!"(&", Lex.IntLiteral, Lex.CharLiteral, Operator!"(", Lex.Identifier, Keyword!"if", Keyword!"import", Lex.StringLiteral, Operator!"[", Keyword!"extern", Operator!"<", Keyword!"has", Operator!"|", Keyword!"raw", Keyword!"unique", Keyword!"do", Keyword!"try", Keyword!"run", Operator!"~")(null, lexer);
+	auto value = dispatchLexerFailable!(parseCoreDispatch, Operator!"(&", Lex.IntLiteral, Lex.CharLiteral, Operator!"(", Lex.Identifier, Keyword!"if", Keyword!"import", Lex.StringLiteral, Operator!"[", Keyword!"extern", Operator!"<", Keyword!"has", Operator!"|", Keyword!"raw", Keyword!"unique", Keyword!"do", Keyword!"try", Keyword!"run", Operator!"~", Keyword!"require", Keyword!"instance")(null, lexer);
 	if (value) {
 		return value;
 	}
@@ -363,7 +372,7 @@ Expression delegate(Position) parseCoreDispatch(Keyword!"if", ref Lexer lexer) {
 
 Expression delegate(Position) parseCoreDispatch(Keyword!"import", ref Lexer lexer) {
 	auto file = lexer.parseToken!(Lex.StringLiteral).value;
-	auto value = defer!Module(() => readParserModule(file));
+	auto value = () => readParserModule(file);
 	return position => make!Import(position, value);
 }
 
@@ -379,7 +388,23 @@ Expression delegate(Position) parseCoreDispatch(Operator!"[", ref Lexer lexer) {
 
 Expression delegate(Position) parseCoreDispatch(Keyword!"extern", ref Lexer lexer) {
 	auto name = lexer.parseToken!(Lex.StringLiteral).value;
-	return position => make!ExternJs(position, name);
+	auto scheme = lexer.parseExpression;
+	return position => make!ExternJs(position, name, scheme);
+}
+
+Expression delegate(Position) parseCoreDispatch(Keyword!"require", ref Lexer lexer) {
+	auto value = lexer.parseCore;
+	return position => make!Requirement(position, value);
+}
+
+Expression delegate(Position) parseCoreDispatch(Keyword!"instance", ref Lexer lexer) {
+	lexer.parseToken!(Operator!"(");
+	auto type = lexer.parseExpression;
+	lexer.parseToken!(Operator!")");
+	lexer.parseToken!(Operator!"{");
+	auto term = lexer.parseExpression;
+	lexer.parseToken!(Operator!"}");
+	return position => make!Instance(position, type, term);
 }
 
 Expression parsePostfix(ref Lexer lexer, Expression current) {

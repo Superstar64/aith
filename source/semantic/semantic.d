@@ -24,25 +24,24 @@ import std.meta;
 import std.range;
 import std.typecons;
 
-import app : knownSymbols, readSemanticModule, freshId;
+import app : knownBindings, readSemanticModule, freshId, knownSymbols;
 import Parser = parser.ast;
 import semantic.astimpl;
 
-import misc.nonstrict;
 import misc.position;
 import misc.container;
 import misc.misc;
 
 Module createModule(Parser.Module parser, Module parent) {
-	OwnerDictonary!(string, Parser.ModuleVarDef) rawSymbols;
-	foreach (symbol; parser.symbols) {
-		check(!(symbol.name in rawSymbols), "Symbol already exists", symbol.position);
-		rawSymbols.insert(symbol.name, symbol);
+	OwnerDictonary!(string, Parser.ModuleBinding) rawBindings;
+	foreach (binding; parser.bindings) {
+		check(!(binding.name in rawBindings), "Binding already exists", binding.position);
+		rawBindings.insert(binding.name, binding);
 	}
-	auto rawSymbolsFrozen = rawSymbols.freeze;
-	ModuleDefinition delegate(RecursionChecker) resolveSymbolThunk(Parser.ModuleVarDef symbol) {
+	auto rawBindingsFrozen = rawBindings.freeze;
+	ModuleDefinition delegate(RecursionChecker) resolveBindingThunk(Parser.ModuleBinding binding) {
 		ModuleDefinition thunk(RecursionChecker recursionCheck) {
-			return resolveSymbol(rawSymbolsFrozen, symbol, parent, recursionCheck);
+			return resolveBinding(rawBindingsFrozen, binding, parent, recursionCheck);
 		}
 
 		return &thunk;
@@ -50,21 +49,30 @@ Module createModule(Parser.Module parser, Module parent) {
 
 	OwnerDictonary!(string, ModuleDefinition delegate(RecursionChecker)) aliases;
 	ModuleDefinition delegate(RecursionChecker)[] orderedAliases;
-	foreach (symbol; parser.symbols) {
-		auto value = resolveSymbolThunk(symbol);
+	SymbolId delegate()[] exports;
+	foreach (binding; parser.bindings) {
+		auto value = resolveBindingThunk(binding);
 		orderedAliases ~= value;
-		aliases.insert(symbol.name, value);
+		aliases.insert(binding.name, value);
+		if (binding.sort == Parser.BindingSort.symbol || binding.sort == Parser.BindingSort.generative) {
+			exports ~= makeExport(value);
+		}
 	}
 	auto ret = new Module;
 	ret.orderedAliases = orderedAliases;
 	ret.aliases = aliases.freeze;
+	ret.exports = exports;
 	return ret;
 }
 
 void validateModule(Module mod) {
-	foreach (symbol; mod.orderedAliases) {
-		symbol(RecursionChecker());
+	foreach (binding; mod.orderedAliases) {
+		binding(RecursionChecker());
 	}
+}
+
+SymbolId delegate() makeExport(ModuleDefinition delegate(RecursionChecker) thunk) {
+	return { auto definition = thunk(RecursionChecker()); auto symbol = definition.matrix.castTo!SymbolReference; assert(symbol); return symbol.id; };
 }
 
 Expression unpackModuleDefinition(Context context, ModuleDefinition resolved, Position position) {
@@ -84,36 +92,31 @@ Expression unpackModuleDefinition(Context context, ModuleDefinition resolved, Po
 	}
 }
 
-ModuleDefinition resolveSymbol(Dictonary!(string, Parser.ModuleVarDef) rawSymbols, Parser.ModuleVarDef symbol, Module parent, RecursionChecker recursionCheck) {
-	bool known = symbol in knownSymbols;
-	bool disallowed = symbol in recursionCheck.disallowed;
+ModuleDefinition resolveBinding(Dictonary!(string, Parser.ModuleBinding) rawBindings, Parser.ModuleBinding binding, Module parent, RecursionChecker recursionCheck) {
+	bool known = binding in knownBindings;
+	bool disallowed = binding in recursionCheck.disallowed;
 	// todo think about relation between recursive and intermediate
-	bool recursive = symbol in recursionCheck.recursive;
-	bool intermediate = recursionCheck.frame && symbol in recursionCheck.frame.typeChecker.bindingGroup;
+	bool recursive = binding in recursionCheck.recursive;
+	bool intermediate = recursionCheck.frame && binding in recursionCheck.frame.typeChecker.bindingGroup;
 	if (known) {
 		assert(!recursive && !disallowed && !intermediate);
-		return knownSymbols[symbol];
+		return knownBindings[binding];
 	} else if (disallowed) {
 		assert(!known && !recursive && !intermediate);
-		error("Illegal self reference", symbol.position);
+		error("Illegal self reference", binding.position);
 		assert(0);
 	} else if (intermediate) {
 		assert(!known && !disallowed);
-		return ModuleDefinition(recursionCheck.frame.typeChecker.bindingGroup[symbol]);
+		return ModuleDefinition(recursionCheck.frame.typeChecker.bindingGroup[binding]);
 	} else if (recursive) {
 		assert(!known && !disallowed);
-		auto frame = recursionCheck.recursive[symbol];
+		auto frame = recursionCheck.recursive[binding];
 		frame.unifyTypeCheckers;
 		auto checker = frame.typeChecker;
-		assert(symbol in checker.bindingGroup);
-		return ModuleDefinition(checker.bindingGroup[symbol]);
+		assert(binding in checker.bindingGroup);
+		return ModuleDefinition(checker.bindingGroup[binding]);
 	} else {
-		bool referenced = semanticGlobal(rawSymbols, symbol, parent, recursionCheck);
-		if (referenced) {
-			return ModuleDefinition(recursionCheck.frame.typeChecker.bindingGroup[symbol]);
-		} else {
-			return knownSymbols[symbol];
-		}
+		return semanticGlobal(rawBindings, binding, parent, recursionCheck);
 	}
 }
 
@@ -133,8 +136,8 @@ struct TypeCheckerFrame {
 }
 
 class TypeChecker {
-	Dictonary!(Parser.ModuleVarDef, Term) bindingGroup;
-
+	Dictonary!(Parser.ModuleBinding, Term) bindingGroup;
+	Dictonary!(Parser.ModuleBinding, void delegate(Term, Term delegate(Term))) onBind;
 	Dictonary!(TypeVariableId, TypeRequirement) freshTypeVariables;
 	TypeAlgebra[] typeChecks;
 	Dictonary!(RigidVariableId, RigidRequirement) freshRigidVariables;
@@ -142,8 +145,22 @@ class TypeChecker {
 	Dictonary!(StageVariableId, StageRequirement) freshStageVariables;
 	StageAlgebra[] stageChecks;
 
-	Dictonary!(SymbolId, Term delegate(Type delegate(Parser.ModuleVarDef), Dictonary!(TypeVariableId, TypeRequirement))) forwardReplacements;
+	Dictonary!(SymbolId, Term delegate(Type delegate(Parser.ModuleBinding), Dictonary!(TypeVariableId, TypeRequirement))) forwardReplacements;
 
+}
+
+void moveTypeChecker(TypeChecker from, TypeChecker to) {
+	if (from is to) {
+		return;
+	}
+	to.bindingGroup = mergeMapsUnique(to.bindingGroup, from.bindingGroup);
+	to.onBind = mergeMapsUnique(to.onBind, from.onBind);
+	to.freshTypeVariables = mergeMapsUnique(to.freshTypeVariables, from.freshTypeVariables);
+	to.typeChecks = to.typeChecks ~ from.typeChecks;
+	to.freshStageVariables = mergeMapsUnique(to.freshStageVariables, from.freshStageVariables);
+	to.freshRigidVariables = mergeMapsUnique(to.freshRigidVariables, from.freshRigidVariables);
+	to.stageChecks = to.stageChecks ~ from.stageChecks;
+	to.forwardReplacements = mergeMapsUnique(to.forwardReplacements, from.forwardReplacements);
 }
 
 // todo remove code duplication
@@ -172,80 +189,70 @@ void evaluateTypeChecks(TypeChecker typeChecker) {
 	unifyAll(typeSystem);
 
 	removeRigidity(typeSystem);
+	if (typeChecker.bindingGroup.length > 0) {
 
-	auto freeGroup = typeChecker.bindingGroup
-		.byValue
-		.map!(a => a.type)
-		.map!(a => a.substitute(typeSystem.substitution).substitute(typeSystem.substitutionRigid))
-		.map!freeVariables;
-	auto free = freeGroup.front;
+		auto freeGroup = typeChecker.bindingGroup
+			.byValue
+			.map!(a => a.type)
+			.map!(a => a.substitute(typeSystem.substitution).substitute(typeSystem.substitutionRigid))
+			.map!freeVariables;
+		auto free = freeGroup.front;
 
-	assert(freeGroup.all!(a => isSubSet(free, a) && isSubSet(a, free)));
+		assert(freeGroup.all!(a => isSubSet(free, a) && isSubSet(a, free)));
 
-	foreach (id, unsolved; typeSystem.unsolved) {
-		if (!(id in free)) {
-			error("Unable to infer type variable", unsolved.position);
+		foreach (id, unsolved; typeSystem.unsolved) {
+			if (!(id in free)) {
+				error("Unable to infer type variable", unsolved.position);
+			}
 		}
+
 	}
 
 	unifyAll(stageSystem);
-	auto stageFreeGroup = typeChecker.bindingGroup
-		.byValue
-		.map!(a => a.type.type)
-		.map!(a => a.substitute(stageSystem.substitution))
-		.map!freeVariables;
-	auto stageFree = stageFreeGroup.front;
-	assert(stageFreeGroup.all!(a => isSubSet(stageFree, a) && isSubSet(a, stageFree)));
-
-	foreach (id, requirement; stageSystem.unsolved) {
-		if (!(id in stageFree)) {
-			error("Unable to infer stage variable", requirement.position);
-		}
-	}
 	typeSystem.unsolved = typeSystem.unsolved.substitute(stageSystem.substitution);
 	typeSystem.unsolvedRigid = typeSystem.unsolvedRigid.substitute(stageSystem.substitution);
+	if (typeChecker.bindingGroup.length > 0) {
+		auto stageFreeGroup = typeChecker.bindingGroup
+			.byValue
+			.map!(a => a.type.type)
+			.map!(a => a.substitute(stageSystem.substitution))
+			.map!freeVariables;
+		auto stageFree = stageFreeGroup.front;
+		assert(stageFreeGroup.all!(a => isSubSet(stageFree, a) && isSubSet(a, stageFree)));
 
-	Lazy!(Dictonary!(SymbolId, Term)) forward;
+		foreach (id, requirement; stageSystem.unsolved) {
+			if (!(id in stageFree)) {
+				error("Unable to infer stage variable", requirement.position);
+			}
+		}
+	}
+
+	Type bindingType(Parser.ModuleBinding def) {
+		return typeChecker.bindingGroup[def].type.substitute(typeSystem.substitution).substitute(typeSystem.substitutionRigid).substitute(stageSystem.substitution);
+	}
+
+	auto forward = typeChecker.forwardReplacements.mapValues!(a => a(&bindingType, typeSystem.unsolved));
+
 	Term substituteAll(Term that) {
 		return that.substitute(typeSystem.substitution).substitute(typeSystem.substitutionRigid).substitute(stageSystem.substitution).substitute(forward).reduceMacros;
 	}
 
-	Type symbolType(Parser.ModuleVarDef def) {
-		return typeChecker.bindingGroup[def].type.substitute(typeSystem.substitution).substitute(typeSystem.substitutionRigid).substitute(stageSystem.substitution);
-	}
-
-	Dictonary!(SymbolId, Term) forwardImpl() {
-		return typeChecker.forwardReplacements.mapValues!(a => substituteAll(a(&symbolType, typeSystem.unsolved)));
-	}
-
-	forward = defer(&forwardImpl);
-
-	foreach (symbol, expression0; typeChecker.bindingGroup) {
+	foreach (binding, expression0; typeChecker.bindingGroup) {
 		auto expression1 = substituteAll(expression0);
-		knownSymbols.insert(symbol, ModuleDefinition(expression1, typeSystem.unsolved, stageSystem.unsolved));
-		if (symbol.sort == Parser.SymbolSort.symbol) {
-			check(expression1.type.freeVariables.length == 0, "Strong symbols cannot be generic", symbol.position);
+		knownBindings.insert(binding, ModuleDefinition(expression1, typeSystem.unsolved, stageSystem.unsolved));
+		if (binding.sort == Parser.BindingSort.symbol) {
+			check(expression1.type.freeVariables.length == 0, "Strong symbols cannot be generic", binding.position);
+		}
+		if (binding in typeChecker.onBind) {
+			typeChecker.onBind[binding](expression1, &substituteAll);
 		}
 	}
 }
 
-void moveTypeChecker(TypeChecker from, TypeChecker to) {
-	if (from is to) {
-		return;
-	}
-	to.bindingGroup = mergeMapsUnique(to.bindingGroup, from.bindingGroup);
-	to.freshTypeVariables = mergeMapsUnique(to.freshTypeVariables, from.freshTypeVariables);
-	to.typeChecks = to.typeChecks ~ from.typeChecks;
-	to.freshStageVariables = mergeMapsUnique(to.freshStageVariables, from.freshStageVariables);
-	to.freshRigidVariables = mergeMapsUnique(to.freshRigidVariables, from.freshRigidVariables);
-	to.stageChecks = to.stageChecks ~ from.stageChecks;
-	to.forwardReplacements = mergeMapsUnique(to.forwardReplacements, from.forwardReplacements);
-}
-
 struct RecursionChecker {
 	TypeCheckerFrame* frame;
-	Dictonary!(Parser.ModuleVarDef, TypeCheckerFrame*) recursive;
-	Set!(Parser.ModuleVarDef) disallowed;
+	Dictonary!(Parser.ModuleBinding, TypeCheckerFrame*) recursive;
+	Set!(Parser.ModuleBinding) disallowed;
 }
 
 enum Linearity {
@@ -287,8 +294,8 @@ class DoBlock {
 }
 
 class Context {
-	// initialized when processing symbol
-	Dictonary!(string, Parser.ModuleVarDef) rawGlobalSymbols;
+	// initialized when processing binding
+	Dictonary!(string, Parser.ModuleBinding) rawGlobalBindings;
 	RigidContextId rigidContext;
 	RecursionChecker recursionCheck;
 	Module parent; // nullable
@@ -299,8 +306,8 @@ class Context {
 	Dictonary!(VariableId, Linearity) uses;
 	DoBlock doBlock; // nullable
 
-	this(Dictonary!(string, Parser.ModuleVarDef) rawGlobalSymbols, RecursionChecker recursionCheck, Module parent) {
-		this.rawGlobalSymbols = rawGlobalSymbols;
+	this(Dictonary!(string, Parser.ModuleBinding) rawGlobalBindings, RecursionChecker recursionCheck, Module parent) {
+		this.rawGlobalBindings = rawGlobalBindings;
 		this.rigidContext = freshId!RigidContextId;
 		this.typeChecker = new TypeChecker;
 		recursionCheck.frame.typeChecker = &typeChecker;
@@ -343,6 +350,10 @@ class Context {
 		locals = locals.replaceCopy(name, locals[name] ~ variable);
 	}
 
+	void removeTypeVariable(string name) {
+		locals = locals.replaceCopy(name, locals[name][0 .. $ - 1]);
+	}
+
 	void bindTermVariable(Variable variable, Position position, bool duplicate) {
 		locals = locals.insertIfMissing(variable.name, emptyArray!Expression);
 
@@ -353,9 +364,9 @@ class Context {
 		uses = uses.insertCopy(variable.id, Linearity.unused);
 	}
 
-	void removeTermVariable(Variable variable, Position position) {
+	void removeTermVariable(Variable variable, Context context, Position position) {
 		if (uses[variable.id] != Linearity.linear) {
-			this.predicateCheck(make!PredicateUnrestricted, variable.type, position);
+			this.predicateCheck(context.semanticDesugarPredicate!"unrestricted"(position), variable.type, position);
 		}
 		locals = locals.replaceCopy(variable.name, locals[variable.name][0 .. $ - 1]);
 		uses = uses.removeCopy(variable.id);
@@ -379,14 +390,14 @@ Expression searchGlobal(Context context, string name, Position position) {
 			return context.unpackModuleDefinition(builtin!built, position);
 		}
 	}
-	if (name in context.rawGlobalSymbols) {
-		auto symbol = context.rawGlobalSymbols[name];
-		auto resolved = resolveSymbol(context.rawGlobalSymbols, symbol, context.parent, context.recursionCheck);
+	if (name in context.rawGlobalBindings) {
+		auto binding = context.rawGlobalBindings[name];
+		auto resolved = resolveBinding(context.rawGlobalBindings, binding, context.parent, context.recursionCheck);
 		return context.unpackModuleDefinition(resolved, position);
 	} else if (context.parent) {
 		if (name in context.parent.aliases) {
-			auto symbol = context.parent.aliases[name](context.recursionCheck);
-			return context.unpackModuleDefinition(symbol, position);
+			auto binding = context.parent.aliases[name](context.recursionCheck);
+			return context.unpackModuleDefinition(binding, position);
 		} else {
 			return null;
 		}
@@ -411,6 +422,12 @@ Term semanticDesugar(string name)(Context context, Position position, Term[] arg
 	return current;
 }
 
+Predicate semanticDesugarPredicate(string name)(Context context, Position position) {
+	auto builtin = searchGlobal(context, name, position);
+	check(builtin, "Can't resolve builtin " ~ name, position);
+	return assumeConstraint(builtin, position);
+}
+
 TypeVariableId[] freeVariablesOrderedUnique(Type that) {
 	TypeVariableId[] original = that.freeVariablesOrdered;
 	Set!TypeVariableId unique;
@@ -432,8 +449,104 @@ Tuple!(Type, Predicate)[] dictonaryOf(Type that, Dictonary!(TypeVariableId, Type
 			.map!(b => tuple(make!TypeVariable(requirements[a].type, a).convert!Type, b))).joiner.array;
 }
 
-bool semanticGlobal(Dictonary!(string, Parser.ModuleVarDef) parserGlobals, Parser.ModuleVarDef symbol, Module parent, RecursionChecker recursionCheck) {
-	assert(!(symbol in recursionCheck.recursive) && !(symbol in recursionCheck.disallowed));
+ModuleDefinition semanticGlobalOverload(Parser.ModuleBinding binding, Context context) {
+	auto id = freshId!TypeVariableId;
+	auto variable = make!TypeVariable(make!StageRuntime, id);
+	context.bindTypeVariable(variable, binding.classTypeVariable, binding.position, false);
+	auto base = semanticType(binding.classTypeScheme, context);
+	context.removeTypeVariable(binding.classTypeVariable);
+	auto match = semanticTypeMatch(binding.value, context);
+
+	Type requirement(Type target) {
+		return base.substitute(singletonMap(id, target));
+	}
+
+	match.validate(&requirement, context, binding.value.position);
+	context.typeChecker.evaluateTypeChecks;
+
+	// need to reduce macros of terms inside type instances
+
+	auto pid = PredicateId(PredicateCustomId(binding.position.source.fileName, binding.position.section.start));
+
+	assert(!(binding in knownBindings));
+	knownBindings.insert(binding, ModuleDefinition(make!PredicateTypeMatch(pid, match, &requirement)));
+	return knownBindings[binding];
+}
+
+ModuleDefinition semanticGlobalInline(Parser.ModuleBinding binding, Context context) {
+	Term term = semanticTerm(binding.value, context);
+	if (binding in knownBindings) {
+		// throw away work
+		return knownBindings[binding];
+	}
+	if (binding.explicitType) {
+		Type makeRigid(Stage stage, Dictonary!(PredicateId, Predicate) predicates, string name) {
+			return context.freshRigidTypeVariable(stage, predicates, name, binding.position);
+		}
+
+		auto scheme = semanticTypeScheme(binding.explicitType, context);
+		auto wanted = scheme.instantiate(&makeRigid);
+		context.typeCheck(term.type, wanted, binding.position);
+	}
+
+	assert(!(binding in context.typeChecker.bindingGroup));
+	context.typeChecker.bindingGroup = context.typeChecker.bindingGroup.insertCopy(binding, term);
+
+	assert(!context.recursionCheck.frame.referenced);
+	context.typeChecker.evaluateTypeChecks;
+	assert(binding in knownBindings);
+	return knownBindings[binding];
+}
+
+ModuleDefinition semanticGlobalSymbol(Parser.ModuleBinding binding, Context context) {
+	auto strong = binding.sort == Parser.BindingSort.symbol;
+	auto argument = context.freshTypeVariable(make!StageRuntime, binding.position);
+	auto result = context.freshTypeVariable(make!StageRuntime, binding.position);
+	auto expectedType = make!TypeFunction(make!StageRuntime, result, argument);
+	if (binding.explicitType) {
+		Type makeRigid(Stage stage, Dictonary!(PredicateId, Predicate) predicates, string name) {
+			return context.freshRigidTypeVariable(stage, predicates, name, binding.position);
+		}
+
+		auto scheme = semanticTypeScheme(binding.explicitType, context);
+		auto wanted = scheme.instantiate(&makeRigid);
+		context.typeCheck(expectedType, wanted, binding.position);
+	}
+	auto forward = make!SymbolForwardReference(expectedType, freshId!SymbolId);
+	assert(!(binding in context.typeChecker.bindingGroup));
+	context.typeChecker.bindingGroup = context.typeChecker.bindingGroup.insertCopy(binding, forward);
+
+	auto internalType = make!TypeMacro(make!StageMacro(result.type, argument.type), result, argument);
+	auto internal = semanticTerm(binding.value, context);
+	context.typeCheck(internalType, internal.type, binding.position);
+
+	Term makeReplacement(Type delegate(Parser.ModuleBinding) bindingType, Dictonary!(TypeVariableId, TypeRequirement) requirements) {
+		auto type = bindingType(binding);
+		return make!SymbolReference(type, binding.name, forward.id, type.dictonaryOf(requirements));
+	}
+
+	context.typeChecker.forwardReplacements = context.typeChecker.forwardReplacements.insertCopy(forward.id, &makeReplacement);
+
+	void addGlobalValue(Term reference, Term delegate(Term) substitute) {
+		auto symbol = reference.castTo!SymbolReference;
+		assert(symbol);
+		auto linkage = strong ? Linkage.strong : Linkage.weak;
+		auto reduced = substitute(internal);
+		knownSymbols.insert(forward.id, SymbolValue(reduced, linkage, binding.name, symbol.dictonaries.map!(a => tuple(a[0].castTo!TypeVariable, a[1])).array));
+	}
+
+	context.typeChecker.onBind = context.typeChecker.onBind.insertCopy(binding, &addGlobalValue);
+	if (context.recursionCheck.frame.referenced) {
+		return ModuleDefinition(context.recursionCheck.frame.typeChecker.bindingGroup[binding]);
+	} else {
+		context.typeChecker.evaluateTypeChecks;
+		assert(binding in knownBindings);
+		return knownBindings[binding];
+	}
+}
+
+ModuleDefinition semanticGlobal(Dictonary!(string, Parser.ModuleBinding) parserGlobals, Parser.ModuleBinding binding, Module parent, RecursionChecker recursionCheck) {
+	assert(!(binding in recursionCheck.recursive) && !(binding in recursionCheck.disallowed));
 
 	auto frame = TypeCheckerFrame(null, null, false);
 	if (recursionCheck.frame) {
@@ -446,133 +559,105 @@ bool semanticGlobal(Dictonary!(string, Parser.ModuleVarDef) parserGlobals, Parse
 			recursionCheck.frame.next = null;
 		}
 	}
+
 	// graphs of the form (inline -> symbol -> inline) need to throw away work and
 	// be transformed into (symbol -> inline -> symbol)
-
-	if (symbol.sort == Parser.SymbolSort.inline) {
-		auto disallowed = recursionCheck.disallowed.insertCopy(symbol);
+	if (binding.sort == Parser.BindingSort.overload) {
+		auto disallowed = recursionCheck.disallowed.insertCopy(binding);
 		auto recursive = recursionCheck.recursive;
 		auto checker = RecursionChecker(&frame, recursive, disallowed);
 		auto context = new Context(parserGlobals, checker, parent);
-		Term term = semanticTerm(symbol.value, context);
-		if (symbol in knownSymbols) {
-			// throw away work
-			return false;
-		}
-		if (symbol.explicitType) {
-			context.typeCheck(term.type, symbol.explicitType.semanticType(context), symbol.position);
-		}
-
-		assert(!(symbol in context.typeChecker.bindingGroup));
-		context.typeChecker.bindingGroup = context.typeChecker.bindingGroup.insertCopy(symbol, term);
-
-		assert(!frame.referenced);
-		context.typeChecker.evaluateTypeChecks;
-		return false;
-	} else if (symbol.sort == Parser.SymbolSort.external) {
-		auto disallowed = recursionCheck.disallowed.insertCopy(symbol);
+		return semanticGlobalOverload(binding, context);
+	} else if (binding.sort == Parser.BindingSort.inline) {
+		auto disallowed = recursionCheck.disallowed.insertCopy(binding);
 		auto recursive = recursionCheck.recursive;
 		auto checker = RecursionChecker(&frame, recursive, disallowed);
 		auto context = new Context(parserGlobals, checker, parent);
-		check(!!symbol.explicitType, "Extern expect a type", symbol.position);
-		auto external = symbol.value.castTo!(Parser.ExternJs);
-		check(!!external, "External global expects external term", symbol.position);
-		auto term = semanticExtern(external, symbol.explicitType, context);
-		assert(!(symbol in context.typeChecker.bindingGroup));
-		context.typeChecker.bindingGroup = context.typeChecker.bindingGroup.insertCopy(symbol, term);
-
-		assert(!frame.referenced);
-		context.typeChecker.evaluateTypeChecks;
-		return false;
+		return semanticGlobalInline(binding, context);
 	} else {
 		// remove inlines from disallowed stack
-		auto disallowed = emptySet!(Parser.ModuleVarDef);
-		auto recursive = recursionCheck.recursive.insertCopy(symbol, &frame);
+		auto disallowed = emptySet!(Parser.ModuleBinding);
+		auto recursive = recursionCheck.recursive.insertCopy(binding, &frame);
 		auto checker = RecursionChecker(&frame, recursive, disallowed);
 		auto context = new Context(parserGlobals, checker, parent);
-
-		Tuple!(Type, Predicate)[] dictonaries;
-
-		auto strong = symbol.sort == Parser.SymbolSort.symbol;
-		auto argument = context.freshTypeVariable(make!StageRuntime, symbol.position);
-		auto result = context.freshTypeVariable(make!StageRuntime, symbol.position);
-		auto expectedType = make!TypeFunction(make!StageRuntime, result, argument);
-
-		if (symbol.explicitType) {
-			auto items = semanticScheme(symbol.explicitType, context);
-			context.typeCheck(expectedType, items[0], symbol.position);
-			dictonaries = items[1];
-		}
-		auto forward = make!SymbolForwardReference(expectedType, freshId!SymbolId);
-		assert(!(symbol in context.typeChecker.bindingGroup));
-		context.typeChecker.bindingGroup = context.typeChecker.bindingGroup.insertCopy(symbol, forward);
-
-		auto internalType = make!TypeMacro(make!StageMacro(result.type, argument.type), result, argument);
-		auto internal = semanticTerm(symbol.value, context);
-		context.typeCheck(internalType, internal.type, symbol.position);
-
-		Term makeReplacement(Type delegate(Parser.ModuleVarDef) symbolType, Dictonary!(TypeVariableId, TypeRequirement) requirements) {
-			auto type = symbolType(symbol);
-			auto linkage = strong ? Linkage.strong : Linkage.weak;
-			return make!SymbolReference(expectedType, symbol.name, linkage, freshId!SymbolId, eager(internal), type.dictonaryOf(requirements));
-		}
-
-		assert(!(forward.id in context.typeChecker.forwardReplacements));
-		context.typeChecker.forwardReplacements = context.typeChecker.forwardReplacements.insertCopy(forward.id, &makeReplacement);
-		if (frame.referenced) {
-			return true;
-		} else {
-			context.typeChecker.evaluateTypeChecks;
-			return false;
-		}
+		return semanticGlobalSymbol(binding, context);
 	}
 }
 
-Term semanticExtern(Parser.ExternJs that, Parser.Expression annotation, Context context) {
-	auto items = semanticScheme(annotation, context);
-	auto dictonaries = items[1];
-	context.stageCheck(items[0].type, make!StageRuntime, that.position);
-	return make!ExternJs(items[0], that.name, dictonaries);
-}
-
-Tuple!(Type, Tuple!(Type, Predicate)[]) semanticScheme(Parser.Expression that, Context context) {
-	if (auto forall = that.castTo!(Parser.Forall)) {
-		return semanticForall(forall, context);
-	} else {
-		return tuple(semanticType(that, context), emptyArray!(Tuple!(Type, Predicate)));
-	}
-}
-
-Type freshRigidTypeVariable(Context context, string name, Dictonary!(PredicateId, Predicate) predicates, Position position) {
-	auto stage = context.freshStageVariable(position);
+TypeVariableRigid freshRigidTypeVariable(Context context, Stage stage, Dictonary!(PredicateId, Predicate) predicates, string name, Position position) {
 	auto id = freshId!RigidVariableId;
 	auto var = make!TypeVariableRigid(stage, id, name, context.rigidContext);
 	context.typeChecker.freshRigidVariables = context.typeChecker.freshRigidVariables.insertCopy(id, RigidRequirement(position, stage, predicates));
 	return var;
 }
 
-Tuple!(Type, Tuple!(Type, Predicate)[]) semanticForall(Parser.Forall that, Context context) {
-	auto previous = context.locals;
-	Tuple!(Type, Predicate)[] dictonaries;
-	foreach (binding; that.bindings) {
+Expression semanticForall(Parser.ForallBinding[] bindings, Parser.Expression value, Position position, Context context) {
+	if (bindings.length == 0) {
+		return semanticMain(value, context);
+	} else {
+		auto binding = bindings[0];
 		auto predicates = binding.predicates
 			.map!(a => semanticConstraint(a, context))
 			.cache
 			.map!(a => item(a.id, a))
 			.rangeToMap;
-		auto variable = freshRigidTypeVariable(context, binding.name, predicates, that.position);
-		dictonaries ~= predicates.byValue.map!(a => tuple(variable.convert!Type, a)).array;
-		context.bindTypeVariable(variable, binding.name, that.position, false);
+		auto stage = context.freshStageVariable(position);
+		auto id = freshId!TypeVariableId;
+		context.bindTypeVariable(make!TypeVariable(stage, id), binding.name, position, false);
+		auto enclosed = semanticForall(bindings[1 .. $], value, position, context).assumeTypeScheme(position);
+		context.removeTypeVariable(binding.name);
+		return make!TypeSchemeForall(id, stage, predicates, binding.name, enclosed);
+	}
+}
+
+void matchValidate(TypeMatchEqual, Type delegate(Type) requirement, Context context, Position position) {
+	auto variable = context.freshRigidTypeVariable(make!StageRuntime, emptyMap!(PredicateId, Predicate), "builtin variable", position);
+	context.typeCheck(requirement(variable), requireEqual(variable), position);
+}
+
+void matchValidate(TypeMatchNumber, Type delegate(Type) requirement, Context context, Position position) {
+	auto variable = context.freshRigidTypeVariable(make!StageRuntime, emptyMap!(PredicateId, Predicate), "builtin variable", position);
+	context.typeCheck(requirement(variable), requireNumber(variable), position);
+}
+
+void matchValidate(TypeMatchUnrestricted, Type delegate(Type) requirement, Context context, Position position) {
+	assert(0);
+}
+
+void matchValidate(TypeMatchCustom custom, Type delegate(Type) requirement, Context context, Position position) {
+	OwnerDictonary!(RigidVariableId, Tuple!()) remaining;
+	Type makeRigid(Stage stage, Dictonary!(PredicateId, Predicate) predicates, string name) {
+		auto variable = context.freshRigidTypeVariable(stage, predicates, name, position);
+		remaining.insert(variable.id, tuple());
+		return variable;
 	}
 
-	auto value = semanticType(that.value, context);
+	Type substituted = custom.pattern.instantiate(&makeRigid);
 
-	context.locals = previous;
-	return tuple(value, dictonaries);
+	auto error = "instances must be a type constructor applied to unique type variables or types without type variables";
+
+	check(!substituted.castTo!TypeVariableRigid, error, position);
+	foreach (inner; substituted.internal) {
+		if (auto variable = inner.castTo!TypeVariableRigid) {
+			check(variable.id in remaining, error, position);
+			remaining.remove(variable.id);
+		} else {
+			check(inner.freeRigidVariables.length == 0, error, position);
+		}
+	}
+
+	Type target = requirement(substituted);
+
+	context.typeCheck(target, custom.match.type, position);
+}
+
+void matchValidate(TypeMatchOr or, Type delegate(Type) requirement, Context context, Position position) {
+	or.left.validate(requirement, context, position);
+	or.right.validate(requirement, context, position);
 }
 
 Expression semanticImpl(Parser.Forall that, Context context) {
-	return semanticForall(that, context)[0];
+	return semanticForall(that.bindings, that.value, that.position, context);
 }
 
 Expression builtinImpl(string name : "true")() {
@@ -592,15 +677,27 @@ Expression builtinImpl(string name : "character")() {
 }
 
 Expression builtinImpl(string name : "equal")() {
-	return make!PredicateEqual;
+	return predicateEqual;
 }
 
 Expression builtinImpl(string name : "number")() {
-	return make!PredicateNumber;
+	return predicateNumber;
 }
 
 Expression builtinImpl(string name : "unrestricted")() {
-	return make!PredicateUnrestricted;
+	return predicateUnrestricted;
+}
+
+Expression builtinImpl(string name : "match equal")() {
+	return make!TypeMatchEqual;
+}
+
+Expression builtinImpl(string name : "match number")() {
+	return make!TypeMatchNumber;
+}
+
+Expression builtinImpl(string name : "match unrestricted")() {
+	return make!TypeMatchUnrestricted;
 }
 
 Expression builtinImpl(string name : "world")() {
@@ -651,7 +748,7 @@ ModuleDefinition builtin(string name)() {
 	return ModuleDefinition(builtinImpl!name);
 }
 
-enum builtins = AliasSeq!("true", "false", "boolean", "character", "equal", "number", "unrestricted", "world", "integer", "integer8", "integer16", "integer32", "integer64", "natural", "natural8", "natural16", "natural32", "natural64");
+enum builtins = AliasSeq!("true", "false", "boolean", "character", "equal", "number", "unrestricted", "match equal", "match number", "match unrestricted", "world", "integer", "integer8", "integer16", "integer32", "integer64", "natural", "natural8", "natural16", "natural32", "natural64");
 
 Dictonary!(PredicateId, Predicate) predicatesFrom(Predicate predicate) {
 	return singletonMap(predicate.id, predicate);
@@ -670,6 +767,16 @@ Type assumeTypeRuntime(Expression value, Context context, Position position, str
 	auto type = assumeType(value, position, file, line);
 	context.stageCheck(type.type, make!StageRuntime, position);
 	return type;
+}
+
+TypeScheme assumeTypeScheme(Expression value, Position position, string file = __FILE__, int line = __LINE__) {
+	check(value.castTo!TypeScheme, "Expected type scheme", position, file, line);
+	return value.castTo!TypeScheme;
+}
+
+TypeMatch assumeTypeMatch(Expression value, Position position, string file = __FILE__, int line = __LINE__) {
+	check(value.castTo!TypeMatch, "Expected type match", position, file, line);
+	return value.castTo!TypeMatch;
 }
 
 Predicate assumeConstraint(Expression value, Position position, string file = __FILE__, int line = __LINE__) {
@@ -700,8 +807,16 @@ Type semanticType(Parser.Expression that, Context context, string file = __FILE_
 	return assumeType(semanticMain(that, context), that.position, file, line);
 }
 
+TypeScheme semanticTypeScheme(Parser.Expression that, Context context, string file = __FILE__, int line = __LINE__) {
+	return assumeTypeScheme(semanticMain(that, context), that.position, file, line);
+}
+
 Type semanticTypeRuntime(Parser.Expression that, Context context, string file = __FILE__, int line = __LINE__) {
 	return assumeTypeRuntime(semanticMain(that, context), context, that.position, file, line);
+}
+
+TypeMatch semanticTypeMatch(Parser.Expression that, Context context, string file = __FILE__, int line = __LINE__) {
+	return assumeTypeMatch(semanticMain(that, context), that.position, file, line);
 }
 
 Predicate semanticConstraint(Parser.Expression that, Context context, string file = __FILE__, int line = __LINE__) {
@@ -730,7 +845,7 @@ Expression semanticImpl(Parser.FunctionLiteral that, Context context) {
 	auto value = semanticTerm(that.text, context);
 	auto type = make!TypeMacro(make!StageMacro(value.type.type, argument.type.type), value.type, argument.type);
 	removeBindings(argument, that.argument.position, context);
-	auto variable = make!Variable(argument.type, "", new VariableId);
+	auto variable = make!Variable(argument.type, "", freshId!VariableId);
 
 	auto definition = make!VariableDefinition(value.type, argument, variable, value);
 	return make!MacroFunctionLiteral(type, Argument(variable.id, ""), definition);
@@ -740,7 +855,7 @@ Expression semanticImpl(Parser.MacroFunctionLiteral that, Context context) {
 	auto freshStage = context.freshStageVariable(that.position);
 	auto freshType = context.freshTypeVariable(freshStage, that.position);
 
-	auto variable = make!Variable(freshType, that.argument, new VariableId);
+	auto variable = make!Variable(freshType, that.argument, freshId!VariableId);
 	context.bindTermVariable(variable, that.position, that.shadow);
 
 	auto text = semanticTerm(that.text, context);
@@ -751,8 +866,8 @@ Expression semanticImpl(Parser.MacroFunctionLiteral that, Context context) {
 Term callRuntime(Context context, Position position) {
 	auto a = context.freshTypeVariable(make!StageRuntime, position);
 	auto b = context.freshTypeVariable(make!StageRuntime, position);
-	auto wrapper = make!Variable(make!TypeFunction(make!StageRuntime, a, b), "f", new VariableId);
-	auto argument = make!Variable(a, "a", new VariableId);
+	auto wrapper = make!Variable(make!TypeFunction(make!StageRuntime, a, b), "f", freshId!VariableId);
+	auto argument = make!Variable(a, "a", freshId!VariableId);
 	auto apply = make!Call(b, wrapper, argument);
 	auto intermediate = make!MacroFunctionLiteral(make!TypeMacro(make!StageMacro(a.type, b.type), a, b), Argument(argument.id, argument.name), apply);
 	auto type = make!TypeMacro(make!StageMacro(intermediate.type.type, wrapper.type.type), intermediate.type, wrapper.type);
@@ -821,7 +936,7 @@ Term delegate(Term) makeTryClosure(Term effect, Variable variable, Position posi
 }
 
 Term semanticTry(Term effect, Position position, Context context) {
-	auto id = new VariableId();
+	auto id = freshId!VariableId;
 	auto stage = context.freshStageVariable(position);
 	auto type = context.freshTypeVariable(stage, position);
 
@@ -875,13 +990,13 @@ void addBindings(Pattern variable, Position position, Context context) {
 
 void removeBindings(Pattern variable, Position position, Context context) {
 	foreach (binding; variable.orderedBindings) {
-		context.removeTermVariable(binding[0], position);
+		context.removeTermVariable(binding[0], context, position);
 	}
 }
 
 Pattern semanticImpl(Parser.NamedArgument that, Context context) {
 	auto type = context.freshTypeVariable(make!StageRuntime, that.position);
-	return make!NamedPattern(type, new VariableId, that.name, that.shadow);
+	return make!NamedPattern(type, freshId!VariableId, that.name, that.shadow);
 }
 
 Pattern semanticImpl(Parser.TupleArgument that, Context context) {
@@ -892,7 +1007,7 @@ Pattern semanticImpl(Parser.TupleArgument that, Context context) {
 
 Expression semanticImpl(Parser.ConstraintTuple that, Context context) {
 	auto type = semanticType(that.type, context);
-	return make!PredicateTuple(that.index, type);
+	return predicateTuple(that.index, type);
 }
 
 Expression semanticImpl(Parser.Variable that, Context context) {
@@ -902,24 +1017,15 @@ Expression semanticImpl(Parser.Variable that, Context context) {
 }
 
 Expression semanticImpl(Parser.Import that, Context context) {
-	auto semanticModule = readSemanticModule(that.value.get);
-	return make!Import(semanticModule);
+	return make!Import(readSemanticModule(that.value()));
 }
 
 Expression semanticImpl(Parser.UseSymbol that, Context context) {
 	auto value = semanticMain(that.value, context);
-	auto Import = value.castTo!Import.mod;
+	auto Import = value.castTo!Import;
 	check(Import, "scope resolution expect an import", that.position);
-	check(that.index in Import.aliases, "Undefined variable", that.position);
-	return context.unpackModuleDefinition(Import.aliases[that.index](context.recursionCheck), that.position);
-}
-
-Type typeStructFrom(T...)(T types) {
-	static if (types.length == 0) {
-		return make!TypeStruct(make!StageRuntime, emptyArray!Type);
-	} else {
-		return make!TypeStruct(make!StageRuntime, [types[0].convert!Type, types[1 .. $]]);
-	}
+	check(that.index in Import.mod.aliases, "Undefined variable", that.position);
+	return context.unpackModuleDefinition(Import.mod.aliases[that.index](context.recursionCheck), that.position);
 }
 
 Expression semanticImpl(Parser.TypeTuple that, Context context) {
@@ -949,7 +1055,7 @@ Expression semanticImpl(Parser.TypeArray!"unique" that, Context context) {
 
 Expression semanticImpl(Parser.IntLit that, Context context) {
 	auto variable = context.freshTypeVariable(make!StageRuntime, that.position);
-	context.predicateCheck(make!PredicateNumber, variable, that.position);
+	context.predicateCheck(context.semanticDesugarPredicate!"number"(that.position), variable, that.position);
 	return make!IntLit(variable, that.value);
 }
 
@@ -1030,26 +1136,32 @@ Expression semanticImpl(Parser.Binary!"<-" that, Context context) {
 	return context.semanticDesugar!"assign"(that.position, [pointer, target]);
 }
 
+Expression semanticImpl(Parser.Binary!"|||" that, Context context) {
+	auto left = semanticTypeMatch(that.left, context);
+	auto right = semanticTypeMatch(that.right, context);
+	return make!TypeMatchOr(left, right);
+}
+
 Expression semanticImpl(Parser.TupleIndex that, Context context) {
 	auto tuple = semanticRuntime(that.tuple, context);
 	auto index = that.index;
 
 	auto returnType = context.freshTypeVariable(make!StageRuntime, that.position);
 	auto argumentType = context.freshTypeVariable(make!StageRuntime, that.position);
-	context.predicateCheck(make!PredicateTuple(that.index, returnType), argumentType, that.position);
-	auto type = make!TypeFunction(make!StageRuntime, returnType, argumentType);
-	return semanticCall(make!TupleIndex(type, index), tuple, that.position, context);
+	auto predicate = predicateTuple(that.index, returnType);
+	auto getter = context.semanticDesugar!"fst"(that.position, semanticRequire(predicate, argumentType, that.position, context));
+	return semanticCall(getter, tuple, that.position, context);
 }
 
 Expression semanticImpl(Parser.TupleIndexAddress that, Context context) {
 	auto tuple = semanticRuntime(that.tuple, context);
 	auto index = that.index;
 
-	auto variable1 = context.freshTypeVariable(make!StageRuntime, that.position);
-	auto variable0 = context.freshTypeVariable(make!StageRuntime, that.position);
-	context.predicateCheck(make!PredicateTuple(that.index, variable1), variable0, that.position);
-	auto type = make!TypeFunction(make!StageRuntime, make!TypePointer(make!StageRuntime, variable1), make!TypePointer(make!StageRuntime, variable0));
-	return semanticCall(make!TupleIndexAddress(type, index, variable0), tuple, that.position, context);
+	auto returnType = context.freshTypeVariable(make!StageRuntime, that.position);
+	auto argumentType = context.freshTypeVariable(make!StageRuntime, that.position);
+	auto predicate = predicateTuple(that.index, returnType);
+	auto getter = context.semanticDesugar!"snd"(that.position, semanticRequire(predicate, argumentType, that.position, context));
+	return semanticCall(getter, tuple, that.position, context);
 }
 
 Expression semanticImpl(Parser.Slice that, Context context) {
@@ -1117,7 +1229,7 @@ Expression semanticImpl(Parser.StringLit that, Context context) {
 
 Expression semanticImpl(Parser.ArrayLit that, Context context) {
 	auto variable = context.freshTypeVariable(make!StageRuntime, that.position);
-	context.predicateCheck(make!PredicateUnrestricted, variable, that.position);
+	context.predicateCheck(context.semanticDesugarPredicate!"unrestricted"(that.position), variable, that.position);
 	auto type = make!TypeArray(make!StageRuntime, variable);
 	auto values = that.values.map!(a => semanticTerm(a, context)).cache.array;
 	foreach (value; values) {
@@ -1127,7 +1239,37 @@ Expression semanticImpl(Parser.ArrayLit that, Context context) {
 	return context.semanticDesugar!"effect"(that.position, make!ArrayLit(type, values));
 }
 
+Term semanticRequire(Predicate predicate, Type variable, Position position, Context context) {
+	context.predicateCheck(predicate, variable, position);
+	auto type = predicate.require(variable);
+	return make!Requirement(type, predicate, variable);
+}
+
+Expression semanticImpl(Parser.Requirement that, Context context) {
+	auto predicate = that.value.semanticConstraint(context);
+	auto variable = context.freshTypeVariable(make!StageRuntime, that.position);
+	return semanticRequire(predicate, variable, that.position, context);
+}
+
+Expression semanticImpl(Parser.Instance that, Context context) {
+	auto pattern = semanticTypeScheme(that.type, context);
+	auto match = semanticTerm(that.term, context);
+	return make!TypeMatchCustom(pattern, match);
+}
+
+// todo readd predicates to extern
 Expression semanticImpl(Parser.ExternJs that, Context context) {
-	error("Extern only allowed in external variable", that.position);
-	assert(0);
+	auto scheme = semanticTypeScheme(that.scheme, context);
+	Dictonary!(TypeVariableId, TypeRequirement) requirements;
+	Type makeFresh(Stage stage, Dictonary!(PredicateId, Predicate) predicates, string name) {
+		auto fresh = context.freshTypeVariable(stage, that.position);
+		foreach (id, predicate; predicates) {
+			context.predicateCheck(predicate, fresh, that.position);
+		}
+		requirements = requirements.insertCopy(fresh.id, TypeRequirement(that.position, stage, predicates));
+		return fresh;
+	}
+
+	auto type = scheme.instantiate(&makeFresh);
+	return make!ExternJs(type, that.name, dictonaryOf(type, requirements));
 }

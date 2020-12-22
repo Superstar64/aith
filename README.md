@@ -1,3 +1,7 @@
+This is the version of aith before the haskell rewrite. Apart from the documontation list here, there's an undocumented partially implementation of user defined typeclasses. 
+
+# Old Readme
+
 Aith is a toy language that compiles to javascript. Aith uses basic hindly milner with qualified types for type inference. This means that entire functions can be inferred without type annotations.
 
 Aith has referential transparency up to non termination, if your programs halts, it's referentially transparent.
@@ -59,7 +63,6 @@ Aith's builtin functions:
 
 	new : ~ <a extends unrestricted> a ~> world ~> (& raw a*, world &) ~ # copy a value to the heap
 	new array : ~ <a extends unrestricted> natural ~> a ~> world ~> (& raw a[] , world &) ~ # creates an array given a and and default value
-	cast : <a extends number, b extends number> a ~> b # integer casting
 	length : ~ <a> raw a[] ~> natural ~ # length of array
 	
 Aith's expressions:

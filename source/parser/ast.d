@@ -20,61 +20,95 @@ import std.algorithm;
 import std.bigint;
 
 import misc.position;
-import misc.nonstrict;
 
 class Module {
-	ModuleVarDef[] symbols;
+	ModuleBinding[] bindings;
 }
 
-interface Node {
+abstract class Node {
 	import Semantic = semantic.ast;
 	import semantic.semantic : Context;
 
-	Position position();
+	Position position;
+
+	this(Position position) {
+		this.position = position;
+	}
+
 	Semantic.Expression semanticMain(Context context);
 }
 
-enum SymbolSort {
+enum BindingSort {
 	symbol,
 	generative,
 	inline,
-	external
+	overload
 }
 
-interface ModuleVarDef {
-	Position position();
-	string name();
-	SymbolSort sort();
-	Expression explicitType(); //nullable
-	Expression value();
+abstract class ModuleBinding {
+	Position position;
+	string name;
+	BindingSort sort;
+	Expression explicitType; //nullable
+	string classTypeVariable; // only for overloaded classes
+	Expression classTypeScheme; //nullable
+	Expression value;
+	this(Position position, string name, BindingSort sort, Expression explicitType, string classTypeVariable, Expression classTypeScheme, Expression value) {
+		this.position = position;
+		this.name = name;
+		this.sort = sort;
+		this.explicitType = explicitType;
+		this.classTypeVariable = classTypeVariable;
+		this.classTypeScheme = classTypeScheme;
+		this.value = value;
+	}
 }
 
-interface Expression : Node {
+abstract class Expression : Node {
 	Pattern patternMatch();
+	this(Position position) {
+		super(position);
+	}
 }
 
-interface VariableDefinition : Expression {
-	Position position();
-	Pattern variable();
-	Expression value();
-	Expression last();
+abstract class VariableDefinition : Expression {
+	Pattern variable;
+	Expression value;
+	Expression last;
+	this(Position position, Pattern variable, Expression value, Expression last) {
+		super(position);
+		this.variable = variable;
+		this.value = value;
+		this.last = last;
+	}
 }
 
-interface Run : Expression {
-	Position position();
-	Expression value();
-	Expression last();
+abstract class Run : Expression {
+	Expression value;
+	Expression last;
+	this(Position position, Expression value, Expression last) {
+		super(position);
+		this.value = value;
+		this.last = last;
+	}
 }
 
-interface ConstraintTuple : Expression {
-	Position position();
-	uint index();
-	Expression type();
+abstract class ConstraintTuple : Expression {
+	uint index;
+	Expression type;
+	this(Position position, uint index, Expression type) {
+		super(position);
+		this.index = index;
+		this.type = type;
+	}
 }
 
-interface Import : Expression {
-	Position position();
-	Lazy!Module value();
+abstract class Import : Expression {
+	Module delegate() value;
+	this(Position position, Module delegate() value) {
+		super(position);
+		this.value = value;
+	}
 }
 
 struct ForallBinding {
@@ -82,168 +116,296 @@ struct ForallBinding {
 	Expression[] predicates;
 }
 
-interface Forall : Expression {
-	Position position();
-	ForallBinding[] bindings();
-	Expression value();
+abstract class Forall : Expression {
+	ForallBinding[] bindings;
+	Expression value;
+	this(Position position, ForallBinding[] bindings, Expression value) {
+		super(position);
+		this.bindings = bindings;
+		this.value = value;
+	}
 }
 
-interface FunctionLiteral : Expression {
-	Position position();
-	Expression text();
-	Pattern argument();
+abstract class FunctionLiteral : Expression {
+	Expression text;
+	Pattern argument;
+	this(Position position, Expression text, Pattern argument) {
+		super(position);
+		this.text = text;
+		this.argument = argument;
+	}
 }
 
-interface Call : Expression {
-	Position position();
-	Expression calle();
-	Expression argument();
+abstract class Call : Expression {
+	Expression calle;
+	Expression argument;
+	this(Position position, Expression calle, Expression argument) {
+		super(position);
+		this.calle = calle;
+		this.argument = argument;
+	}
 }
 
-interface FromRuntime : Expression {
-	Position position();
-	Expression value();
+abstract class FromRuntime : Expression {
+	Expression value;
+	this(Position position, Expression value) {
+		super(position);
+		this.value = value;
+	}
 }
 
-interface MacroFunctionLiteral : Expression {
-	Position position();
-	Expression text();
-	string argument();
-	bool shadow();
+abstract class MacroFunctionLiteral : Expression {
+	Expression text;
+	string argument;
+	bool shadow;
+	this(Position position, Expression text, string argument, bool shadow) {
+		super(position);
+		this.text = text;
+		this.argument = argument;
+		this.shadow = shadow;
+	}
 }
 
-interface NamedArgument : Pattern {
-	Position position();
-	string name();
-	bool shadow();
+abstract class NamedArgument : Pattern {
+	string name;
+	bool shadow;
+	this(Position position, string name, bool shadow) {
+		super(position);
+		this.name = name;
+		this.shadow = shadow;
+	}
 }
 
-interface TupleArgument : Pattern {
-	Position position();
-	Pattern[] matches();
+abstract class TupleArgument : Pattern {
+	Pattern[] matches;
+	this(Position position, Pattern[] matches) {
+		super(position);
+		this.matches = matches;
+	}
 }
 
-interface IntLit : Expression {
-	Position position();
-	BigInt value();
+abstract class IntLit : Expression {
+	BigInt value;
+	this(Position position, BigInt value) {
+		super(position);
+		this.value = value;
+	}
 }
 
-interface CharLit : Expression {
-	Position position();
-	dchar value();
+abstract class CharLit : Expression {
+	dchar value;
+	this(Position position, dchar value) {
+		super(position);
+		this.value = value;
+	}
 }
 
-interface TypeTuple : Expression {
-	Position position();
-	Expression[] values();
+abstract class TypeTuple : Expression {
+	Expression[] values;
+	this(Position position, Expression[] values) {
+		super(position);
+		this.values = values;
+	}
 }
 
-interface TupleLit : Expression {
-	Position position();
-	Expression[] values();
+abstract class TupleLit : Expression {
+	Expression[] values;
+	this(Position position, Expression[] values) {
+		super(position);
+		this.values = values;
+	}
 }
 
-interface Variable : Expression {
-	Position position();
-	string name();
-	bool shadow();
+abstract class Variable : Expression {
+	string name;
+	bool shadow;
+	this(Position position, string name, bool shadow) {
+		super(position);
+		this.name = name;
+		this.shadow = shadow;
+	}
 }
 
-interface If : Expression {
-	Position position();
-	Expression cond();
-	Expression yes();
-	Expression no();
+abstract class If : Expression {
+	Expression cond;
+	Expression yes;
+	Expression no;
+	this(Position position, Expression cond, Expression yes, Expression no) {
+		super(position);
+		this.cond = cond;
+		this.yes = yes;
+		this.no = no;
+	}
 }
 
-interface Infer : Expression {
-	Position position();
-	Expression type();
-	Expression value();
+abstract class Infer : Expression {
+	Expression type;
+	Expression value;
+	this(Position position, Expression type, Expression value) {
+		super(position);
+		this.type = type;
+		this.value = value;
+	}
 }
 
-interface UseSymbol : Expression {
-	Position position();
-	Expression value();
-	string index();
+abstract class UseSymbol : Expression {
+	Expression value;
+	string index;
+	this(Position position, Expression value, string index) {
+		super(position);
+		this.value = value;
+		this.index = index;
+	}
 }
 
-interface Index : Expression {
-	Position position();
-	Expression array();
-	Expression index();
+abstract class Index : Expression {
+	Expression array;
+	Expression index;
+	this(Position position, Expression array, Expression index) {
+		super(position);
+		this.array = array;
+		this.index = index;
+	}
 }
 
-interface IndexAddress : Expression {
-	Position position();
-	Expression array();
-	Expression index();
+abstract class IndexAddress : Expression {
+	Expression array;
+	Expression index;
+	this(Position position, Expression array, Expression index) {
+		super(position);
+		this.array = array;
+		this.index = index;
+	}
 }
 
-interface TupleIndex : Expression {
-	Position position();
-	Expression tuple();
-	uint index();
+abstract class TupleIndex : Expression {
+	Expression tuple;
+	uint index;
+	this(Position position, Expression tuple, uint index) {
+		super(position);
+		this.tuple = tuple;
+		this.index = index;
+	}
 }
 
-interface TupleIndexAddress : Expression {
-	Position position();
-	Expression tuple();
-	uint index();
+abstract class TupleIndexAddress : Expression {
+	Expression tuple;
+	uint index;
+	this(Position position, Expression tuple, uint index) {
+		super(position);
+		this.tuple = tuple;
+		this.index = index;
+	}
 }
 
-interface Slice : Expression {
-	Position position();
-	Expression array();
-	Expression left();
-	Expression right();
+abstract class Slice : Expression {
+	Expression array;
+	Expression left;
+	Expression right;
+	this(Position position, Expression array, Expression left, Expression right) {
+		super(position);
+		this.array = array;
+		this.left = left;
+		this.right = right;
+	}
 }
 
-interface Binary(string T) : Expression if (["*", "/", "%", "+", "-", "==", "!=", "<=", ">=", "<", ">", "&&", "||", "->", "<-", "~>"].canFind(T)) {
-	Position position();
-	Expression left();
-	Expression right();
+abstract class Binary(string T) : Expression if (["*", "/", "%", "+", "-", "==", "!=", "<=", ">=", "<", ">", "&&", "||", "->", "<-", "~>", "|||"].canFind(T)) {
+	Expression left;
+	Expression right;
+	this(Position position, Expression left, Expression right) {
+		super(position);
+		this.left = left;
+		this.right = right;
+	}
 }
 
-interface Prefix(string T) : Expression if (["-", "*", "!"].canFind(T)) {
-	Position position();
-	Expression value();
+abstract class Prefix(string T) : Expression if (["-", "*", "!"].canFind(T)) {
+	Expression value;
+	this(Position position, Expression value) {
+		super(position);
+		this.value = value;
+	}
 }
 
-interface Do : Expression {
-	Position position();
-	Expression value();
+abstract class Do : Expression {
+	Expression value;
+	this(Position position, Expression value) {
+		super(position);
+		this.value = value;
+	}
 }
 
-interface Try : Expression {
-	Position position();
-	Expression value();
+abstract class Try : Expression {
+	Expression value;
+	this(Position position, Expression value) {
+		super(position);
+		this.value = value;
+	}
 }
 
-interface TypePointer(string type) : Expression if (["raw", "unique"].canFind(type)) {
-	Position position();
-	Expression value();
+abstract class TypePointer(string type) : Expression if (["raw", "unique"].canFind(type)) {
+	Expression value;
+	this(Position position, Expression value) {
+		super(position);
+		this.value = value;
+	}
 }
 
-interface TypeArray(string type) : Expression if (["raw", "unique"].canFind(type)) {
-	Position position();
-	Expression value();
+abstract class TypeArray(string type) : Expression if (["raw", "unique"].canFind(type)) {
+	Expression value;
+	this(Position position, Expression value) {
+		super(position);
+		this.value = value;
+	}
 }
 
-interface Pattern : Node {
+abstract class Pattern : Node {
+	this(Position position) {
+		super(position);
+	}
 }
 
-interface StringLit : Expression {
-	Position position();
-	string value();
+abstract class StringLit : Expression {
+	string value;
+	this(Position position, string value) {
+		super(position);
+		this.value = value;
+	}
 }
 
-interface ArrayLit : Expression {
-	Position position();
-	Expression[] values();
+abstract class ArrayLit : Expression {
+	Expression[] values;
+	this(Position position, Expression[] values) {
+		super(position);
+		this.values = values;
+	}
 }
 
-interface ExternJs : Expression {
-	Position position();
-	string name();
+abstract class Requirement : Expression {
+	Expression value;
+	this(Position position, Expression value) {
+		super(position);
+		this.value = value;
+	}
+}
+
+abstract class ExternJs : Expression {
+	string name;
+	Expression scheme;
+	this(Position position, string name, Expression scheme) {
+		super(position);
+		this.name = name;
+		this.scheme = scheme;
+	}
+}
+
+abstract class Instance : Expression {
+	Expression type;
+	Expression term;
+	this(Position position, Expression type, Expression term) {
+		super(position);
+		this.type = type;
+		this.term = term;
+	}
 }

@@ -21,10 +21,9 @@ import std.array;
 
 import parser.ast;
 
-import misc.getters;
 import misc.position;
 
-class Impl(T : Expression) : Getters!T {
+class Impl(T : Expression) : T {
 	this(A...)(A arguments) {
 		super(arguments);
 	}
@@ -41,7 +40,7 @@ class Impl(T : Expression) : Getters!T {
 	}
 }
 
-class Impl(T : Pattern) : Getters!T {
+class Impl(T : Pattern) : T {
 	this(A...)(A arguments) {
 		super(arguments);
 	}
@@ -54,7 +53,7 @@ class Impl(T : Pattern) : Getters!T {
 	}
 }
 
-class Impl(T) : Getters!T {
+class Impl(T) : T {
 	this(A...)(A arguments) {
 		super(arguments);
 	}

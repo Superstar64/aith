@@ -1,15 +1,42 @@
-
+# useful builtins
 inline curry = ~f => ~a => ~b => f(a,b);
-
 inline uncurry = ~f => (a,b) => f(a)(b);
 
+inline to macro1 = ~f => f`;
+inline to macro2 = ~f => ~a => ~b =>  f`(a,b);
+inline to macro3 = ~f => ~a => ~b => ~c =>  f`(a,b,c);
+
+
+# io for tests
+inline assert impl = extern "assert" (& boolean, world &) -> (& (& &), world&);
+inline assert = assert impl.to macro2;
+
+inline write impl = extern "write" (& raw character[], world &) -> (& (& &), world &);
+inline write = write impl.to macro2;
+
+# builtin functions
+inline new impl = extern "aith_create_pointer" <a extends unrestricted> (& a, world &) -> (& raw a*, world &);
+~ <a extends unrestricted> a ~> world ~> (& raw a*, world &) ~
+inline new = new impl.to macro2;
+
+inline new array impl = extern "aith_new_array" <a extends unrestricted> (& natural, a, world &) -> (& raw a[] , world &);
+~ <a extends unrestricted> natural ~> a ~> world ~> (& raw a[] , world &) ~
+inline new array = new array impl.to macro3;
+
+inline length impl = extern "aith_array_length" <a> raw a[] -> natural;
+inline length = length impl.to macro1;
+
+# desugaring for do notation
+~ <a,s> a ~> s ~> (& a, s &) ~
 inline desugar pure = ~item => ~os => (item, os);
 
+~ <a,b,s> (s ~> (& a, s &)) ~> (a ~> s ~> (& b, s&)) ~> s ~> (& b, s &) ~
 inline desugar bind = ~monad => ~continue => ~os {
 	(x, |os|) = monad(os);
 	continue(x)(os)
 };
 
+~ <a,s> boolean ~> (s ~> (& a, s &)) ~> (s ~> (& a, s &)) ~> s ~> (& a, s &) ~
 inline desugar choose = ~choice => ~left => ~right => ~os {
 	if choice {
 		left(os)
@@ -18,143 +45,200 @@ inline desugar choose = ~choice => ~left => ~right => ~os {
 	}
 };
 
-~ (& boolean, world &) -> world ~
-extern assert impl = extern "assert";
-
-inline assert = ~check => ~os => ((), assert impl`(check, os));
-
-~ (& raw character[], world &) -> world ~
-extern write impl = extern "write";
-
-inline write = ~string => ~os => ((), write impl`(string, os));
-
-~ <a extends unrestricted> (& a, world &) -> (& raw a*, world &) ~
-extern new impl = extern "aith_create_pointer";
-
-~ <a extends unrestricted> a ~> world ~> (& raw a*, world &) ~
-inline new = ~item => ~os => new impl`(item, os);
-
-
-~ <a extends unrestricted> (& natural, a, world &) -> (& raw a[] , world &) ~
-extern new array impl = extern "aith_new_array";
-
-~ <a extends unrestricted> natural ~> a ~> world ~> (& raw a[] , world &) ~
-inline new array = ~count => ~item => ~os => new array impl`(count,item,os);
-
-~ <a> raw a[] -> natural ~
-extern length impl = extern "aith_array_length";
-
-~ <a> raw a[] ~> natural ~
-inline length = length impl`;
-
-
-~ <a extends number, b extends number> a -> b ~
-extern cast impl = extern "aith_cast_integer";
-
-~ <a extends number, b extends number> a ~> b ~
-inline cast = cast impl`;
-
+# desugar for array and string literals
 ~ <a> a ~> world ~> (& a, world &) ~
 inline desugar effect = desugar pure;
 
-~ <a> (& raw a[], natural &) -> raw a* ~
-extern desugar index address impl = extern "aith_array_address_of";
+# desugar for array and pointer operations
+inline desugar index address impl = extern "aith_array_address_of" <a> (& raw a[], natural &) -> raw a*;
+inline desugar index address = desugar index address impl.to macro2;
 
-~ <a> raw a[] ~> natural ~> raw a* ~
-inline desugar index address = ~array => ~index => desugar index address impl`(array, index);
+inline desugar assign impl = extern "aith_pointer_assign" <a> (& raw a*, a, world &) -> (& (& &), world &);
+inline desugar assign = desugar assign impl.to macro3;
 
-~ <a> (& raw a*, a, world &) -> world ~
-extern desugar assign impl = extern "aith_pointer_assign";
+inline desugar index impl = extern "aith_index_array" <a> (& raw a[], natural, world &) -> (& a, world &);
+inline desugar index = desugar index impl.to macro3;
 
-inline desugar assign = ~pointer => ~item => ~world => ((), desugar assign impl`(pointer, item, world));
+inline desugar slice impl = extern "aith_array_slice" <a> (& raw a[], natural, natural &) -> raw a[];
+inline desugar slice = desugar slice impl.to macro3;
+
+inline desugar derefence impl = extern "aith_derefence_pointer" <a> (& raw a*, world &) -> (& a, world &);
+inline desugar derefence = desugar derefence impl.to macro2;
+
+inline integer32 less = extern "aith_number_integer32_less" (& integer32, integer32 &) -> boolean;
+inline integer32 greater = extern "aith_number_integer32_greater" (& integer32, integer32 &) -> boolean;
+inline integer32 less equal = extern "aith_number_integer32_less_equal" (& integer32, integer32 &) -> boolean;
+inline integer32 greater equal = extern "aith_number_integer32_greater_equal" (& integer32, integer32 &) -> boolean;
+inline integer32 add = extern "aith_number_integer32_add" (& integer32, integer32 &) -> integer32;
+inline integer32 subtract = extern "aith_number_integer32_subtract" (& integer32, integer32 &) -> integer32;
+inline integer32 multiply = extern "aith_number_integer32_multiply" (& integer32, integer32 &) -> integer32;
+inline integer32 divide = extern "aith_number_integer32_divide" (& integer32, integer32 &) -> integer32;
+inline integer32 modulus = extern "aith_number_integer32_modulus" (& integer32, integer32 &) -> integer32;
+inline integer32 negate = extern "aith_number_integer32_negate" integer32 -> integer32;
+
+inline natural32 less = extern "aith_number_natural32_less" (& natural32, natural32 &) -> boolean;
+inline natural32 greater = extern "aith_number_natural32_greater" (& natural32, natural32 &) -> boolean;
+inline natural32 less equal = extern "aith_number_natural32_less_equal" (& natural32, natural32 &) -> boolean;
+inline natural32 greater equal = extern "aith_number_natural32_greater_equal" (& natural32, natural32 &) -> boolean;
+inline natural32 add = extern "aith_number_natural32_add" (& natural32, natural32 &) -> natural32;
+inline natural32 subtract = extern "aith_number_natural32_subtract" (& natural32, natural32 &) -> natural32;
+inline natural32 multiply = extern "aith_number_natural32_multiply" (& natural32, natural32 &) -> natural32;
+inline natural32 divide = extern "aith_number_natural32_divide" (& natural32, natural32 &) -> natural32;
+inline natural32 modulus = extern "aith_number_natural32_modulus" (& natural32, natural32 &) -> natural32;
+inline natural32 negate = extern "aith_number_natural32_negate" natural32 -> natural32;
+
+inline integer less = extern "aith_number_integer_less" (& integer, integer &) -> boolean;
+inline integer greater = extern "aith_number_integer_greater" (& integer, integer &) -> boolean;
+inline integer less equal = extern "aith_number_integer_less_equal" (& integer, integer &) -> boolean;
+inline integer greater equal = extern "aith_number_integer_greater_equal" (& integer, integer &) -> boolean;
+inline integer add = extern "aith_number_integer_add" (& integer, integer &) -> integer;
+inline integer subtract = extern "aith_number_integer_subtract" (& integer, integer &) -> integer;
+inline integer multiply = extern "aith_number_integer_multiply" (& integer, integer &) -> integer;
+inline integer divide = extern "aith_number_integer_divide" (& integer, integer &) -> integer;
+inline integer modulus = extern "aith_number_integer_modulus" (& integer, integer &) -> integer;
+inline integer negate = extern "aith_number_integer_negate" integer -> integer;
+
+inline natural less = extern "aith_number_natural_less" (& natural, natural &) -> boolean;
+inline natural greater = extern "aith_number_natural_greater" (& natural, natural &) -> boolean;
+inline natural less equal = extern "aith_number_natural_less_equal" (& natural, natural &) -> boolean;
+inline natural greater equal = extern "aith_number_natural_greater_equal" (& natural, natural &) -> boolean;
+inline natural add = extern "aith_number_natural_add" (& natural, natural &) -> natural;
+inline natural subtract = extern "aith_number_natural_subtract" (& natural, natural &) -> natural;
+inline natural multiply = extern "aith_number_natural_multiply" (& natural, natural &) -> natural;
+inline natural divide = extern "aith_number_natural_divide" (& natural, natural &) -> natural;
+inline natural modulus = extern "aith_number_natural_modulus" (& natural, natural &) -> natural;
+inline natural negate = extern "aith_number_natural_negate" natural -> natural;
 
 
-~ <a> (& raw a[], natural, world &) -> (& a, world &) ~
-extern desugar index impl = extern "aith_index_array";
+overload less class { <a> (&a, a&) -> boolean } = instance (integer32) {
+	integer32 less
+} ||| instance (natural32) {
+	natural32 less
+} ||| instance (integer) {
+	integer less
+} ||| instance (natural) {
+	natural less
+};
 
-inline desugar index = ~array => ~index => ~world => desugar index impl`(array, index, world);
 
-~ <a> (& raw a[], natural, natural &) -> raw a[] ~
-extern desugar slice impl = extern "aith_array_slice";
+overload greater class { <a> (&a, a&) -> boolean } = instance (integer32) {
+	integer32 greater
+} ||| instance (natural32) {
+	natural32 greater
+} ||| instance (integer) {
+	integer greater
+} ||| instance (natural) {
+	natural greater
+};
 
-inline desugar slice = ~array => ~left => ~right => desugar slice impl`(array, left, right);
+overload less equal class { <a> (&a, a&) -> boolean } = instance (integer32) {
+	integer32 less equal
+} ||| instance (natural32) {
+	natural32 less equal
+} ||| instance (integer) {
+	integer less equal
+} ||| instance (natural) {
+	natural less equal
+};
 
-~ boolean -> boolean ~ 
-extern desugar not impl = extern "aith_not";
 
-inline desugar not = ~x => desugar not impl`(x);
+overload greater equal class { <a> (&a, a&) -> boolean } = instance (integer32) {
+	integer32 greater equal
+} ||| instance (natural32) {
+	natural32 greater equal
+} ||| instance (integer) {
+	integer greater equal
+} ||| instance (natural) {
+	natural greater equal
+};
 
-~ <a extends number> a -> a ~
-extern desugar negate impl = extern "aith_negate";
+overload add class { <a> (& a, a&) -> a } = instance (integer32) {
+	integer32 add
+} ||| instance (natural32) {
+	natural32 add
+} ||| instance (integer) {
+	integer add
+} ||| instance (natural) {
+	natural add
+};
 
-inline desugar negate = ~x => desugar negate impl`(x);
+overload subtract class { <a> (& a, a&) -> a } = instance (integer32) {
+	integer32 subtract
+} ||| instance (natural32) {
+	natural32 subtract
+} ||| instance (integer) {
+	integer subtract
+} ||| instance (natural) {
+	natural subtract
+};
 
-~ <a> (& raw a*, world &) -> (& a, world &) ~
-extern desugar derefence impl = extern "aith_derefence_pointer";
+overload multiply class { <a> (& a, a&) -> a } = instance (integer32) {
+	integer32 multiply
+} ||| instance (natural32) {
+	natural32 multiply
+} ||| instance (integer) {
+	integer multiply
+} ||| instance (natural) {
+	natural multiply
+};
 
-inline desugar derefence = ~pointer => ~os => desugar derefence impl`(pointer, os);
+overload divide class { <a> (& a, a&) -> a } = instance (integer32) {
+	integer32 divide
+} ||| instance (natural32) {
+	natural32 divide
+} ||| instance (integer) {
+	integer divide
+} ||| instance (natural) {
+	natural divide
+};
 
-~ <a extends number> (& a, a &) -> boolean ~
-extern desugar less equal impl = extern "aith_lessthan_equal";
+overload modulus class { <a> (& a, a&) -> a } = instance (integer32) {
+	integer32 modulus
+} ||| instance (natural32) {
+	natural32 modulus
+} ||| instance (integer) {
+	integer modulus
+} ||| instance (natural) {
+	natural modulus
+};
 
-inline desugar less equal = ~left => ~right => desugar less equal impl`(left, right);
+overload negate class { <a> a -> a } = instance (integer32) {
+	integer32 negate
+} ||| instance (natural32) {
+	natural32 negate
+} ||| instance (integer) {
+	integer negate
+} ||| instance (natural) {
+	natural negate
+};
 
-~ <a extends number> (& a, a &) -> boolean ~
-extern desugar greater equal impl = extern "aith_greater_equal";
 
-inline desugar greater equal = ~left => ~right => desugar greater equal impl`(left, right);
+# math desugaring
+inline desugar less = require less class.to macro2;
+inline desugar greater = require greater class.to macro2;
+inline desugar less equal = require less equal class.to macro2;
+inline desugar greater equal = require greater equal class.to macro2;
 
-~ <a extends number> (& a, a &) -> boolean ~
-extern desugar less impl = extern "aith_lessthan";
+inline desugar add = require add class.to macro2;
+inline desugar subtract = require subtract class.to macro2;
+inline desugar multiply = require multiply class.to macro2;
+inline desugar divide = require divide class.to macro2;
+inline desugar modulus = require modulus class.to macro2;
+inline desugar negate = require negate class.to macro1;
 
-inline desugar less = ~left => ~right => desugar less impl`(left, right);
+# logic desugaring
+inline desugar not impl = extern "aith_not" boolean -> boolean;
+inline desugar not = desugar not impl.to macro1;
 
-~ <a extends number> (& a, a &) -> boolean ~
-extern desugar greater impl = extern "aith_greater";
+inline desugar equal = require equal.to macro2;
+inline desugar not equal = ~left => ~right => !(left == right);
 
-inline desugar greater = ~left => ~right => desugar greater impl`(left, right);
+inline desugar and impl = extern "aith_and" (& boolean , boolean &) -> boolean;
+inline desugar and = desugar and impl.to macro2;
 
-~ <a extends number> (& a, a &) -> a ~
-extern desugar multiply impl = extern "aith_multiply";
+inline desugar or impl = extern "aith_or" (& boolean , boolean &) -> boolean;
+inline desugar or = desugar or impl.to macro2;
 
-inline desugar multiply = ~left => ~right => desugar multiply impl`(left, right);
-
-~ <a extends number> (& a, a &) -> a ~
-extern desugar divide impl = extern "aith_divide";
-
-inline desugar divide = ~left => ~right => desugar divide impl`(left, right);
-
-~ <a extends number> (& a, a &) -> a ~
-extern desugar modulus impl = extern "aith_modulus";
-
-inline desugar modulus = ~left => ~right => desugar modulus impl`(left, right);
-
-~ <a extends number> (& a, a &) -> a ~
-extern desugar add impl = extern "aith_add";
-
-inline desugar add = ~left => ~right => desugar add impl`(left, right);
-
-~ <a extends number> (& a, a &) -> a ~
-extern desugar subtract impl = extern "aith_subtract";
-
-inline desugar subtract = ~left => ~right => desugar subtract impl`(left, right);
-
-~ <a extends equal> (& a, a &) -> boolean ~
-extern desugar equal impl = extern "aith_compare";
-
-inline desugar equal = ~left => ~right => desugar equal impl`(left, right);
-
-~ <a extends equal> (& a, a &) -> boolean ~
-extern desugar not equal impl = extern "aith_compare_not";
-
-inline desugar not equal = ~left => ~right => desugar not equal impl`(left, right);
-
-~ (& boolean , boolean &) -> boolean ~
-extern desugar and impl = extern "aith_and";
-
-inline desugar and = ~left => ~right => desugar and impl`(left, right);
-
-~ (& boolean , boolean &) -> boolean ~
-extern desugar or impl = extern "aith_or";
-
-inline desugar or = ~left => ~right => desugar or impl`(left, right);
+# desugar utils for tuple index and tuple index address
+inline desugar fst = (get,forward) => get;
+inline desugar snd = (get,forward) => forward;

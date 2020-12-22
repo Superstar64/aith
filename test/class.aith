@@ -1,0 +1,19 @@
+
+overload default class { <a> a } = instance (boolean) {
+	false
+} ||| instance(integer32) {
+	0
+};
+
+inline default = require default class;
+
+template add default = () => default + 1;
+
+symbol not default = () => !default;
+
+~ world -> (& (&&), world &) ~
+symbol main = do {
+	x = not default`();
+	y = add default`() : integer32;
+	()
+};

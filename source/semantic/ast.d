@@ -21,8 +21,8 @@ import std.bigint;
 import std.meta;
 import std.typecons;
 import std.traits;
+import std.variant;
 
-import misc.nonstrict;
 import misc.position;
 import misc.container;
 
@@ -43,44 +43,63 @@ struct ModuleDefinition {
 class Module {
 	Dictonary!(string, ModuleDefinition delegate(RecursionChecker)) aliases;
 	ModuleDefinition delegate(RecursionChecker)[] orderedAliases;
+	SymbolId delegate()[] exports;
 }
 
 ModuleDefinition get(ModuleDefinition delegate(RecursionChecker) that) {
 	return that(RecursionChecker());
 }
 
-interface Expression {
+abstract class Expression {
 }
 
-interface Import : Expression {
-	Module mod();
+abstract class Import : Expression {
+	Module mod;
+	this(Module mod) {
+		this.mod = mod;
+	}
 }
 
-interface Term : Expression {
+abstract class Term : Expression {
 	import codegen.codegen : Extra;
 	import Js = jsast;
 
-	Type type();
+	Type type;
+	this(Type type) {
+		this.type = type;
+	}
+
+abstract:
+
 	Term substitute(Dictonary!(TypeVariableId, Type) moves);
 	Term substitute(Dictonary!(RigidVariableId, Type) moves);
 	Term substitute(Dictonary!(StageVariableId, Stage) moves);
 	Term substitute(Dictonary!(VariableId, Term) moves);
 	Term substitute(Dictonary!(VariableId, VariableId) moves);
 	// only for removing symbol forward references
-	Term substitute(Lazy!(Dictonary!(SymbolId, Term)) moves);
+	Term substitute(Dictonary!(SymbolId, Term) moves);
 	Term alphaConvert();
 	Term reduceMacros();
 
 	Js.JsExpr generateJs(Js.JsScope depend, Extra extra);
+	string toStringIndent(uint indent);
 }
 
 struct SymbolId {
 	size_t raw;
 }
 
-interface SymbolForwardReference : Term {
-	Type type();
-	SymbolId id();
+abstract class SymbolForwardReference : Term {
+	SymbolId id;
+	this(Type type, SymbolId id) {
+		super(type);
+		this.id = id;
+	}
+}
+
+auto destructure(alias c)(SymbolForwardReference that) {
+	with (that)
+		return c(type, id);
 }
 
 enum Linkage {
@@ -88,19 +107,43 @@ enum Linkage {
 	weak,
 }
 
-interface SymbolReference : Term {
-	Type type();
-	string name();
-	Linkage linkage();
-	SymbolId id();
-	Lazy!Term source();
-	Tuple!(Type, Predicate)[] dictonaries();
+abstract class SymbolReference : Term {
+	string name;
+	SymbolId id;
+	Tuple!(Type, Predicate)[] dictonaries;
+	this(Type type, string name, SymbolId id, Tuple!(Type, Predicate)[] dictonaries) {
+		super(type);
+		this.name = name;
+		this.id = id;
+		this.dictonaries = dictonaries;
+	}
 }
 
-interface ExternJs : Term {
-	Type type();
-	string name();
-	Tuple!(Type, Predicate)[] dictonaries();
+auto destructure(alias c)(SymbolReference that) {
+	with (that)
+		return c(type, name, id, dictonaries);
+}
+
+struct SymbolValue {
+	Term source;
+	Linkage linkage;
+	string name;
+	Tuple!(TypeVariable, Predicate)[] dictonaries;
+}
+
+abstract class ExternJs : Term {
+	string name;
+	Tuple!(Type, Predicate)[] dictonaries;
+	this(Type type, string name, Tuple!(Type, Predicate)[] dictonaries) {
+		super(type);
+		this.name = name;
+		this.dictonaries = dictonaries;
+	}
+}
+
+auto destructure(alias c)(ExternJs that) {
+	with (that)
+		return c(type, name, dictonaries);
 }
 
 struct Argument {
@@ -108,95 +151,207 @@ struct Argument {
 	string name;
 }
 
-interface MacroFunctionLiteral : Term {
-	Type type();
-	Argument argument();
-	Term text();
+abstract class MacroFunctionLiteral : Term {
+	Argument argument;
+	Term text;
+	this(Type type, Argument argument, Term text) {
+		super(type);
+		this.argument = argument;
+		this.text = text;
+	}
 }
 
-class VariableId {
+auto destructure(alias c)(MacroFunctionLiteral that) {
+	with (that)
+		return c(type, argument, text);
 }
 
-interface Variable : Term {
-	Type type();
-	string name();
-	VariableId id();
+struct VariableId {
+	size_t raw;
 }
 
-interface VariableDefinition : Term {
-	Type type();
-	Pattern variable();
-	Term value();
-	Term last();
+abstract class Variable : Term {
+	string name;
+	VariableId id;
+	this(Type type, string name, VariableId id) {
+		super(type);
+		this.name = name;
+		this.id = id;
+	}
 }
 
-interface Call : Term {
-	Type type();
-	Term calle();
-	Term argument();
+auto destructure(alias c)(Variable that) {
+	with (that)
+		return c(type, name, id);
 }
 
-interface MacroCall : Term {
-	Type type();
-	Term calle();
-	Term argument();
+abstract class VariableDefinition : Term {
+	Pattern variable;
+	Term value;
+	Term last;
+	this(Type type, Pattern variable, Term value, Term last) {
+		super(type);
+		this.variable = variable;
+		this.value = value;
+		this.last = last;
+	}
 }
 
-interface If : Term {
-	Type type();
-	Term cond();
-	Term yes();
-	Term no();
+auto destructure(alias c)(VariableDefinition that) {
+	with (that)
+		return c(type, variable, value, last);
 }
 
-interface TupleIndex : Term {
-	Type type();
-	uint index();
+abstract class Call : Term {
+	Term calle;
+	Term argument;
+	this(Type type, Term calle, Term argument) {
+		super(type);
+		this.calle = calle;
+		this.argument = argument;
+	}
 }
 
-interface TupleIndexAddress : Term {
-	Type type();
-	uint index();
-	Type context();
+auto destructure(alias c)(Call that) {
+	with (that)
+		return c(type, calle, argument);
 }
 
-interface IntLit : Term {
-	Type type();
-	BigInt value();
+abstract class MacroCall : Term {
+	Term calle;
+	Term argument;
+	this(Type type, Term calle, Term argument) {
+		super(type);
+		this.calle = calle;
+		this.argument = argument;
+	}
 }
 
-interface CharLit : Term {
-	Type type();
-	dchar value();
+auto destructure(alias c)(MacroCall that) {
+	with (that)
+		return c(type, calle, argument);
 }
 
-interface BoolLit : Term {
-	Type type();
-	bool yes();
+abstract class If : Term {
+	Term cond;
+	Term yes;
+	Term no;
+	this(Type type, Term cond, Term yes, Term no) {
+		super(type);
+		this.cond = cond;
+		this.yes = yes;
+		this.no = no;
+	}
 }
 
-interface TupleLit : Term {
-	Type type();
-	Term[] values();
+auto destructure(alias c)(If that) {
+	with (that)
+		return c(type, cond, yes, no);
 }
 
-interface StringLit : Term {
-	Type type();
-	string value();
+abstract class IntLit : Term {
+	BigInt value;
+	this(Type type, BigInt value) {
+		super(type);
+		this.value = value;
+	}
 }
 
-interface ArrayLit : Term {
-	Type type();
-	Term[] values();
+auto destructure(alias c)(IntLit that) {
+	with (that)
+		return c(type, value);
 }
 
-interface Pattern : Expression {
+abstract class CharLit : Term {
+	dchar value;
+	this(Type type, dchar value) {
+		super(type);
+		this.value = value;
+	}
+}
+
+auto destructure(alias c)(CharLit that) {
+	with (that)
+		return c(type, value);
+}
+
+abstract class BoolLit : Term {
+	bool yes;
+	this(Type type, bool yes) {
+		super(type);
+		this.yes = yes;
+	}
+}
+
+auto destructure(alias c)(BoolLit that) {
+	with (that)
+		return c(type, yes);
+}
+
+abstract class TupleLit : Term {
+	Term[] values;
+	this(Type type, Term[] values) {
+		super(type);
+		this.values = values;
+	}
+}
+
+auto destructure(alias c)(TupleLit that) {
+	with (that)
+		return c(type, values);
+}
+
+abstract class StringLit : Term {
+	string value;
+	this(Type type, string value) {
+		super(type);
+		this.value = value;
+	}
+}
+
+auto destructure(alias c)(StringLit that) {
+	with (that)
+		return c(type, value);
+}
+
+abstract class ArrayLit : Term {
+	Term[] values;
+	this(Type type, Term[] values) {
+		super(type);
+		this.values = values;
+	}
+}
+
+auto destructure(alias c)(ArrayLit that) {
+	with (that)
+		return c(type, values);
+}
+
+abstract class Requirement : Term {
+	Predicate requirement;
+	Type context;
+	this(Type type, Predicate requirement, Type context) {
+		super(type);
+		this.requirement = requirement;
+		this.context = context;
+	}
+}
+
+auto destructure(alias c)(Requirement that) {
+	with (that)
+		return c(type, requirement, context);
+}
+
+abstract class Pattern : Expression {
 	import codegen.codegen : Extra;
 	import Js = jsast;
 
-	import semantic.semantic : Context;
+	Type type;
+	this(Type type) {
+		this.type = type;
+	}
 
-	Type type();
+abstract:
 	Pattern substitute(Dictonary!(TypeVariableId, Type) moves);
 	Pattern substitute(Dictonary!(RigidVariableId, Type) moves);
 	Pattern substitute(Dictonary!(StageVariableId, Stage) moves);
@@ -205,16 +360,34 @@ interface Pattern : Expression {
 	Tuple!(Variable, bool)[] orderedBindings();
 }
 
-interface NamedPattern : Pattern {
-	Type type();
-	VariableId id();
-	string name();
-	bool shadow();
+abstract class NamedPattern : Pattern {
+	VariableId id;
+	string name;
+	bool shadow;
+	this(Type type, VariableId id, string name, bool shadow) {
+		super(type);
+		this.id = id;
+		this.name = name;
+		this.shadow = shadow;
+	}
 }
 
-interface TuplePattern : Pattern {
-	Type type();
-	Pattern[] matches();
+auto destructure(alias c)(NamedPattern that) {
+	with (that)
+		return c(type, id, name, shadow);
+}
+
+abstract class TuplePattern : Pattern {
+	Pattern[] matches;
+	this(Type type, Pattern[] matches) {
+		super(type);
+		this.matches = matches;
+	}
+}
+
+auto destructure(alias c)(TuplePattern that) {
+	with (that)
+		return c(type, matches);
 }
 
 enum TypePrecedence {
@@ -224,20 +397,53 @@ enum TypePrecedence {
 	top
 }
 
-interface Type : Expression {
+abstract class TypeScheme : Expression {
+abstract:
+	TypeScheme substitute(Dictonary!(TypeVariableId, Type) moves);
+	Type instantiate(Type delegate(Stage stage, Dictonary!(PredicateId, Predicate), string));
+
+	bool headMatch(Type right);
+}
+
+abstract class TypeSchemeForall : TypeScheme {
+	TypeVariableId id;
+	Stage argumentType;
+	Dictonary!(PredicateId, Predicate) qualified;
+	string name;
+	TypeScheme enclosed;
+
+	this(TypeVariableId id, Stage argumentType, Dictonary!(PredicateId, Predicate) qualified, string name, TypeScheme enclosed) {
+		this.id = id;
+		this.argumentType = argumentType;
+		this.qualified = qualified;
+		this.name = name;
+		this.enclosed = enclosed;
+	}
+}
+
+abstract class Type : TypeScheme {
 	import codegen.codegen : Extra;
 	import Js = jsast;
 
-	Stage type();
+	Stage type;
+	this(Stage type) {
+		this.type = type;
+	}
+
+	override final string toString() {
+		return toStringPrecedence(TypePrecedence.zero);
+	}
+
+abstract:
+
 	Set!TypeVariableId freeVariables();
 	TypeVariableId[] freeVariablesOrdered();
-	Type substitute(Dictonary!(TypeVariableId, Type) moves);
+	Set!RigidVariableId freeRigidVariables();
+
+	override Type substitute(Dictonary!(TypeVariableId, Type) moves);
 	Type substitute(Dictonary!(RigidVariableId, Type) moves);
 	Type substitute(Dictonary!(StageVariableId, Stage) moves);
 	string toStringPrecedence(TypePrecedence);
-	final toString() {
-		return toStringPrecedence(TypePrecedence.zero);
-	}
 
 	void unify(Type right, Position, TypeSystem);
 	void unifyDispatch(TypeVariable left, Position, TypeSystem);
@@ -254,15 +460,44 @@ interface Type : Expression {
 	void unifyDispatch(TypeOwnArray left, Position, TypeSystem);
 	void unifyDispatch(TypeWorld left, Position, TypeSystem);
 
-	void checkDispatch(PredicateEqual left, Position, TypeSystem);
-	void checkDispatch(PredicateNumber left, Position, TypeSystem);
+	void checkDispatch(PredicateTypeMatch left, Position, TypeSystem);
 	void checkDispatch(PredicateTuple left, Position, TypeSystem);
-	void checkDispatch(PredicateUnrestricted left, Position, TypeSystem);
 
-	Js.JsExpr info(PredicateEqual, Extra extra);
-	Js.JsExpr info(PredicateNumber, Extra extra);
-	Js.JsExpr info(PredicateTuple, Extra extra);
-	Js.JsExpr info(PredicateUnrestricted, Extra extra);
+	bool matchDispatch(TypeMatchEqual left);
+	bool matchDispatch(TypeMatchNumber left);
+	bool matchDispatch(TypeMatchUnrestricted left);
+	bool matchDispatch(TypeMatchCustom left);
+	bool matchDispatch(TypeMatchOr left);
+
+	TypeAlgebra[] checkMatchDispatch(TypeMatchEqual left, Position);
+	TypeAlgebra[] checkMatchDispatch(TypeMatchNumber left, Position);
+	TypeAlgebra[] checkMatchDispatch(TypeMatchUnrestricted left, Position);
+	TypeAlgebra[] checkMatchDispatch(TypeMatchCustom left, Position);
+	TypeAlgebra[] checkMatchDispatch(TypeMatchOr left, Position);
+
+	bool headMatchDispatch(TypeVariable left);
+	bool headMatchDispatch(TypeVariableRigid left);
+	bool headMatchDispatch(TypeBool left);
+	bool headMatchDispatch(TypeChar left);
+	bool headMatchDispatch(TypeInt left);
+	bool headMatchDispatch(TypeStruct left);
+	bool headMatchDispatch(TypeArray left);
+	bool headMatchDispatch(TypeFunction left);
+	bool headMatchDispatch(TypeMacro left);
+	bool headMatchDispatch(TypePointer left);
+	bool headMatchDispatch(TypeOwnPointer left);
+	bool headMatchDispatch(TypeOwnArray left);
+	bool headMatchDispatch(TypeWorld left);
+
+	Js.JsExpr info(PredicateTypeMatch, Js.JsScope depend, Extra extra);
+	Js.JsExpr info(PredicateTuple, Js.JsScope depend, Extra extra);
+	Js.JsExpr info(TypeMatchEqual, Js.JsScope depend, Extra extra);
+	Js.JsExpr info(TypeMatchNumber, Js.JsScope depend, Extra extra);
+	Js.JsExpr info(TypeMatchUnrestricted, Js.JsScope depend, Extra extra);
+	Js.JsExpr info(TypeMatchCustom, Js.JsScope depend, Extra extra);
+	Js.JsExpr info(TypeMatchOr, Js.JsScope depend, Extra extra);
+
+	Type[] internal();
 }
 
 struct RigidContextId {
@@ -273,117 +508,313 @@ struct RigidVariableId {
 	size_t raw;
 }
 
-interface TypeVariableRigid : Type {
-	Stage type();
-	RigidVariableId id();
-	string name();
-	RigidContextId context();
+abstract class TypeVariableRigid : Type {
+	RigidVariableId id;
+	string name;
+	RigidContextId context;
+	this(Stage type, RigidVariableId id, string name, RigidContextId context) {
+		super(type);
+		this.id = id;
+		this.name = name;
+		this.context = context;
+	}
+}
+
+auto destructure(alias c)(TypeVariableRigid that) {
+	with (that)
+		return c(type, id, name, context);
 }
 
 struct TypeVariableId {
 	size_t raw;
 }
 
-interface TypeVariable : Type {
-	Stage type();
-	TypeVariableId id();
+abstract class TypeVariable : Type {
+	TypeVariableId id;
+	this(Stage type, TypeVariableId id) {
+		super(type);
+		this.id = id;
+	}
 }
 
-interface TypeBool : Type {
-	Stage type();
+auto destructure(alias c)(TypeVariable that) {
+	with (that)
+		return c(type, id);
 }
 
-interface TypeChar : Type {
-	Stage type();
+abstract class TypeBool : Type {
+	this(Stage type) {
+		super(type);
+	}
 }
 
-interface TypeInt : Type {
-	Stage type();
-	uint size();
-	bool signed();
+auto destructure(alias c)(TypeBool that) {
+	with (that)
+		return c(type);
 }
 
-interface TypeStruct : Type {
-	Stage type();
-	Type[] values();
+abstract class TypeChar : Type {
+	this(Stage type) {
+		super(type);
+	}
 }
 
-interface TypeFunction : Type {
-	Stage type();
-	Type result();
-	Type argument();
+auto destructure(alias c)(TypeChar that) {
+	with (that)
+		return c(type);
 }
 
-interface TypeMacro : Type {
-	Stage type();
-	Type result();
-	Type argument();
+abstract class TypeInt : Type {
+	uint size;
+	bool signed;
+	this(Stage type, uint size, bool signed) {
+		super(type);
+		this.size = size;
+		this.signed = signed;
+	}
 }
 
-interface TypeArray : Type {
-	Stage type();
-	Type value();
+auto destructure(alias c)(TypeInt that) {
+	with (that)
+		return c(type, size, signed);
 }
 
-interface TypeOwnArray : Type {
-	Stage type();
-	Type value();
+abstract class TypeStruct : Type {
+	Type[] values;
+	this(Stage type, Type[] values) {
+		super(type);
+		this.values = values;
+	}
 }
 
-interface TypePointer : Type {
-	Stage type();
-	Type value();
+auto destructure(alias c)(TypeStruct that) {
+	with (that)
+		return c(type, values);
 }
 
-interface TypeOwnPointer : Type {
-	Stage type();
-	Type value();
+abstract class TypeFunction : Type {
+	Type result;
+	Type argument;
+	this(Stage type, Type result, Type argument) {
+		super(type);
+		this.result = result;
+		this.argument = argument;
+	}
 }
 
-interface TypeWorld : Type {
-	Stage type();
+auto destructure(alias c)(TypeFunction that) {
+	with (that)
+		return c(type, result, argument);
 }
 
-class PredicateId {
+abstract class TypeMacro : Type {
+	Type result;
+	Type argument;
+	this(Stage type, Type result, Type argument) {
+		super(type);
+		this.result = result;
+		this.argument = argument;
+	}
 }
 
-interface Predicate : Expression {
+auto destructure(alias c)(TypeMacro that) {
+	with (that)
+		return c(type, result, argument);
+}
+
+abstract class TypeArray : Type {
+	Type value;
+	this(Stage type, Type value) {
+		super(type);
+		this.value = value;
+	}
+}
+
+auto destructure(alias c)(TypeArray that) {
+	with (that)
+		return c(type, value);
+}
+
+abstract class TypeOwnArray : Type {
+	Type value;
+	this(Stage type, Type value) {
+		super(type);
+		this.value = value;
+	}
+}
+
+auto destructure(alias c)(TypeOwnArray that) {
+	with (that)
+		return c(type, value);
+}
+
+abstract class TypePointer : Type {
+	Type value;
+	this(Stage type, Type value) {
+		super(type);
+		this.value = value;
+	}
+}
+
+auto destructure(alias c)(TypePointer that) {
+	with (that)
+		return c(type, value);
+}
+
+abstract class TypeOwnPointer : Type {
+	Type value;
+	this(Stage type, Type value) {
+		super(type);
+		this.value = value;
+	}
+}
+
+auto destructure(alias c)(TypeOwnPointer that) {
+	with (that)
+		return c(type, value);
+}
+
+abstract class TypeWorld : Type {
+	this(Stage type) {
+		super(type);
+	}
+}
+
+auto destructure(alias c)(TypeWorld that) {
+	with (that)
+		return c(type);
+}
+
+abstract class TypeMatch : Expression {
+	import codegen.codegen : Extra;
+	import Js = jsast;
+	import semantic.semantic : Context;
+
+	this() {
+	}
+
+abstract:
+
+	bool match(Type);
+	TypeAlgebra[] checkMatch(Type right, Position position);
+	Js.JsExpr typeInfo(Type type, Js.JsScope depend, Extra extra);
+	void validate(Type delegate(Type) base, Context context, Position position);
+}
+
+abstract class TypeMatchEqual : TypeMatch {
+	this() {
+	}
+}
+
+abstract class TypeMatchNumber : TypeMatch {
+	this() {
+	}
+}
+
+abstract class TypeMatchUnrestricted : TypeMatch {
+	this() {
+	}
+}
+
+abstract class TypeMatchCustom : TypeMatch {
+	TypeScheme pattern;
+	Term match;
+	this(TypeScheme pattern, Term match) {
+		this.pattern = pattern;
+		this.match = match;
+	}
+}
+
+abstract class TypeMatchOr : TypeMatch {
+	TypeMatch left;
+	TypeMatch right;
+	this(TypeMatch left, TypeMatch right) {
+		this.left = left;
+		this.right = right;
+	}
+}
+
+enum PredicateNormalId {
+	equal,
+	number,
+	unrestricted
+};
+
+struct PredicateTupleId {
+	size_t index;
+}
+
+struct PredicateCustomId {
+	string name;
+	size_t index;
+}
+
+struct PredicateId {
+	Algebraic!(PredicateNormalId, PredicateTupleId, PredicateCustomId) raw;
+	this(PredicateNormalId normal) {
+		raw = normal;
+	}
+
+	this(PredicateTupleId tuple) {
+		raw = tuple;
+	}
+
+	this(PredicateCustomId custom) {
+		raw = custom;
+	}
+}
+
+abstract class Predicate : Expression {
 	import codegen.codegen : Extra;
 	import Js = jsast;
 
-	PredicateId id();
+	PredicateId id;
+
+	this(PredicateId id) {
+		this.id = id;
+	}
+
+abstract:
+
 	Set!TypeVariableId freeVariables();
 	TypeVariableId[] freeVariablesOrdered();
+
+	Type require(Type variable);
 
 	Predicate substitute(Dictonary!(TypeVariableId, Type) moves);
 	Predicate substitute(Dictonary!(RigidVariableId, Type) moves);
 	Predicate substitute(Dictonary!(StageVariableId, Stage) moves);
-	string toString();
+	override string toString();
 
 	void check(Type right, Position, TypeSystem);
 	TypeAlgebra[] decompose(Predicate right, Position);
 
-	bool compare(Predicate right);
-	bool compareDispatch(PredicateUnrestricted left);
-	bool compareDispatch(PredicateEqual left);
-	bool compareDispatch(PredicateNumber left);
-	bool compareDispatch(PredicateTuple left);
-
-	Js.JsExpr typeInfo(Type type, Extra extra);
+	Js.JsExpr typeInfo(Type type, Js.JsScope depend, Extra extra);
 }
 
-interface PredicateEqual : Predicate {
+abstract class PredicateTypeMatch : Predicate {
+	TypeMatch pattern;
+	Type delegate(Type) requirement;
+	this(PredicateId id, TypeMatch pattern, Type delegate(Type) requirement) {
+		super(id);
+		this.pattern = pattern;
+		this.requirement = requirement;
+	}
 }
 
-interface PredicateNumber : Predicate {
+abstract class PredicateTuple : Predicate {
+	uint index;
+	Type type;
+	this(PredicateId id, uint index, Type type) {
+		super(id);
+		this.index = index;
+		this.type = type;
+	}
 }
 
-interface PredicateTuple : Predicate {
-	uint index();
-	Type type();
-}
-
-interface PredicateUnrestricted : Predicate {
+auto destructure(alias c)(PredicateTuple that) {
+	with (that)
+		return c(id, index, type);
 }
 
 enum StagePrecedence {
@@ -392,14 +823,20 @@ enum StagePrecedence {
 	top
 }
 
-interface Stage : Expression {
+abstract class Stage : Expression {
+	this() {
+	}
+
+	override final string toString() {
+		return toStringPrecedence(StagePrecedence.zero);
+	}
+
+abstract:
+
 	Set!StageVariableId freeVariables();
 	Stage substitute(Dictonary!(StageVariableId, Stage) moves);
 
 	string toStringPrecedence(StagePrecedence);
-	final toString() {
-		return toStringPrecedence(StagePrecedence.zero);
-	}
 
 	void unify(Stage right, Position, StageSystem);
 	void unifyMatch(StageRuntime left, Position, StageSystem);
@@ -411,22 +848,51 @@ struct StageVariableId {
 	size_t raw;
 }
 
-interface StageVariable : Stage {
-	StageVariableId id();
+abstract class StageVariable : Stage {
+	StageVariableId id;
+	this(StageVariableId id) {
+		this.id = id;
+	}
 }
 
-interface StageRuntime : Stage {
+auto destructure(alias c)(StageVariable that) {
+	with (that)
+		return c(id);
 }
 
-interface StageMacro : Stage {
-	Stage result();
-	Stage argument();
+abstract class StageRuntime : Stage {
+	this() {
+	}
 }
 
-interface StagePredicateId {
+auto destructure(alias c)(StageRuntime that) {
+	with (that)
+		return c();
 }
 
-interface StagePredicate : Expression {
+abstract class StageMacro : Stage {
+	Stage result;
+	Stage argument;
+	this(Stage result, Stage argument) {
+		this.result = result;
+		this.argument = argument;
+	}
+}
+
+auto destructure(alias c)(StageMacro that) {
+	with (that)
+		return c(result, argument);
+}
+
+abstract class StagePredicateId {
+}
+
+abstract class StagePredicate : Expression {
+	this() {
+	}
+
+abstract:
+
 	StagePredicateId id();
 	StagePredicate substitute(Dictonary!(StageVariableId, Stage) moves);
 	Set!StageVariableId freeVariables();
@@ -435,25 +901,35 @@ interface StagePredicate : Expression {
 	void check(Stage right, Position, StageSystem);
 }
 
-interface TypeAlgebra {
+abstract class TypeAlgebra {
 	TypeAlgebra substitute(Dictonary!(TypeVariableId, Type) moves);
 	TypeAlgebra substitute(Dictonary!(RigidVariableId, Type) moves);
 	Set!TypeVariableId freeVariables();
 	void reduce(TypeSystem);
 
-	string toString();
+	override string toString();
 }
 
-interface TypeEquation : TypeAlgebra {
-	Type left();
-	Type right();
-	Position position();
+abstract class TypeEquation : TypeAlgebra {
+	Type left;
+	Type right;
+	Position position;
+	this(Type left, Type right, Position position) {
+		this.left = left;
+		this.right = right;
+		this.position = position;
+	}
 }
 
-interface TypePredicateCall : TypeAlgebra {
-	Predicate predicate();
-	Type type();
-	Position position();
+abstract class TypePredicateCall : TypeAlgebra {
+	Predicate predicate;
+	Type type;
+	Position position;
+	this(Predicate predicate, Type type, Position position) {
+		this.predicate = predicate;
+		this.type = type;
+		this.position = position;
+	}
 }
 
 struct TypeRequirement {
@@ -491,24 +967,35 @@ class TypeSystem {
 	}
 }
 
-interface StageAlgebra {
+abstract class StageAlgebra {
+abstract:
 	StageAlgebra substitute(Dictonary!(StageVariableId, Stage) moves);
 	Set!StageVariableId freeVariables();
 	void reduce(StageSystem);
 
-	string toString();
+	override string toString();
 }
 
-interface StageEquation : StageAlgebra {
-	Stage left();
-	Stage right();
-	Position position();
+abstract class StageEquation : StageAlgebra {
+	Stage left;
+	Stage right;
+	Position position;
+	this(Stage left, Stage right, Position position) {
+		this.left = left;
+		this.right = right;
+		this.position = position;
+	}
 }
 
-interface StagePredicateCall : StageAlgebra {
-	StagePredicate predicate();
-	Stage type();
-	Position position();
+abstract class StagePredicateCall : StageAlgebra {
+	StagePredicate predicate;
+	Stage type;
+	Position position;
+	this(StagePredicate predicate, Stage type, Position position) {
+		this.predicate = predicate;
+		this.type = type;
+		this.position = position;
+	}
 }
 
 struct StageRequirement {

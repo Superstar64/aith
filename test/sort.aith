@@ -13,6 +13,7 @@ template swap = (left,right) { do =>
 }.uncurry;
 
 
+~ (& (& raw integer32[], integer32, natural, natural &), world &) -> (& (&&), world &) ~
 symbol quick sort exchange = (array, pivot, middle, end) { do =>
 	last = try { array[end] };
 	if (end < array.length - 1){
