@@ -1,4 +1,4 @@
-This is the version of aith before the haskell rewrite. Apart from the documontation list here, there's an undocumented partially implementation of user defined typeclasses. 
+This is the version of aith before the haskell rewrite. Apart from the documontation list here, there's an undocumented partially implemented of user defined typeclasses. 
 
 # Old Readme
 
