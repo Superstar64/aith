@@ -65,7 +65,7 @@ See ``/documentation`` for typing rules.
 
 # Papers
 Papers that inspired this language:
-* https://jgbm.github.io/pubs/morris-icfp2016-Multiplicity-extended.pdf
+* https://jgbm.github.io/pubs/morris-icfp2016-linearity-extended.pdf
 * https://www.microsoft.com/en-us/research/wp-content/uploads/2016/11/levity-pldi17.pdf
 
 # Copyright
