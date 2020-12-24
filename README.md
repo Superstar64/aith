@@ -64,9 +64,18 @@ See ``/documentation`` for typing rules.
 | Type | `` l @ s`` |
 
 # Papers
-Papers that inspired this language:
-* https://jgbm.github.io/pubs/morris-icfp2016-linearity-extended.pdf
-* https://www.microsoft.com/en-us/research/wp-content/uploads/2016/11/levity-pldi17.pdf
+Useful / Inspirational papers:
+
+## Linear Types
+* [A taste of linear logic](https://homepages.inf.ed.ac.uk/wadler/papers/lineartaste/lineartaste-revised.pdf)
+* [The Best of Both Worlds Linear Functional Programming without Compromise](https://jgbm.github.io/pubs/morris-icfp2016-linearity-extended.pdf)
+* [Linear Haskell](https://arxiv.org/pdf/1710.09756.pdf)
+* [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
+## Levity polymorphism
+* [Levity Polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/11/levity-pldi17.pdf)
+## Misc
+* [Typed Tagless Final Interpreters](http://okmij.org/ftp/tagless-final/index.html)
+* [Demonstrating Lambda Calculus Reduction](https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf)
 
 # Copyright
 Copyright © Freddy A Cubas, "Superstar64"
