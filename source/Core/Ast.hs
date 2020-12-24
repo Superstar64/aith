@@ -18,6 +18,9 @@ import qualified TypeSystem.MacroAbstraction as TypeSystem
 import qualified TypeSystem.MacroApplication as TypeSystem
 import TypeSystem.Methods
 import qualified TypeSystem.Multiplicity as TypeSystem
+import qualified TypeSystem.OfCourse as TypeSystem
+import qualified TypeSystem.OfCourseElimination as TypeSystem
+import qualified TypeSystem.OfCourseIntroduction as TypeSystem
 import qualified TypeSystem.StageMacro as TypeSystem
 import qualified TypeSystem.Type as TypeSystem
 import qualified TypeSystem.TypeAbstraction as TypeSystem
@@ -76,6 +79,7 @@ data TypeF p
   = TypeVariable Identifier
   | Macro (Type p) (Type p)
   | Forall Identifier (Kind p) (Type p)
+  | OfCourse (Type p)
   deriving (Show, Functor)
 
 data Type p = CoreType p (TypeF p) deriving (Show, Functor)
@@ -88,11 +92,15 @@ projectType ::
     (TypeSystem.Variable (Type p))
     ( Either
         (TypeSystem.Macro Stage (Type p))
-        (TypeSystem.Forall KindSort Stage (Kind p) (Type p))
+        ( Either
+            (TypeSystem.Forall KindSort Stage (Kind p) (Type p))
+            (TypeSystem.OfCourse Stage (Type p))
+        )
     )
 projectType (TypeVariable x) = Left $ TypeSystem.Variable x
 projectType (Macro σ τ) = Right $ Left $ TypeSystem.Macro σ τ
-projectType (Forall x κ σ) = Right $ Right $ TypeSystem.Forall x κ σ
+projectType (Forall x κ σ) = Right $ Right $ Left $ TypeSystem.Forall x κ σ
+projectType (OfCourse σ) = Right $ Right $ Right $ TypeSystem.OfCourse σ
 
 instance i ~ Internal => TypeSystem.EmbedVariable (Type i) where
   variable' (TypeSystem.Variable x) = CoreType Internal $ TypeVariable x
@@ -102,6 +110,9 @@ instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedMacro (Type i) where
 
 instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedForall (Kind i) (Type i') where
   forallx' (TypeSystem.Forall x κ σ) = CoreType Internal $ Forall x κ σ
+
+instance (i ~ Internal) => TypeSystem.EmbedOfCourse (Type i) where
+  ofCourse σ = CoreType Internal $ OfCourse σ
 
 data MultiplicityF = Linear | Unrestricted deriving (Show)
 
@@ -341,6 +352,8 @@ matchType' p (Forall x κ σ) (Forall x' κ' σ') = do
   matchKind p κ κ'
   matchType p σ (substitute (CoreType Internal $ TypeVariable x) x' σ')
   pure ()
+matchType' p (OfCourse σ) (OfCourse σ') = do
+  matchType p σ σ'
 matchType' p σ σ' = quit $ IncompatibleType p (CoreType Internal σ) (CoreType Internal σ')
 
 matchType :: FromError p q => p -> TypeInternal -> TypeInternal -> Core p q ()

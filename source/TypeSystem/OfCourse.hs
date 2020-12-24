@@ -1,0 +1,34 @@
+module TypeSystem.OfCourse where
+
+import TypeSystem.Methods
+import TypeSystem.Type
+
+data OfCourse s σ = OfCourse σ
+
+class EmbedOfCourse σ where
+  ofCourse :: σ -> σ
+
+instance
+  ( Monad m,
+    EmbedType s κ,
+    CheckType m p κ s,
+    Positioned σ p,
+    TypeCheck κ m σ
+  ) =>
+  TypeCheckImpl m p (OfCourse s σ) κ
+  where
+  typeCheckImpl _ (OfCourse σ) = do
+    Type s <- checkType @s @κ (location σ) =<< typeCheck σ
+    pure $ typex s
+
+instance (FreeVariables σ u) => FreeVariables (OfCourse s σ) u where
+  freeVariables' (OfCourse σ) = freeVariables @u σ
+
+instance
+  ( σ ~ σ',
+    EmbedOfCourse σ,
+    Substitute u σ
+  ) =>
+  SubstituteImpl (OfCourse s σ) u σ'
+  where
+  substituteImpl ux x (OfCourse σ) = ofCourse (substitute ux x σ)

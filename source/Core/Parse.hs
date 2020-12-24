@@ -71,10 +71,19 @@ macro σ = do
   τ <- typex
   pure (Macro σ τ)
 
+ofCourse = do
+  token "!"
+  OfCourse <$> typeCore
+
+typeCore :: Parser (Type SourcePos)
+typeCore = do
+  p <- getSourcePos
+  between (token "(") (token ")") typex <|> CoreType p <$> typeVariable <|> CoreType p <$> forallx <|> CoreType p <$> ofCourse
+
 typex :: Parser (Type SourcePos)
 typex = do
   p <- getSourcePos
-  core <- between (token "(") (token ")") typex <|> CoreType p <$> typeVariable <|> CoreType p <$> forallx
+  core <- typeCore
   (CoreType p <$> macro core) <|> pure core
 
 variable = Variable <$> identfier

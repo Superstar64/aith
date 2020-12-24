@@ -55,7 +55,7 @@ prettyTerm' (TypeApplication e σ) = do
 
 prettyTerm (CoreTerm Internal e) = prettyTerm' e
 
-data TypePrecedence = BottomType | ArrowType deriving (Eq, Ord)
+data TypePrecedence = BottomType | ArrowType | OfCourseType deriving (Eq, Ord)
 
 prettyType' _ (TypeVariable (Identifier x)) = tell x
 prettyType' d (Macro σ τ) = parens (d > BottomType) $ do
@@ -70,6 +70,9 @@ prettyType' _ (Forall (Identifier x) κ σ) = do
   prettyKind κ
   tell ">"
   braceMini (prettyType BottomType σ)
+prettyType' d (OfCourse σ) = parens (d > OfCourseType) $ do
+  tell "!"
+  prettyType OfCourseType σ
 
 prettyType d (CoreType Internal σ) = prettyType' d σ
 
