@@ -8,8 +8,6 @@
 e \tag* {[Terms]}\\
 \sigma, \tau \tag* {[Types]} \\
 \alpha \tag* {[Type Variables]} \\
-l \tag* {[Multiplicity]} \\
-l \alpha \tag* {[Multiplicity Variables]} \\
 \rho \tag* {[Representations]} \\
 s \tag* {[Stages]} \\
 s \alpha \tag* {[Stage Variables]} \\
@@ -20,62 +18,67 @@ s \alpha \tag* {[Stage Variables]} \\
 
 \begin{align*}
 e \Coloneqq & x \tag*{[Variable]}\\
-& \lambda^l : \sigma. e \tag*{[Macro Lambda]}\\
+& \lambda : \sigma. e \tag*{[Macro Lambda]}\\
 & e(e') \tag*{[Macro Application]}\\
+& !e \tag*{Bang Introduction} \\
+& \text{let} \, !x = e; e' \tag*{Bang Elimination} \\ 
 & \Lambda \alpha : \kappa. e \tag*{[Type Lambda]} \\
 & e \sigma \tag*{[Type Application]} \\
 & \Lambda s \alpha. e \tag*{[Stage Lambda]} \\
 & e s \tag*{[Stage Application]} \\
-& \Lambda l \alpha. e \tag*{[Multiplicity Lambda]} \\ 
-& e l \tag*{[Multiplicity Application]} \\
-& \text{over} (l \geq l') e \tag*{[Linear Requirement]}\\
-& \text{inst} (e) \tag*{[Linear Evidence]}\\
 \\
 \sigma, \tau \Coloneqq & \alpha \tag* {[Type Variable]}\\
-& \sigma \xrightarrow l \tau \tag*{[Macro]}\\
+& \sigma \to \tau \tag*{[Macro]}\\
+& !\sigma \tag*{Bang} \\
 & \forall \alpha : \kappa. \sigma \tag*{[Type Forall]}\\ 
 & \forall s \alpha. \sigma \tag*{[Stage Forall]}\\
-& \forall l \alpha. \sigma \tag*{[Linear Forall]}\\
-& (l \geq l') \Rightarrow \sigma \tag*{[Linear Predicate]}\\
 \\
-l \Coloneqq & l \alpha \tag*{[Multiplicity Variable]} \\ 
-& 1 \tag*{[Linear]}\\
-& \omega \tag*{[Unrestricted]}\\
+\rho \Coloneqq & \text{void*}\\
 \\
 s \Coloneqq & s \alpha \tag*{[Stage Variable]}\\
 & s \to s' \tag*{[Macro]} \\
 & \forall s \alpha. s \tag*{[Forall]}\\
 & \rho \tag*{[Runtime Kind]}\\
 \\
-\kappa \Coloneqq & \text{Type} (l,s) \tag*{[Type]}\\
+\kappa \Coloneqq & \text{Type} (s) \tag*{[Type]}\\
 \\
-\Gamma \Coloneqq & \Gamma, x : \sigma | \emptyset \\
-\Phi \Coloneqq & \Phi, \alpha : \kappa | \Phi, s \alpha | \Phi, l\alpha | \Phi, l \geq l' | \emptyset \\
+\Gamma \Coloneqq & \Gamma, [x : \sigma] | \Gamma, \langle x : \sigma \rangle | \emptyset \\
+\Phi \Coloneqq & \Phi, \alpha : \kappa | \Phi, s \alpha |  \emptyset \\
 \end{align*}
 \begin{gather*}
 \Phi | \Gamma \vdash e : \sigma \tag* {[\text{Term Validation}]}  \\
 \\
-\Phi | (x : \sigma) \vdash x : \sigma \\
+\Phi | [x : \sigma] \vdash x : \sigma \\
+\\
+\Phi | \langle x : \sigma \rangle \vdash x : \sigma \\
 \\
 \frac
 {\Phi | \Gamma, \Gamma' \vdash e : \sigma}
 {\Phi | \Gamma', \Gamma \vdash e : \sigma} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \sigma \quad \Phi \vdash \tau : \text{Type}(l,s) \quad \Phi \vdash l \geq \omega }
-{\Phi | \Gamma, x : \tau \vdash e : \sigma } \\
+{\Phi | \Gamma \vdash e : \sigma}
+{\Phi | \Gamma, [ x : \tau ] \vdash e : \sigma } \\
 \\
 \frac
-{\Phi | \Gamma, x : \tau, x : \tau \vdash e : \sigma \quad \Phi \vdash \tau : \text{Type}(l,s) \quad \Phi \vdash l \geq \omega }
-{\Phi | \Gamma, x : \tau \vdash e : \sigma } \\
+{\Phi | \Gamma, [x : \tau], [x : \tau] \vdash e : \sigma}
+{\Phi | \Gamma, [x : \tau] \vdash e : \sigma } \\
 \\
 \frac
-{\Phi | \Gamma, x : \sigma \vdash e : \tau \quad \{ (x : \tau) \in \Gamma \quad | \quad \Phi \vdash \tau : \text{Type} (l', s) \quad \Phi \vdash l' \geq l \} }
-{\Phi | \Gamma \vdash \lambda^l x:\sigma. e : \sigma \xrightarrow l \tau } \\
+{\Phi | \Gamma, \langle x : \sigma \rangle \vdash e : \tau }
+{\Phi | \Gamma \vdash \lambda x:\sigma. e : \sigma \to \tau } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e_1 : \sigma \xrightarrow l \tau \quad \Phi | \Gamma' \vdash e_2 : \sigma}
+{\Phi | \Gamma \vdash e_1 : \sigma \to \tau \quad \Phi | \Gamma' \vdash e_2 : \sigma}
 {\Phi | \Gamma, \Gamma' \vdash e_1(e_2) : \tau} \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : \sigma \quad \langle x : \tau \rangle \notin \Gamma }
+{\Phi | \Gamma \vdash !e : !\sigma } \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : !\tau \quad \Phi | \Gamma, [x : \tau] \vdash e' : \sigma }
+{\Phi | \Gamma \vdash (\text{let} \, !x = e; e') : \sigma}  \\
 \\
 \frac
 {\Phi, \alpha : \kappa | \Gamma \vdash e : \sigma}
@@ -93,22 +96,6 @@ s \Coloneqq & s \alpha \tag*{[Stage Variable]}\\
 {\Phi | \Gamma \vdash e : \forall s \alpha. \sigma}
 {\Phi | \Gamma \vdash e s : \sigma [s/s \alpha]} \\
 \\
-\frac
-{\Phi, l \alpha | \Gamma \vdash e : \sigma }
-{\Phi | \Gamma \vdash \Lambda l \alpha. e : \forall l \alpha. \sigma} \\
-\\
-\frac
-{\Phi | \Gamma \vdash e : \forall l \alpha. \sigma }
-{\Phi | \Gamma \vdash e l : \sigma [l/l \alpha]} \\
-\\
-\frac
-{\Phi, (l\alpha \geq l\alpha') | \Gamma \vdash e : \sigma }
-{\Phi | \Gamma \vdash \text{over} (l\alpha \geq l\alpha') e : (l\alpha \geq l\alpha') \Rightarrow \sigma } \\
-\\
-\frac
-{\Phi | \Gamma \vdash e : (l \geq l') \Rightarrow \sigma \quad \Phi \vdash (l \geq l')}
-{\Phi | \Gamma \vdash \text{inst} (e) : \sigma} \\
-\\
 \Phi \vdash \sigma : \kappa \tag* {[\text{Type Validation}]} \\
 \\
 \frac
@@ -116,46 +103,21 @@ s \Coloneqq & s \alpha \tag*{[Stage Variable]}\\
 {\Phi \vdash \alpha : \kappa} \\
 \\
 \frac
-{\Phi \vdash \sigma : \text{Type} (l,s) \quad \Phi \vdash \tau : \text{Type} (l,'s')}
-{\Phi \vdash \sigma \xrightarrow {l''} \tau : \text{Type} (l'',s \to s')} \\
+{\Phi \vdash \sigma : \text{Type} (s) \quad \Phi \vdash \tau : \text{Type} (s')}
+{\Phi \vdash \sigma \to \tau : \text{Type} (s \to s')} \\
+\\
+\frac
+{\Phi \vdash \sigma : \text{Type} (s)}
+{\Phi \vdash !\sigma : \text{Type} (s)} \\
 \\
 \frac
 {\Phi, \alpha : \kappa \vdash \sigma : \text{Type}(l,s) }
 {\Phi \vdash \forall \alpha : \kappa. \sigma : \text{Type} (l,s) } \\
 \\
 \frac
-{\Phi, s \alpha \vdash \sigma : \text{Type} (l,s) }
-{\Phi \vdash \forall s \alpha. \sigma : \text{Type} (l,\forall s \alpha. s) } \\
+{\Phi, s \alpha \vdash \sigma : \text{Type} (s) }
+{\Phi \vdash \forall s \alpha. \sigma : \text{Type} (\forall s \alpha. s) } \\
 \\
-\frac
-{\Phi, l \alpha \vdash \sigma : \text {Type} (l,s) }
-{\Phi \vdash \forall l \alpha. \sigma : \text{Type} (l[1/l\alpha],s) } \\
-\\
-\frac
-{\Phi \vdash \sigma : \text{Type} (l,s) }
-{\Phi \vdash (l \geq l') \Rightarrow \sigma : \text {Type} (l,s) } \\
-\\
-\Phi \vdash (l \geq l') \tag* {[\text{Linear Capture Validation}]} \\
-\\
-\frac
-{(l \geq l') \in \Phi}
-{\Phi \vdash (l \geq l') }\\
-\\
-\Phi \vdash (\omega \geq l) \\
-\\
-\Phi \vdash (l \geq 1) \\
 \end{gather*}
-
-Examples:
-\begin{align*}
-I \Coloneqq & \Lambda l \alpha, l \alpha', s \alpha, \alpha : \text{Type} (l \alpha,s). \lambda^{l \alpha '} x : \alpha. x \tag* {[Fully General Identity Macro]} \\
-\\
-I \Coloneqq & \Lambda l \alpha, l \alpha', \alpha : \text{Type} (l \alpha,\text{void}*). \lambda^{l \alpha '} x : \alpha. x \tag* {[Identity Macro On Types that Type Erasure to Pointer]} \\
-\\
-I \Coloneqq & \Lambda l \alpha, \alpha : \text{Type} (\omega,\text{void}*). \lambda^{l \alpha} x : \alpha. x \tag* {[Identity Macro On Unrestricted Types that Type Erasure to Pointer]} \\
-\\ 
-K \Coloneqq & \Lambda l \alpha, l \alpha', l \alpha'', s \alpha, s \alpha', \alpha : \text{Type} (l \alpha, s), \alpha' : \text{Type} (\omega, s'). \\
-& \text{over} (l \alpha > l \alpha''). \lambda^{l\alpha'} x : \alpha. \lambda^{l \alpha''} x' : \alpha'. x \tag* {[Fully General Const Macro]}
-\end{align*}
 
 \end{document}

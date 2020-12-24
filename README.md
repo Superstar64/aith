@@ -9,7 +9,8 @@ See ``/documentation`` for typing rules.
 * [x] Macro Beta Reduction
 * [x] System-F
 * [ ] System-F ω
-* [x] Multiplicity Polymorphism
+* [ ] Basic Linear Types
+* [ ] Multiplicity Polymorphism
 * [ ] Multiplicity Predicates
 * [ ] Levity Polymorphism
 * [ ] Stage Polymorphism
