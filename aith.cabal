@@ -19,8 +19,7 @@ executable aith
   other-modules: Misc.Identifier, Misc.Util, Environment, Core.Ast, Core.Parse, Core.Pretty,
                  TypeSystem.Methods, TypeSystem.Variable, TypeSystem.MacroAbstraction, TypeSystem.MacroApplication,
                  TypeSystem.TypeAbstraction, TypeSystem.TypeApplication, TypeSystem.Macro,
-                 TypeSystem.Forall, TypeSystem.LinearForall, TypeSystem.Type,
-                 TypeSystem.Linear, TypeSystem.StageMacro, TypeSystem.LinearAbstraction, TypeSystem.LinearApplication
+                 TypeSystem.Forall, TypeSystem.Type, TypeSystem.Linear, TypeSystem.StageMacro,
                  TypeSystem.Unrestricted, TypeSystem.Multiplicity
   -- other-extensions:
   build-depends:       base ^>=4.13.0.0, containers ^>= 0.6.2.1, transformers ^>= 0.5.6.2, megaparsec ^>= 8.0.0

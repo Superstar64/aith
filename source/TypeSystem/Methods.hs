@@ -44,8 +44,8 @@ class Capture m p l lΓ where
 class ReadEnvironmentLinear m p σ lΓ where
   readEnvironmentLinear :: p -> Identifier -> m (σ, lΓ)
 
-class AugmentEnvironmentLinear m p σ lΓ where
-  augmentEnvironmentLinear :: p -> Identifier -> σ -> m (σ, lΓ) -> m (σ, lΓ)
+class AugmentEnvironmentLinear m p l σ lΓ where
+  augmentEnvironmentLinear :: p -> Identifier -> l -> σ -> m (σ, lΓ) -> m (σ, lΓ)
 
 class ReadEnvironment m p κ where
   readEnvironment :: p -> Identifier -> m κ

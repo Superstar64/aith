@@ -1,8 +1,8 @@
 module TypeSystem.Linear where
 
 import qualified Data.Set as Set
-import TypeSystem.Multiplicity
 import TypeSystem.Methods
+import TypeSystem.Multiplicity
 
 data Linear = Linear
 

@@ -1,8 +1,8 @@
 module TypeSystem.Unrestricted where
 
 import qualified Data.Set as Set
-import TypeSystem.Multiplicity
 import TypeSystem.Methods
+import TypeSystem.Multiplicity
 
 data Unrestricted = Unrestricted
 

@@ -16,14 +16,14 @@ instance
   ( Monad m,
     Usage lΓ,
     Positioned e p,
-    CheckMacro' m p σ,
+    CheckMacro m p σ,
     SameType m p σ,
     TypeCheckLinear σ m e lΓ
   ) =>
   TypeCheckLinearImpl m p (MacroApplication e) σ lΓ
   where
   typeCheckLinearImpl _ (MacroApplication e1 e2) = do
-    ((σ, τ), lΓ1) <- firstM (checkMacro' $ location e1) =<< typeCheckLinear e1
+    (Macro σ τ, lΓ1) <- firstM (checkMacro $ location e1) =<< typeCheckLinear e1
     (σ', lΓ2) <- typeCheckLinear e2
     sameType (location e2) σ σ'
     pure (τ, combine lΓ1 lΓ2)

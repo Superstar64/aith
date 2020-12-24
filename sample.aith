@@ -1,10 +1,9 @@
-λ[%unrestricted](x : ∀[lx] {∀<b:lx @ %runtime> {b -[%unrestricted]> b } }) {
-	x[%linear]
+Λ<a : %runtime> =>
+λ(x : a -> a) {
+	x
 }
-(Λ[lx] {
-	Λ<b : lx @ %runtime> {
-		λ[%unrestricted](x : b) {
-			x
-		}
-	}
-})
+(
+λ(x : a) {
+	x
+}
+)

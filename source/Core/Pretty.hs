@@ -28,10 +28,8 @@ braceMini e = do
   tell " }"
 
 prettyTerm' (Variable (Identifier x)) = tell x
-prettyTerm' (MacroAbstraction (Identifier x) l σ e) = do
-  tell "λ["
-  prettyLinear l
-  tell "]("
+prettyTerm' (MacroAbstraction (Identifier x) σ e) = do
+  tell "λ("
   tell x
   tell " : "
   prettyType BottomType σ
@@ -54,27 +52,15 @@ prettyTerm' (TypeApplication e σ) = do
   tell "<"
   prettyType BottomType σ
   tell ">"
-prettyTerm' (LinearAbstraction (Identifier x) e) = do
-  tell "Λ["
-  tell x
-  tell "]"
-  brace (prettyTerm e)
-prettyTerm' (LinearApplication e l) = do
-  prettyTerm e
-  tell "["
-  prettyLinear l
-  tell "]"
 
 prettyTerm (CoreTerm Internal e) = prettyTerm' e
 
 data TypePrecedence = BottomType | ArrowType deriving (Eq, Ord)
 
 prettyType' _ (TypeVariable (Identifier x)) = tell x
-prettyType' d (Macro l σ τ) = parens (d > BottomType) $ do
+prettyType' d (Macro σ τ) = parens (d > BottomType) $ do
   prettyType ArrowType σ
-  tell " -["
-  prettyLinear l
-  tell "]> "
+  tell " -> "
   prettyType BottomType τ
 prettyType' _ (Forall (Identifier x) κ σ) = do
   tell "∀"
@@ -84,18 +70,11 @@ prettyType' _ (Forall (Identifier x) κ σ) = do
   prettyKind κ
   tell ">"
   braceMini (prettyType BottomType σ)
-prettyType' _ (LinearForall (Identifier x) σ) = do
-  tell "∀"
-  tell "["
-  tell x
-  tell "]"
-  braceMini (prettyType BottomType σ)
 
 prettyType d (CoreType Internal σ) = prettyType' d σ
 
 prettyLinear' Linear = tell "%linear"
 prettyLinear' Unrestricted = tell "%unrestricted"
-prettyLinear' (LinearVariable (Identifier x)) = tell x
 
 prettyLinear (CoreMultiplicity Internal l) = prettyLinear' l
 
@@ -107,9 +86,7 @@ prettyStage d (StageMacro s s') = parens (d > BottomStage) $ do
   tell " -> "
   prettyStage BottomStage s'
 
-prettyKind' (Type l s) = do
-  prettyLinear l
-  tell " @ "
+prettyKind' (Type s) = do
   prettyStage BottomStage s
 
 prettyKind (CoreKind Internal κ) = prettyKind' κ

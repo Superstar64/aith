@@ -3,10 +3,9 @@ module Core.Ast where
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (Except, except, runExcept)
 import Control.Monad.Trans.State (StateT, get, put, runStateT)
-import Data.Map (Map, (!), (!?))
+import Data.Map (Map, (!?))
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Data.Traversable (for)
 import Data.Type.Equality ((:~:) (..))
 import Data.Void (Void, absurd)
 import Environment
@@ -14,14 +13,11 @@ import Misc.Identifier
 import Misc.Util (Same, same, zipWithM)
 import qualified TypeSystem.Forall as TypeSystem
 import qualified TypeSystem.Linear as TypeSystem
-import qualified TypeSystem.LinearAbstraction as TypeSystem
-import qualified TypeSystem.LinearApplication as TypeSystem
-import qualified TypeSystem.LinearForall as TypeSystem
-import qualified TypeSystem.Multiplicity as TypeSystem
 import qualified TypeSystem.Macro as TypeSystem
 import qualified TypeSystem.MacroAbstraction as TypeSystem
 import qualified TypeSystem.MacroApplication as TypeSystem
 import TypeSystem.Methods
+import qualified TypeSystem.Multiplicity as TypeSystem
 import qualified TypeSystem.StageMacro as TypeSystem
 import qualified TypeSystem.Type as TypeSystem
 import qualified TypeSystem.TypeAbstraction as TypeSystem
@@ -33,12 +29,10 @@ data Internal = Internal deriving (Show)
 
 data TermF p
   = Variable Identifier
-  | MacroAbstraction Identifier (Multiplicity p) (Type p) (Term p)
+  | MacroAbstraction Identifier (Type p) (Term p)
   | MacroApplication (Term p) (Term p)
   | TypeAbstraction Identifier (Kind p) (Term p)
   | TypeApplication (Term p) (Type p)
-  | LinearAbstraction Identifier (Term p)
-  | LinearApplication (Term p) (Multiplicity p)
   deriving (Show, Functor)
 
 data Term p = CoreTerm p (TermF p) deriving (Show, Functor)
@@ -48,31 +42,26 @@ projectTerm ::
   Either
     (TypeSystem.Variable (Term p))
     ( Either
-        (TypeSystem.MacroAbstraction MultiplicitySort MultiplicityInternal KindInternal (Multiplicity p) (Type p) (Term p))
+        (TypeSystem.MacroAbstraction MultiplicityInternal KindInternal (Type p) (Term p))
         ( Either
             (TypeSystem.MacroApplication (Term p))
             ( Either
                 (TypeSystem.TypeAbstraction KindSort KindInternal TypeInternal (Kind p) (Term p))
-                ( Either
-                    (TypeSystem.TypeApplication KindInternal (Type p) (Term p))
-                    (Either (TypeSystem.LinearAbstraction MultiplicitySort MultiplicityInternal (Term p)) (TypeSystem.LinearApplication MultiplicitySort MultiplicityInternal (Multiplicity p) (Term p)))
-                )
+                (TypeSystem.TypeApplication KindInternal (Type p) (Term p))
             )
         )
     )
 projectTerm (Variable x) = Left $ TypeSystem.Variable x
-projectTerm (MacroAbstraction x l σ e) = Right $ Left $ TypeSystem.MacroAbstraction x l σ e
+projectTerm (MacroAbstraction x σ e) = Right $ Left $ TypeSystem.MacroAbstraction x σ e
 projectTerm (MacroApplication e1 e2) = Right $ Right $ Left $ TypeSystem.MacroApplication e1 e2
 projectTerm (TypeAbstraction x κ e) = Right $ Right $ Right $ Left $ TypeSystem.TypeAbstraction x κ e
-projectTerm (TypeApplication e σ) = Right $ Right $ Right $ Right $ Left $ TypeSystem.TypeApplication e σ
-projectTerm (LinearAbstraction x e) = Right $ Right $ Right $ Right $ Right $ Left $ TypeSystem.LinearAbstraction x e
-projectTerm (LinearApplication e l) = Right $ Right $ Right $ Right $ Right $ Right $ TypeSystem.LinearApplication e l
+projectTerm (TypeApplication e σ) = Right $ Right $ Right $ Right $ TypeSystem.TypeApplication e σ
 
 instance i ~ Internal => TypeSystem.EmbedVariable (Term i) where
   variable' (TypeSystem.Variable x) = CoreTerm Internal $ Variable x
 
-instance (i ~ Internal, i' ~ Internal, i'' ~ Internal) => TypeSystem.EmbedMacroAbstraction (Multiplicity i'') (Type i) (Term i') where
-  macroAbstraction' (TypeSystem.MacroAbstraction x l σ e) = CoreTerm Internal $ MacroAbstraction x l σ e
+instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedMacroAbstraction (Type i) (Term i') where
+  macroAbstraction' (TypeSystem.MacroAbstraction x σ e) = CoreTerm Internal $ MacroAbstraction x σ e
 
 instance (i ~ Internal) => TypeSystem.EmbedMacroApplication (Term i) where
   macroApplication' (TypeSystem.MacroApplication e1 e2) = CoreTerm Internal $ MacroApplication e1 e2
@@ -83,17 +72,10 @@ instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedTypeAbstraction (Kind 
 instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedTypeApplication (Type i) (Term i') where
   typeApplication' (TypeSystem.TypeApplication e σ) = CoreTerm Internal $ TypeApplication e σ
 
-instance (i ~ Internal) => TypeSystem.EmbedLinearAbstraction (Term i) where
-  linearAbstraction' (TypeSystem.LinearAbstraction x e) = CoreTerm Internal $ LinearAbstraction x e
-
-instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedLinearApplication (Multiplicity i) (Term i') where
-  linearApplication' (TypeSystem.LinearApplication e l) = CoreTerm Internal $ LinearApplication e l
-
 data TypeF p
   = TypeVariable Identifier
-  | Macro (Multiplicity p) (Type p) (Type p)
+  | Macro (Type p) (Type p)
   | Forall Identifier (Kind p) (Type p)
-  | LinearForall Identifier (Type p)
   deriving (Show, Functor)
 
 data Type p = CoreType p (TypeF p) deriving (Show, Functor)
@@ -105,46 +87,31 @@ projectType ::
   Either
     (TypeSystem.Variable (Type p))
     ( Either
-        (TypeSystem.Macro MultiplicitySort MultiplicityInternal Stage (Multiplicity p) (Type p))
-        ( Either
-            (TypeSystem.Forall KindSort MultiplicityInternal Stage (Kind p) (Type p))
-            (TypeSystem.LinearForall MultiplicitySort MultiplicityInternal Stage (Type p))
-        )
+        (TypeSystem.Macro Stage (Type p))
+        (TypeSystem.Forall KindSort Stage (Kind p) (Type p))
     )
 projectType (TypeVariable x) = Left $ TypeSystem.Variable x
-projectType (Macro l σ τ) = Right $ Left $ TypeSystem.Macro l σ τ
-projectType (Forall x κ σ) = Right $ Right $ Left $ TypeSystem.Forall x κ σ
-projectType (LinearForall x σ) = Right $ Right $ Right $ TypeSystem.LinearForall x σ
+projectType (Macro σ τ) = Right $ Left $ TypeSystem.Macro σ τ
+projectType (Forall x κ σ) = Right $ Right $ TypeSystem.Forall x κ σ
 
 instance i ~ Internal => TypeSystem.EmbedVariable (Type i) where
   variable' (TypeSystem.Variable x) = CoreType Internal $ TypeVariable x
 
-instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedMacro (Multiplicity i') (Type i) where
-  macro' (TypeSystem.Macro l σ τ) = CoreType Internal $ Macro l σ τ
+instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedMacro (Type i) where
+  macro' (TypeSystem.Macro σ τ) = CoreType Internal $ Macro σ τ
 
 instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedForall (Kind i) (Type i') where
   forallx' (TypeSystem.Forall x κ σ) = CoreType Internal $ Forall x κ σ
 
-instance (i ~ Internal) => TypeSystem.EmbedLinearForall (Type i) where
-  linearForall' (TypeSystem.LinearForall x σ) = CoreType Internal $ LinearForall x σ
-
-data MultiplicityF = Linear | Unrestricted | LinearVariable Identifier deriving (Show)
+data MultiplicityF = Linear | Unrestricted deriving (Show)
 
 data Multiplicity p = CoreMultiplicity p MultiplicityF deriving (Show, Functor, Foldable, Traversable)
 
 type MultiplicityInternal = Multiplicity Internal
 
-projectMultiplicity ::
-  MultiplicityF ->
-  Either
-    (TypeSystem.Variable p)
-    (Either TypeSystem.Linear TypeSystem.Unrestricted)
-projectMultiplicity (LinearVariable x) = Left $ TypeSystem.Variable x
-projectMultiplicity Linear = Right $ Left $ TypeSystem.Linear
-projectMultiplicity Unrestricted = Right $ Right $ TypeSystem.Unrestricted
-
-instance (i ~ Internal) => TypeSystem.EmbedVariable (Multiplicity i) where
-  variable' (TypeSystem.Variable x) = CoreMultiplicity Internal $ LinearVariable x
+projectMultiplicity :: MultiplicityF -> (Either TypeSystem.Linear TypeSystem.Unrestricted)
+projectMultiplicity Linear = Left $ TypeSystem.Linear
+projectMultiplicity Unrestricted = Right $ TypeSystem.Unrestricted
 
 instance (i ~ Internal) => TypeSystem.EmbedLinear (Multiplicity i) where
   linear = CoreMultiplicity Internal Linear
@@ -162,7 +129,7 @@ data Stage = Runtime | StageMacro Stage Stage deriving (Show)
 instance TypeSystem.EmbedStageMacro Stage where
   stageMacro' (TypeSystem.StageMacro s s') = StageMacro s s'
 
-data KindF p = Type (Multiplicity p) Stage deriving (Show, Functor)
+data KindF p = Type Stage deriving (Show, Functor)
 
 data Kind p = CoreKind p (KindF p) deriving (Show, Functor)
 
@@ -170,8 +137,8 @@ type KindInternal = Kind Internal
 
 data KindSort = Kind deriving (Show)
 
-instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedType (Multiplicity i') Stage (Kind i) where
-  typex' (TypeSystem.Type l s) = CoreKind Internal $ Type l s
+instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedType Stage (Kind i) where
+  typex' (TypeSystem.Type s) = CoreKind Internal $ Type s
 
 instance (i ~ Internal, i' ~ Internal) => Same (Type i) (Term i) where
   same = Nothing
@@ -230,12 +197,12 @@ instance (i ~ Internal, i' ~ Internal) => FreeVariables (Multiplicity i) (Term i
   freeVariables' _ = Set.empty
 
 instance (i ~ Internal, i' ~ Internal) => FreeVariables (Multiplicity i) (Multiplicity i') where
-  freeVariables' (CoreMultiplicity Internal l) = freeVariables @MultiplicityInternal $ projectMultiplicity @MultiplicityInternal l
+  freeVariables' (CoreMultiplicity Internal l) = freeVariables @MultiplicityInternal $ projectMultiplicity l
 
 -- free variables of kinds
 
 instance (i ~ Internal, i' ~ Internal) => FreeVariables (Kind i) (Multiplicity i') where
-  freeVariables' (CoreKind Internal (Type l _)) = freeVariables @MultiplicityInternal l
+  freeVariables' _ = Set.empty
 
 instance (i ~ Internal, i' ~ Internal) => FreeVariables (Kind i) (Term i') where
   freeVariables' _ = Set.empty
@@ -274,7 +241,7 @@ instance Substitute (Type i) (Kind i) where
   substitute _ _ κ = κ
 
 instance (i ~ Internal, i' ~ Internal) => Substitute (Multiplicity i) (Kind i) where
-  substitute lx x (CoreKind Internal (Type l s)) = CoreKind Internal $ Type (substitute lx x l) s
+  substitute _ _ κ = κ
 
 instance Substitute (Term i) (Kind i) where
   substitute _ _ κ = κ
@@ -297,8 +264,7 @@ instance (i ~ Internal) => Reduce (Term i) where
   reduce (CoreTerm Internal e) = reduceImpl $ projectTerm e
 
 instance MatchAbstraction (Term i) where
-  matchAbstraction (CoreTerm _ (MacroAbstraction x _ _ e)) = Just (x, e)
-  matchAbstraction (CoreTerm _ (LinearAbstraction x e)) = Just (x, e)
+  matchAbstraction (CoreTerm _ (MacroAbstraction x _ e)) = Just (x, e)
   matchAbstraction (CoreTerm _ (TypeAbstraction x _ e)) = Just (x, e)
   matchAbstraction _ = Nothing
 
@@ -326,7 +292,7 @@ instance (i ~ Internal) => FromError i Void where
   fromError q = error (show q)
 
 data CoreState p = CoreState
-  { typeEnvironment :: Map Identifier (p, TypeInternal),
+  { typeEnvironment :: Map Identifier (p, MultiplicityInternal, TypeInternal),
     kindEnvironment :: Map Identifier (p, KindInternal),
     linearEnvironment :: Map Identifier (p, MultiplicitySort)
   }
@@ -353,7 +319,6 @@ quit e = Core (lift $ except (Left (fromError e)))
 
 matchLinear' _ Linear Linear = pure ()
 matchLinear' _ Unrestricted Unrestricted = pure ()
-matchLinear' _ (LinearVariable x) (LinearVariable x') | x == x' = pure ()
 matchLinear' p l l' = quit $ IncompatibleLinear p (CoreMultiplicity Internal l) (CoreMultiplicity Internal l')
 
 matchLinear p (CoreMultiplicity Internal l) (CoreMultiplicity Internal l') = matchLinear' p l l'
@@ -362,8 +327,7 @@ matchStage _ Runtime Runtime = pure ()
 matchStage p (StageMacro s1 s1') (StageMacro s2 s2') = zipWithM (matchStage p) [s1, s1'] [s2, s2'] >> pure ()
 matchStage p s s' = quit $ IncompatibleStage p s s'
 
-matchKind' p (Type l s) (Type l' s') = do
-  matchLinear p l l'
+matchKind' p (Type s) (Type s') = do
   matchStage p s s'
 
 --matchKind' p κ κ' = quit $ IncompatibleKind p (CoreKind Internal κ) (CoreKind Internal κ')
@@ -372,13 +336,11 @@ matchKind p (CoreKind Internal κ) (CoreKind Internal κ') = matchKind' p κ κ'
 
 matchType' :: FromError p q => p -> TypeF Internal -> TypeF Internal -> Core p q ()
 matchType' _ (TypeVariable x) (TypeVariable x') | x == x' = pure ()
-matchType' p (Macro _ σ τ) (Macro _ σ' τ') = zipWithM (matchType p) [σ, τ] [σ', τ'] >> pure ()
+matchType' p (Macro σ τ) (Macro σ' τ') = zipWithM (matchType p) [σ, τ] [σ', τ'] >> pure ()
 matchType' p (Forall x κ σ) (Forall x' κ' σ') = do
   matchKind p κ κ'
   matchType p σ (substitute (CoreType Internal $ TypeVariable x) x' σ')
   pure ()
-matchType' p (LinearForall x σ) (LinearForall x' σ') = do
-  matchType p σ (substitute (CoreType Internal $ TypeVariable x) x' σ')
 matchType' p σ σ' = quit $ IncompatibleType p (CoreType Internal σ) (CoreType Internal σ')
 
 matchType :: FromError p q => p -> TypeInternal -> TypeInternal -> Core p q ()
@@ -403,8 +365,7 @@ instance (p ~ p', FromError p q) => TypeCheck MultiplicitySort (Core p q) (Multi
   typeCheck (CoreMultiplicity p l) = typeCheckImpl p $ projectMultiplicity l
 
 instance (p ~ p', FromError p q) => TypeCheck KindSort (Core p q) (Kind p') where
-  typeCheck (CoreKind _ (Type l _)) = do
-    Multiplicity <- typeCheck l
+  typeCheck (CoreKind _ (Type _)) = do
     pure $ Kind
 
 instance (p ~ p', FromError p q, i ~ Internal, i' ~ Internal) => TypeCheckInstantiate (Kind i) (Type i') (Core p q) (Type p') where
@@ -419,7 +380,6 @@ instance (p ~ p', i ~ Internal, FromError p q) => TypeCheckInstantiate Multiplic
 
 instance (p ~ p', i ~ Internal, FromError p q) => TypeCheckInstantiate KindSort (Kind i) (Core p q) (Kind p') where
   typeCheckInstantiate κ = do
-    Kind <- typeCheck κ
     pure (Kind, Internal <$ κ)
 
 instance (FromError p q, p ~ p', i ~ Internal) => SameType (Core p q) p' (Type i) where
@@ -428,42 +388,35 @@ instance (FromError p q, p ~ p', i ~ Internal) => SameType (Core p q) p' (Type i
 instance (FromError p' q, i ~ Internal) => SameType (Core p q) p' (Kind i) where
   sameType p κ κ' = matchKind p κ κ'
 
-instance (FromError p' q, i ~ Internal) => TypeSystem.CheckMacro' (Core p q) p' (Type i) where
-  checkMacro' _ (CoreType Internal (Macro _ σ τ)) = pure (σ, τ)
-  checkMacro' p σ = quit $ ExpectedMacro p σ
+instance (FromError p' q, i ~ Internal) => TypeSystem.CheckMacro (Core p q) p' (Type i) where
+  checkMacro _ (CoreType Internal (Macro σ τ)) = pure (TypeSystem.Macro σ τ)
+  checkMacro p σ = quit $ ExpectedMacro p σ
 
 instance (FromError p' q, i ~ Internal, i' ~ Internal) => TypeSystem.CheckForall (Core p q) p' (Kind i) (Type i') where
   checkForall _ (CoreType Internal (Forall x κ σ)) = pure (TypeSystem.Forall x κ σ)
   checkForall p σ = quit $ ExpectedForall p σ
 
-instance (FromError p' q, i ~ Internal) => TypeSystem.CheckLinearForall (Core p q) p' (Type i) where
-  checkLinearForall _ (CoreType Internal (LinearForall x σ)) = pure (TypeSystem.LinearForall x σ)
-  checkLinearForall p σ = quit $ ExpectedLinearForall p σ
-
-instance (FromError p' q, i ~ Internal, i' ~ Internal) => TypeSystem.CheckType (Core p q) p' (Kind i) (Multiplicity i') Stage where
-  checkType' _ (CoreKind Internal (Type l s)) = pure (TypeSystem.Type l s)
+instance (FromError p' q, i ~ Internal) => TypeSystem.CheckType (Core p q) p' (Kind i) Stage where
+  checkType' _ (CoreKind Internal (Type s)) = pure (TypeSystem.Type s)
 
 instance (FromError p' q, i ~ Internal) => ReadEnvironmentLinear (Core p q) p' (Type i) Use where
   readEnvironmentLinear p x = do
     env <- Core get
     case typeEnvironment env !? x of
       Nothing -> quit $ UnknownIdentfier p x
-      Just (_, σ) -> pure (σ, Use x)
+      Just (_, _, σ) -> pure (σ, Use x)
 
-instance (FromError p' q, p ~ p', i ~ Internal) => AugmentEnvironmentLinear (Core p q) p' (Type i) Use where
-  augmentEnvironmentLinear p x σ e = do
+instance (FromError p' q, p ~ p', i ~ Internal, i' ~ Internal) => AugmentEnvironmentLinear (Core p q) p' (Multiplicity i') (Type i) Use where
+  augmentEnvironmentLinear p x l σ e = do
     env <- Core get
     let σΓ = typeEnvironment env
-    Core $ put env {typeEnvironment = Map.insert x (p, σ) σΓ}
+    Core $ put env {typeEnvironment = Map.insert x (p, l, σ) σΓ}
     (σ', lΓ) <- e
     Core $ put env
-    case count x lΓ of
-      Single -> pure ()
-      _ -> do
-        let (CoreKind Internal (Type l _)) = typeCheckInternal (Internal <$ env) σ
-        case l of
-          CoreMultiplicity Internal Unrestricted -> pure ()
-          _ -> quit $ InvalidUsage p x
+    case (count x lΓ, l) of
+      (Single, _) -> pure ()
+      (_, CoreMultiplicity Internal Unrestricted) -> pure ()
+      (_, _) -> quit $ InvalidUsage p x
     pure (σ', Remove x lΓ)
 
 instance (FromError p' q, i ~ Internal) => ReadEnvironment (Core p q) p' (Kind i) where
@@ -497,17 +450,3 @@ instance (p ~ p', i ~ Internal) => AugmentEnvironment (Core p q) p' Multiplicity
     c <- e
     Core $ put env
     pure c
-
-instance (FromError p' q, i ~ Internal) => Capture (Core p q) p' (Multiplicity i) Use where
-  capture _ (CoreMultiplicity Internal Linear) _ = pure ()
-  capture p _ lΓ = do
-    let captures = variables lΓ
-    env <- Core get
-    let lΓ = typeEnvironment env
-    for (Set.toList captures) $ \x' -> do
-      let (_, σ) = lΓ ! x'
-      let (CoreKind Internal (Type l _)) = typeCheckInternal (Internal <$ env) σ
-      case l of
-        CoreMultiplicity Internal Unrestricted -> pure ()
-        _ -> quit $ CaptureLinear p x'
-    pure ()

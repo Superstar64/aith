@@ -36,7 +36,7 @@ lambda inner = do
 linear :: Parser (Multiplicity SourcePos)
 linear = do
   p <- getSourcePos
-  core <- Linear <$ builtin "linear" <|> Unrestricted <$ builtin "unrestricted" <|> LinearVariable <$> identfier
+  core <- Linear <$ builtin "linear" <|> Unrestricted <$ builtin "unrestricted"
   pure (CoreMultiplicity p core)
 
 stageMacro s = do
@@ -52,10 +52,8 @@ stage = do
 kind :: Parser (Kind SourcePos)
 kind = do
   p <- getSourcePos
-  l <- linear
-  token "@"
   s <- stage
-  pure (CoreKind p $ Type l s)
+  pure (CoreKind p $ Type s)
 
 typeVariable = TypeVariable <$> identfier
 
@@ -68,45 +66,32 @@ forallx = do
   σ <- lambda typex
   pure (Forall x κ σ)
 
-forallLinear = do
-  token "∀["
-  x <- identfier
-  token "]"
-  σ <- lambda typex
-  pure (LinearForall x σ)
-
 macro σ = do
-  token "-"
-  token "["
-  l <- linear
-  token "]"
-  token ">"
+  token "->"
   τ <- typex
-  pure (Macro l σ τ)
+  pure (Macro σ τ)
 
 typex :: Parser (Type SourcePos)
 typex = do
   p <- getSourcePos
-  core <- between (token "(") (token ")") typex <|> CoreType p <$> typeVariable <|> CoreType p <$> forallx <|> CoreType p <$> forallLinear
+  core <- between (token "(") (token ")") typex <|> CoreType p <$> typeVariable <|> CoreType p <$> forallx
   (CoreType p <$> macro core) <|> pure core
 
 variable = Variable <$> identfier
 
 macroAbstraction = do
   token "λ"
-  token "["
-  l <- linear
-  token "]"
   token "("
   x <- identfier
   token ":"
   σ <- typex
   token ")"
   e <- lambda term
-  pure (MacroAbstraction x l σ e)
+  pure (MacroAbstraction x σ e)
 
 typeAbstraction = do
-  token "Λ<"
+  token "Λ"
+  token "<"
   x <- identfier
   token ":"
   κ <- kind
@@ -114,26 +99,17 @@ typeAbstraction = do
   e <- lambda term
   pure (TypeAbstraction x κ e)
 
-linearAbstraction = do
-  token "Λ["
-  x <- identfier
-  token "]"
-  e <- lambda term
-  pure (LinearAbstraction x e)
-
-data Post = MacroApp (Term SourcePos) | TypeApp (Type SourcePos) | LinearApp (Multiplicity SourcePos)
+data Post = MacroApp (Term SourcePos) | TypeApp (Type SourcePos)
 
 term :: Parser (Term SourcePos)
 term = do
   p <- getSourcePos
-  core <- between (token "(") (token ")") term <|> x p <|> λ p <|> λσ p <|> λl p
-  postfix <- many $ choice [MacroApp <$> between (token "(") (token ")") term, TypeApp <$> between (token "<") (token ">") typex, LinearApp <$> between (token "[") (token "]") linear]
+  core <- between (token "(") (token ")") term <|> x p <|> λ p <|> λσ p
+  postfix <- many $ choice [MacroApp <$> between (token "(") (token ")") term, TypeApp <$> between (token "<") (token ">") typex]
   pure $ foldl (fix p) core postfix
   where
     fix p e1 (MacroApp e2) = CoreTerm p $ MacroApplication e1 e2
     fix p e (TypeApp σ) = CoreTerm p $ TypeApplication e σ
-    fix p e (LinearApp l) = CoreTerm p $ LinearApplication e l
     x p = CoreTerm p <$> variable
     λ p = CoreTerm p <$> macroAbstraction
     λσ p = CoreTerm p <$> typeAbstraction
-    λl p = CoreTerm p <$> linearAbstraction
