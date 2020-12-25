@@ -26,32 +26,23 @@ See ``/documentation`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Multiplicity Abstraction | ``Λ[x] { e } `` |
-| Multiplicity Abstraction | ``Λ[x] => e `` |
-| Multiplicity Application | ``e[l]``
 | Type Abstraction | ``Λ<x : κ> { e }`` |
 | Type Abstraction | ``Λ<x : κ> => e`` |
 | Type Application | ``e<σ>`` |
 | Term Abstraction | ``λ[l](x : σ) { e }``|
 | Term Abstraction | ``λ[l](x : σ) => e ``|
 | Term Application | ``e(e')``|
+| Of Course Introduction | ``!e`` |
+| Of Course Elimination | ``%let !x = e1 ; e2 ``|
 
 ## Types (σ)
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Linear Forall | ``∀[x] { σ }`` |
-| Linear Forall | ``∀[x] => σ`` |
 | Forall | ``∀<x : κ> { σ }`` |
 | Forall | ``∀<x : κ> => σ`` |
-| Macro | ``σ -[l]> σ'``|
-
-## Multiplicity (l) 
-| Description | Syntax |
-|-|-|
-| Variable | ``x`` |
-| Linear | ``%linear`` |
-| Unrestricted | ``%unrestricted`` |
+| Macro | ``σ -> σ'``|
+| Of Course | ``!σ``|
 
 ## Stages (s)
 | Description | Syntax |
@@ -62,7 +53,7 @@ See ``/documentation`` for typing rules.
 ## Kinds(κ)
 | Description | Syntax |
 |-|-|
-| Type | `` l @ s`` |
+| Type | `` s `` |
 
 # Papers
 Useful / Inspirational papers:
