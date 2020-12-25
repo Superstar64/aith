@@ -3,10 +3,13 @@ module TypeSystem.OfCourse where
 import TypeSystem.Methods
 import TypeSystem.Type
 
-data OfCourse s σ = OfCourse σ
+data OfCourse s σ = OfCourse σ deriving (Show, Functor, Foldable, Traversable)
 
 class EmbedOfCourse σ where
   ofCourse :: σ -> σ
+
+class CheckOfCourse m p σ where
+  checkOfCourse :: p -> σ -> m (OfCourse s σ)
 
 instance
   ( Monad m,

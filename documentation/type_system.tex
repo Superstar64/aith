@@ -20,8 +20,8 @@ s \alpha \tag* {[Stage Variables]} \\
 e \Coloneqq & x \tag*{[Variable]}\\
 & \lambda : \sigma. e \tag*{[Macro Lambda]}\\
 & e(e') \tag*{[Macro Application]}\\
-& !e \tag*{Bang Introduction} \\
-& \text{let} \, !x = e; e' \tag*{Bang Elimination} \\ 
+& !e \tag*{[Bang Introduction]} \\
+& \text{let} \, !x = e; e' \tag*{[Bang Elimination]} \\ 
 & \Lambda \alpha : \kappa. e \tag*{[Type Lambda]} \\
 & e \sigma \tag*{[Type Application]} \\
 & \Lambda s \alpha. e \tag*{[Stage Lambda]} \\
@@ -29,7 +29,7 @@ e \Coloneqq & x \tag*{[Variable]}\\
 \\
 \sigma, \tau \Coloneqq & \alpha \tag* {[Type Variable]}\\
 & \sigma \to \tau \tag*{[Macro]}\\
-& !\sigma \tag*{Bang} \\
+& !\sigma \tag*{[Bang]} \\
 & \forall \alpha : \kappa. \sigma \tag*{[Type Forall]}\\ 
 & \forall s \alpha. \sigma \tag*{[Stage Forall]}\\
 \\

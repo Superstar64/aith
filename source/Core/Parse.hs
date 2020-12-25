@@ -108,12 +108,27 @@ typeAbstraction = do
   e <- lambda term
   pure (TypeAbstraction x κ e)
 
+ofCourseIntroduction = do
+  token "!"
+  e <- term
+  pure (OfCourseIntroduction e)
+
+ofCourseElimination = do
+  builtin "let"
+  token "!"
+  x <- identfier
+  token "="
+  e1 <- term
+  token ";"
+  e2 <- term
+  pure (OfCourseElimination x e1 e2)
+
 data Post = MacroApp (Term SourcePos) | TypeApp (Type SourcePos)
 
 term :: Parser (Term SourcePos)
 term = do
   p <- getSourcePos
-  core <- between (token "(") (token ")") term <|> x p <|> λ p <|> λσ p
+  core <- between (token "(") (token ")") term <|> x p <|> λ p <|> λσ p <|> bangIntro p <|> bangElim p
   postfix <- many $ choice [MacroApp <$> between (token "(") (token ")") term, TypeApp <$> between (token "<") (token ">") typex]
   pure $ foldl (fix p) core postfix
   where
@@ -122,3 +137,5 @@ term = do
     x p = CoreTerm p <$> variable
     λ p = CoreTerm p <$> macroAbstraction
     λσ p = CoreTerm p <$> typeAbstraction
+    bangIntro p = CoreTerm p <$> ofCourseIntroduction
+    bangElim p = CoreTerm p <$> ofCourseElimination

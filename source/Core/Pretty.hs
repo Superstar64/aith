@@ -9,17 +9,20 @@ import Misc.Identifier
 parens True e = tell "(" >> e >> tell ")"
 parens False e = e
 
+line = do
+  indention <- lift get
+  tell "\n"
+  sequence $ replicate indention (tell "\t")
+
 brace :: WriterT String (State Int) () -> WriterT String (State Int) ()
 brace e = do
   indention <- lift get
   tell " {"
-  tell "\n"
-  sequence $ replicate (indention + 1) (tell "\t")
   lift (put $ indention + 1)
+  line
   e
   lift (put indention)
-  tell "\n"
-  sequence $ replicate indention (tell "\t")
+  line
   tell "}"
 
 braceMini e = do
@@ -52,6 +55,18 @@ prettyTerm' (TypeApplication e σ) = do
   tell "<"
   prettyType BottomType σ
   tell ">"
+prettyTerm' (OfCourseIntroduction e) = do
+  tell "!"
+  prettyTerm e
+prettyTerm' (OfCourseElimination (Identifier x) e1 e2) = do
+  tell "%let"
+  tell "!"
+  tell x
+  tell " = "
+  prettyTerm e1
+  tell ";"
+  line
+  prettyTerm e2
 
 prettyTerm (CoreTerm Internal e) = prettyTerm' e
 

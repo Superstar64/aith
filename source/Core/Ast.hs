@@ -3,9 +3,10 @@ module Core.Ast where
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (Except, except, runExcept)
 import Control.Monad.Trans.State (StateT, get, put, runStateT)
-import Data.Map (Map, (!?))
+import Data.Map (Map, (!), (!?))
 import qualified Data.Map as Map
 import qualified Data.Set as Set
+import Data.Traversable (for)
 import Data.Type.Equality ((:~:) (..))
 import Data.Void (Void, absurd)
 import Environment
@@ -36,6 +37,8 @@ data TermF p
   | MacroApplication (Term p) (Term p)
   | TypeAbstraction Identifier (Kind p) (Term p)
   | TypeApplication (Term p) (Type p)
+  | OfCourseIntroduction (Term p)
+  | OfCourseElimination Identifier (Term p) (Term p)
   deriving (Show, Functor)
 
 data Term p = CoreTerm p (TermF p) deriving (Show, Functor)
@@ -50,7 +53,13 @@ projectTerm ::
             (TypeSystem.MacroApplication (Term p))
             ( Either
                 (TypeSystem.TypeAbstraction KindSort KindInternal TypeInternal (Kind p) (Term p))
-                (TypeSystem.TypeApplication KindInternal (Type p) (Term p))
+                ( Either
+                    (TypeSystem.TypeApplication KindInternal (Type p) (Term p))
+                    ( Either
+                        (TypeSystem.OfCourseIntroduction MultiplicityInternal (Term p))
+                        (TypeSystem.OfCourseElimination MultiplicityInternal (Term p))
+                    )
+                )
             )
         )
     )
@@ -58,7 +67,9 @@ projectTerm (Variable x) = Left $ TypeSystem.Variable x
 projectTerm (MacroAbstraction x σ e) = Right $ Left $ TypeSystem.MacroAbstraction x σ e
 projectTerm (MacroApplication e1 e2) = Right $ Right $ Left $ TypeSystem.MacroApplication e1 e2
 projectTerm (TypeAbstraction x κ e) = Right $ Right $ Right $ Left $ TypeSystem.TypeAbstraction x κ e
-projectTerm (TypeApplication e σ) = Right $ Right $ Right $ Right $ TypeSystem.TypeApplication e σ
+projectTerm (TypeApplication e σ) = Right $ Right $ Right $ Right $ Left $ TypeSystem.TypeApplication e σ
+projectTerm (OfCourseIntroduction e) = Right $ Right $ Right $ Right $ Right $ Left $ TypeSystem.OfCourseIntroduction e
+projectTerm (OfCourseElimination x e1 e2) = Right $ Right $ Right $ Right $ Right $ Right $ TypeSystem.OfCourseElimination x e1 e2
 
 instance i ~ Internal => TypeSystem.EmbedVariable (Term i) where
   variable' (TypeSystem.Variable x) = CoreTerm Internal $ Variable x
@@ -74,6 +85,12 @@ instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedTypeAbstraction (Kind 
 
 instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedTypeApplication (Type i) (Term i') where
   typeApplication' (TypeSystem.TypeApplication e σ) = CoreTerm Internal $ TypeApplication e σ
+
+instance (i ~ Internal) => TypeSystem.EmbedOfCourseIntroduction (Term i) where
+  ofCourseIntroduction e = CoreTerm Internal $ OfCourseIntroduction e
+
+instance (i ~ Internal) => TypeSystem.EmbedOfCourseElimination (Term i) where
+  ofCourseElimination x e1 e2 = CoreTerm Internal $ OfCourseElimination x e1 e2
 
 data TypeF p
   = TypeVariable Identifier
@@ -274,16 +291,21 @@ instance (i ~ Internal, i' ~ Internal) => Substitute (Term i) (Multiplicity i') 
 instance (i ~ Internal) => Reduce (Term i) where
   reduce (CoreTerm Internal e) = reduceImpl $ projectTerm e
 
-instance MatchAbstraction (Term i) where
-  matchAbstraction (CoreTerm _ (MacroAbstraction x _ e)) = Just (x, e)
-  matchAbstraction (CoreTerm _ (TypeAbstraction x _ e)) = Just (x, e)
+instance (i ~ Internal) => MatchAbstraction (Term i) where
+  matchAbstraction (CoreTerm Internal (MacroAbstraction x _ e)) = Just (x, e)
+  matchAbstraction (CoreTerm Internal (TypeAbstraction x _ e)) = Just (x, e)
   matchAbstraction _ = Nothing
+
+instance (i ~ Internal) => TypeSystem.MatchOfCourseIntroduction (Term i) where
+  matchOfCourseIntroduction (CoreTerm Internal (OfCourseIntroduction e)) = Just (TypeSystem.OfCourseIntroduction e)
+  matchOfCourseIntroduction _ = Nothing
 
 data Error p
   = UnknownIdentfier p Identifier
   | ExpectedMacro p TypeInternal
   | ExpectedForall p TypeInternal
   | ExpectedLinearForall p TypeInternal
+  | ExpectedOfCourse p TypeInternal
   | ExpectedType p KindInternal
   | IncompatibleType p TypeInternal TypeInternal
   | IncompatibleKind p KindInternal KindInternal
@@ -409,6 +431,10 @@ instance (FromError p' q, i ~ Internal, i' ~ Internal) => TypeSystem.CheckForall
   checkForall _ (CoreType Internal (Forall x κ σ)) = pure (TypeSystem.Forall x κ σ)
   checkForall p σ = quit $ ExpectedForall p σ
 
+instance (FromError p' q, i ~ Internal) => TypeSystem.CheckOfCourse (Core p q) p' (Type i) where
+  checkOfCourse _ (CoreType Internal (OfCourse σ)) = pure (TypeSystem.OfCourse σ)
+  checkOfCourse p σ = quit $ ExpectedOfCourse p σ
+
 instance (FromError p' q, i ~ Internal) => TypeSystem.CheckType (Core p q) p' (Kind i) Stage where
   checkType' _ (CoreKind Internal (Type s)) = pure (TypeSystem.Type s)
 
@@ -463,3 +489,16 @@ instance (p ~ p', i ~ Internal) => AugmentEnvironment (Core p q) p' Multiplicity
     c <- e
     Core $ put env
     pure c
+
+instance (FromError p' q, i ~ Internal) => Capture (Core p q) p' (Multiplicity i) Use where
+  capture _ (CoreMultiplicity Internal Linear) _ = pure ()
+  capture p (CoreMultiplicity Internal Unrestricted) lΓ = do
+    let captures = variables lΓ
+    env <- Core get
+    let lΓ = typeEnvironment env
+    for (Set.toList captures) $ \x' -> do
+      let (_, l, _) = lΓ ! x'
+      case l of
+        CoreMultiplicity Internal Unrestricted -> pure ()
+        _ -> quit $ CaptureLinear p x'
+    pure ()
