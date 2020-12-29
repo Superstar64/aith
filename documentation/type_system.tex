@@ -37,6 +37,7 @@ e \Coloneqq & x \tag*{[Variable]}\\
 \\
 s \Coloneqq & s \alpha \tag*{[Stage Variable]}\\
 & s \to s' \tag*{[Macro]} \\
+& !s \tag*{[Bang]} \\
 & \forall s \alpha. s \tag*{[Forall]}\\
 & \rho \tag*{[Runtime Kind]}\\
 \\
@@ -108,11 +109,11 @@ s \Coloneqq & s \alpha \tag*{[Stage Variable]}\\
 \\
 \frac
 {\Phi \vdash \sigma : \text{Type} (s)}
-{\Phi \vdash !\sigma : \text{Type} (s)} \\
+{\Phi \vdash !\sigma : \text{Type} (!s)} \\
 \\
 \frac
-{\Phi, \alpha : \kappa \vdash \sigma : \text{Type}(l,s) }
-{\Phi \vdash \forall \alpha : \kappa. \sigma : \text{Type} (l,s) } \\
+{\Phi, \alpha : \kappa \vdash \sigma : \text{Type}(s) }
+{\Phi \vdash \forall \alpha : \kappa. \sigma : \text{Type} (s) } \\
 \\
 \frac
 {\Phi, s \alpha \vdash \sigma : \text{Type} (s) }
