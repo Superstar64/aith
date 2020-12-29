@@ -12,9 +12,7 @@ import TypeSystem.Variable
 data MacroAbstraction l κ σ e = MacroAbstraction Identifier σ e deriving (Show, Functor, Foldable, Traversable)
 
 class EmbedMacroAbstraction σ e where
-  macroAbstraction' :: MacroAbstraction l κ σ e -> e
-
-macroAbstraction x σ e = macroAbstraction' (MacroAbstraction x σ e)
+  macroAbstraction :: Identifier -> σ -> e -> e
 
 instance
   ( Monad m,

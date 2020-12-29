@@ -8,9 +8,7 @@ import TypeSystem.Methods
 data MacroApplication e = MacroApplication e e deriving (Show, Functor, Foldable, Traversable)
 
 class EmbedMacroApplication e where
-  macroApplication' :: MacroApplication e -> e
-
-macroApplication e1 e2 = macroApplication' $ MacroApplication e1 e2
+  macroApplication :: e -> e -> e
 
 instance
   ( Monad m,

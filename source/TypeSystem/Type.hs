@@ -9,7 +9,7 @@ checkType :: forall s κ m p. (CheckType m p κ s) => p -> κ -> m (Type s κ)
 checkType = checkType'
 
 class EmbedType s κ where
-  typex' :: Type s κ -> κ
+  typex' :: s -> κ
 
 typex :: forall κ s. (EmbedType s κ) => s -> κ
-typex s = typex' (Type s)
+typex s = typex' s

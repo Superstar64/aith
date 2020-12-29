@@ -7,9 +7,7 @@ import TypeSystem.Type
 data Macro s σ = Macro σ σ deriving (Show, Functor, Foldable, Traversable)
 
 class EmbedMacro σ where
-  macro' :: Macro s σ -> σ
-
-macro σ τ = macro' (Macro σ τ)
+  macro :: σ -> σ -> σ
 
 class CheckMacro m p σ where
   checkMacro :: p -> σ -> m (Macro s σ)

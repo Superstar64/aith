@@ -73,19 +73,19 @@ projectTerm (OfCourseIntroduction e) = Right $ Right $ Right $ Right $ Right $ L
 projectTerm (OfCourseElimination x e1 e2) = Right $ Right $ Right $ Right $ Right $ Right $ TypeSystem.OfCourseElimination x e1 e2
 
 instance i ~ Internal => TypeSystem.EmbedVariable (Term i) where
-  variable' (TypeSystem.Variable x) = CoreTerm Internal $ Variable x
+  variable x = CoreTerm Internal $ Variable x
 
 instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedMacroAbstraction (Type i) (Term i') where
-  macroAbstraction' (TypeSystem.MacroAbstraction x σ e) = CoreTerm Internal $ MacroAbstraction x σ e
+  macroAbstraction x σ e = CoreTerm Internal $ MacroAbstraction x σ e
 
 instance (i ~ Internal) => TypeSystem.EmbedMacroApplication (Term i) where
-  macroApplication' (TypeSystem.MacroApplication e1 e2) = CoreTerm Internal $ MacroApplication e1 e2
+  macroApplication e1 e2 = CoreTerm Internal $ MacroApplication e1 e2
 
 instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedTypeAbstraction (Kind i) (Term i') where
-  typeAbstraction' (TypeSystem.TypeAbstraction x κ e) = CoreTerm Internal $ TypeAbstraction x κ e
+  typeAbstraction x κ e = CoreTerm Internal $ TypeAbstraction x κ e
 
 instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedTypeApplication (Type i) (Term i') where
-  typeApplication' (TypeSystem.TypeApplication e σ) = CoreTerm Internal $ TypeApplication e σ
+  typeApplication e σ = CoreTerm Internal $ TypeApplication e σ
 
 instance (i ~ Internal) => TypeSystem.EmbedOfCourseIntroduction (Term i) where
   ofCourseIntroduction e = CoreTerm Internal $ OfCourseIntroduction e
@@ -121,13 +121,13 @@ projectType (Forall x κ σ) = Right $ Right $ Left $ TypeSystem.Forall x κ σ
 projectType (OfCourse σ) = Right $ Right $ Right $ TypeSystem.OfCourse σ
 
 instance i ~ Internal => TypeSystem.EmbedVariable (Type i) where
-  variable' (TypeSystem.Variable x) = CoreType Internal $ TypeVariable x
+  variable x = CoreType Internal $ TypeVariable x
 
 instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedMacro (Type i) where
-  macro' (TypeSystem.Macro σ τ) = CoreType Internal $ Macro σ τ
+  macro σ τ = CoreType Internal $ Macro σ τ
 
 instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedForall (Kind i) (Type i') where
-  forallx' (TypeSystem.Forall x κ σ) = CoreType Internal $ Forall x κ σ
+  forallx x κ σ = CoreType Internal $ Forall x κ σ
 
 instance (i ~ Internal) => TypeSystem.EmbedOfCourse (Type i) where
   ofCourse σ = CoreType Internal $ OfCourse σ
@@ -156,7 +156,7 @@ instance TypeSystem.EmbedMultiplicity MultiplicitySort where
 data Stage = Runtime | StageMacro Stage Stage | StageOfCourse Stage deriving (Show)
 
 instance TypeSystem.EmbedStageMacro Stage where
-  stageMacro' (TypeSystem.StageMacro s s') = StageMacro s s'
+  stageMacro s s' = StageMacro s s'
 
 instance TypeSystem.EmbedStageOfCourse Stage where
   stageOfCourse s = StageOfCourse s
@@ -170,7 +170,7 @@ type KindInternal = Kind Internal
 data KindSort = Kind deriving (Show)
 
 instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedType Stage (Kind i) where
-  typex' (TypeSystem.Type s) = CoreKind Internal $ Type s
+  typex' s = CoreKind Internal $ Type s
 
 instance (i ~ Internal, i' ~ Internal) => Same (Type i) (Term i) where
   same = Nothing

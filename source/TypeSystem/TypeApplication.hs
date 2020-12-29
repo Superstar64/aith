@@ -8,9 +8,7 @@ import TypeSystem.Methods
 data TypeApplication κ σ e = TypeApplication e σ deriving (Show, Functor, Foldable, Traversable)
 
 class EmbedTypeApplication σ e where
-  typeApplication' :: TypeApplication κ σ e -> e
-
-typeApplication e σ = typeApplication' (TypeApplication e σ)
+  typeApplication :: e -> σ -> e
 
 instance
   ( Monad m,

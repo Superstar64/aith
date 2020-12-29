@@ -11,9 +11,7 @@ import TypeSystem.Variable
 data TypeAbstraction κs κ' σ κ e = TypeAbstraction Identifier κ e deriving (Show, Functor, Foldable, Traversable)
 
 class EmbedTypeAbstraction κ e where
-  typeAbstraction' :: TypeAbstraction κs κ' σ κ e -> e
-
-typeAbstraction x κ e = typeAbstraction' (TypeAbstraction x κ e)
+  typeAbstraction :: Identifier -> κ -> e -> e
 
 instance
   ( Monad m,

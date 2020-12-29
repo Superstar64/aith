@@ -18,10 +18,7 @@ avoidCapture disallow (x, σ) = (x', σ')
 data Variable e = Variable Identifier deriving (Show)
 
 class EmbedVariable e where
-  variable' :: Variable e -> e
-
-variable :: forall e. EmbedVariable e => Identifier -> e
-variable x = variable' (Variable x)
+  variable :: Identifier -> e
 
 instance ReadEnvironmentLinear m p σ lΓ => TypeCheckLinearImpl m p (Variable e) σ lΓ where
   typeCheckLinearImpl p (Variable x) = readEnvironmentLinear p x

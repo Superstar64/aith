@@ -11,9 +11,7 @@ import TypeSystem.Variable
 data Forall κs s κ σ = Forall Identifier κ σ deriving (Show, Functor, Foldable, Traversable)
 
 class EmbedForall κ σ where
-  forallx' :: Forall κs s κ σ -> σ
-
-forallx x κ σ = forallx' (Forall x κ σ)
+  forallx :: Identifier -> κ -> σ -> σ
 
 class CheckForall m p κ σ where
   checkForall :: p -> σ -> m (Forall κs s κ σ)
