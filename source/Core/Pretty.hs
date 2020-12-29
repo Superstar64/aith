@@ -96,13 +96,16 @@ prettyLinear' Unrestricted = tell "%unrestricted"
 
 prettyLinear (CoreMultiplicity Internal l) = prettyLinear' l
 
-data StagePrecedence = BottomStage | ArrowStage deriving (Eq, Ord)
+data StagePrecedence = BottomStage | ArrowStage | OfCourseStage deriving (Eq, Ord)
 
 prettyStage _ Runtime = tell "%runtime"
 prettyStage d (StageMacro s s') = parens (d > BottomStage) $ do
   prettyStage ArrowStage s
   tell " -> "
   prettyStage BottomStage s'
+prettyStage d (StageOfCourse s) = parens (d > OfCourseStage) $ do
+  tell "!"
+  prettyStage OfCourseStage s
 
 prettyKind' (Type s) = do
   prettyStage BottomStage s

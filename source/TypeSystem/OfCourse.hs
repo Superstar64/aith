@@ -1,6 +1,7 @@
 module TypeSystem.OfCourse where
 
 import TypeSystem.Methods
+import TypeSystem.StageOfCourse
 import TypeSystem.Type
 
 data OfCourse s σ = OfCourse σ deriving (Show, Functor, Foldable, Traversable)
@@ -15,6 +16,7 @@ instance
   ( Monad m,
     EmbedType s κ,
     CheckType m p κ s,
+    EmbedStageOfCourse s,
     Positioned σ p,
     TypeCheck κ m σ
   ) =>
@@ -22,7 +24,7 @@ instance
   where
   typeCheckImpl _ (OfCourse σ) = do
     Type s <- checkType @s @κ (location σ) =<< typeCheck σ
-    pure $ typex s
+    pure $ typex (stageOfCourse s)
 
 instance (FreeVariables σ u) => FreeVariables (OfCourse s σ) u where
   freeVariables' (OfCourse σ) = freeVariables @u σ

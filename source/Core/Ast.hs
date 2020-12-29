@@ -23,6 +23,7 @@ import qualified TypeSystem.OfCourse as TypeSystem
 import qualified TypeSystem.OfCourseElimination as TypeSystem
 import qualified TypeSystem.OfCourseIntroduction as TypeSystem
 import qualified TypeSystem.StageMacro as TypeSystem
+import qualified TypeSystem.StageOfCourse as TypeSystem
 import qualified TypeSystem.Type as TypeSystem
 import qualified TypeSystem.TypeAbstraction as TypeSystem
 import qualified TypeSystem.TypeApplication as TypeSystem
@@ -152,10 +153,13 @@ data MultiplicitySort = Multiplicity deriving (Show)
 instance TypeSystem.EmbedMultiplicity MultiplicitySort where
   multiplicity = Multiplicity
 
-data Stage = Runtime | StageMacro Stage Stage deriving (Show)
+data Stage = Runtime | StageMacro Stage Stage | StageOfCourse Stage deriving (Show)
 
 instance TypeSystem.EmbedStageMacro Stage where
   stageMacro' (TypeSystem.StageMacro s s') = StageMacro s s'
+
+instance TypeSystem.EmbedStageOfCourse Stage where
+  stageOfCourse s = StageOfCourse s
 
 data KindF p = Type Stage deriving (Show, Functor)
 

@@ -44,9 +44,13 @@ stageMacro s = do
   s' <- stage
   pure (StageMacro s s')
 
+stageCore :: Parser Stage
+stageCore = do
+  Runtime <$ builtin "runtime" <|> StageOfCourse <$> (token "!" >> stageCore)
+
 stage :: Parser Stage
 stage = do
-  core <- Runtime <$ builtin "runtime"
+  core <- stageCore
   stageMacro core <|> pure core
 
 kind :: Parser (Kind SourcePos)
