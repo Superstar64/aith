@@ -362,6 +362,7 @@ matchLinear p (CoreMultiplicity Internal l) (CoreMultiplicity Internal l') = mat
 
 matchStage _ Runtime Runtime = pure ()
 matchStage p (StageMacro s1 s1') (StageMacro s2 s2') = zipWithM (matchStage p) [s1, s1'] [s2, s2'] >> pure ()
+matchStage p (StageOfCourse s) (StageOfCourse s') = matchStage p s s' >> pure ()
 matchStage p s s' = quit $ IncompatibleStage p s s'
 
 matchKind' p (Type s) (Type s') = do
