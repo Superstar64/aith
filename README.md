@@ -8,7 +8,8 @@ See ``/documentation`` for typing rules.
 * [x] Macro Lambda Calculus
 * [x] Macro Beta Reduction
 * [x] System-F
-* [ ] System-F ω
+* [ ] System-F A
+* [x] Pattern Matching
 * [ ] Basic Linear Types
 * [ ] Multiplicity Polymorphism
 * [ ] Multiplicity Predicates
