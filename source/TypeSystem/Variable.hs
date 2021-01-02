@@ -1,19 +1,21 @@
 module TypeSystem.Variable where
 
-import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Type.Equality ((:~:) (..))
 import Misc.Identifier
 import Misc.Util (Same, same)
 import TypeSystem.Methods
 
-avoidCapture :: forall u e. (Substitute u e, EmbedVariable u) => Set Identifier -> (Identifier, e) -> (Identifier, e)
-avoidCapture disallow (x, σ) = (x', σ')
+avoidCapture :: forall σ e u. (EmbedVariable σ, FreeVariables u σ, Substitute σ e) => u -> (Identifier, e) -> (Identifier, e)
+avoidCapture = avoidCaptureImpl @σ substitute
+
+avoidCaptureImpl :: forall σ e u. (EmbedVariable σ, FreeVariables u σ) => (σ -> Identifier -> e -> e) -> u -> (Identifier, e) -> (Identifier, e)
+avoidCaptureImpl substitute ux (x, e) = (x', e')
   where
-    x' = fresh disallow x
-    σ' = case x == x' of
-      True -> σ
-      False -> substitute (variable @u x') x σ
+    x' = fresh (freeVariables @σ ux) x
+    e' = case x == x' of
+      True -> e
+      False -> substitute (variable @σ x') x e
 
 data Variable e = Variable Identifier deriving (Show)
 

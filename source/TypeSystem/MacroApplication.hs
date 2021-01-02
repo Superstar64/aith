@@ -35,12 +35,12 @@ instance (e ~ e', EmbedMacroApplication e, Substitute u e) => SubstituteImpl (Ma
 instance
   ( e ~ e',
     EmbedMacroApplication e,
-    MatchAbstraction e,
+    ReduceMatchAbstraction e' e,
     Substitute e e',
     Reduce e
   ) =>
   ReduceImpl (MacroApplication e') e
   where
-  reduceImpl (MacroApplication e1 e2) = case matchAbstraction (reduce e1) of
-    Just (x, e) -> reduce (substitute (reduce e2) x e)
+  reduceImpl (MacroApplication e1 e2) = case reduceMatchAbstraction (reduce e1) of
+    Just f -> f (reduce e2)
     Nothing -> macroApplication (reduce e1) (reduce e2)

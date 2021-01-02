@@ -50,4 +50,4 @@ instance
   where
   substituteImpl ux x1 (Forall x2 κ σ) = forallx x2' (substitute ux x1 κ) (substitute ux x1 σ')
     where
-      (x2', σ') = avoidCapture @σ (freeVariables @σ ux) (x2, σ)
+      (x2', σ') = avoidCapture @σ ux (x2, σ)

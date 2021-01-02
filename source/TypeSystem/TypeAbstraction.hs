@@ -45,7 +45,7 @@ instance
   where
   substituteImpl ux x1 (TypeAbstraction x2 κ e) = typeAbstraction x2' (substitute ux x1 κ) (substitute ux x1 e')
     where
-      (x2', e') = avoidCapture @σ (freeVariables @σ ux) (x2, e)
+      (x2', e') = avoidCapture @σ ux (x2, e)
 
 instance (e ~ e', EmbedTypeAbstraction κ e, Reduce e) => ReduceImpl (TypeAbstraction κs κ' σ κ e') e where
   reduceImpl (TypeAbstraction x κ e) = typeAbstraction x κ $ reduce e

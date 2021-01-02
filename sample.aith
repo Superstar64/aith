@@ -1,13 +1,14 @@
+%let !(dup : ∀<b : %runtime> => !b -> ∀<r : %runtime> => (!b -> !b -> r) -> r) = !Λ<b : %runtime> {
+	λ!(x : b) =>
+	Λ<r : %runtime> =>
+	λ(f : !b -> !b -> r) =>
+	f(!x)(!x)
+};
+
 Λ<a : %runtime> =>
 Λ<b : %runtime> =>
+
 λ(f : a -> !b) =>
 λ(x : a) =>
 
-%let! dup = !λ(x : !b) {
-	%let! x2 = x; 
-	Λ<r : %runtime> =>
-	λ(f : !b -> !b -> r) =>
-	f(!x2)(!x2)
-};
-
-dup(f(x))
+dup<b>(f(x))

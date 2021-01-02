@@ -44,12 +44,12 @@ instance
 instance
   ( e ~ e',
     EmbedTypeApplication σ e,
-    MatchAbstraction e,
+    ReduceMatchAbstraction σ e,
     Substitute σ e,
     Reduce e
   ) =>
   ReduceImpl (TypeApplication κ σ e') e
   where
-  reduceImpl (TypeApplication e1 σ) = case matchAbstraction (reduce e1) of
-    Just (x, e) -> reduce $ substitute σ x e
+  reduceImpl (TypeApplication e1 σ) = case reduceMatchAbstraction (reduce e1) of
+    Just f -> f σ
     Nothing -> typeApplication (reduce e1) σ

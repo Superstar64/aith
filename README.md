@@ -29,11 +29,17 @@ See ``/documentation`` for typing rules.
 | Type Abstraction | ``Λ<x : κ> { e }`` |
 | Type Abstraction | ``Λ<x : κ> => e`` |
 | Type Application | ``e<σ>`` |
-| Term Abstraction | ``λ(x : σ) { e }``|
-| Term Abstraction | ``λ(x : σ) => e ``|
+| Term Abstraction | ``λ pm { e }``|
+| Term Abstraction | ``λ pm => e ``|
 | Term Application | ``e(e')``|
 | Of Course Introduction | ``!e`` |
-| Of Course Elimination | ``%let !x = e1 ; e2 ``|
+| Binding | ``%let pm = e1 ; e2 ``|
+
+## Patterns(pm)
+| Description | Syntax |
+|-|-|
+| Variable | ``(x : σ)``|
+| OfCourse | ``!pm`` |
 
 ## Types (σ)
 | Description | Syntax |

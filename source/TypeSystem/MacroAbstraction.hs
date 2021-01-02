@@ -1,59 +1,55 @@
 module TypeSystem.MacroAbstraction where
 
-import Data.Set as Set (delete)
 import Data.Type.Equality ((:~:) (..))
-import Misc.Identifier
 import Misc.Util (Same, same)
 import TypeSystem.Linear
 import TypeSystem.Macro
 import TypeSystem.Methods
-import TypeSystem.Variable
 
-data MacroAbstraction l κ σ e = MacroAbstraction Identifier σ e deriving (Show, Functor, Foldable, Traversable)
+data MacroAbstraction l pm' pm e = MacroAbstraction pm e deriving (Show, Functor, Foldable, Traversable)
 
-class EmbedMacroAbstraction σ e where
-  macroAbstraction :: Identifier -> σ -> e -> e
+class EmbedMacroAbstraction pm e where
+  macroAbstraction :: pm -> e -> e
 
 instance
   ( Monad m,
     EmbedMacro σ,
     EmbedLinear l,
-    AugmentEnvironmentLinear m p l σ lΓ,
-    TypeCheckInstantiate κ σ m σ',
+    TypeCheckInstantiate σ pm m pm',
+    AugmentEnvironmentPattern m pm p l σ lΓ,
     TypeCheckLinear σ m e lΓ
   ) =>
-  TypeCheckLinearImpl m p (MacroAbstraction l κ σ' e) σ lΓ
+  TypeCheckLinearImpl m p (MacroAbstraction l pm pm' e) σ lΓ
   where
-  typeCheckLinearImpl p (MacroAbstraction x σ' e) = do
-    σ <- instantiate @κ σ'
-    (τ, lΓ) <- augmentEnvironmentLinear p x (linear @l) σ (typeCheckLinear e)
+  typeCheckLinearImpl p (MacroAbstraction pm' e) = do
+    (σ, pm) <- typeCheckInstantiate @σ @pm pm'
+    (τ, lΓ) <- augmentEnvironmentPattern pm (linear @l) p (typeCheckLinear e)
     pure (macro σ τ, lΓ)
 
 instance
-  ( FreeVariables σ u,
+  ( Same u e,
     FreeVariables e u,
-    Same u e
+    FreeVariables pm u,
+    RemoveBindings pm
   ) =>
-  FreeVariables (MacroAbstraction l κ σ e) u
+  FreeVariables (MacroAbstraction l pm' pm e) u
   where
-  freeVariables' (MacroAbstraction x σ e) = case same @u @e of
-    Just Refl -> Set.delete x $ freeVariables @u e
-    Nothing -> freeVariables @u σ <> freeVariables @u e
+  freeVariables' (MacroAbstraction pm e) = case same @u @e of
+    Just Refl -> removeBindings pm $ freeVariables @u e
+    Nothing -> freeVariables @u pm <> freeVariables @u e
 
 instance
   ( e ~ e',
-    EmbedMacroAbstraction σ e,
-    EmbedVariable e,
-    FreeVariables u e,
-    Substitute u σ,
+    EmbedMacroAbstraction pm e,
+    AvoidCapturePattern u pm e,
     Substitute u e,
-    Substitute e e'
+    Substitute u pm
   ) =>
-  SubstituteImpl (MacroAbstraction l κ σ e') u e
+  SubstituteImpl (MacroAbstraction l pm' pm e') u e
   where
-  substituteImpl ux x1 (MacroAbstraction x2 σ e) = macroAbstraction x2' (substitute ux x1 σ) (substitute ux x1 e')
+  substituteImpl ux x (MacroAbstraction pm e) = macroAbstraction (substitute ux x pm') (substitute ux x e')
     where
-      (x2', e') = avoidCapture @e (freeVariables @e ux) (x2, e)
+      (pm', e') = avoidCapturePattern ux (pm, e)
 
-instance (e ~ e', EmbedMacroAbstraction σ e, Reduce e) => ReduceImpl (MacroAbstraction l κ σ e') e where
-  reduceImpl (MacroAbstraction x σ e) = macroAbstraction x σ (reduce e)
+instance (e ~ e', EmbedMacroAbstraction pm e, Reduce e) => ReduceImpl (MacroAbstraction l pm' pm e') e where
+  reduceImpl (MacroAbstraction pm e) = macroAbstraction pm (reduce e)

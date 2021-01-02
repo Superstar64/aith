@@ -94,13 +94,9 @@ variable = Variable <$> identfier
 
 macroAbstraction = do
   token "λ"
-  token "("
-  x <- identfier
-  token ":"
-  σ <- typex
-  token ")"
+  pm <- pattern
   e <- lambda term
-  pure (MacroAbstraction x σ e)
+  pure (MacroAbstraction pm e)
 
 typeAbstraction = do
   token "Λ"
@@ -117,22 +113,39 @@ ofCourseIntroduction = do
   e <- term
   pure (OfCourseIntroduction e)
 
-ofCourseElimination = do
-  builtin "let"
+patternOfCourse = do
   token "!"
+  PatternOfCourse <$> patternCore
+
+patternVariable = do
   x <- identfier
+  token ":"
+  σ <- typex
+  pure (PatternVariable x σ)
+
+patternCore = do
+  p <- getSourcePos
+  between (token "(") (token ")") pattern <|> CorePattern p <$> patternOfCourse
+
+pattern = do
+  p <- getSourcePos
+  CorePattern p <$> patternVariable <|> patternCore
+
+bind = do
+  builtin "let"
+  pm <- pattern
   token "="
   e1 <- term
   token ";"
   e2 <- term
-  pure (OfCourseElimination x e1 e2)
+  pure (Bind pm e1 e2)
 
 data Post = MacroApp (Term SourcePos) | TypeApp (Type SourcePos)
 
 term :: Parser (Term SourcePos)
 term = do
   p <- getSourcePos
-  core <- between (token "(") (token ")") term <|> x p <|> λ p <|> λσ p <|> bangIntro p <|> bangElim p
+  core <- between (token "(") (token ")") term <|> x p <|> λ p <|> λσ p <|> bangIntro p <|> bindImpl p
   postfix <- many $ choice [MacroApp <$> between (token "(") (token ")") term, TypeApp <$> between (token "<") (token ">") typex]
   pure $ foldl (fix p) core postfix
   where
@@ -142,4 +155,4 @@ term = do
     λ p = CoreTerm p <$> macroAbstraction
     λσ p = CoreTerm p <$> typeAbstraction
     bangIntro p = CoreTerm p <$> ofCourseIntroduction
-    bangElim p = CoreTerm p <$> ofCourseElimination
+    bindImpl p = CoreTerm p <$> bind

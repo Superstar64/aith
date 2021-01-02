@@ -31,12 +31,9 @@ braceMini e = do
   tell " }"
 
 prettyTerm' (Variable (Identifier x)) = tell x
-prettyTerm' (MacroAbstraction (Identifier x) σ e) = do
-  tell "λ("
-  tell x
-  tell " : "
-  prettyType BottomType σ
-  tell ")"
+prettyTerm' (MacroAbstraction pm e) = do
+  tell "λ"
+  prettyPattern BottomPattern pm
   brace (prettyTerm e)
 prettyTerm' (MacroApplication e1 e2) = do
   prettyTerm e1
@@ -58,10 +55,9 @@ prettyTerm' (TypeApplication e σ) = do
 prettyTerm' (OfCourseIntroduction e) = do
   tell "!"
   prettyTerm e
-prettyTerm' (OfCourseElimination (Identifier x) e1 e2) = do
-  tell "%let"
-  tell "!"
-  tell x
+prettyTerm' (Bind pm e1 e2) = do
+  tell "%let "
+  prettyPattern BottomPattern pm
   tell " = "
   prettyTerm e1
   tell ";"
@@ -69,6 +65,18 @@ prettyTerm' (OfCourseElimination (Identifier x) e1 e2) = do
   prettyTerm e2
 
 prettyTerm (CoreTerm Internal e) = prettyTerm' e
+
+data PatternPrecedence = BottomPattern | OfCoursePattern deriving (Eq, Ord)
+
+prettyPattern' d (PatternVariable (Identifier x) σ) = parens (d > BottomPattern) $ do
+  tell x
+  tell ":"
+  prettyType BottomType σ
+prettyPattern' d (PatternOfCourse pm) = parens (d > OfCoursePattern) $ do
+  tell "!"
+  prettyPattern OfCoursePattern pm
+
+prettyPattern d (CorePattern Internal pm) = prettyPattern' d pm
 
 data TypePrecedence = BottomType | ArrowType | OfCourseType deriving (Eq, Ord)
 

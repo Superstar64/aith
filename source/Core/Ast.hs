@@ -3,6 +3,7 @@ module Core.Ast where
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Except (Except, except, runExcept)
 import Control.Monad.Trans.State (StateT, get, put, runStateT)
+import Data.Bifunctor (Bifunctor, bimap, first)
 import Data.Map (Map, (!), (!?))
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -12,6 +13,7 @@ import Data.Void (Void, absurd)
 import Environment
 import Misc.Identifier
 import Misc.Util (Same, same, zipWithM)
+import qualified TypeSystem.Bind as TypeSystem
 import qualified TypeSystem.Forall as TypeSystem
 import qualified TypeSystem.Linear as TypeSystem
 import qualified TypeSystem.Macro as TypeSystem
@@ -20,8 +22,9 @@ import qualified TypeSystem.MacroApplication as TypeSystem
 import TypeSystem.Methods
 import qualified TypeSystem.Multiplicity as TypeSystem
 import qualified TypeSystem.OfCourse as TypeSystem
-import qualified TypeSystem.OfCourseElimination as TypeSystem
 import qualified TypeSystem.OfCourseIntroduction as TypeSystem
+import qualified TypeSystem.PatternOfCourse as TypeSystem
+import qualified TypeSystem.PatternVariable as TypeSystem
 import qualified TypeSystem.StageMacro as TypeSystem
 import qualified TypeSystem.StageOfCourse as TypeSystem
 import qualified TypeSystem.Type as TypeSystem
@@ -34,13 +37,22 @@ data Internal = Internal deriving (Show)
 
 data TermF p
   = Variable Identifier
-  | MacroAbstraction Identifier (Type p) (Term p)
+  | MacroAbstraction (Pattern (Type p) p) (Term p)
   | MacroApplication (Term p) (Term p)
   | TypeAbstraction Identifier (Kind p) (Term p)
   | TypeApplication (Term p) (Type p)
   | OfCourseIntroduction (Term p)
-  | OfCourseElimination Identifier (Term p) (Term p)
-  deriving (Show, Functor)
+  | Bind (Pattern (Type p) p) (Term p) (Term p)
+  deriving (Show)
+
+instance Functor TermF where
+  fmap _ (Variable x) = Variable x
+  fmap f (MacroAbstraction pm e) = MacroAbstraction (bimap (fmap f) f pm) (fmap f e)
+  fmap f (MacroApplication e1 e2) = MacroApplication (fmap f e1) (fmap f e2)
+  fmap f (TypeAbstraction x κ e) = TypeAbstraction x (fmap f κ) (fmap f e)
+  fmap f (TypeApplication e σ) = TypeApplication (fmap f e) (fmap f σ)
+  fmap f (OfCourseIntroduction e) = OfCourseIntroduction (fmap f e)
+  fmap f (Bind pm e1 e2) = Bind (bimap (fmap f) f pm) (fmap f e1) (fmap f e2)
 
 data Term p = CoreTerm p (TermF p) deriving (Show, Functor)
 
@@ -49,7 +61,7 @@ projectTerm ::
   Either
     (TypeSystem.Variable (Term p))
     ( Either
-        (TypeSystem.MacroAbstraction MultiplicityInternal KindInternal (Type p) (Term p))
+        (TypeSystem.MacroAbstraction MultiplicityInternal (Pattern TypeInternal p) (Pattern (Type p) p) (Term p))
         ( Either
             (TypeSystem.MacroApplication (Term p))
             ( Either
@@ -58,25 +70,25 @@ projectTerm ::
                     (TypeSystem.TypeApplication KindInternal (Type p) (Term p))
                     ( Either
                         (TypeSystem.OfCourseIntroduction MultiplicityInternal (Term p))
-                        (TypeSystem.OfCourseElimination MultiplicityInternal (Term p))
+                        (TypeSystem.Bind MultiplicityInternal (Pattern TypeInternal p) (Pattern (Type p) p) (Term p))
                     )
                 )
             )
         )
     )
 projectTerm (Variable x) = Left $ TypeSystem.Variable x
-projectTerm (MacroAbstraction x σ e) = Right $ Left $ TypeSystem.MacroAbstraction x σ e
+projectTerm (MacroAbstraction pm e) = Right $ Left $ TypeSystem.MacroAbstraction pm e
 projectTerm (MacroApplication e1 e2) = Right $ Right $ Left $ TypeSystem.MacroApplication e1 e2
 projectTerm (TypeAbstraction x κ e) = Right $ Right $ Right $ Left $ TypeSystem.TypeAbstraction x κ e
 projectTerm (TypeApplication e σ) = Right $ Right $ Right $ Right $ Left $ TypeSystem.TypeApplication e σ
 projectTerm (OfCourseIntroduction e) = Right $ Right $ Right $ Right $ Right $ Left $ TypeSystem.OfCourseIntroduction e
-projectTerm (OfCourseElimination x e1 e2) = Right $ Right $ Right $ Right $ Right $ Right $ TypeSystem.OfCourseElimination x e1 e2
+projectTerm (Bind pm e1 e2) = Right $ Right $ Right $ Right $ Right $ Right $ TypeSystem.Bind pm e1 e2
 
 instance i ~ Internal => TypeSystem.EmbedVariable (Term i) where
   variable x = CoreTerm Internal $ Variable x
 
-instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedMacroAbstraction (Type i) (Term i') where
-  macroAbstraction x σ e = CoreTerm Internal $ MacroAbstraction x σ e
+instance (i ~ Internal, i' ~ Internal, i'' ~ Internal) => TypeSystem.EmbedMacroAbstraction (Pattern (Type i') i'') (Term i') where
+  macroAbstraction pm e = CoreTerm Internal $ MacroAbstraction pm e
 
 instance (i ~ Internal) => TypeSystem.EmbedMacroApplication (Term i) where
   macroApplication e1 e2 = CoreTerm Internal $ MacroApplication e1 e2
@@ -90,8 +102,38 @@ instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedTypeApplication (Type 
 instance (i ~ Internal) => TypeSystem.EmbedOfCourseIntroduction (Term i) where
   ofCourseIntroduction e = CoreTerm Internal $ OfCourseIntroduction e
 
-instance (i ~ Internal) => TypeSystem.EmbedOfCourseElimination (Term i) where
-  ofCourseElimination x e1 e2 = CoreTerm Internal $ OfCourseElimination x e1 e2
+instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => TypeSystem.EmbedBind (Pattern σ i) (Term i') where
+  bind pm e1 e2 = CoreTerm Internal $ Bind pm e1 e2
+
+data PatternF σ p
+  = PatternVariable Identifier σ
+  | PatternOfCourse (Pattern σ p)
+  deriving (Show)
+
+instance Bifunctor PatternF where
+  bimap f _ (PatternVariable x σ) = PatternVariable x (f σ)
+  bimap f g (PatternOfCourse pm) = PatternOfCourse (bimap f g pm)
+
+data Pattern σ p = CorePattern p (PatternF σ p) deriving (Show)
+
+instance Bifunctor Pattern where
+  bimap f g (CorePattern p pm) = CorePattern (g p) (bimap f g pm)
+
+type PatternInternal = Pattern Internal
+
+projectPattern ::
+  PatternF σ p ->
+  Either
+    (TypeSystem.PatternVariable KindInternal σ)
+    (TypeSystem.PatternOfCourse (Pattern σ p))
+projectPattern (PatternVariable x σ) = Left $ TypeSystem.PatternVariable x σ
+projectPattern (PatternOfCourse pm) = Right $ TypeSystem.PatternOfCourse pm
+
+instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => TypeSystem.EmbedPatternVariable (Type i) (Pattern σ i') where
+  patternVariable x σ = CorePattern Internal $ PatternVariable x σ
+
+instance (i ~ Internal, σ ~ TypeInternal) => TypeSystem.EmbedPatternOfCourse (Pattern σ i) where
+  patternOfCourse pm = CorePattern Internal $ PatternOfCourse pm
 
 data TypeF p
   = TypeVariable Identifier
@@ -200,6 +242,7 @@ instance (i ~ Internal, i' ~ Internal) => Same (Term i) (Multiplicity i') where
   same = Nothing
 
 -- free variables of terms
+
 instance (i ~ Internal, i' ~ Internal) => FreeVariables (Term i) (Term i') where
   freeVariables' (CoreTerm Internal e) = freeVariables @(Term Internal) $ projectTerm e
 
@@ -208,6 +251,22 @@ instance (i ~ Internal, i' ~ Internal) => FreeVariables (Term i) (Type i') where
 
 instance (i ~ Internal, i' ~ Internal) => FreeVariables (Term i) (Multiplicity i') where
   freeVariables' (CoreTerm Internal e) = freeVariables @MultiplicityInternal $ projectTerm e
+
+-- free variables of patterns
+
+instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => FreeVariables (Pattern σ i) (Term i') where
+  freeVariables' _ = Set.empty
+
+instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => FreeVariables (Pattern σ i) (Type i') where
+  freeVariables' (CorePattern Internal pm) = freeVariables @TypeInternal $ projectPattern pm
+
+instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => FreeVariables (Pattern σ i) (Multiplicity i') where
+  freeVariables' (CorePattern Internal pm) = freeVariables @MultiplicityInternal $ projectPattern pm
+
+-- remove binding of patterns
+
+instance (i ~ Internal, σ ~ TypeInternal) => RemoveBindings (Pattern σ i) where
+  removeBindings (CorePattern Internal pm) = removeBindings $ projectPattern pm
 
 -- free variables of types
 
@@ -253,6 +312,31 @@ instance (i ~ Internal, i' ~ Internal) => Substitute (Type i) (Term i') where
 instance (i ~ Internal, i' ~ Internal) => Substitute (Multiplicity i) (Term i') where
   substitute lx x (CoreTerm Internal e) = substituteImpl lx x $ projectTerm e
 
+instance (i ~ Internal) => SubstituteSame (Term i) where
+  substituteSame = substitute
+
+-- substitute into pattern
+
+instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => Substitute (Term i) (Pattern σ i') where
+  substitute ex x (CorePattern Internal pm) = substituteImpl ex x $ projectPattern pm
+
+instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => Substitute (Type i) (Pattern σ i') where
+  substitute σx x (CorePattern Internal pm) = substituteImpl σx x $ projectPattern pm
+
+instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => Substitute (Multiplicity i) (Pattern σ i') where
+  substitute lx x (CorePattern Internal pm) = substituteImpl lx x $ projectPattern pm
+
+-- avoid pattern capture
+
+instance (i ~ Internal, i' ~ Internal, i'' ~ Internal, σ ~ TypeInternal) => AvoidCapturePattern (Term i'') (Pattern σ i) (Term i') where
+  avoidCapturePattern u (CorePattern Internal pm, e) = avoidCapturePatternImpl u (projectPattern pm, e)
+
+instance (i ~ Internal, i' ~ Internal, i'' ~ Internal, σ ~ TypeInternal) => AvoidCapturePattern (Type i'') (Pattern σ i) (Term i') where
+  avoidCapturePattern u (CorePattern Internal pm, e) = avoidCapturePatternImpl u (projectPattern pm, e)
+
+instance (i ~ Internal, i' ~ Internal, i'' ~ Internal, σ ~ TypeInternal) => AvoidCapturePattern (Multiplicity i'') (Pattern σ i) (Term i') where
+  avoidCapturePattern u (CorePattern Internal pm, e) = avoidCapturePatternImpl u (projectPattern pm, e)
+
 -- substitute into type
 
 instance (i ~ Internal, i' ~ Internal) => Substitute (Term i) (Type i) where
@@ -292,13 +376,21 @@ instance (i ~ Internal, i' ~ Internal) => Substitute (Type i) (Multiplicity i') 
 instance (i ~ Internal, i' ~ Internal) => Substitute (Term i) (Multiplicity i') where
   substitute _ _ l = l
 
+-- reduction
+
 instance (i ~ Internal) => Reduce (Term i) where
   reduce (CoreTerm Internal e) = reduceImpl $ projectTerm e
 
-instance (i ~ Internal) => MatchAbstraction (Term i) where
-  matchAbstraction (CoreTerm Internal (MacroAbstraction x _ e)) = Just (x, e)
-  matchAbstraction (CoreTerm Internal (TypeAbstraction x _ e)) = Just (x, e)
-  matchAbstraction _ = Nothing
+instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => ReducePattern (Pattern σ i) (Term i') where
+  reducePattern (CorePattern Internal pm) e1 e2 = reducePattern (projectPattern pm) e1 e2
+
+instance (i ~ Internal, i' ~ Internal) => ReduceMatchAbstraction (Term i') (Term i) where
+  reduceMatchAbstraction (CoreTerm Internal (MacroAbstraction pm e1)) = Just $ \e2 -> reducePattern pm e2 e1
+  reduceMatchAbstraction _ = Nothing
+
+instance (i ~ Internal, i' ~ Internal) => ReduceMatchAbstraction (Type i') (Term i) where
+  reduceMatchAbstraction (CoreTerm Internal (TypeAbstraction x _ e)) = Just $ \σ -> reduce $ substitute σ x e
+  reduceMatchAbstraction _ = Nothing
 
 instance (i ~ Internal) => TypeSystem.MatchOfCourseIntroduction (Term i) where
   matchOfCourseIntroduction (CoreTerm Internal (OfCourseIntroduction e)) = Just (TypeSystem.OfCourseIntroduction e)
@@ -368,8 +460,6 @@ matchStage p s s' = quit $ IncompatibleStage p s s'
 matchKind' p (Type s) (Type s') = do
   matchStage p s s'
 
---matchKind' p κ κ' = quit $ IncompatibleKind p (CoreKind Internal κ) (CoreKind Internal κ')
-
 matchKind p (CoreKind Internal κ) (CoreKind Internal κ') = matchKind' p κ κ'
 
 matchType' :: FromError p q => p -> TypeF Internal -> TypeF Internal -> Core p q ()
@@ -398,6 +488,9 @@ instance Positioned (Kind p) p where
 instance (FromError p q, p ~ p', i ~ Internal) => TypeCheckLinear (Type i) (Core p q) (Term p') Use where
   typeCheckLinear (CoreTerm p e) = typeCheckLinearImpl p $ projectTerm e
 
+instance (FromError p q, p ~ p', i ~ Internal, σ ~ Type p) => TypeCheck (Type i) (Core p q) (Pattern σ p') where
+  typeCheck (CorePattern p pm) = typeCheckImpl p $ projectPattern pm
+
 instance (FromError p' q, p ~ p', i ~ Internal) => TypeCheck (Kind i) (Core p q) (Type p') where
   typeCheck (CoreType p σ) = typeCheckImpl p $ projectType σ
 
@@ -421,6 +514,20 @@ instance (p ~ p', i ~ Internal, FromError p q) => TypeCheckInstantiate Multiplic
 instance (p ~ p', i ~ Internal, FromError p q) => TypeCheckInstantiate KindSort (Kind i) (Core p q) (Kind p') where
   typeCheckInstantiate κ = do
     pure (Kind, Internal <$ κ)
+
+instance
+  ( FromError p q,
+    p ~ p',
+    p ~ p'',
+    i ~ Internal,
+    σ ~ TypeInternal,
+    σ' ~ Type p
+  ) =>
+  TypeCheckInstantiate (Type i) (Pattern σ p) (Core p' q) (Pattern σ' p'')
+  where
+  typeCheckInstantiate pm = do
+    σ <- typeCheck pm
+    pure (σ, first (Internal <$) pm)
 
 instance (FromError p q, p ~ p', i ~ Internal) => SameType (Core p q) p' (Type i) where
   sameType p σ σ' = matchType p σ σ'
@@ -462,6 +569,18 @@ instance (FromError p' q, p ~ p', i ~ Internal, i' ~ Internal) => AugmentEnviron
       (_, CoreMultiplicity Internal Unrestricted) -> pure ()
       (_, _) -> quit $ InvalidUsage p x
     pure (σ', Remove x lΓ)
+
+instance
+  ( FromError p q,
+    p ~ p',
+    p ~ p'',
+    i ~ Internal,
+    i' ~ Internal,
+    σ ~ TypeInternal
+  ) =>
+  AugmentEnvironmentPattern (Core p q) (Pattern σ p') p'' (Multiplicity i') (Type i) Use
+  where
+  augmentEnvironmentPattern (CorePattern p pm) l p' e = augmentEnvironmentPatternImpl p (projectPattern pm) l p' e
 
 instance (FromError p' q, i ~ Internal) => ReadEnvironment (Core p q) p' (Kind i) where
   readEnvironment p x = do
