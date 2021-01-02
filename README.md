@@ -10,7 +10,7 @@ See ``/documentation`` for typing rules.
 * [x] System-F
 * [ ] System-F A
 * [x] Pattern Matching
-* [ ] Basic Linear Types
+* [x] Basic Linear Types
 * [ ] Multiplicity Polymorphism
 * [ ] Multiplicity Predicates
 * [ ] Levity Polymorphism
