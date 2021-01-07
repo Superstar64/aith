@@ -16,18 +16,20 @@ maintainer:          Hexagonalstar64@gmail.com
 
 executable aith
   main-is:             Main.hs
-  other-modules: Misc.Identifier, Misc.Util, Environment, Core.Ast, Core.Parse, Core.Pretty,
-                 TypeSystem.Methods, TypeSystem.Variable, TypeSystem.MacroAbstraction, TypeSystem.MacroApplication,
-                 TypeSystem.TypeAbstraction, TypeSystem.TypeApplication, TypeSystem.Macro,
-                 TypeSystem.Forall, TypeSystem.Type, TypeSystem.Linear, TypeSystem.StageMacro,
+  other-modules: Misc.Identifier, Misc.Util, Environment, Core.TypeCheck, Core.Parse, Core.Pretty,
+                 TypeSystem.Methods, TypeSystem.Variable, TypeSystem.Abstraction, TypeSystem.Application,
+                 TypeSystem.TypeAbstraction, TypeSystem.TypeApplication, TypeSystem.Function,
+                 TypeSystem.Forall, TypeSystem.Type, TypeSystem.Linear, TypeSystem.StageFunction,
                  TypeSystem.Unrestricted, TypeSystem.Multiplicity, TypeSystem.OfCourse,
                  TypeSystem.OfCourseIntroduction, TypeSystem.StageOfCourse, TypeSystem.Bind,
-                 TypeSystem.PatternVariable,TypeSystem.PatternOfCourse
+                 TypeSystem.PatternVariable,TypeSystem.PatternOfCourse, TypeSystem.Pattern,
+                 Core.Ast.Common, Core.Ast.Stage, Core.Ast.Kind, Core.Ast.TypePattern, Core.Ast.Type,
+                 Core.Ast.Multiplicity, Core.Ast.Term, Core.Ast.Pattern
   -- other-extensions:
-  build-depends:       base ^>=4.13.0.0, containers ^>= 0.6.2.1, transformers ^>= 0.5.6.2, megaparsec ^>= 8.0.0
+  build-depends:       base ^>=4.13.0.0, containers ^>= 0.6.2.1, transformers ^>= 0.5.6.2, megaparsec ^>= 8.0.0, parser-combinators ^>= 1.2.1
   hs-source-dirs:      source
-  ghc-options: -W
+  ghc-options: -W -Worphans
   default-language:    Haskell2010
   default-extensions:  MultiParamTypeClasses, FunctionalDependencies, DeriveTraversable, FlexibleInstances,
                        NoMonomorphismRestriction, TypeFamilies, TypeOperators, TypeApplications, ScopedTypeVariables,
-                       AllowAmbiguousTypes
+                       AllowAmbiguousTypes, GeneralizedNewtypeDeriving

@@ -3,14 +3,24 @@ module TypeSystem.Methods where
 import Data.Set (Set)
 import Misc.Identifier
 
-class TypeCheck σ m e where
-  typeCheck :: e -> m σ
-
 class TypeCheckInstantiate κ σ m σ' where
   typeCheckInstantiate :: σ' -> m (κ, σ)
 
-instantiate :: forall κ σ m σ'. (TypeCheckInstantiate κ σ m σ', Functor m) => σ' -> m σ
-instantiate = fmap snd . typeCheckInstantiate @κ
+class TypeCheck σ m e where
+  typeCheck :: e -> m σ
+
+-- typeCheck = fmap fst . typeCheckInstantiate
+
+class Instantiate σ m σ' where
+  instantiate :: σ' -> m σ
+
+-- instantiate = fmap snd . typeCheckInstantiate
+
+class Strip pm pm' where
+  strip :: pm -> pm'
+
+class InternalType pm σ where
+  internalType :: pm -> σ
 
 class TypeCheckLinear σ m e lΓ where
   typeCheckLinear :: e -> m (σ, lΓ)
@@ -30,8 +40,9 @@ class Substitute u e where
 class AvoidCapturePattern u pm e where
   avoidCapturePattern :: u -> (pm, e) -> (pm, e)
 
-class SubstituteSame e where
+class Substitute e e => SubstituteSame e where
   substituteSame :: e -> Identifier -> e -> e
+  substituteSame = substitute
 
 -- Applicative Order Reduction
 -- see https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf
@@ -54,16 +65,19 @@ class ReadEnvironmentLinear m p σ lΓ where
   readEnvironmentLinear :: p -> Identifier -> m (σ, lΓ)
 
 class AugmentEnvironmentLinear m p l σ lΓ where
-  augmentEnvironmentLinear :: p -> Identifier -> l -> σ -> m (σ, lΓ) -> m (σ, lΓ)
+  augmentEnvironmentLinear :: p -> Identifier -> l -> σ -> m (a, lΓ) -> m (a, lΓ)
 
-class AugmentEnvironmentPattern m pm p l σ lΓ where
-  augmentEnvironmentPattern :: pm -> l -> p -> m (σ, lΓ) -> m (σ, lΓ)
+class AugmentEnvironmentPatternLinear m pm l lΓ where
+  augmentEnvironmentPatternLinear :: pm -> l -> m (a, lΓ) -> m (a, lΓ)
 
 class ReadEnvironment m p κ where
   readEnvironment :: p -> Identifier -> m κ
 
 class AugmentEnvironment m p κ where
   augmentEnvironment :: p -> Identifier -> κ -> m a -> m a
+
+class AugmentEnvironmentPattern m pm where
+  augmentEnvironmentPattern :: pm -> m a -> m a
 
 class Positioned e p | e -> p where
   location :: e -> p
@@ -84,6 +98,10 @@ class TypeCheckImpl m p e σ where
 instance (TypeCheckImpl m p a σ, TypeCheckImpl m p b σ) => TypeCheckImpl m p (Either a b) σ where
   typeCheckImpl p (Left e) = typeCheckImpl p e
   typeCheckImpl p (Right e) = typeCheckImpl p e
+
+instance (InternalType a σ, InternalType b σ) => InternalType (Either a b) σ where
+  internalType (Left pm) = internalType pm
+  internalType (Right pm) = internalType pm
 
 instance (FreeVariables a u, FreeVariables b u) => FreeVariables (Either a b) u where
   freeVariables' (Left σ) = freeVariables @u σ
@@ -123,14 +141,26 @@ instance (ReducePattern a e, ReducePattern b e) => ReducePattern (Either a b) e 
   reducePattern (Left pm) = reducePattern pm
   reducePattern (Right pm) = reducePattern pm
 
-class AugmentEnvironmentPatternImpl m p pm l σ lΓ where
-  augmentEnvironmentPatternImpl :: p -> pm -> l -> p -> m (σ, lΓ) -> m (σ, lΓ)
+class AugmentEnvironmentPatternImpl m p pm where
+  augmentEnvironmentPatternImpl :: p -> pm -> m a -> m a
 
 instance
-  ( AugmentEnvironmentPatternImpl m p a l σ lΓ,
-    AugmentEnvironmentPatternImpl m p b l σ lΓ
+  ( AugmentEnvironmentPatternImpl m p a,
+    AugmentEnvironmentPatternImpl m p b
   ) =>
-  AugmentEnvironmentPatternImpl m p (Either a b) l σ lΓ
+  AugmentEnvironmentPatternImpl m p (Either a b)
   where
   augmentEnvironmentPatternImpl p (Left pm) = augmentEnvironmentPatternImpl p pm
   augmentEnvironmentPatternImpl p (Right pm) = augmentEnvironmentPatternImpl p pm
+
+class AugmentEnvironmentPatternLinearImpl m p pm l lΓ where
+  augmentEnvironmentPatternLinearImpl :: p -> pm -> l -> m (a, lΓ) -> m (a, lΓ)
+
+instance
+  ( AugmentEnvironmentPatternLinearImpl m p a l lΓ,
+    AugmentEnvironmentPatternLinearImpl m p b l lΓ
+  ) =>
+  AugmentEnvironmentPatternLinearImpl m p (Either a b) l lΓ
+  where
+  augmentEnvironmentPatternLinearImpl p (Left pm) = augmentEnvironmentPatternLinearImpl p pm
+  augmentEnvironmentPatternLinearImpl p (Right pm) = augmentEnvironmentPatternLinearImpl p pm

@@ -4,7 +4,7 @@ import TypeSystem.Methods
 import TypeSystem.OfCourse
 import TypeSystem.Unrestricted
 
-data OfCourseIntroduction l e = OfCourseIntroduction e deriving (Show, Functor, Foldable, Traversable)
+data OfCourseIntroduction l e = OfCourseIntroduction e
 
 class EmbedOfCourseIntroduction e where
   ofCourseIntroduction :: e -> e

@@ -8,7 +8,8 @@ See ``/documentation`` for typing rules.
 * [x] Macro Lambda Calculus
 * [x] Macro Beta Reduction
 * [x] System-F
-* [ ] System-F A
+* [x] System-F ω
+* [ ] New Types
 * [x] Pattern Matching
 * [x] Basic Linear Types
 * [ ] Multiplicity Polymorphism
@@ -50,6 +51,9 @@ See ``/documentation`` for typing rules.
 | Forall | ``∀<x : κ> => σ`` |
 | Macro | ``σ -> σ'``|
 | Of Course | ``!σ``|
+| Type Operator | `` λ x : κ { σ }``|
+| Type Operator | `` λ x : κ => σ ``|
+| Type Construction | `` σ (τ) `` |
 
 ## Stages (s)
 | Description | Syntax |
@@ -75,6 +79,7 @@ Useful / Inspirational papers:
 * [Levity Polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/11/levity-pldi17.pdf)
 ## Misc
 * [Type Systems](http://lucacardelli.name/Papers/TypeSystems.pdf)
+* [System F with Type Equality Coercions](https://www.microsoft.com/en-us/research/wp-content/uploads/2007/01/tldi22-sulzmann-with-appendix.pdf)
 * [Typed Tagless Final Interpreters](http://okmij.org/ftp/tagless-final/index.html)
 * [Demonstrating Lambda Calculus Reduction](https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf)
 

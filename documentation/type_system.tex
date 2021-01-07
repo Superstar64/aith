@@ -32,6 +32,8 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & !\sigma \tag*{[Bang]} \\
 & \forall \alpha : \kappa. \sigma \tag*{[Type Forall]}\\ 
 & \forall s \alpha. \sigma \tag*{[Stage Forall]}\\
+& \lambda \alpha : \kappa. \sigma \tag*{[Type Operator]} \\
+& \sigma (\tau) \tag*{[Type Construction]} \\
 \\
 \rho \Coloneqq & \text{void*}\\
 \\
@@ -39,9 +41,10 @@ s \Coloneqq & s \alpha \tag*{[Stage Variable]}\\
 & s \to s' \tag*{[Macro]} \\
 & !s \tag*{[Bang]} \\
 & \forall s \alpha. s \tag*{[Forall]}\\
-& \rho \tag*{[Runtime Kind]}\\
+& \rho \tag*{[Runtime Stage]}\\
 \\
-\kappa \Coloneqq & \text{Type} (s) \tag*{[Type]}\\
+\kappa \Coloneqq & \text{Type} (s) \tag*{[Type]} \\
+& \kappa \to \kappa' \tag*{[Type Function]} \\
 \\
 \Gamma \Coloneqq & \Gamma, [x : \sigma] | \Gamma, \langle x : \sigma \rangle | \emptyset \\
 \Phi \Coloneqq & \Phi, \alpha : \kappa | \Phi, s \alpha |  \emptyset \\
@@ -66,7 +69,7 @@ s \Coloneqq & s \alpha \tag*{[Stage Variable]}\\
 {\Phi | \Gamma, [x : \tau] \vdash e : \sigma } \\
 \\
 \frac
-{\Phi | \Gamma, \langle x : \sigma \rangle \vdash e : \tau }
+{\Phi | \Gamma, \langle x : \sigma \rangle \vdash e : \tau \quad \Gamma \vdash \sigma : \text{Type} (s)}
 {\Phi | \Gamma \vdash \lambda x:\sigma. e : \sigma \to \tau } \\
 \\
 \frac
@@ -118,6 +121,14 @@ s \Coloneqq & s \alpha \tag*{[Stage Variable]}\\
 \frac
 {\Phi, s \alpha \vdash \sigma : \text{Type} (s) }
 {\Phi \vdash \forall s \alpha. \sigma : \text{Type} (\forall s \alpha. s) } \\
+\\
+\frac
+{\Phi, \alpha : \kappa : \sigma : \kappa'} 
+{\Phi \vdash \lambda \alpha : \kappa. \sigma : \kappa \to \kappa' } \\
+\\
+\frac
+{\Phi \vdash \sigma : \kappa \to \kappa' \quad \Phi \vdash \tau : \kappa}
+{\Phi \vdash \sigma (\tau) : \kappa' } \\
 \\
 \end{gather*}
 

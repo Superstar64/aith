@@ -4,7 +4,7 @@ import TypeSystem.Methods
 import TypeSystem.StageOfCourse
 import TypeSystem.Type
 
-data OfCourse s σ = OfCourse σ deriving (Show, Functor, Foldable, Traversable)
+data OfCourse s σ = OfCourse σ
 
 class EmbedOfCourse σ where
   ofCourse :: σ -> σ
@@ -14,8 +14,8 @@ class CheckOfCourse m p σ where
 
 instance
   ( Monad m,
-    EmbedType s κ,
-    CheckType m p κ s,
+    EmbedType κ s,
+    CheckType s κ m p,
     EmbedStageOfCourse s,
     Positioned σ p,
     TypeCheck κ m σ
@@ -37,3 +37,12 @@ instance
   SubstituteImpl (OfCourse s σ) u σ'
   where
   substituteImpl ux x (OfCourse σ) = ofCourse (substitute ux x σ)
+
+instance
+  ( σ ~ σ',
+    EmbedOfCourse σ,
+    Reduce σ
+  ) =>
+  ReduceImpl (OfCourse s σ) σ'
+  where
+  reduceImpl (OfCourse σ) = ofCourse (reduce σ)

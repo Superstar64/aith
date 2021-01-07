@@ -1,19 +1,28 @@
 module Core.Parse where
 
-import Core.Ast
+import Control.Applicative (Alternative, (<|>))
+import Control.Monad (MonadPlus)
+import Control.Monad.Combinators (between, choice, many, some)
+import Core.Ast.Kind
+import Core.Ast.Multiplicity
+import Core.Ast.Pattern
+import Core.Ast.Stage
+import Core.Ast.Term
+import Core.Ast.Type
+import Core.Ast.TypePattern
 import Data.Char (isAlphaNum, ord)
 import Data.Void (Void)
 import Misc.Identifier
-import Text.Megaparsec (Parsec, SourcePos, between, choice, getSourcePos, many, satisfy, some, (<?>), (<|>))
+import Text.Megaparsec (Parsec, SourcePos, getSourcePos, satisfy, (<?>))
 import Text.Megaparsec.Char (space, string)
 
-type Parser = Parsec Void String
+newtype Parser a = Parser (Parsec Void String a) deriving (Functor, Applicative, Monad, Alternative, MonadPlus)
 
 token :: String -> Parser ()
-token op = string op >> space
+token op = Parser $ string op >> space
 
-builtin :: String -> Parser ()
-builtin name = string ('%' : name) >> space
+keyword :: String -> Parser ()
+keyword name = Parser $ string ('%' : name) >> space
 
 isGreek :: Int -> Bool
 isGreek x = x >= 0x370 && x <= 0x3ff
@@ -22,7 +31,11 @@ legalChar :: Char -> Bool
 legalChar x = isAlphaNum x && not (isGreek (ord x))
 
 identfier :: Parser Identifier
-identfier = Identifier <$> some (satisfy legalChar <?> "letter") <* space
+identfier = Parser $ Identifier <$> some (satisfy legalChar <?> "letter") <* space
+
+position = Parser $ getSourcePos
+
+betweenParens = between (token "(") (token ")")
 
 lambda :: Parser b -> Parser b
 lambda inner = do
@@ -35,40 +48,51 @@ lambda inner = do
 
 linear :: Parser (Multiplicity SourcePos)
 linear = do
-  p <- getSourcePos
-  core <- Linear <$ builtin "linear" <|> Unrestricted <$ builtin "unrestricted"
+  p <- position
+  core <- Linear <$ keyword "linear" <|> Unrestricted <$ keyword "unrestricted"
   pure (CoreMultiplicity p core)
 
 stageMacro s = do
-  token "->"
+  token "~>"
   s' <- stage
   pure (StageMacro s s')
 
 stageCore :: Parser Stage
 stageCore = do
-  Runtime <$ builtin "runtime" <|> StageOfCourse <$> (token "!" >> stageCore)
+  betweenParens stage <|> Runtime <$ keyword "runtime" <|> StageOfCourse <$> (token "!" >> stageCore)
 
 stage :: Parser Stage
 stage = do
   core <- stageCore
   stageMacro core <|> pure core
 
+kindType = do
+  s <- stage
+  pure (Type s)
+
+kindCore = do
+  p <- position
+  betweenParens kind <|> CoreKind p <$> kindType
+
+higher κ = do
+  token "->"
+  κ' <- kind
+  pure (Higher κ κ')
+
 kind :: Parser (Kind SourcePos)
 kind = do
-  p <- getSourcePos
-  s <- stage
-  pure (CoreKind p $ Type s)
+  p <- position
+  core <- kindCore
+  (CoreKind p <$> higher core) <|> pure core
 
 typeVariable = TypeVariable <$> identfier
 
 forallx = do
   token "∀<"
-  x <- identfier
-  token ":"
-  κ <- kind
+  pm <- typePattern
   token ">"
   σ <- lambda typex
-  pure (Forall x κ σ)
+  pure (Forall pm σ)
 
 macro σ = do
   token "->"
@@ -79,16 +103,32 @@ ofCourse = do
   token "!"
   OfCourse <$> typeCore
 
+typeOperator = do
+  token "λ"
+  pm <- typePattern
+  σ <- lambda typex
+  pure (TypeOperator pm σ)
+
 typeCore :: Parser (Type SourcePos)
 typeCore = do
-  p <- getSourcePos
-  between (token "(") (token ")") typex <|> CoreType p <$> typeVariable <|> CoreType p <$> forallx <|> CoreType p <$> ofCourse
+  p <- position
+  core <- betweenParens typex <|> CoreType p <$> typeVariable <|> CoreType p <$> forallx <|> CoreType p <$> ofCourse <|> CoreType p <$> typeOperator
+  postfix <- many (betweenParens typex)
+  pure $ foldl (\σ τ -> CoreType p $ TypeConstruction σ τ) core postfix
 
 typex :: Parser (Type SourcePos)
 typex = do
-  p <- getSourcePos
+  p <- position
   core <- typeCore
   (CoreType p <$> macro core) <|> pure core
+
+typePattern :: Parser (TypePattern (Kind SourcePos) SourcePos)
+typePattern = do
+  p <- position
+  x <- identfier
+  token ":"
+  κ <- kind
+  pure (CoreTypePattern p (TypePatternVariable x κ))
 
 variable = Variable <$> identfier
 
@@ -101,12 +141,10 @@ macroAbstraction = do
 typeAbstraction = do
   token "Λ"
   token "<"
-  x <- identfier
-  token ":"
-  κ <- kind
+  pm <- typePattern
   token ">"
   e <- lambda term
-  pure (TypeAbstraction x κ e)
+  pure (TypeAbstraction pm e)
 
 ofCourseIntroduction = do
   token "!"
@@ -124,15 +162,15 @@ patternVariable = do
   pure (PatternVariable x σ)
 
 patternCore = do
-  p <- getSourcePos
-  between (token "(") (token ")") pattern <|> CorePattern p <$> patternOfCourse
+  p <- position
+  betweenParens pattern <|> CorePattern p <$> patternOfCourse
 
 pattern = do
-  p <- getSourcePos
+  p <- position
   CorePattern p <$> patternVariable <|> patternCore
 
 bind = do
-  builtin "let"
+  keyword "let"
   pm <- pattern
   token "="
   e1 <- term
@@ -144,8 +182,8 @@ data Post = MacroApp (Term SourcePos) | TypeApp (Type SourcePos)
 
 term :: Parser (Term SourcePos)
 term = do
-  p <- getSourcePos
-  core <- between (token "(") (token ")") term <|> x p <|> λ p <|> λσ p <|> bangIntro p <|> bindImpl p
+  p <- position
+  core <- betweenParens term <|> x p <|> λ p <|> λσ p <|> bangIntro p <|> bindImpl p
   postfix <- many $ choice [MacroApp <$> between (token "(") (token ")") term, TypeApp <$> between (token "<") (token ">") typex]
   pure $ foldl (fix p) core postfix
   where

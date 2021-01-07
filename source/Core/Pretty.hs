@@ -3,131 +3,197 @@ module Core.Pretty where
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State (State, get, put, runState)
 import Control.Monad.Trans.Writer (WriterT, runWriterT, tell)
-import Core.Ast
+import Core.Ast.Common
+import Core.Ast.Kind
+import Core.Ast.Multiplicity
+import Core.Ast.Pattern
+import Core.Ast.Stage
+import Core.Ast.Term
+import Core.Ast.Type
+import Core.Ast.TypePattern
 import Misc.Identifier
 
-parens True e = tell "(" >> e >> tell ")"
+newtype Printer a = Printer (WriterT String (State Int) a) deriving (Functor, Applicative, Monad)
+
+class Pretty a where
+  pretty :: a -> Printer ()
+
+token = Printer . tell
+
+keyword name = Printer $ tell (('%' : name))
+
+identfier (Identifier name) = Printer $ tell name
+
+parens True e = token "(" >> e >> token ")"
 parens False e = e
 
+space = Printer $ tell " "
+
+kspace = Printer $ tell " "
+
 line = do
-  indention <- lift get
-  tell "\n"
-  sequence $ replicate indention (tell "\t")
+  indention <- Printer $ lift get
+  Printer $ tell "\n"
+  Printer $ sequence $ replicate indention (tell "\t")
+  pure ()
 
-brace :: WriterT String (State Int) () -> WriterT String (State Int) ()
-brace e = do
-  indention <- lift get
-  tell " {"
-  lift (put $ indention + 1)
+lambda e = do
+  indention <- Printer $ lift get
+  space
+  token "{"
+  Printer $ lift (put $ indention + 1)
   line
   e
-  lift (put indention)
+  Printer $ lift (put indention)
   line
-  tell "}"
+  token "}"
 
-braceMini e = do
-  tell " {"
+lambdaMini e = do
+  space
+  token "{"
   e
-  tell " }"
+  token "}"
 
-prettyTerm' (Variable (Identifier x)) = tell x
+prettyTerm' (Variable x) = identfier x
 prettyTerm' (MacroAbstraction pm e) = do
-  tell "λ"
-  prettyPattern BottomPattern pm
-  brace (prettyTerm e)
+  token "λ"
+  pretty pm
+  lambda (prettyTerm e)
 prettyTerm' (MacroApplication e1 e2) = do
   prettyTerm e1
-  tell "("
+  token "("
   prettyTerm e2
-  tell ")"
-prettyTerm' (TypeAbstraction (Identifier x) κ e) = do
-  tell "Λ<"
-  tell x
-  tell " : "
-  prettyKind κ
-  tell ">"
-  brace (prettyTerm e)
+  token ")"
+prettyTerm' (TypeAbstraction pm e) = do
+  token "Λ"
+  token "<"
+  pretty pm
+  token ">"
+  lambda (prettyTerm e)
 prettyTerm' (TypeApplication e σ) = do
   prettyTerm e
-  tell "<"
-  prettyType BottomType σ
-  tell ">"
+  token "<"
+  pretty σ
+  token ">"
 prettyTerm' (OfCourseIntroduction e) = do
-  tell "!"
+  token "!"
   prettyTerm e
 prettyTerm' (Bind pm e1 e2) = do
-  tell "%let "
-  prettyPattern BottomPattern pm
-  tell " = "
+  keyword "let"
+  kspace
+  pretty pm
+  space
+  token "="
+  space
   prettyTerm e1
-  tell ";"
+  token ";"
   line
   prettyTerm e2
 
 prettyTerm (CoreTerm Internal e) = prettyTerm' e
 
+instance (i ~ Internal) => Pretty (Term i) where
+  pretty = prettyTerm
+
 data PatternPrecedence = BottomPattern | OfCoursePattern deriving (Eq, Ord)
 
-prettyPattern' d (PatternVariable (Identifier x) σ) = parens (d > BottomPattern) $ do
-  tell x
-  tell ":"
-  prettyType BottomType σ
+prettyPattern' d (PatternVariable x σ) = parens (d > BottomPattern) $ do
+  identfier x
+  token ":"
+  pretty σ
 prettyPattern' d (PatternOfCourse pm) = parens (d > OfCoursePattern) $ do
-  tell "!"
+  token "!"
   prettyPattern OfCoursePattern pm
 
 prettyPattern d (CorePattern Internal pm) = prettyPattern' d pm
 
-data TypePrecedence = BottomType | ArrowType | OfCourseType deriving (Eq, Ord)
+instance (i ~ Internal, σ ~ TypeInternal) => Pretty (Pattern σ i) where
+  pretty = prettyPattern BottomPattern
 
-prettyType' _ (TypeVariable (Identifier x)) = tell x
+data TypePrecedence = BottomType | InnerType deriving (Eq, Ord)
+
+prettyType' _ (TypeVariable x) = identfier x
 prettyType' d (Macro σ τ) = parens (d > BottomType) $ do
-  prettyType ArrowType σ
-  tell " -> "
+  prettyType InnerType σ
+  space
+  token "->"
+  space
   prettyType BottomType τ
-prettyType' _ (Forall (Identifier x) κ σ) = do
-  tell "∀"
-  tell "<"
-  tell x
-  tell ":"
-  prettyKind κ
-  tell ">"
-  braceMini (prettyType BottomType σ)
-prettyType' d (OfCourse σ) = parens (d > OfCourseType) $ do
-  tell "!"
-  prettyType OfCourseType σ
+prettyType' _ (Forall pm σ) = do
+  token "∀"
+  token "<"
+  pretty pm
+  token ">"
+  lambdaMini (prettyType BottomType σ)
+prettyType' _ (OfCourse σ) = do
+  token "!"
+  prettyType InnerType σ
+prettyType' _ (TypeConstruction σ τ) = do
+  prettyType InnerType σ
+  token "("
+  prettyType BottomType τ
+  token ")"
+prettyType' _ (TypeOperator pm σ) = do
+  token "λ"
+  pretty pm
+  lambdaMini (prettyType BottomType σ)
 
 prettyType d (CoreType Internal σ) = prettyType' d σ
 
-prettyLinear' Linear = tell "%linear"
-prettyLinear' Unrestricted = tell "%unrestricted"
+instance (i ~ Internal) => Pretty (Type i) where
+  pretty = prettyType BottomType
+
+prettyTypePattern' (TypePatternVariable x κ) = do
+  identfier x
+  token ":"
+  pretty κ
+
+prettyTypePattern (CoreTypePattern Internal pm) = prettyTypePattern' pm
+
+instance (i ~ Internal, κ ~ KindInternal) => Pretty (TypePattern κ i) where
+  pretty = prettyTypePattern
+
+prettyLinear' Linear = keyword "linear"
+prettyLinear' Unrestricted = keyword "unrestricted"
 
 prettyLinear (CoreMultiplicity Internal l) = prettyLinear' l
 
+instance (i ~ Internal) => Pretty (Multiplicity i) where
+  pretty = prettyLinear
+
 data StagePrecedence = BottomStage | ArrowStage | OfCourseStage deriving (Eq, Ord)
 
-prettyStage _ Runtime = tell "%runtime"
+prettyStage _ Runtime = keyword "runtime"
 prettyStage d (StageMacro s s') = parens (d > BottomStage) $ do
   prettyStage ArrowStage s
-  tell " -> "
+  space
+  token "~>"
+  space
   prettyStage BottomStage s'
 prettyStage d (StageOfCourse s) = parens (d > OfCourseStage) $ do
-  tell "!"
+  token "!"
   prettyStage OfCourseStage s
 
-prettyKind' (Type s) = do
-  prettyStage BottomStage s
+instance Pretty Stage where
+  pretty = prettyStage BottomStage
 
-prettyKind (CoreKind Internal κ) = prettyKind' κ
+data KindPrecedence = BottomKind | ArrowKind deriving (Eq, Ord)
 
-showTerm e = s
+prettyKind' _ (Type s) = do
+  pretty s
+prettyKind' d (Higher κ κ') = parens (d > BottomKind) $ do
+  prettyKind ArrowKind κ
+  space
+  token "->"
+  space
+  prettyKind BottomKind κ'
+
+prettyKind d (CoreKind Internal κ) = prettyKind' d κ
+
+instance (i ~ Internal) => Pretty (Kind i) where
+  pretty = prettyKind BottomKind
+
+showItem e = s
   where
-    (((), s), _) = runState (runWriterT (prettyTerm e)) 0
-
-showType σ = s
-  where
-    (((), s), _) = runState (runWriterT (prettyType BottomType σ)) 0
-
-showKind κ = s
-  where
-    (((), s), _) = runState (runWriterT (prettyKind κ)) 0
+    run (Printer p) = p
+    (((), s), _) = runState (runWriterT $ run $ pretty e) 0

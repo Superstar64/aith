@@ -11,19 +11,14 @@ data PatternOfCourse pm = PatternOfCourse pm
 class EmbedPatternOfCourse pm where
   patternOfCourse :: pm -> pm
 
-instance
-  ( Monad m,
-    EmbedOfCourse σ,
-    TypeCheck σ m pm
-  ) =>
-  TypeCheckImpl m p (PatternOfCourse pm) σ
-  where
-  typeCheckImpl _ (PatternOfCourse pm) = do
-    σ <- typeCheck pm
-    pure (ofCourse σ)
+instance (TypeCheck pms m pm) => TypeCheckImpl m p (PatternOfCourse pm) pms where
+  typeCheckImpl _ (PatternOfCourse pm) = typeCheck pm
 
-instance (EmbedUnrestricted l, AugmentEnvironmentPattern m pm p l σ lΓ) => AugmentEnvironmentPatternImpl m p (PatternOfCourse pm) l σ lΓ where
-  augmentEnvironmentPatternImpl _ (PatternOfCourse pm) _ p e = augmentEnvironmentPattern pm (unrestricted @l) p e
+instance (EmbedOfCourse σ, InternalType pm σ) => InternalType (PatternOfCourse pm) σ where
+  internalType (PatternOfCourse pm) = ofCourse $ internalType pm
+
+instance (EmbedUnrestricted l, AugmentEnvironmentPatternLinear m pm l lΓ) => AugmentEnvironmentPatternLinearImpl m p (PatternOfCourse pm) l lΓ where
+  augmentEnvironmentPatternLinearImpl _ (PatternOfCourse pm) _ e = augmentEnvironmentPatternLinear pm (unrestricted @l) e
 
 instance (FreeVariables pm u) => FreeVariables (PatternOfCourse pm) u where
   freeVariables' (PatternOfCourse pm) = freeVariables @u pm
@@ -35,8 +30,12 @@ instance RemoveBindings pm => RemoveBindings (PatternOfCourse pm) where
   removeBindings (PatternOfCourse pm) = removeBindings pm
 
 instance (pm ~ pm', EmbedPatternOfCourse pm, AvoidCapturePattern u pm e) => AvoidCapturePatternImpl (PatternOfCourse pm) u pm' e where
-  avoidCapturePatternImpl u (PatternOfCourse pm, e) = (patternOfCourse pm', e') where
-   (pm', e') = avoidCapturePattern u (pm, e)
+  avoidCapturePatternImpl u (PatternOfCourse pm, e) = (patternOfCourse pm', e')
+    where
+      (pm', e') = avoidCapturePattern u (pm, e)
+
+instance (pm ~ pm', EmbedPatternOfCourse pm, Reduce pm) => ReduceImpl (PatternOfCourse pm') pm where
+  reduceImpl (PatternOfCourse pm) = patternOfCourse (reduce pm)
 
 instance
   ( EmbedBind pm e,

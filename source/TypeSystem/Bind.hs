@@ -6,7 +6,7 @@ import Misc.Util (Same, same)
 import TypeSystem.Linear
 import TypeSystem.Methods
 
-data Bind l pm' pm e = Bind pm e e deriving (Show, Functor, Foldable, Traversable)
+data Bind l pm' pm e = Bind pm e e
 
 class EmbedBind pm e where
   bind :: pm -> e -> e -> e
@@ -16,18 +16,20 @@ instance
     EmbedLinear l,
     Positioned e p,
     SameType m p σ,
-    TypeCheckInstantiate σ pm m pm',
+    Instantiate pm m pm',
+    InternalType pm σ,
     Usage lΓ,
-    AugmentEnvironmentPattern m pm p l σ lΓ,
+    AugmentEnvironmentPatternLinear m pm l lΓ,
     TypeCheckLinear σ m e lΓ
   ) =>
   TypeCheckLinearImpl m p (Bind l pm pm' e) σ lΓ
   where
   typeCheckLinearImpl p (Bind pm' e1 e2) = do
-    (τ', pm) <- typeCheckInstantiate @σ @pm pm'
+    pm <- instantiate @pm pm'
+    let τ' = internalType pm :: σ
     (τ, lΓ1) <- typeCheckLinear e1
     sameType p τ τ'
-    (σ, lΓ2) <- augmentEnvironmentPattern pm (linear @l) p (typeCheckLinear e2)
+    (σ, lΓ2) <- augmentEnvironmentPatternLinear pm (linear @l) (typeCheckLinear e2)
     pure (σ, combine lΓ1 lΓ2)
 
 instance
@@ -55,5 +57,12 @@ instance
     where
       (pm', e2') = avoidCapturePattern ux (pm, e2)
 
-instance (e ~ e', ReducePattern pm e, Reduce e) => ReduceImpl (Bind l pm' pm e) e' where
-  reduceImpl (Bind pm e1 e2) = reducePattern pm (reduce e1) (reduce e2)
+instance
+  ( e ~ e',
+    ReducePattern pm e,
+    Reduce pm,
+    Reduce e
+  ) =>
+  ReduceImpl (Bind l pm' pm e) e'
+  where
+  reduceImpl (Bind pm e1 e2) = reducePattern (reduce pm) (reduce e1) (reduce e2)

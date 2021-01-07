@@ -1,53 +1,65 @@
 module TypeSystem.Forall where
 
-import Data.Set as Set (delete)
 import Data.Type.Equality ((:~:) (..))
-import Misc.Identifier
 import Misc.Util (Same, same)
 import TypeSystem.Methods
 import TypeSystem.Type
-import TypeSystem.Variable
 
-data Forall κs s κ σ = Forall Identifier κ σ deriving (Show, Functor, Foldable, Traversable)
+data Forall s pm' pm σ = Forall pm σ
 
-class EmbedForall κ σ where
-  forallx :: Identifier -> κ -> σ -> σ
+class EmbedForall pm σ where
+  forallx :: pm -> σ -> σ
 
-class CheckForall m p κ σ where
-  checkForall :: p -> σ -> m (Forall κs s κ σ)
+class CheckForall' m p κ σ where
+  checkForall' :: p -> σ -> m (κ, σ -> σ)
 
 instance
   ( Monad m,
     Positioned σ p,
-    AugmentEnvironment m p κ,
-    TypeCheckInstantiate κs κ m κ',
-    EmbedType s κ,
-    CheckType m p κ s,
+    EmbedType κ s,
+    CheckType s κ m p,
+    AugmentEnvironmentPattern m pm,
+    Instantiate pm m pm',
     TypeCheck κ m σ
   ) =>
-  TypeCheckImpl m p (Forall κs s κ' σ) κ
+  TypeCheckImpl m p (Forall s pm pm' σ) κ
   where
-  typeCheckImpl p (Forall x κ1' σ) = do
-    κ1 <- instantiate @κs @κ κ1'
-    Type s <- checkType @s (location σ) =<< augmentEnvironment p x κ1 (typeCheck @κ σ)
+  typeCheckImpl _ (Forall pm' σ) = do
+    pm <- instantiate @pm pm'
+    Type s <- checkType @s (location σ) =<< augmentEnvironmentPattern pm (typeCheck @κ σ)
     pure $ typex @κ s
 
-instance (FreeVariables σ u, FreeVariables κ u, Same u σ) => FreeVariables (Forall κs s κ σ) u where
-  freeVariables' (Forall x κ σ) = case same @u @σ of
-    Just Refl -> Set.delete x (freeVariables @u σ)
-    Nothing -> freeVariables @u κ <> freeVariables @u σ
+instance
+  ( FreeVariables σ u,
+    FreeVariables pm u,
+    RemoveBindings pm,
+    Same u σ
+  ) =>
+  FreeVariables (Forall s pm' pm σ) u
+  where
+  freeVariables' (Forall pm σ) = case same @u @σ of
+    Just Refl -> removeBindings pm (freeVariables @u σ)
+    Nothing -> freeVariables @u pm <> freeVariables @u σ
 
 instance
   ( σ ~ σ',
-    EmbedVariable σ,
-    EmbedForall κ σ,
+    EmbedForall pm σ,
     Substitute u σ,
-    Substitute u κ,
-    Substitute σ σ',
-    FreeVariables u σ
+    Substitute u pm,
+    AvoidCapturePattern u pm σ
   ) =>
-  SubstituteImpl (Forall κs s κ σ') u σ
+  SubstituteImpl (Forall s pm' pm σ') u σ
   where
-  substituteImpl ux x1 (Forall x2 κ σ) = forallx x2' (substitute ux x1 κ) (substitute ux x1 σ')
+  substituteImpl ux x (Forall pm σ) = forallx (substitute ux x pm') (substitute ux x σ')
     where
-      (x2', σ') = avoidCapture @σ ux (x2, σ)
+      (pm', σ') = avoidCapturePattern ux (pm, σ)
+
+instance
+  ( σ ~ σ',
+    EmbedForall pm σ,
+    Reduce pm,
+    Reduce σ
+  ) =>
+  ReduceImpl (Forall s pm' pm σ) σ'
+  where
+  reduceImpl (Forall pm σ) = forallx (reduce pm) (reduce σ)
