@@ -44,17 +44,16 @@ instance
 instance FreeVariables e u => FreeVariables (Application e) u where
   freeVariables' (Application e1 e2) = freeVariables @u e1 <> freeVariables @u e2
 
-instance (e ~ e', EmbedApplication e, Substitute u e) => SubstituteImpl (Application e') u e where
+instance (EmbedApplication e, Substitute u e) => SubstituteImpl (Application e) u e where
   substituteImpl ux x (Application e1 e2) = application (substitute ux x e1) (substitute ux x e2)
 
 instance
-  ( e ~ e',
-    EmbedApplication e,
-    ReduceMatchAbstraction e' e,
-    Substitute e e',
+  ( EmbedApplication e,
+    ReduceMatchAbstraction e e,
+    Substitute e e,
     Reduce e
   ) =>
-  ReduceImpl (Application e') e
+  ReduceImpl (Application e) e
   where
   reduceImpl (Application e1 e2) = case reduceMatchAbstraction (reduce e1) of
     Just f -> f (reduce e2)

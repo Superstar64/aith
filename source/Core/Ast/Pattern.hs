@@ -2,7 +2,6 @@ module Core.Ast.Pattern where
 
 import Core.Ast.Common
 import Core.Ast.Kind
-import Core.Ast.Multiplicity
 import Core.Ast.Stage
 import Core.Ast.Type
 import Data.Bifunctor (Bifunctor, bimap)
@@ -33,37 +32,37 @@ data PatternSort = Pattern
 projectPattern ::
   PatternF σ p ->
   Either
-    (TypeSystem.PatternVariable Stage KindInternal σ)
+    (TypeSystem.PatternVariable StageInternal KindInternal σ)
     (TypeSystem.PatternOfCourse (Pattern σ p))
 projectPattern (PatternVariable x σ) = Left $ TypeSystem.PatternVariable x σ
 projectPattern (PatternOfCourse pm) = Right $ TypeSystem.PatternOfCourse pm
 
-instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => TypeSystem.EmbedPatternVariable (Type i) (Pattern σ i') where
+instance TypeSystem.EmbedPatternVariable TypeInternal (Pattern TypeInternal Internal) where
   patternVariable x σ = CorePattern Internal $ PatternVariable x σ
 
-instance (i ~ Internal, σ ~ TypeInternal) => TypeSystem.EmbedPatternOfCourse (Pattern σ i) where
+instance TypeSystem.EmbedPatternOfCourse (Pattern TypeInternal Internal) where
   patternOfCourse pm = CorePattern Internal $ PatternOfCourse pm
 
 instance TypeSystem.EmbedPattern PatternSort where
   pattern = Pattern
 
-instance (σ ~ TypeInternal, σ' ~ TypeInternal) => InternalType (Pattern σ p) σ' where
+instance InternalType (Pattern TypeInternal p) TypeInternal where
   internalType (CorePattern _ pm) = internalType $ projectPattern pm
 
-instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => FreeVariables (Pattern σ i) (Type i') where
+instance FreeVariables (Pattern TypeInternal Internal) TypeInternal where
   freeVariables' (CorePattern Internal pm) = freeVariables @TypeInternal $ projectPattern pm
 
-instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => FreeVariables (Pattern σ i) (Multiplicity i') where
-  freeVariables' (CorePattern Internal pm) = freeVariables @MultiplicityInternal $ projectPattern pm
+instance Bindings (Pattern TypeInternal Internal) where
+  bindings (CorePattern Internal pm) = bindings $ projectPattern pm
 
-instance (i ~ Internal, σ ~ TypeInternal) => RemoveBindings (Pattern σ i) where
-  removeBindings (CorePattern Internal pm) = removeBindings $ projectPattern pm
+instance ModifyVariables TypeInternal (Pattern TypeInternal Internal) where
+  modifyVariables (CorePattern Internal pm) free = freeVariables @TypeInternal (projectPattern pm) <> free
 
-instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => Substitute (Type i) (Pattern σ i') where
+instance Substitute TypeInternal (Pattern TypeInternal Internal) where
   substitute σx x (CorePattern Internal pm) = substituteImpl σx x $ projectPattern pm
 
-instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => Substitute (Multiplicity i) (Pattern σ i') where
-  substitute lx x (CorePattern Internal pm) = substituteImpl lx x $ projectPattern pm
+instance ConvertPattern (Pattern TypeInternal Internal) (Pattern TypeInternal Internal) where
+  convertPattern ix x (CorePattern Internal pm) = convertPattern ix x $ projectPattern pm
 
-instance (i ~ Internal, σ ~ TypeInternal) => Reduce (Pattern σ i) where
+instance Reduce (Pattern TypeInternal Internal) where
   reduce (CorePattern Internal pm) = reduceImpl $ projectPattern pm

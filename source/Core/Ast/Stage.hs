@@ -1,12 +1,17 @@
 module Core.Ast.Stage where
 
+import Core.Ast.Common
 import qualified TypeSystem.StageFunction as TypeSystem
 import qualified TypeSystem.StageOfCourse as TypeSystem
 
-data Stage = Runtime | StageMacro Stage Stage | StageOfCourse Stage deriving (Show)
+data StageF p = Runtime | StageMacro (Stage p) (Stage p) | StageOfCourse (Stage p) deriving (Functor, Show)
 
-instance TypeSystem.EmbedStageFunction Stage where
-  stageFunction s s' = StageMacro s s'
+data Stage p = CoreStage p (StageF p) deriving (Functor, Show)
 
-instance TypeSystem.EmbedStageOfCourse Stage where
-  stageOfCourse s = StageOfCourse s
+type StageInternal = Stage Internal
+
+instance TypeSystem.EmbedStageFunction StageInternal where
+  stageFunction s s' = CoreStage Internal $ StageMacro s s'
+
+instance TypeSystem.EmbedStageOfCourse StageInternal where
+  stageOfCourse s = CoreStage Internal $ StageOfCourse s

@@ -31,5 +31,5 @@ executable aith
   ghc-options: -W -Worphans
   default-language:    Haskell2010
   default-extensions:  MultiParamTypeClasses, FunctionalDependencies, DeriveTraversable, FlexibleInstances,
-                       NoMonomorphismRestriction, TypeFamilies, TypeOperators, TypeApplications, ScopedTypeVariables,
-                       AllowAmbiguousTypes, GeneralizedNewtypeDeriving
+                       NoMonomorphismRestriction, TypeApplications, ScopedTypeVariables,
+                       AllowAmbiguousTypes, GeneralizedNewtypeDeriving, TypeOperators

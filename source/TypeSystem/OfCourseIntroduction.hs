@@ -29,8 +29,18 @@ instance
 instance FreeVariables e u => FreeVariables (OfCourseIntroduction l e) u where
   freeVariables' (OfCourseIntroduction e) = freeVariables @u e
 
-instance (e ~ e', EmbedOfCourseIntroduction e, Substitute u e) => SubstituteImpl (OfCourseIntroduction l e) u e' where
+instance
+  ( EmbedOfCourseIntroduction e,
+    Substitute u e
+  ) =>
+  SubstituteImpl (OfCourseIntroduction l e) u e
+  where
   substituteImpl ux x (OfCourseIntroduction e) = ofCourseIntroduction (substitute ux x e)
 
-instance (e ~ e', EmbedOfCourseIntroduction e, Reduce e) => ReduceImpl (OfCourseIntroduction l e) e' where
+instance
+  ( EmbedOfCourseIntroduction e,
+    Reduce e
+  ) =>
+  ReduceImpl (OfCourseIntroduction l e) e
+  where
   reduceImpl (OfCourseIntroduction e) = ofCourseIntroduction $ reduce e

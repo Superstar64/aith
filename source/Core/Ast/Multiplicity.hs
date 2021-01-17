@@ -1,8 +1,6 @@
 module Core.Ast.Multiplicity where
 
 import Core.Ast.Common
-import Data.Type.Equality ((:~:) (..))
-import Misc.Util (Same, same)
 import qualified TypeSystem.Linear as TypeSystem
 import TypeSystem.Methods
 import qualified TypeSystem.Multiplicity as TypeSystem
@@ -18,10 +16,10 @@ projectMultiplicity :: MultiplicityF -> (Either TypeSystem.Linear TypeSystem.Unr
 projectMultiplicity Linear = Left $ TypeSystem.Linear
 projectMultiplicity Unrestricted = Right $ TypeSystem.Unrestricted
 
-instance (i ~ Internal) => TypeSystem.EmbedLinear (Multiplicity i) where
+instance TypeSystem.EmbedLinear MultiplicityInternal where
   linear = CoreMultiplicity Internal Linear
 
-instance (i ~ Internal) => TypeSystem.EmbedUnrestricted (Multiplicity i) where
+instance TypeSystem.EmbedUnrestricted MultiplicityInternal where
   unrestricted = CoreMultiplicity Internal Unrestricted
 
 data MultiplicitySort = Multiplicity deriving (Show)
@@ -29,13 +27,10 @@ data MultiplicitySort = Multiplicity deriving (Show)
 instance TypeSystem.EmbedMultiplicity MultiplicitySort where
   multiplicity = Multiplicity
 
-instance (i ~ Internal, i' ~ Internal) => Same (Multiplicity i) (Multiplicity i') where
-  same = Just Refl
-
-instance (i ~ Internal, i' ~ Internal) => FreeVariables (Multiplicity i) (Multiplicity i') where
+instance FreeVariables MultiplicityInternal MultiplicityInternal where
   freeVariables' (CoreMultiplicity Internal l) = freeVariables @MultiplicityInternal $ projectMultiplicity l
 
-instance (i ~ Internal, i' ~ Internal) => Substitute (Multiplicity i) (Multiplicity i') where
+instance Substitute MultiplicityInternal MultiplicityInternal where
   substitute lx x (CoreMultiplicity Internal l) = substituteImpl lx x $ projectMultiplicity l
 
-instance (i ~ Internal) => SubstituteSame (Multiplicity i)
+instance SubstituteSame MultiplicityInternal

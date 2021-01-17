@@ -8,9 +8,7 @@ import Core.Ast.Type
 import Core.Ast.TypePattern
 import Data.Bifunctor (bimap)
 import qualified Data.Set as Set
-import Data.Type.Equality ((:~:) (..))
 import Misc.Identifier
-import Misc.Util (Same, same)
 import qualified TypeSystem.Abstraction as TypeSystem
 import qualified TypeSystem.Application as TypeSystem
 import qualified TypeSystem.Bind as TypeSystem
@@ -41,6 +39,8 @@ instance Functor TermF where
 
 data Term p = CoreTerm p (TermF p) deriving (Show, Functor)
 
+type TermInternal = Term Internal
+
 projectTerm ::
   TermF p ->
   Either
@@ -69,125 +69,110 @@ projectTerm (TypeApplication e σ) = Right $ Right $ Right $ Right $ Left $ Type
 projectTerm (OfCourseIntroduction e) = Right $ Right $ Right $ Right $ Right $ Left $ TypeSystem.OfCourseIntroduction e
 projectTerm (Bind pm e1 e2) = Right $ Right $ Right $ Right $ Right $ Right $ TypeSystem.Bind pm e1 e2
 
-instance i ~ Internal => TypeSystem.EmbedVariable (Term i) where
+instance TypeSystem.EmbedVariable TermInternal where
   variable x = CoreTerm Internal $ Variable x
 
-instance (i ~ Internal, i' ~ Internal, i'' ~ Internal) => TypeSystem.EmbedAbstraction (Pattern (Type i') i'') (Term i') where
+instance TypeSystem.EmbedAbstraction (Pattern TypeInternal Internal) TermInternal where
   abstraction pm e = CoreTerm Internal $ MacroAbstraction pm e
 
-instance (i ~ Internal) => TypeSystem.EmbedApplication (Term i) where
+instance TypeSystem.EmbedApplication TermInternal where
   application e1 e2 = CoreTerm Internal $ MacroApplication e1 e2
 
-instance (i ~ Internal, i' ~ Internal, κ ~ KindInternal) => TypeSystem.EmbedTypeAbstraction (TypePattern κ i) (Term i') where
+instance TypeSystem.EmbedTypeAbstraction (TypePattern KindInternal Internal) TermInternal where
   typeAbstraction pm e = CoreTerm Internal $ TypeAbstraction pm e
 
-instance (i ~ Internal, i' ~ Internal) => TypeSystem.EmbedTypeApplication (Type i) (Term i') where
+instance TypeSystem.EmbedTypeApplication TypeInternal TermInternal where
   typeApplication e σ = CoreTerm Internal $ TypeApplication e σ
 
-instance (i ~ Internal) => TypeSystem.EmbedOfCourseIntroduction (Term i) where
+instance TypeSystem.EmbedOfCourseIntroduction TermInternal where
   ofCourseIntroduction e = CoreTerm Internal $ OfCourseIntroduction e
 
-instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => TypeSystem.EmbedBind (Pattern σ i) (Term i') where
+instance TypeSystem.EmbedBind (Pattern TypeInternal Internal) TermInternal where
   bind pm e1 e2 = CoreTerm Internal $ Bind pm e1 e2
 
-instance (i ~ Internal, i' ~ Internal) => Same (Type i) (Term i) where
-  same = Nothing
+instance FreeVariables TermInternal TermInternal where
+  freeVariables' (CoreTerm Internal e) = freeVariables @TermInternal $ projectTerm e
 
-instance (i ~ Internal, i' ~ Internal) => Same (Term i) (Term i) where
-  same = Just Refl
+instance FreeVariables (TypeSystem.Variable TermInternal) TermInternal where
+  freeVariables' (TypeSystem.Variable x) = Set.singleton x
 
-instance (i ~ Internal, i' ~ Internal) => Same (Term i) (Type i) where
-  same = Nothing
-
-instance (i ~ Internal, i' ~ Internal) => Same (Multiplicity i) (Term i') where
-  same = Nothing
-
-instance (i ~ Internal, i' ~ Internal) => Same (Term i) (Multiplicity i') where
-  same = Nothing
-
-instance (i ~ Internal, i' ~ Internal) => FreeVariables (Term i) (Term i') where
-  freeVariables' (CoreTerm Internal e) = freeVariables @(Term Internal) $ projectTerm e
-
-instance (i ~ Internal, i' ~ Internal) => FreeVariables (Term i) (Type i') where
+instance FreeVariables TermInternal TypeInternal where
   freeVariables' (CoreTerm Internal e) = freeVariables @TypeInternal $ projectTerm e
 
-instance (i ~ Internal, i' ~ Internal) => FreeVariables (Term i) (Multiplicity i') where
-  freeVariables' (CoreTerm Internal e) = freeVariables @MultiplicityInternal $ projectTerm e
-
-instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => FreeVariables (Pattern σ i) (Term i') where
+instance FreeVariables (TypeSystem.Variable TermInternal) TypeInternal where
   freeVariables' _ = Set.empty
 
-instance (i ~ Internal, i' ~ Internal, κ ~ KindInternal) => FreeVariables (TypePattern κ i) (Term i) where
+instance FreeVariables (Pattern TypeInternal Internal) TermInternal where
   freeVariables' _ = Set.empty
 
-instance (i ~ Internal, i' ~ Internal) => FreeVariables (Type i) (Term i') where
+instance FreeVariables (TypePattern KindInternal Internal) TermInternal where
   freeVariables' _ = Set.empty
 
-instance (i ~ Internal, i' ~ Internal) => FreeVariables (Kind i) (Term i') where
+instance FreeVariables TypeInternal TermInternal where
   freeVariables' _ = Set.empty
 
-instance (i ~ Internal, i' ~ Internal) => FreeVariables (Multiplicity i) (Term i) where
+instance FreeVariables KindInternal TermInternal where
   freeVariables' _ = Set.empty
 
-instance (i ~ Internal, i' ~ Internal) => Substitute (Term i) (Term i') where
+instance ModifyVariables TermInternal (Pattern TypeInternal Internal) where
+  modifyVariables (CorePattern Internal pm) free = foldr Set.delete free $ bindings (projectPattern pm)
+
+instance ModifyVariables TermInternal (TypePattern KindInternal Internal) where
+  modifyVariables _ free = free
+
+instance Substitute TermInternal TermInternal where
   substitute ex x (CoreTerm Internal e) = substituteImpl ex x $ projectTerm e
 
-instance (i ~ Internal, i' ~ Internal) => Substitute (Type i) (Term i') where
+instance SubstituteImpl (TypeSystem.Variable TermInternal) TermInternal TermInternal where
+  substituteImpl ex x (TypeSystem.Variable x') = substituteVariable TypeSystem.variable ex x x'
+
+instance Substitute TypeInternal TermInternal where
   substitute σx x (CoreTerm Internal e) = substituteImpl σx x $ projectTerm e
 
-instance (i ~ Internal, i' ~ Internal) => Substitute (Multiplicity i) (Term i') where
-  substitute lx x (CoreTerm Internal e) = substituteImpl lx x $ projectTerm e
+instance SubstituteImpl (TypeSystem.Variable TermInternal) TypeInternal TermInternal where
+  substituteImpl _ _ (TypeSystem.Variable x) = TypeSystem.variable x
 
-instance (i ~ Internal) => SubstituteSame (Term i)
+instance SubstituteSame TermInternal
 
-instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => Substitute (Term i) (Pattern σ i') where
+instance Substitute TermInternal (Pattern TypeInternal Internal) where
   substitute _ _ pm = pm
 
-instance (i ~ Internal, i' ~ Internal, κ ~ KindInternal) => Substitute (Term i) (TypePattern κ i') where
+instance Substitute TermInternal (TypePattern KindInternal Internal) where
   substitute _ _ pm = pm
 
-instance (i ~ Internal, i' ~ Internal) => Substitute (Term i) (Type i) where
+instance Substitute TermInternal TypeInternal where
   substitute _ _ σ = σ
 
-instance Substitute (Term i) (Kind i) where
+instance Substitute TermInternal KindInternal where
   substitute _ _ κ = κ
 
-instance (i ~ Internal, i' ~ Internal) => Substitute (Term i) (Multiplicity i') where
-  substitute _ _ l = l
+instance AvoidCapture TermInternal (Pattern TypeInternal Internal) TermInternal where
+  avoidCapture ex (CorePattern Internal pm, e) = avoidCaptureImpl @TermInternal projectPattern (CorePattern Internal) ex (pm, e)
 
-instance (i ~ Internal, i' ~ Internal, i'' ~ Internal, σ ~ TypeInternal) => AvoidCapturePattern (Term i'') (Pattern σ i) (Term i') where
-  avoidCapturePattern u (CorePattern Internal pm, e) = avoidCapturePatternImpl u (projectPattern pm, e)
+instance AvoidCapture TypeInternal (Pattern TypeInternal Internal) TermInternal where
+  avoidCapture _ = id
 
-instance (i ~ Internal, i' ~ Internal, i'' ~ Internal, σ ~ TypeInternal) => AvoidCapturePattern (Type i'') (Pattern σ i) (Term i') where
-  avoidCapturePattern u (CorePattern Internal pm, e) = avoidCapturePatternImpl u (projectPattern pm, e)
+instance AvoidCapture TermInternal (TypePattern KindInternal Internal) TermInternal where
+  avoidCapture ex (CoreTypePattern Internal pm, e) = avoidCaptureImpl @TypeInternal projectTypePattern (CoreTypePattern Internal) ex (pm, e)
 
-instance (i ~ Internal, i' ~ Internal, i'' ~ Internal, σ ~ TypeInternal) => AvoidCapturePattern (Multiplicity i'') (Pattern σ i) (Term i') where
-  avoidCapturePattern u (CorePattern Internal pm, e) = avoidCapturePatternImpl u (projectPattern pm, e)
+instance AvoidCapture TypeInternal (TypePattern KindInternal Internal) TermInternal where
+  avoidCapture σx (CoreTypePattern Internal pm, e) = avoidCaptureImpl @TypeInternal projectTypePattern (CoreTypePattern Internal) σx (pm, e)
 
-instance (i ~ Internal, i' ~ Internal, i'' ~ Internal, κ ~ KindInternal) => AvoidCapturePattern (Term i) (TypePattern κ i') (Term i'') where
-  avoidCapturePattern u (CoreTypePattern Internal pm, e) = avoidCapturePatternImpl u (projectTypePattern pm, e)
-
-instance (i ~ Internal, i' ~ Internal, i'' ~ Internal, κ ~ KindInternal) => AvoidCapturePattern (Type i) (TypePattern κ i') (Term i'') where
-  avoidCapturePattern u (CoreTypePattern Internal pm, e) = avoidCapturePatternImpl u (projectTypePattern pm, e)
-
-instance (i ~ Internal, i' ~ Internal, i'' ~ Internal, κ ~ KindInternal) => AvoidCapturePattern (Multiplicity i) (TypePattern κ i') (Term i'') where
-  avoidCapturePattern u (CoreTypePattern Internal pm, e) = avoidCapturePatternImpl u (projectTypePattern pm, e)
-
-instance (i ~ Internal) => Reduce (Term i) where
+instance Reduce TermInternal where
   reduce (CoreTerm Internal e) = reduceImpl $ projectTerm e
 
-instance (i ~ Internal, i' ~ Internal, σ ~ TypeInternal) => ReducePattern (Pattern σ i) (Term i') where
+instance ReducePattern (Pattern TypeInternal Internal) TermInternal where
   reducePattern (CorePattern Internal pm) e1 e2 = reducePattern (projectPattern pm) e1 e2
 
-instance (i ~ Internal, i' ~ Internal) => ReduceMatchAbstraction (Term i') (Term i) where
+instance ReduceMatchAbstraction TermInternal TermInternal where
   reduceMatchAbstraction (CoreTerm Internal (MacroAbstraction pm e1)) = Just $ \e2 -> reducePattern pm e2 e1
   reduceMatchAbstraction _ = Nothing
 
-instance (i ~ Internal, i' ~ Internal) => ReduceMatchAbstraction (Type i') (Term i) where
+instance ReduceMatchAbstraction TypeInternal TermInternal where
   reduceMatchAbstraction (CoreTerm Internal (TypeAbstraction (CoreTypePattern Internal (TypePatternVariable x _)) e)) = Just $ \σ -> reduce $ substitute σ x e
   reduceMatchAbstraction _ = Nothing
 
-instance (i ~ Internal) => TypeSystem.MatchOfCourseIntroduction (Term i) where
+instance TypeSystem.MatchOfCourseIntroduction TermInternal where
   matchOfCourseIntroduction (CoreTerm Internal (OfCourseIntroduction e)) = Just (TypeSystem.OfCourseIntroduction e)
   matchOfCourseIntroduction _ = Nothing
 

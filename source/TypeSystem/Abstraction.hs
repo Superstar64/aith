@@ -1,7 +1,5 @@
 module TypeSystem.Abstraction where
 
-import Data.Type.Equality ((:~:) (..))
-import Misc.Util (Same, same)
 import TypeSystem.Function
 import TypeSystem.Linear
 import TypeSystem.Methods
@@ -16,7 +14,7 @@ instance
     EmbedFunction σ,
     Instantiate pm m pm',
     InternalType pm σ,
-    AugmentEnvironmentPattern m pm,
+    Augment m pm,
     TypeCheck σ m e
   ) =>
   TypeCheckImpl m p (Abstraction l pm pm' e) σ
@@ -24,7 +22,7 @@ instance
   typeCheckImpl _ (Abstraction pm' e) = do
     pm <- instantiate @pm pm'
     let σ = internalType pm
-    τ <- augmentEnvironmentPattern pm (typeCheck e)
+    τ <- augment pm (typeCheck e)
     pure (function σ τ)
 
 instance
@@ -33,7 +31,7 @@ instance
     EmbedLinear l,
     Instantiate pm m pm',
     InternalType pm σ,
-    AugmentEnvironmentPatternLinear m pm l lΓ,
+    AugmentLinear m pm l lΓ,
     TypeCheckLinear σ m e lΓ
   ) =>
   TypeCheckLinearImpl m p (Abstraction l pm pm' e) σ lΓ
@@ -41,40 +39,35 @@ instance
   typeCheckLinearImpl _ (Abstraction pm' e) = do
     pm <- instantiate @pm pm'
     let σ = internalType pm
-    (τ, lΓ) <- augmentEnvironmentPatternLinear pm (linear @l) (typeCheckLinear e)
+    (τ, lΓ) <- augmentLinear pm (linear @l) (typeCheckLinear e)
     pure (function σ τ, lΓ)
 
 instance
-  ( Same u e,
-    FreeVariables e u,
+  ( FreeVariables e u,
     FreeVariables pm u,
-    RemoveBindings pm
+    ModifyVariables u pm
   ) =>
   FreeVariables (Abstraction l pm' pm e) u
   where
-  freeVariables' (Abstraction pm e) = case same @u @e of
-    Just Refl -> removeBindings pm $ freeVariables @u e
-    Nothing -> freeVariables @u pm <> freeVariables @u e
+  freeVariables' (Abstraction pm e) = modifyVariables @u pm $ freeVariables @u e
 
 instance
-  ( e ~ e',
-    EmbedAbstraction pm e,
-    AvoidCapturePattern u pm e,
+  ( EmbedAbstraction pm e,
+    AvoidCapture u pm e,
     Substitute u e,
     Substitute u pm
   ) =>
-  SubstituteImpl (Abstraction l pm' pm e') u e
+  SubstituteImpl (Abstraction l pm' pm e) u e
   where
   substituteImpl ux x (Abstraction pm e) = abstraction (substitute ux x pm') (substitute ux x e')
     where
-      (pm', e') = avoidCapturePattern ux (pm, e)
+      (pm', e') = avoidCapture ux (pm, e)
 
 instance
-  ( e ~ e',
-    EmbedAbstraction pm e,
+  ( EmbedAbstraction pm e,
     Reduce pm,
     Reduce e
   ) =>
-  ReduceImpl (Abstraction l pm' pm e') e
+  ReduceImpl (Abstraction l pm' pm e) e
   where
   reduceImpl (Abstraction pm e) = abstraction (reduce pm) (reduce e)

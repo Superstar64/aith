@@ -31,19 +31,17 @@ instance (FreeVariables σ u) => FreeVariables (Function s σ) u where
   freeVariables' (Function σ τ) = freeVariables @u σ <> freeVariables @u τ
 
 instance
-  ( σ ~ σ',
-    EmbedFunction σ,
+  ( EmbedFunction σ,
     Substitute u σ
   ) =>
-  SubstituteImpl (Function s σ') u σ
+  SubstituteImpl (Function s σ) u σ
   where
   substituteImpl ux x (Function σ τ) = function (substitute ux x σ) (substitute ux x τ)
 
 instance
-  ( σ ~ σ',
-    EmbedFunction σ,
+  ( EmbedFunction σ,
     Reduce σ
   ) =>
-  ReduceImpl (Function s σ) σ'
+  ReduceImpl (Function s σ) σ
   where
   reduceImpl (Function σ τ) = function (reduce σ) (reduce τ)

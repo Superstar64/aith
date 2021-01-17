@@ -92,7 +92,7 @@ prettyTerm' (Bind pm e1 e2) = do
 
 prettyTerm (CoreTerm Internal e) = prettyTerm' e
 
-instance (i ~ Internal) => Pretty (Term i) where
+instance Pretty TermInternal where
   pretty = prettyTerm
 
 data PatternPrecedence = BottomPattern | OfCoursePattern deriving (Eq, Ord)
@@ -107,7 +107,7 @@ prettyPattern' d (PatternOfCourse pm) = parens (d > OfCoursePattern) $ do
 
 prettyPattern d (CorePattern Internal pm) = prettyPattern' d pm
 
-instance (i ~ Internal, σ ~ TypeInternal) => Pretty (Pattern σ i) where
+instance Pretty (Pattern TypeInternal Internal) where
   pretty = prettyPattern BottomPattern
 
 data TypePrecedence = BottomType | InnerType deriving (Eq, Ord)
@@ -140,7 +140,7 @@ prettyType' _ (TypeOperator pm σ) = do
 
 prettyType d (CoreType Internal σ) = prettyType' d σ
 
-instance (i ~ Internal) => Pretty (Type i) where
+instance Pretty TypeInternal where
   pretty = prettyType BottomType
 
 prettyTypePattern' (TypePatternVariable x κ) = do
@@ -150,7 +150,7 @@ prettyTypePattern' (TypePatternVariable x κ) = do
 
 prettyTypePattern (CoreTypePattern Internal pm) = prettyTypePattern' pm
 
-instance (i ~ Internal, κ ~ KindInternal) => Pretty (TypePattern κ i) where
+instance Pretty (TypePattern KindInternal Internal) where
   pretty = prettyTypePattern
 
 prettyLinear' Linear = keyword "linear"
@@ -158,23 +158,25 @@ prettyLinear' Unrestricted = keyword "unrestricted"
 
 prettyLinear (CoreMultiplicity Internal l) = prettyLinear' l
 
-instance (i ~ Internal) => Pretty (Multiplicity i) where
+instance Pretty MultiplicityInternal where
   pretty = prettyLinear
 
 data StagePrecedence = BottomStage | ArrowStage | OfCourseStage deriving (Eq, Ord)
 
-prettyStage _ Runtime = keyword "runtime"
-prettyStage d (StageMacro s s') = parens (d > BottomStage) $ do
+prettyStage' _ Runtime = keyword "runtime"
+prettyStage' d (StageMacro s s') = parens (d > BottomStage) $ do
   prettyStage ArrowStage s
   space
   token "~>"
   space
   prettyStage BottomStage s'
-prettyStage d (StageOfCourse s) = parens (d > OfCourseStage) $ do
+prettyStage' d (StageOfCourse s) = parens (d > OfCourseStage) $ do
   token "!"
   prettyStage OfCourseStage s
 
-instance Pretty Stage where
+prettyStage d (CoreStage Internal s) = prettyStage' d s
+
+instance Pretty StageInternal where
   pretty = prettyStage BottomStage
 
 data KindPrecedence = BottomKind | ArrowKind deriving (Eq, Ord)
@@ -190,7 +192,7 @@ prettyKind' d (Higher κ κ') = parens (d > BottomKind) $ do
 
 prettyKind d (CoreKind Internal κ) = prettyKind' d κ
 
-instance (i ~ Internal) => Pretty (Kind i) where
+instance Pretty KindInternal where
   pretty = prettyKind BottomKind
 
 showItem e = s

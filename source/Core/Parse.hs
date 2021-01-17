@@ -57,14 +57,15 @@ stageMacro s = do
   s' <- stage
   pure (StageMacro s s')
 
-stageCore :: Parser Stage
 stageCore = do
-  betweenParens stage <|> Runtime <$ keyword "runtime" <|> StageOfCourse <$> (token "!" >> stageCore)
+  p <- position
+  betweenParens stage <|> CoreStage p <$> (Runtime <$ keyword "runtime") <|> CoreStage p <$> StageOfCourse <$> (token "!" >> stageCore)
 
-stage :: Parser Stage
+stage :: Parser (Stage SourcePos)
 stage = do
+  p <- position
   core <- stageCore
-  stageMacro core <|> pure core
+  CoreStage p <$> stageMacro core <|> pure core
 
 kindType = do
   s <- stage

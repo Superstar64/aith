@@ -31,24 +31,22 @@ instance (FreeVariables σ u, FreeVariables e u) => FreeVariables (TypeApplicati
   freeVariables' (TypeApplication e σ) = freeVariables @u e <> freeVariables @u σ
 
 instance
-  ( e ~ e',
-    EmbedTypeApplication σ e,
+  ( EmbedTypeApplication σ e,
     Substitute u e,
     Substitute u σ
   ) =>
-  SubstituteImpl (TypeApplication κ σ e') u e
+  SubstituteImpl (TypeApplication κ σ e) u e
   where
   substituteImpl ux x (TypeApplication e σ) = typeApplication (substitute ux x e) (substitute ux x σ)
 
 instance
-  ( e ~ e',
-    EmbedTypeApplication σ e,
+  ( EmbedTypeApplication σ e,
     ReduceMatchAbstraction σ e,
     Substitute σ e,
     Reduce σ,
     Reduce e
   ) =>
-  ReduceImpl (TypeApplication κ σ e') e
+  ReduceImpl (TypeApplication κ σ e) e
   where
   reduceImpl (TypeApplication e1 σ) = case reduceMatchAbstraction (reduce e1) of
     Just f -> f (reduce σ)

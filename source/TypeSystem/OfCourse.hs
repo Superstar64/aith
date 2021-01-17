@@ -30,19 +30,17 @@ instance (FreeVariables σ u) => FreeVariables (OfCourse s σ) u where
   freeVariables' (OfCourse σ) = freeVariables @u σ
 
 instance
-  ( σ ~ σ',
-    EmbedOfCourse σ,
+  ( EmbedOfCourse σ,
     Substitute u σ
   ) =>
-  SubstituteImpl (OfCourse s σ) u σ'
+  SubstituteImpl (OfCourse s σ) u σ
   where
   substituteImpl ux x (OfCourse σ) = ofCourse (substitute ux x σ)
 
 instance
-  ( σ ~ σ',
-    EmbedOfCourse σ,
+  ( EmbedOfCourse σ,
     Reduce σ
   ) =>
-  ReduceImpl (OfCourse s σ) σ'
+  ReduceImpl (OfCourse s σ) σ
   where
   reduceImpl (OfCourse σ) = ofCourse (reduce σ)
