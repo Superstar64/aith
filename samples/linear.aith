@@ -1,12 +1,12 @@
-%let !(dup : ∀<b : %runtime> => !b -> ∀<r : %runtime> => (!b -> !b -> r) -> r) = !Λ<b : %runtime> {
+%let !(dup : ∀<b : %type %runtime> => !b -> ∀<r : %type %runtime> => (!b -> !b -> r) -> r) = !Λ<b : %type %runtime> {
 	λ!(x : b) =>
-	Λ<r : %runtime> =>
+	Λ<r : %type %runtime> =>
 	λ(f : !b -> !b -> r) =>
 	f(!x)(!x)
 };
 
-Λ<a : %runtime> =>
-Λ<b : %runtime> =>
+Λ<a : %type %runtime> =>
+Λ<b : %type %runtime> =>
 
 λ(f : a -> !b) =>
 λ(x : a) =>

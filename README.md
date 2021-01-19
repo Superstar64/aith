@@ -59,12 +59,13 @@ See ``/documentation`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Runtime | ``%runtime`` |
-| Macro | ``s -> s'`` |
+| Macro | ``s ~> s'`` |
 
 ## Kinds(κ)
 | Description | Syntax |
 |-|-|
-| Type | `` s `` |
+| Type | `` %type s `` |
+| Function | `` κ -> κ' `` |
 
 # Papers
 Useful / Inspirational papers:

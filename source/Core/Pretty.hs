@@ -182,6 +182,8 @@ instance Pretty StageInternal where
 data KindPrecedence = BottomKind | ArrowKind deriving (Eq, Ord)
 
 prettyKind' _ (Type s) = do
+  keyword "type"
+  space
   pretty s
 prettyKind' d (Higher κ κ') = parens (d > BottomKind) $ do
   prettyKind ArrowKind κ

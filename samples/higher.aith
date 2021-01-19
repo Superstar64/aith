@@ -1,14 +1,14 @@
-Λ<m : %runtime -> %runtime> {
-	λ!(pure : ∀<a : %runtime> => a -> m(a)) => 
-	λ!(bind : ∀<a : %runtime> => ∀<b : %runtime> => m(a) -> (a -> m(b)) -> m(b)) =>
+Λ<m : %type %runtime -> %type %runtime> {
+	λ!(pure : ∀<a : %type %runtime> => a -> m(a)) => 
+	λ!(bind : ∀<a : %type %runtime> => ∀<b : %type %runtime> => m(a) -> (a -> m(b)) -> m(b)) =>
 
-	Λ<a : %runtime> =>
-	Λ<b : %runtime> =>
+	Λ<a : %type %runtime> =>
+	Λ<b : %type %runtime> =>
 	λf : a -> b =>
 	λa : m(a) =>
 	bind<a><b>(a)(λa : a {
 		pure<b>(f(a))
 	})
-}<λ a : %runtime => a>
-(!Λ<a : %runtime> => λ x : a => x)
-(!Λ<a : %runtime> => Λ<b : %runtime> => λ x : a => λ f : a -> b => f(x))
+}<λ a : %type %runtime => a>
+(!Λ<a : %type %runtime> => λ x : a => x)
+(!Λ<a : %type %runtime> => Λ<b : %type %runtime> => λ x : a => λ f : a -> b => f(x))

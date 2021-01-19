@@ -68,6 +68,7 @@ stage = do
   CoreStage p <$> stageMacro core <|> pure core
 
 kindType = do
+  keyword "type"
   s <- stage
   pure (Type s)
 
