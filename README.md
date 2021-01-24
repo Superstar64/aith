@@ -15,7 +15,7 @@ See ``/documentation`` for typing rules.
 * [ ] Multiplicity Polymorphism
 * [ ] Multiplicity Predicates
 * [ ] Levity Polymorphism
-* [ ] Stage Polymorphism
+* [x] Stage Polymorphism
 * [ ] Modules
 * [ ] Runtime Lambda Calculus
 * [ ] Runtime Primatives
@@ -34,6 +34,9 @@ See ``/documentation`` for typing rules.
 | Term Abstraction | ``λ pm { e }``|
 | Term Abstraction | ``λ pm => e ``|
 | Term Application | ``e(e')``|
+| Stage Abstraction | ``Λ@ s => e`` |
+| Stage Abstraction | ``Λ@ s  { e }`` |
+| Stage Application | ``e @ s`` |
 | Of Course Introduction | ``!e`` |
 | Binding | ``%let pm = e1 ; e2 ``|
 
@@ -49,6 +52,8 @@ See ``/documentation`` for typing rules.
 | Variable | ``x`` |
 | Forall | ``∀<x : κ> { σ }`` |
 | Forall | ``∀<x : κ> => σ`` |
+| StageForall | ``∀@s => σ`` |
+| StageForall | ``∀@s { σ }`` |
 | Macro | ``σ -> σ'``|
 | Of Course | ``!σ``|
 | Type Operator | `` λ x : κ { σ }``|
@@ -58,8 +63,9 @@ See ``/documentation`` for typing rules.
 ## Stages (s)
 | Description | Syntax |
 |-|-|
+| Variable | ``sα`` |
 | Runtime | ``%runtime`` |
-| Macro | ``s ~> s'`` |
+| Meta | ``%meta`` |
 
 ## Kinds(κ)
 | Description | Syntax |
