@@ -7,6 +7,7 @@ import Core.Ast.Kind
 import Core.Ast.Multiplicity
 import Core.Ast.Pattern
 import Core.Ast.Stage
+import Core.Ast.StagePattern
 import Core.Ast.Term
 import Core.Ast.Type
 import Core.Ast.TypePattern
@@ -52,20 +53,10 @@ linear = do
   core <- Linear <$ keyword "linear" <|> Unrestricted <$ keyword "unrestricted"
   pure (CoreMultiplicity p core)
 
-stageMacro s = do
-  token "~>"
-  s' <- stage
-  pure (StageMacro s s')
-
-stageCore = do
-  p <- position
-  betweenParens stage <|> CoreStage p <$> (Runtime <$ keyword "runtime") <|> CoreStage p <$> StageOfCourse <$> (token "!" >> stageCore)
-
 stage :: Parser (Stage SourcePos)
 stage = do
   p <- position
-  core <- stageCore
-  CoreStage p <$> stageMacro core <|> pure core
+  CoreStage p <$> (StageVariable <$> identfier) <|> CoreStage p <$> (Runtime <$ keyword "runtime") <|> CoreStage p <$> (Meta <$ keyword "meta")
 
 kindType = do
   keyword "type"
@@ -96,6 +87,12 @@ forallx = do
   σ <- lambda typex
   pure (Forall pm σ)
 
+stageForall = do
+  token "∀@"
+  pm <- stagePattern
+  σ <- lambda typex
+  pure (StageForall pm σ)
+
 macro σ = do
   token "->"
   τ <- typex
@@ -114,7 +111,7 @@ typeOperator = do
 typeCore :: Parser (Type SourcePos)
 typeCore = do
   p <- position
-  core <- betweenParens typex <|> CoreType p <$> typeVariable <|> CoreType p <$> forallx <|> CoreType p <$> ofCourse <|> CoreType p <$> typeOperator
+  core <- betweenParens typex <|> CoreType p <$> typeVariable <|> CoreType p <$> forallx <|> CoreType p <$> stageForall <|> CoreType p <$> ofCourse <|> CoreType p <$> typeOperator
   postfix <- many (betweenParens typex)
   pure $ foldl (\σ τ -> CoreType p $ TypeConstruction σ τ) core postfix
 
@@ -132,6 +129,12 @@ typePattern = do
   κ <- kind
   pure (CoreTypePattern p (TypePatternVariable x κ))
 
+stagePattern :: Parser (StagePattern SourcePos)
+stagePattern = do
+  p <- position
+  x <- identfier
+  pure (CoreStagePattern p (StagePatternVariable x))
+
 variable = Variable <$> identfier
 
 macroAbstraction = do
@@ -141,12 +144,17 @@ macroAbstraction = do
   pure (MacroAbstraction pm e)
 
 typeAbstraction = do
-  token "Λ"
-  token "<"
+  token "Λ<"
   pm <- typePattern
   token ">"
   e <- lambda term
   pure (TypeAbstraction pm e)
+
+stageAbstraction = do
+  token "Λ@"
+  pm <- stagePattern
+  e <- lambda term
+  pure (StageAbstraction pm e)
 
 ofCourseIntroduction = do
   token "!"
@@ -180,19 +188,27 @@ bind = do
   e2 <- term
   pure (Bind pm e1 e2)
 
-data Post = MacroApp (Term SourcePos) | TypeApp (Type SourcePos)
+data Post = MacroApp (Term SourcePos) | TypeApp (Type SourcePos) | StageApp (Stage SourcePos)
 
 term :: Parser (Term SourcePos)
 term = do
   p <- position
-  core <- betweenParens term <|> x p <|> λ p <|> λσ p <|> bangIntro p <|> bindImpl p
-  postfix <- many $ choice [MacroApp <$> between (token "(") (token ")") term, TypeApp <$> between (token "<") (token ">") typex]
+  core <- betweenParens term <|> x p <|> λ p <|> λσ p <|> λs p <|> bangIntro p <|> bindImpl p
+  postfix <-
+    many $
+      choice
+        [ MacroApp <$> between (token "(") (token ")") term,
+          TypeApp <$> between (token "<") (token ">") typex,
+          StageApp <$> (token ("@") *> stage)
+        ]
   pure $ foldl (fix p) core postfix
   where
     fix p e1 (MacroApp e2) = CoreTerm p $ MacroApplication e1 e2
     fix p e (TypeApp σ) = CoreTerm p $ TypeApplication e σ
+    fix p e (StageApp s) = CoreTerm p $ StageApplication e s
     x p = CoreTerm p <$> variable
     λ p = CoreTerm p <$> macroAbstraction
     λσ p = CoreTerm p <$> typeAbstraction
+    λs p = CoreTerm p <$> stageAbstraction
     bangIntro p = CoreTerm p <$> ofCourseIntroduction
     bindImpl p = CoreTerm p <$> bind

@@ -38,10 +38,8 @@ e \Coloneqq & x \tag*{[Variable]}\\
 \rho \Coloneqq & \text{void*}\\
 \\
 s \Coloneqq & s \alpha \tag*{[Stage Variable]}\\
-& s \to s' \tag*{[Macro]} \\
-& !s \tag*{[Bang]} \\
-& \forall s \alpha. s \tag*{[Forall]}\\
-& \text{Runtime} (\rho) \tag*{[Runtime Stage]}\\
+& \text{Meta} \tag*{[Meta]} \\
+& \text{Runtime} (\rho) \tag*{[Runtime]}\\
 \\
 \kappa \Coloneqq & \text{Type} (s) \tag*{[Type]} \\
 & \kappa \to \kappa' \tag*{[Type Function]} \\
@@ -69,7 +67,7 @@ s \Coloneqq & s \alpha \tag*{[Stage Variable]}\\
 {\Phi | \Gamma, [x : \tau] \vdash e : \sigma } \\
 \\
 \frac
-{\Phi | \Gamma, \langle x : \sigma \rangle \vdash e : \tau \quad \Gamma \vdash \sigma : \text{Type} (s)}
+{\Phi | \Gamma, \langle x : \sigma \rangle \vdash e : \tau \quad \Phi \vdash \sigma : \text{Type} (s)}
 {\Phi | \Gamma \vdash \lambda x:\sigma. e : \sigma \to \tau } \\
 \\
 \frac
@@ -85,7 +83,7 @@ s \Coloneqq & s \alpha \tag*{[Stage Variable]}\\
 {\Phi | \Gamma \vdash (\text{let} \, !x = e; e') : \sigma}  \\
 \\
 \frac
-{\Phi, \alpha : \kappa | \Gamma \vdash e : \sigma}
+{\Phi, \alpha : \kappa | \Gamma \vdash e : \sigma \quad \Phi \vdash \kappa}
 {\Phi | \Gamma \vdash \Lambda \alpha : \kappa. e : \forall \alpha : \kappa. \sigma } \\
 \\
 \frac
@@ -108,28 +106,51 @@ s \Coloneqq & s \alpha \tag*{[Stage Variable]}\\
 \\
 \frac
 {\Phi \vdash \sigma : \text{Type} (s) \quad \Phi \vdash \tau : \text{Type} (s')}
-{\Phi \vdash \sigma \to \tau : \text{Type} (s \to s')} \\
+{\Phi \vdash \sigma \to \tau : \text{Type} (\text{Meta})} \\
 \\
 \frac
 {\Phi \vdash \sigma : \text{Type} (s)}
-{\Phi \vdash !\sigma : \text{Type} (!s)} \\
+{\Phi \vdash !\sigma : \text{Type} (\text{Meta})} \\
 \\
 \frac
-{\Phi, \alpha : \kappa \vdash \sigma : \text{Type}(s) }
+{\Phi, \alpha : \kappa \vdash \sigma : \text{Type}(s) \quad \Phi \vdash \kappa}
 {\Phi \vdash \forall \alpha : \kappa. \sigma : \text{Type} (s) } \\
 \\
 \frac
 {\Phi, s \alpha \vdash \sigma : \text{Type} (s) }
-{\Phi \vdash \forall s \alpha. \sigma : \text{Type} (\forall s \alpha. s) } \\
+{\Phi \vdash \forall s \alpha. \sigma : \text{Type} (\text{Meta}) } \\
 \\
 \frac
-{\Phi, \alpha : \kappa : \sigma : \kappa'} 
+{\Phi, \alpha : \kappa : \sigma : \kappa' \quad \Phi \vdash \kappa} 
 {\Phi \vdash \lambda \alpha : \kappa. \sigma : \kappa \to \kappa' } \\
 \\
 \frac
 {\Phi \vdash \sigma : \kappa \to \kappa' \quad \Phi \vdash \tau : \kappa}
 {\Phi \vdash \sigma (\tau) : \kappa' } \\
 \\
+\Phi \vdash \kappa \tag*{[Kind Validation]} \\
+\\
+\frac
+{\Phi \vdash s}
+{\Phi \vdash \text {Type} (s)} \\
+\\
+\frac
+{\Phi \vdash \kappa \quad \Phi \vdash \kappa'}
+{\Phi \vdash \kappa \to \kappa } \\
+\\
+\Phi \vdash s \tag*{[Stage Validation]} \\
+\\
+\frac
+{s \alpha \in \Phi}
+{\Phi \vdash s \alpha} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Meta}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Runtime} (\rho)}
 \end{gather*}
 
 \end{document}

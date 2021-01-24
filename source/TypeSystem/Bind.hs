@@ -31,28 +31,26 @@ instance
     pure (σ, combine lΓ1 lΓ2)
 
 instance
-  ( FreeVariables pm u,
+  ( FreeVariables u pm,
     ModifyVariables u pm,
-    FreeVariables e u
+    FreeVariables u e
   ) =>
-  FreeVariables (Bind l pm' pm e) u
+  FreeVariables u (Bind l pm' pm e)
   where
-  freeVariables' (Bind pm e1 e2) = freeVariables @u e1 <> modifyVariables @u pm (freeVariables @u e2)
+  freeVariables (Bind pm e1 e2) = freeVariables @u e1 <> modifyVariables @u pm (freeVariables @u e2)
 
 instance
   ( EmbedBind pm e,
-    AvoidCapture u pm e,
-    Substitute u pm,
-    Substitute u e
+    CaptureAvoidingSubstitution u pm e
   ) =>
   SubstituteImpl (Bind l pm' pm e) u e
   where
-  substituteImpl ux x (Bind pm e1 e2) = bind (substitute ux x pm') (substitute ux x e1) (substitute ux x e2')
+  substituteImpl ux x (Bind pm e1 e2) = bind (substitute ux x pm') (substitute ux x e1) (substituteShadow pm' ux x e2')
     where
       (pm', e2') = avoidCapture ux (pm, e2)
 
 instance
-  ( ReducePattern pm e,
+  ( ReducePattern pm e e,
     Reduce pm,
     Reduce e
   ) =>

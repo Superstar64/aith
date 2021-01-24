@@ -7,7 +7,6 @@ import Core.Ast.Type
 import Data.Bifunctor (Bifunctor, bimap)
 import Misc.Identifier
 import TypeSystem.Methods
-import qualified TypeSystem.Pattern as TypeSystem
 import qualified TypeSystem.PatternOfCourse as TypeSystem
 import qualified TypeSystem.PatternVariable as TypeSystem
 
@@ -27,8 +26,6 @@ instance Bifunctor Pattern where
 
 type PatternInternal = Pattern Internal
 
-data PatternSort = Pattern
-
 projectPattern ::
   PatternF σ p ->
   Either
@@ -43,14 +40,14 @@ instance TypeSystem.EmbedPatternVariable TypeInternal (Pattern TypeInternal Inte
 instance TypeSystem.EmbedPatternOfCourse (Pattern TypeInternal Internal) where
   patternOfCourse pm = CorePattern Internal $ PatternOfCourse pm
 
-instance TypeSystem.EmbedPattern PatternSort where
-  pattern = Pattern
-
 instance InternalType (Pattern TypeInternal p) TypeInternal where
   internalType (CorePattern _ pm) = internalType $ projectPattern pm
 
-instance FreeVariables (Pattern TypeInternal Internal) TypeInternal where
-  freeVariables' (CorePattern Internal pm) = freeVariables @TypeInternal $ projectPattern pm
+instance FreeVariables TypeInternal (Pattern TypeInternal Internal) where
+  freeVariables (CorePattern Internal pm) = freeVariables @TypeInternal $ projectPattern pm
+
+instance FreeVariables StageInternal (Pattern TypeInternal Internal) where
+  freeVariables (CorePattern Internal pm) = freeVariables @StageInternal $ projectPattern pm
 
 instance Bindings (Pattern TypeInternal Internal) where
   bindings (CorePattern Internal pm) = bindings $ projectPattern pm
@@ -58,8 +55,14 @@ instance Bindings (Pattern TypeInternal Internal) where
 instance ModifyVariables TypeInternal (Pattern TypeInternal Internal) where
   modifyVariables (CorePattern Internal pm) free = freeVariables @TypeInternal (projectPattern pm) <> free
 
+instance ModifyVariables StageInternal (Pattern TypeInternal Internal) where
+  modifyVariables (CorePattern Internal pm) free = freeVariables @StageInternal (projectPattern pm) <> free
+
 instance Substitute TypeInternal (Pattern TypeInternal Internal) where
   substitute σx x (CorePattern Internal pm) = substituteImpl σx x $ projectPattern pm
+
+instance Substitute StageInternal (Pattern TypeInternal Internal) where
+  substitute sx x (CorePattern Internal pm) = substituteImpl sx x $ projectPattern pm
 
 instance ConvertPattern (Pattern TypeInternal Internal) (Pattern TypeInternal Internal) where
   convertPattern ix x (CorePattern Internal pm) = convertPattern ix x $ projectPattern pm

@@ -28,23 +28,21 @@ instance
     pure $ typex @κ s
 
 instance
-  ( FreeVariables σ u,
-    FreeVariables pm u,
+  ( FreeVariables u σ,
+    FreeVariables u pm,
     ModifyVariables u pm
   ) =>
-  FreeVariables (Forall s pm' pm σ) u
+  FreeVariables u (Forall s pm' pm σ)
   where
-  freeVariables' (Forall pm σ) = modifyVariables @u pm $ freeVariables @u σ
+  freeVariables (Forall pm σ) = modifyVariables @u pm $ freeVariables @u σ
 
 instance
   ( EmbedForall pm σ,
-    Substitute u σ,
-    Substitute u pm,
-    AvoidCapture u pm σ
+    CaptureAvoidingSubstitution u pm σ
   ) =>
   SubstituteImpl (Forall s pm' pm σ) u σ
   where
-  substituteImpl ux x (Forall pm σ) = forallx (substitute ux x pm') (substitute ux x σ')
+  substituteImpl ux x (Forall pm σ) = forallx (substitute ux x pm') (substituteShadow pm' ux x σ')
     where
       (pm', σ') = avoidCapture ux (pm, σ)
 

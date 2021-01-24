@@ -27,8 +27,8 @@ instance
     sameType p κ κ'
     pure (f σ, lΓ)
 
-instance (FreeVariables σ u, FreeVariables e u) => FreeVariables (TypeApplication κ σ e) u where
-  freeVariables' (TypeApplication e σ) = freeVariables @u e <> freeVariables @u σ
+instance (FreeVariables u σ, FreeVariables u e) => FreeVariables u (TypeApplication κ σ e) where
+  freeVariables (TypeApplication e σ) = freeVariables @u e <> freeVariables @u σ
 
 instance
   ( EmbedTypeApplication σ e,

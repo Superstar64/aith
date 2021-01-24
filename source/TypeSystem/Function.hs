@@ -1,7 +1,7 @@
 module TypeSystem.Function where
 
+import TypeSystem.Meta
 import TypeSystem.Methods
-import TypeSystem.StageFunction
 import TypeSystem.Type
 
 data Function s σ = Function σ σ
@@ -16,19 +16,19 @@ instance
   ( Monad m,
     Positioned σ p,
     EmbedType κ s,
-    EmbedStageFunction s,
+    EmbedMeta s,
     CheckType s κ m p,
     TypeCheck κ m σ
   ) =>
   TypeCheckImpl m p (Function s σ) κ
   where
   typeCheckImpl _ (Function σ τ) = do
-    Type s1 <- checkType @s @κ (location σ) =<< typeCheck σ
-    Type s2 <- checkType @s @κ (location τ) =<< typeCheck τ
-    pure $ typex @κ (stageFunction s1 s2)
+    Type _ <- checkType @s @κ (location σ) =<< typeCheck σ
+    Type _ <- checkType @s @κ (location τ) =<< typeCheck τ
+    pure $ typex @κ (meta @s)
 
-instance (FreeVariables σ u) => FreeVariables (Function s σ) u where
-  freeVariables' (Function σ τ) = freeVariables @u σ <> freeVariables @u τ
+instance (FreeVariables u σ) => FreeVariables u (Function s σ) where
+  freeVariables (Function σ τ) = freeVariables @u σ <> freeVariables @u τ
 
 instance
   ( EmbedFunction σ,

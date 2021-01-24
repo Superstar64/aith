@@ -8,6 +8,7 @@ import Core.Ast.Kind
 import Core.Ast.Multiplicity
 import Core.Ast.Pattern
 import Core.Ast.Stage
+import Core.Ast.StagePattern
 import Core.Ast.Term
 import Core.Ast.Type
 import Core.Ast.TypePattern
@@ -65,8 +66,7 @@ prettyTerm' (MacroApplication e1 e2) = do
   prettyTerm e2
   token ")"
 prettyTerm' (TypeAbstraction pm e) = do
-  token "Λ"
-  token "<"
+  token "Λ<"
   pretty pm
   token ">"
   lambda (prettyTerm e)
@@ -75,6 +75,16 @@ prettyTerm' (TypeApplication e σ) = do
   token "<"
   pretty σ
   token ">"
+prettyTerm' (StageAbstraction pm e) = do
+  token "Λ@"
+  pretty pm
+  lambda (prettyTerm e)
+prettyTerm' (StageApplication e s) = do
+  prettyTerm e
+  token "@"
+  token "("
+  prettyStage s
+  token ")"
 prettyTerm' (OfCourseIntroduction e) = do
   token "!"
   prettyTerm e
@@ -120,10 +130,13 @@ prettyType' d (Macro σ τ) = parens (d > BottomType) $ do
   space
   prettyType BottomType τ
 prettyType' _ (Forall pm σ) = do
-  token "∀"
-  token "<"
+  token "∀<"
   pretty pm
   token ">"
+  lambdaMini (prettyType BottomType σ)
+prettyType' _ (StageForall pm σ) = do
+  token "∀@"
+  pretty pm
   lambdaMini (prettyType BottomType σ)
 prettyType' _ (OfCourse σ) = do
   token "!"
@@ -153,6 +166,13 @@ prettyTypePattern (CoreTypePattern Internal pm) = prettyTypePattern' pm
 instance Pretty (TypePattern KindInternal Internal) where
   pretty = prettyTypePattern
 
+prettyStagePattern' (StagePatternVariable x) = identfier x
+
+prettyStagePattern (CoreStagePattern Internal pm) = prettyStagePattern' pm
+
+instance Pretty StagePatternInternal where
+  pretty = prettyStagePattern
+
 prettyLinear' Linear = keyword "linear"
 prettyLinear' Unrestricted = keyword "unrestricted"
 
@@ -161,23 +181,14 @@ prettyLinear (CoreMultiplicity Internal l) = prettyLinear' l
 instance Pretty MultiplicityInternal where
   pretty = prettyLinear
 
-data StagePrecedence = BottomStage | ArrowStage | OfCourseStage deriving (Eq, Ord)
+prettyStage' (StageVariable x) = identfier x
+prettyStage' Runtime = keyword "runtime"
+prettyStage' Meta = keyword "meta"
 
-prettyStage' _ Runtime = keyword "runtime"
-prettyStage' d (StageMacro s s') = parens (d > BottomStage) $ do
-  prettyStage ArrowStage s
-  space
-  token "~>"
-  space
-  prettyStage BottomStage s'
-prettyStage' d (StageOfCourse s) = parens (d > OfCourseStage) $ do
-  token "!"
-  prettyStage OfCourseStage s
-
-prettyStage d (CoreStage Internal s) = prettyStage' d s
+prettyStage (CoreStage Internal s) = prettyStage' s
 
 instance Pretty StageInternal where
-  pretty = prettyStage BottomStage
+  pretty = prettyStage
 
 data KindPrecedence = BottomKind | ArrowKind deriving (Eq, Ord)
 

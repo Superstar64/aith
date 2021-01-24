@@ -43,23 +43,21 @@ instance
     pure (function σ τ, lΓ)
 
 instance
-  ( FreeVariables e u,
-    FreeVariables pm u,
+  ( FreeVariables u e,
+    FreeVariables u pm,
     ModifyVariables u pm
   ) =>
-  FreeVariables (Abstraction l pm' pm e) u
+  FreeVariables u (Abstraction l pm' pm e)
   where
-  freeVariables' (Abstraction pm e) = modifyVariables @u pm $ freeVariables @u e
+  freeVariables (Abstraction pm e) = modifyVariables @u pm $ freeVariables @u e
 
 instance
   ( EmbedAbstraction pm e,
-    AvoidCapture u pm e,
-    Substitute u e,
-    Substitute u pm
+    CaptureAvoidingSubstitution u pm e
   ) =>
   SubstituteImpl (Abstraction l pm' pm e) u e
   where
-  substituteImpl ux x (Abstraction pm e) = abstraction (substitute ux x pm') (substitute ux x e')
+  substituteImpl ux x (Abstraction pm e) = abstraction (substitute ux x pm') (substituteShadow pm' ux x e')
     where
       (pm', e') = avoidCapture ux (pm, e)
 

@@ -1,7 +1,7 @@
 module TypeSystem.OfCourse where
 
+import TypeSystem.Meta
 import TypeSystem.Methods
-import TypeSystem.StageOfCourse
 import TypeSystem.Type
 
 data OfCourse s σ = OfCourse σ
@@ -16,18 +16,18 @@ instance
   ( Monad m,
     EmbedType κ s,
     CheckType s κ m p,
-    EmbedStageOfCourse s,
+    EmbedMeta s,
     Positioned σ p,
     TypeCheck κ m σ
   ) =>
   TypeCheckImpl m p (OfCourse s σ) κ
   where
   typeCheckImpl _ (OfCourse σ) = do
-    Type s <- checkType @s @κ (location σ) =<< typeCheck σ
-    pure $ typex (stageOfCourse s)
+    Type _ <- checkType @s @κ (location σ) =<< typeCheck σ
+    pure $ typex (meta @s)
 
-instance (FreeVariables σ u) => FreeVariables (OfCourse s σ) u where
-  freeVariables' (OfCourse σ) = freeVariables @u σ
+instance (FreeVariables u σ) => FreeVariables u (OfCourse s σ) where
+  freeVariables (OfCourse σ) = freeVariables @u σ
 
 instance
   ( EmbedOfCourse σ,

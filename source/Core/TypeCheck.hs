@@ -7,7 +7,9 @@ import Core.Ast.Common
 import Core.Ast.Kind
 import Core.Ast.Multiplicity
 import Core.Ast.Pattern
+import Core.Ast.Sort
 import Core.Ast.Stage
+import Core.Ast.StagePattern
 import Core.Ast.Term
 import Core.Ast.Type
 import Core.Ast.TypePattern
@@ -25,13 +27,14 @@ import qualified TypeSystem.Function as TypeSystem
 import TypeSystem.Methods
 import qualified TypeSystem.OfCourse as TypeSystem
 import qualified TypeSystem.PatternVariable as TypeSystem
+import qualified TypeSystem.StageForall as TypeSystem
 import qualified TypeSystem.Type as TypeSystem
 
 data Error p
   = UnknownIdentfier p Identifier
   | ExpectedMacro p TypeInternal
   | ExpectedForall p TypeInternal
-  | ExpectedLinearForall p TypeInternal
+  | ExpectedStageForall p TypeInternal
   | ExpectedOfCourse p TypeInternal
   | ExpectedType p KindInternal
   | ExpectedHigher p KindInternal
@@ -55,7 +58,7 @@ instance FromError Internal Void where
 data CoreState p = CoreState
   { typeEnvironment :: Map Identifier (p, MultiplicityInternal, TypeInternal),
     kindEnvironment :: Map Identifier (p, KindInternal),
-    linearEnvironment :: Map Identifier (p, MultiplicitySort)
+    stageEnvironment :: Map Identifier (p, StageSort)
   }
   deriving (Show, Functor)
 
@@ -71,9 +74,9 @@ matchLinear' p l l' = quit $ IncompatibleLinear p (CoreMultiplicity Internal l) 
 
 matchLinear p (CoreMultiplicity Internal l) (CoreMultiplicity Internal l') = matchLinear' p l l'
 
+matchStage' _ (StageVariable x) (StageVariable x') | x == x' = pure ()
 matchStage' _ Runtime Runtime = pure ()
-matchStage' p (StageMacro s1 s1') (StageMacro s2 s2') = zipWithM (matchStage p) [s1, s1'] [s2, s2'] >> pure ()
-matchStage' p (StageOfCourse s) (StageOfCourse s') = matchStage p s s' >> pure ()
+matchStage' _ Meta Meta = pure ()
 matchStage' p s s' = quit $ IncompatibleStage p (CoreStage Internal s) (CoreStage Internal s')
 
 matchStage p (CoreStage Internal s) (CoreStage Internal s') = matchStage' p s s'
@@ -93,6 +96,9 @@ matchType' p (Macro σ τ) (Macro σ' τ') = zipWithM (matchType p) [σ, τ] [σ
 matchType' p (Forall (CoreTypePattern Internal (TypePatternVariable x κ)) σ) (Forall (CoreTypePattern Internal (TypePatternVariable x' κ')) σ') = do
   matchKind p κ κ'
   matchType p σ (substitute (CoreType Internal $ TypeVariable x) x' σ')
+  pure ()
+matchType' p (StageForall (CoreStagePattern Internal (StagePatternVariable x)) σ) (StageForall (CoreStagePattern Internal (StagePatternVariable x')) σ') = do
+  matchType p σ (substitute (CoreStage Internal $ StageVariable x) x' σ')
   pure ()
 matchType' p (OfCourse σ) (OfCourse σ') = do
   matchType p σ σ'
@@ -119,25 +125,26 @@ instance (FromError p q) => TypeCheck KindInternal (Core p q) (Type p) where
 instance (FromError p q) => TypeCheck TypePatternSort (Core p q) (TypePattern (Kind p) p) where
   typeCheck (CoreTypePattern p pm) = typeCheckImpl p $ projectTypePattern pm
 
-instance (FromError p q) => TypeCheck MultiplicitySort (Core p q) (Multiplicity p) where
-  typeCheck (CoreMultiplicity p l) = typeCheckImpl p $ projectMultiplicity l
-
 instance (FromError p q) => TypeCheck KindSort (Core p q) (Kind p) where
-  typeCheck _ = pure $ Kind
+  typeCheck (CoreKind p κ) = typeCheckImpl p $ projectKind κ
+
+instance (FromError p q) => TypeCheck StageSort (Core p q) (Stage p) where
+  typeCheck (CoreStage p s) = typeCheckImpl p $ projectStage s
 
 instance (FromError p q) => TypeCheckInstantiate KindInternal TypeInternal (Core p q) (Type p) where
   typeCheckInstantiate σ = do
     κ <- typeCheck σ
     pure (κ, reduce $ Internal <$ σ)
 
-instance (FromError p q) => TypeCheckInstantiate MultiplicitySort MultiplicityInternal (Core p q) (Multiplicity p) where
-  typeCheckInstantiate l = do
-    Multiplicity <- typeCheck l
-    pure (Multiplicity, Internal <$ l)
-
 instance (FromError p q) => TypeCheckInstantiate KindSort KindInternal (Core p q) (Kind p) where
   typeCheckInstantiate κ = do
+    Kind <- typeCheck κ
     pure (Kind, Internal <$ κ)
+
+instance (FromError p q) => TypeCheckInstantiate StageSort StageInternal (Core p q) (Stage p) where
+  typeCheckInstantiate s = do
+    Stage <- typeCheck s
+    pure (Stage, Internal <$ s)
 
 instance (FromError p q) => TypeCheckInstantiate PatternSort (Pattern TypeInternal p) (Core p q) (Pattern (Type p) p) where
   typeCheckInstantiate pm = do
@@ -155,8 +162,14 @@ instance (FromError p q) => Instantiate (Pattern TypeInternal p) (Core p q) (Pat
 instance (FromError p q) => Instantiate (TypePattern KindInternal p) (Core p q) (TypePattern (Kind p) p) where
   instantiate = fmap snd . typeCheckInstantiate @TypePatternSort
 
+instance Instantiate (StagePattern p) (Core p q) (StagePattern p) where
+  instantiate = pure
+
 instance (FromError p q) => Instantiate KindInternal (Core p q) (Kind p) where
   instantiate = fmap snd . typeCheckInstantiate @KindSort
+
+instance (FromError p q) => Instantiate StageInternal (Core p q) (Stage p) where
+  instantiate = fmap snd . typeCheckInstantiate @StageSort
 
 instance (FromError p q) => SameType (Core p q) p TypeInternal where
   sameType p σ σ' = matchType p σ σ'
@@ -171,6 +184,10 @@ instance (FromError p' q) => TypeSystem.CheckFunction (Core p q) p' TypeInternal
 instance (FromError p' q) => TypeSystem.CheckForall' (Core p q) p' KindInternal TypeInternal where
   checkForall' _ (CoreType Internal (Forall pm σ)) = pure (internalType pm, \τ -> reducePattern pm τ σ)
   checkForall' p σ = quit $ ExpectedForall p σ
+
+instance (FromError p' q) => TypeSystem.CheckStageForall' StageInternal (Core p q) p' TypeInternal where
+  checkStageForall' _ (CoreType Internal (StageForall pm σ)) = pure $ \s -> reducePattern pm s σ
+  checkStageForall' p σ = quit $ ExpectedStageForall p σ
 
 instance (FromError p' q) => TypeSystem.CheckOfCourse (Core p q) p' TypeInternal where
   checkOfCourse _ (CoreType Internal (OfCourse σ)) = pure (TypeSystem.OfCourse σ)
@@ -217,14 +234,14 @@ instance (FromError p q) => ReadEnvironment (Core p q) p KindInternal where
       Nothing -> quit $ UnknownIdentfier p x
       Just (_, σ) -> pure σ
 
-instance (FromError p q) => ReadEnvironment (Core p q) p MultiplicitySort where
+instance (FromError p q) => ReadEnvironment (Core p q) p StageSort where
   readEnvironment p x = do
     env <- Core get
-    case linearEnvironment env !? x of
+    case stageEnvironment env !? x of
       Nothing -> quit $ UnknownIdentfier p x
-      Just (_, l) -> pure l
+      Just (_, κ) -> pure κ
 
-augmentEnvironment p x κ e = do
+augmentEnvironmentKind p x κ e = do
   env <- Core get
   let κΓ = kindEnvironment env
   Core $ put env {kindEnvironment = Map.insert x (p, κ) κΓ}
@@ -233,7 +250,18 @@ augmentEnvironment p x κ e = do
   pure c
 
 instance Augment (Core p q) (TypePattern KindInternal p) where
-  augment (CoreTypePattern p (TypePatternVariable x κ)) e = augmentEnvironment p x κ e
+  augment (CoreTypePattern p (TypePatternVariable x κ)) e = augmentEnvironmentKind p x κ e
+
+augmentEnvironmentStageSort p x ss e = do
+  env <- Core get
+  let sΓ = stageEnvironment env
+  Core $ put env {stageEnvironment = Map.insert x (p, ss) sΓ}
+  c <- e
+  Core $ put env
+  pure c
+
+instance Augment (Core p q) (StagePattern p) where
+  augment (CoreStagePattern p (StagePatternVariable x)) e = augmentEnvironmentStageSort p x Stage e
 
 instance (FromError p' q) => Capture (Core p q) p' MultiplicityInternal Use where
   capture _ (CoreMultiplicity Internal Linear) _ = pure ()

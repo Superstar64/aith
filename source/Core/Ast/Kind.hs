@@ -1,9 +1,8 @@
 module Core.Ast.Kind where
 
 import Core.Ast.Common
-import Core.Ast.Multiplicity
+import Core.Ast.Sort
 import Core.Ast.Stage
-import qualified Data.Set as Set
 import qualified TypeSystem.Function as TypeSystem
 import TypeSystem.Methods
 import qualified TypeSystem.Type as TypeSystem
@@ -14,7 +13,9 @@ data Kind p = CoreKind p (KindF p) deriving (Show, Functor)
 
 type KindInternal = Kind Internal
 
-data KindSort = Kind deriving (Show)
+projectKind :: KindF p -> Either (TypeSystem.Type StageSort (Stage p)) (TypeSystem.Function () (Kind p))
+projectKind (Type s) = Left $ TypeSystem.Type s
+projectKind (Higher κ κ') = Right $ TypeSystem.Function κ κ'
 
 instance TypeSystem.EmbedType KindInternal StageInternal where
   typex s = CoreKind Internal $ Type s
@@ -22,11 +23,11 @@ instance TypeSystem.EmbedType KindInternal StageInternal where
 instance TypeSystem.EmbedFunction KindInternal where
   function κ κ' = CoreKind Internal $ Higher κ κ'
 
-instance FreeVariables KindInternal MultiplicityInternal where
-  freeVariables' _ = Set.empty
+instance FreeVariables StageInternal KindInternal where
+  freeVariables (CoreKind Internal κ) = freeVariables @StageInternal $ projectKind κ
 
-instance Substitute MultiplicityInternal KindInternal where
-  substitute _ _ κ = κ
+instance Substitute StageInternal KindInternal where
+  substitute sx x (CoreKind Internal κ) = substituteImpl sx x $ projectKind κ
 
 instance Reduce KindInternal where
   reduce = id

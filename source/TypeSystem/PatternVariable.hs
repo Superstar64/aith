@@ -39,8 +39,8 @@ instance
   augmentLinearImpl p (PatternVariable x σ) l e = do
     augmentVariableLinear p x l σ e
 
-instance (FreeVariables σ u) => FreeVariables (PatternVariable s κ σ) u where
-  freeVariables' (PatternVariable _ σ) = freeVariables @u σ
+instance (FreeVariables u σ) => FreeVariables u (PatternVariable s κ σ) where
+  freeVariables (PatternVariable _ σ) = freeVariables @u σ
 
 instance Bindings (PatternVariable s κ σ) where
   bindings (PatternVariable x _) = Set.singleton x
@@ -55,5 +55,5 @@ instance EmbedPatternVariable σ pm => ConvertPattern pm (PatternVariable s κ �
 instance (EmbedPatternVariable σ pm, Reduce σ) => ReduceImpl (PatternVariable s κ σ) pm where
   reduceImpl (PatternVariable x σ) = patternVariable x (reduce σ)
 
-instance (SubstituteSame e, Reduce e) => ReducePattern (PatternVariable s κ σ) e where
-  reducePattern (PatternVariable x _) e1 e2 = reduce $ substituteSame e1 x e2
+instance (Substitute σ e, Reduce e) => ReducePattern (PatternVariable s κ σ') σ e where
+  reducePattern (PatternVariable x _) σ e = reduce $ substitute σ x e

@@ -25,11 +25,8 @@ class InternalType pm σ where
 class TypeCheckLinear σ m e lΓ where
   typeCheckLinear :: e -> m (σ, lΓ)
 
-class FreeVariables e u where
-  freeVariables' :: e -> Set Identifier
-
-freeVariables :: forall u e. FreeVariables e u => e -> Set Identifier
-freeVariables e = freeVariables' @e @u e
+class FreeVariables u e where
+  freeVariables :: e -> Set Identifier
 
 class Bindings pm where
   bindings :: pm -> Set Identifier
@@ -40,8 +37,12 @@ class ModifyVariables u pm where
 class Substitute u e where
   substitute :: u -> Identifier -> e -> e
 
-class AvoidCapture u pm e where
+class (Substitute u e, Substitute u pm) => CaptureAvoidingSubstitution u pm e where
+  -- prevents (λy. x) [y/x]
   avoidCapture :: u -> (pm, e) -> (pm, e)
+
+  -- prevents (λx. x) [y/x]
+  substituteShadow :: pm -> u -> Identifier -> e -> e
 
 class Substitute e e => SubstituteSame e
 
@@ -56,8 +57,8 @@ class ConvertPattern pm pm' where
 class Reduce e where
   reduce :: e -> e
 
-class ReducePattern pm e where
-  reducePattern :: pm -> e -> e -> e
+class ReducePattern pm σ e where
+  reducePattern :: pm -> σ -> e -> e
 
 class ReduceMatchAbstraction u e where
   reduceMatchAbstraction :: e -> Maybe (u -> e)
@@ -104,9 +105,9 @@ instance (InternalType a σ, InternalType b σ) => InternalType (Either a b) σ 
   internalType (Left pm) = internalType pm
   internalType (Right pm) = internalType pm
 
-instance (FreeVariables a u, FreeVariables b u) => FreeVariables (Either a b) u where
-  freeVariables' (Left σ) = freeVariables @u σ
-  freeVariables' (Right σ) = freeVariables @u σ
+instance (FreeVariables u a, FreeVariables u b) => FreeVariables u (Either a b) where
+  freeVariables (Left σ) = freeVariables @u σ
+  freeVariables (Right σ) = freeVariables @u σ
 
 instance (Bindings a, Bindings b) => Bindings (Either a b) where
   bindings (Left pm) = bindings pm
@@ -130,7 +131,7 @@ instance (ReduceImpl a e, ReduceImpl b e) => ReduceImpl (Either a b) e where
   reduceImpl (Left e) = reduceImpl e
   reduceImpl (Right e) = reduceImpl e
 
-instance (ReducePattern a e, ReducePattern b e) => ReducePattern (Either a b) e where
+instance (ReducePattern a σ e, ReducePattern b σ e) => ReducePattern (Either a b) σ e where
   reducePattern (Left pm) = reducePattern pm
   reducePattern (Right pm) = reducePattern pm
 

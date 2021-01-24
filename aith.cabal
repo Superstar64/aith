@@ -19,12 +19,13 @@ executable aith
   other-modules: Misc.Identifier, Misc.Util, Environment, Core.TypeCheck, Core.Parse, Core.Pretty,
                  TypeSystem.Methods, TypeSystem.Variable, TypeSystem.Abstraction, TypeSystem.Application,
                  TypeSystem.TypeAbstraction, TypeSystem.TypeApplication, TypeSystem.Function,
-                 TypeSystem.Forall, TypeSystem.Type, TypeSystem.Linear, TypeSystem.StageFunction,
-                 TypeSystem.Unrestricted, TypeSystem.Multiplicity, TypeSystem.OfCourse,
-                 TypeSystem.OfCourseIntroduction, TypeSystem.StageOfCourse, TypeSystem.Bind,
-                 TypeSystem.PatternVariable,TypeSystem.PatternOfCourse, TypeSystem.Pattern,
+                 TypeSystem.Forall, TypeSystem.Type, TypeSystem.Linear, TypeSystem.Meta
+                 TypeSystem.Unrestricted, TypeSystem.OfCourse, TypeSystem.StageForall,
+                 TypeSystem.OfCourseIntroduction, TypeSystem.Runtime, TypeSystem.Bind, TypeSystem.Stage
+                 TypeSystem.PatternVariable,TypeSystem.PatternOfCourse, TypeSystem.Pattern, TypeSystem.Kind,
+                 TypeSystem.StageAbstraction, TypeSystem.StageApplication,
                  Core.Ast.Common, Core.Ast.Stage, Core.Ast.Kind, Core.Ast.TypePattern, Core.Ast.Type,
-                 Core.Ast.Multiplicity, Core.Ast.Term, Core.Ast.Pattern
+                 Core.Ast.Multiplicity, Core.Ast.Term, Core.Ast.Pattern, Core.Ast.StagePattern Core.Ast.Sort
   -- other-extensions:
   build-depends:       base ^>=4.13.0.0, containers ^>= 0.6.2.1, transformers ^>= 0.5.6.2, megaparsec ^>= 8.0.0, parser-combinators ^>= 1.2.1
   hs-source-dirs:      source
