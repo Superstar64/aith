@@ -36,8 +36,8 @@ See ``/documentation`` for typing rules.
 | Type Abstraction | ``Λ<x : κ> { e }`` |
 | Type Abstraction | ``Λ<x : κ> => e`` |
 | Type Application | ``e<σ>`` |
-| Kind Abstraction | ``Λ@ κa : μ => e`` |
-| Kind Abstraction | ``Λ@ κa : μ { e }`` |
+| Kind Abstraction | ``Λ@ x : μ => e`` |
+| Kind Abstraction | ``Λ@ x : μ { e }`` |
 | Kind Application | ``e @ κ`` |
 
 ## Patterns(pm)
@@ -46,7 +46,7 @@ See ``/documentation`` for typing rules.
 | Variable | ``(x : σ)``|
 | OfCourse | ``!pm`` |
 
-## Types(σ)
+## Types(σ, τ)
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
