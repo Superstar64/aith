@@ -2,7 +2,6 @@ module Core.Ast.Pattern where
 
 import Core.Ast.Common
 import Core.Ast.Kind
-import Core.Ast.Stage
 import Core.Ast.Type
 import Data.Bifunctor (Bifunctor, bimap)
 import Misc.Identifier
@@ -29,7 +28,7 @@ type PatternInternal = Pattern Internal
 projectPattern ::
   PatternF σ p ->
   Either
-    (TypeSystem.PatternVariable StageInternal KindInternal σ)
+    (TypeSystem.PatternVariable KindInternal KindInternal σ)
     (TypeSystem.PatternOfCourse (Pattern σ p))
 projectPattern (PatternVariable x σ) = Left $ TypeSystem.PatternVariable x σ
 projectPattern (PatternOfCourse pm) = Right $ TypeSystem.PatternOfCourse pm
@@ -46,8 +45,8 @@ instance InternalType (Pattern TypeInternal p) TypeInternal where
 instance FreeVariables TypeInternal (Pattern TypeInternal Internal) where
   freeVariables (CorePattern Internal pm) = freeVariables @TypeInternal $ projectPattern pm
 
-instance FreeVariables StageInternal (Pattern TypeInternal Internal) where
-  freeVariables (CorePattern Internal pm) = freeVariables @StageInternal $ projectPattern pm
+instance FreeVariables KindInternal (Pattern TypeInternal Internal) where
+  freeVariables (CorePattern Internal pm) = freeVariables @KindInternal $ projectPattern pm
 
 instance Bindings (Pattern TypeInternal Internal) where
   bindings (CorePattern Internal pm) = bindings $ projectPattern pm
@@ -55,13 +54,13 @@ instance Bindings (Pattern TypeInternal Internal) where
 instance ModifyVariables TypeInternal (Pattern TypeInternal Internal) where
   modifyVariables (CorePattern Internal pm) free = freeVariables @TypeInternal (projectPattern pm) <> free
 
-instance ModifyVariables StageInternal (Pattern TypeInternal Internal) where
-  modifyVariables (CorePattern Internal pm) free = freeVariables @StageInternal (projectPattern pm) <> free
+instance ModifyVariables KindInternal (Pattern TypeInternal Internal) where
+  modifyVariables (CorePattern Internal pm) free = freeVariables @KindInternal (projectPattern pm) <> free
 
 instance Substitute TypeInternal (Pattern TypeInternal Internal) where
   substitute σx x (CorePattern Internal pm) = substituteImpl σx x $ projectPattern pm
 
-instance Substitute StageInternal (Pattern TypeInternal Internal) where
+instance Substitute KindInternal (Pattern TypeInternal Internal) where
   substitute sx x (CorePattern Internal pm) = substituteImpl sx x $ projectPattern pm
 
 instance ConvertPattern (Pattern TypeInternal Internal) (Pattern TypeInternal Internal) where

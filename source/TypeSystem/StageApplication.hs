@@ -4,26 +4,28 @@ import Misc.Util (firstM)
 import TypeSystem.Methods
 import TypeSystem.StageForall
 
-data StageApplication s' s e = StageApplication e s
+data StageApplication μ s' s e = StageApplication e s
 
 class EmbedStageApplication s e where
   stageApplication :: e -> s -> e
 
 instance
   ( Monad m,
-    CheckStageForall' s m p σ,
     Positioned e p,
-    Instantiate s m s',
-    TypeCheckLinear σ m e lΓ
+    SameType m p μ,
+    TypeCheckInstantiate μ s m s',
+    TypeCheckLinear σ m e lΓ,
+    CheckStageForall' μ s m p σ
   ) =>
-  TypeCheckLinearImpl m p (StageApplication s s' e) σ lΓ
+  TypeCheckLinearImpl m p (StageApplication μ s s' e) σ lΓ
   where
-  typeCheckLinearImpl _ (StageApplication e s') = do
-    (f, lΓ) <- firstM (checkStageForall' $ location e) =<< typeCheckLinear e
-    s <- instantiate @s s'
+  typeCheckLinearImpl p (StageApplication e s') = do
+    ((μ, f), lΓ) <- firstM (checkStageForall' $ location e) =<< typeCheckLinear e
+    (μ', s) <- typeCheckInstantiate @μ @s s'
+    sameType p μ μ'
     pure $ (f s, lΓ)
 
-instance (FreeVariables u s, FreeVariables u e) => FreeVariables u (StageApplication s' s e) where
+instance (FreeVariables u s, FreeVariables u e) => FreeVariables u (StageApplication μ s' s e) where
   freeVariables (StageApplication e s) = freeVariables @u e <> freeVariables @u s
 
 instance
@@ -31,7 +33,7 @@ instance
     Substitute u s,
     Substitute u e
   ) =>
-  SubstituteImpl (StageApplication s' s e) u e
+  SubstituteImpl (StageApplication μ s' s e) u e
   where
   substituteImpl ux x (StageApplication e s) = stageApplication (substitute ux x e) (substitute ux x s)
 
@@ -41,7 +43,7 @@ instance
     Reduce s,
     Reduce e
   ) =>
-  ReduceImpl (StageApplication s' s e) e
+  ReduceImpl (StageApplication μ s' s e) e
   where
   reduceImpl (StageApplication e s) = case reduceMatchAbstraction (reduce e) of
     Just f -> f (reduce s)

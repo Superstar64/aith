@@ -2,8 +2,7 @@ module Core.Ast.Type where
 
 import Core.Ast.Common
 import Core.Ast.Kind
-import Core.Ast.Stage
-import Core.Ast.StagePattern
+import Core.Ast.KindPattern
 import Core.Ast.TypePattern
 import Data.Bifunctor (bimap)
 import qualified Data.Set as Set
@@ -22,7 +21,7 @@ data TypeF p
   = TypeVariable Identifier
   | Macro (Type p) (Type p)
   | Forall (TypePattern (Kind p) p) (Type p)
-  | StageForall (StagePattern p) (Type p)
+  | KindForall (KindPattern p) (Type p)
   | OfCourse (Type p)
   | TypeConstruction (Type p) (Type p)
   | TypeOperator (TypePattern (Kind p) p) (Type p)
@@ -32,7 +31,7 @@ instance Functor TypeF where
   fmap _ (TypeVariable x) = TypeVariable x
   fmap f (Macro σ τ) = Macro (fmap f σ) (fmap f τ)
   fmap f (Forall pm σ) = Forall (bimap (fmap f) f pm) (fmap f σ)
-  fmap f (StageForall pm σ) = StageForall (fmap f pm) (fmap f σ)
+  fmap f (KindForall pm σ) = KindForall (fmap f pm) (fmap f σ)
   fmap f (OfCourse σ) = OfCourse (fmap f σ)
   fmap f (TypeConstruction σ τ) = TypeConstruction (fmap f σ) (fmap f τ)
   fmap f (TypeOperator pm σ) = TypeOperator (bimap (fmap f) f pm) (fmap f σ)
@@ -46,13 +45,13 @@ projectType ::
   Either
     (TypeSystem.Variable (Type p))
     ( Either
-        (TypeSystem.Function StageInternal (Type p))
+        (TypeSystem.Function KindInternal (Type p))
         ( Either
-            (TypeSystem.Forall StageInternal (TypePattern KindInternal p) (TypePattern (Kind p) p) (Type p))
+            (TypeSystem.Forall KindInternal (TypePattern KindInternal p) (TypePattern (Kind p) p) (Type p))
             ( Either
-                (TypeSystem.StageForall StageInternal (StagePattern p) (StagePattern p) (Type p))
+                (TypeSystem.StageForall KindInternal (KindPattern p) (KindPattern p) (Type p))
                 ( Either
-                    (TypeSystem.OfCourse StageInternal (Type p))
+                    (TypeSystem.OfCourse KindInternal (Type p))
                     ( Either
                         (TypeSystem.Application (Type p))
                         (TypeSystem.Abstraction Void (TypePattern KindInternal p) (TypePattern (Kind p) p) (Type p))
@@ -64,7 +63,7 @@ projectType ::
 projectType (TypeVariable x) = Left $ TypeSystem.Variable x
 projectType (Macro σ τ) = Right $ Left $ TypeSystem.Function σ τ
 projectType (Forall pm σ) = Right $ Right $ Left $ TypeSystem.Forall pm σ
-projectType (StageForall pm σ) = Right $ Right $ Right $ Left $ TypeSystem.StageForall pm σ
+projectType (KindForall pm σ) = Right $ Right $ Right $ Left $ TypeSystem.StageForall pm σ
 projectType (OfCourse σ) = Right $ Right $ Right $ Right $ Left $ TypeSystem.OfCourse σ
 projectType (TypeConstruction σ τ) = Right $ Right $ Right $ Right $ Right $ Left $ TypeSystem.Application σ τ
 projectType (TypeOperator pm σ) = Right $ Right $ Right $ Right $ Right $ Right $ TypeSystem.Abstraction pm σ
@@ -78,8 +77,8 @@ instance TypeSystem.EmbedFunction TypeInternal where
 instance TypeSystem.EmbedForall (TypePattern KindInternal Internal) TypeInternal where
   forallx pm σ = CoreType Internal $ Forall pm σ
 
-instance TypeSystem.EmbedStageForall StagePatternInternal TypeInternal where
-  stageForall pm σ = CoreType Internal $ StageForall pm σ
+instance TypeSystem.EmbedStageForall KindPatternInternal TypeInternal where
+  stageForall pm σ = CoreType Internal $ KindForall pm σ
 
 instance TypeSystem.EmbedOfCourse TypeInternal where
   ofCourse σ = CoreType Internal $ OfCourse σ
@@ -96,10 +95,10 @@ instance FreeVariables TypeInternal TypeInternal where
 instance FreeVariables TypeInternal (TypeSystem.Variable TypeInternal) where
   freeVariables (TypeSystem.Variable x) = Set.singleton x
 
-instance FreeVariables StageInternal TypeInternal where
-  freeVariables (CoreType Internal σ) = freeVariables @StageInternal $ projectType σ
+instance FreeVariables KindInternal TypeInternal where
+  freeVariables (CoreType Internal σ) = freeVariables @KindInternal $ projectType σ
 
-instance FreeVariables StageInternal (TypeSystem.Variable TypeInternal) where
+instance FreeVariables KindInternal (TypeSystem.Variable TypeInternal) where
   freeVariables _ = Set.empty
 
 instance FreeVariables TypeInternal (TypePattern KindInternal Internal) where
@@ -108,13 +107,10 @@ instance FreeVariables TypeInternal (TypePattern KindInternal Internal) where
 instance FreeVariables TypeInternal KindInternal where
   freeVariables _ = Set.empty
 
-instance FreeVariables TypeInternal StageInternal where
-  freeVariables _ = Set.empty
-
 instance ModifyVariables TypeInternal (TypePattern KindInternal Internal) where
   modifyVariables (CoreTypePattern Internal pm) free = foldr Set.delete free $ bindings (projectTypePattern pm)
 
-instance ModifyVariables TypeInternal StagePatternInternal where
+instance ModifyVariables TypeInternal KindPatternInternal where
   modifyVariables _ = id
 
 instance Substitute TypeInternal TypeInternal where
@@ -123,10 +119,10 @@ instance Substitute TypeInternal TypeInternal where
 instance SubstituteImpl (TypeSystem.Variable TypeInternal) TypeInternal TypeInternal where
   substituteImpl σx x (TypeSystem.Variable x') = substituteVariable TypeSystem.variable σx x x'
 
-instance Substitute StageInternal TypeInternal where
+instance Substitute KindInternal TypeInternal where
   substitute sx x (CoreType Internal σ) = substituteImpl sx x $ projectType σ
 
-instance SubstituteImpl (TypeSystem.Variable TypeInternal) StageInternal TypeInternal where
+instance SubstituteImpl (TypeSystem.Variable TypeInternal) KindInternal TypeInternal where
   substituteImpl _ _ (TypeSystem.Variable x) = TypeSystem.variable x
 
 instance SubstituteSame TypeInternal
@@ -137,26 +133,23 @@ instance Substitute TypeInternal (TypePattern KindInternal Internal) where
 instance Substitute TypeInternal KindInternal where
   substitute _ _ κ = κ
 
-instance Substitute TypeInternal StageInternal where
-  substitute _ _ s = s
-
-instance Substitute TypeInternal StagePatternInternal where
+instance Substitute TypeInternal KindPatternInternal where
   substitute _ _ pm = pm
 
 instance CaptureAvoidingSubstitution TypeInternal (TypePattern KindInternal Internal) TypeInternal where
   avoidCapture σx (CoreTypePattern Internal pm, σ) = avoidCaptureImpl @TypeInternal projectTypePattern (CoreTypePattern Internal) σx (pm, σ)
   substituteShadow = substituteShadowImpl
 
-instance CaptureAvoidingSubstitution StageInternal (TypePattern KindInternal Internal) TypeInternal where
+instance CaptureAvoidingSubstitution KindInternal (TypePattern KindInternal Internal) TypeInternal where
   avoidCapture _ = id
   substituteShadow _ = substitute
 
-instance CaptureAvoidingSubstitution TypeInternal StagePatternInternal TypeInternal where
-  avoidCapture σx (CoreStagePattern Internal pm, σ) = avoidCaptureImpl @StageInternal projectStagePattern (CoreStagePattern Internal) σx (pm, σ)
+instance CaptureAvoidingSubstitution TypeInternal KindPatternInternal TypeInternal where
+  avoidCapture σx (CoreKindPattern Internal pm, σ) = avoidCaptureImpl @KindInternal projectKindPattern (CoreKindPattern Internal) σx (pm, σ)
   substituteShadow _ = substitute
 
-instance CaptureAvoidingSubstitution StageInternal StagePatternInternal TypeInternal where
-  avoidCapture sx (CoreStagePattern Internal pm, σ) = avoidCaptureImpl @StageInternal projectStagePattern (CoreStagePattern Internal) sx (pm, σ)
+instance CaptureAvoidingSubstitution KindInternal KindPatternInternal TypeInternal where
+  avoidCapture sx (CoreKindPattern Internal pm, σ) = avoidCaptureImpl @KindInternal projectKindPattern (CoreKindPattern Internal) sx (pm, σ)
   substituteShadow = substituteShadowImpl
 
 instance Reduce TypeInternal where
@@ -165,8 +158,8 @@ instance Reduce TypeInternal where
 instance ReducePattern (TypePattern KindInternal Internal) TypeInternal TypeInternal where
   reducePattern (CoreTypePattern Internal pm) σ τ = reducePattern (projectTypePattern pm) σ τ
 
-instance ReducePattern StagePatternInternal StageInternal TypeInternal where
-  reducePattern (CoreStagePattern Internal pm) s τ = reducePattern (projectStagePattern pm) s τ
+instance ReducePattern KindPatternInternal KindInternal TypeInternal where
+  reducePattern (CoreKindPattern Internal pm) s τ = reducePattern (projectKindPattern pm) s τ
 
 instance ReduceMatchAbstraction TypeInternal TypeInternal where
   reduceMatchAbstraction (CoreType Internal (TypeOperator pm σ)) = Just $ \τ -> reducePattern pm τ σ

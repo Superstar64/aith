@@ -14,7 +14,7 @@ See ``/documentation`` for typing rules.
 * [x] Basic Linear Types
 * [ ] Multiplicity Polymorphism
 * [ ] Multiplicity Predicates
-* [ ] Levity Polymorphism
+* [x] Levity Polymorphism
 * [x] Stage Polymorphism
 * [ ] Modules
 * [ ] Runtime Lambda Calculus
@@ -28,17 +28,17 @@ See ``/documentation`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Type Abstraction | ``Λ<x : κ> { e }`` |
-| Type Abstraction | ``Λ<x : κ> => e`` |
-| Type Application | ``e<σ>`` |
+| Of Course Introduction | ``!e`` |
+| Binding | ``%let pm = e1 ; e2 ``|
 | Term Abstraction | ``λ pm { e }``|
 | Term Abstraction | ``λ pm => e ``|
 | Term Application | ``e(e')``|
-| Stage Abstraction | ``Λ@ s => e`` |
-| Stage Abstraction | ``Λ@ s  { e }`` |
-| Stage Application | ``e @ s`` |
-| Of Course Introduction | ``!e`` |
-| Binding | ``%let pm = e1 ; e2 ``|
+| Type Abstraction | ``Λ<x : κ> { e }`` |
+| Type Abstraction | ``Λ<x : κ> => e`` |
+| Type Application | ``e<σ>`` |
+| Kind Abstraction | ``Λ@ κa : μ => e`` |
+| Kind Abstraction | ``Λ@ κa : μ { e }`` |
+| Kind Application | ``e @ κ`` |
 
 ## Patterns(pm)
 | Description | Syntax |
@@ -46,32 +46,36 @@ See ``/documentation`` for typing rules.
 | Variable | ``(x : σ)``|
 | OfCourse | ``!pm`` |
 
-## Types (σ)
+## Types(σ)
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
 | Forall | ``∀<x : κ> { σ }`` |
 | Forall | ``∀<x : κ> => σ`` |
-| StageForall | ``∀@s => σ`` |
-| StageForall | ``∀@s { σ }`` |
+| KindForall | ``∀@s : μ => σ`` |
+| KindForall | ``∀@s : μ { σ }`` |
 | Macro | ``σ -> σ'``|
 | Of Course | ``!σ``|
 | Type Operator | `` λ x : κ { σ }``|
 | Type Operator | `` λ x : κ => σ ``|
 | Type Construction | `` σ (τ) `` |
 
-## Stages (s)
+## Kinds(κ,s,ρ)
 | Description | Syntax |
 |-|-|
-| Variable | ``sα`` |
-| Runtime | ``%runtime`` |
-| Meta | ``%meta`` |
-
-## Kinds(κ)
-| Description | Syntax |
-|-|-|
+| Variable | ``κα`` |
 | Type | `` %type s `` |
-| Function | `` κ -> κ' `` |
+| Higher | `` κ -> κ' `` |
+| Runtime | ``%runtime ρ`` |
+| Meta | ``%meta`` |
+| Pointer Representation | ``%pointer``|
+| Function Pointer Representation | ``%functinon`` |
+
+## Sorts(μ)
+| Description | Syntax |
+| Kind | ``%kind`` |
+| Stage | ``%stage`` |
+| Representation | ``%representation`` |
 
 # Papers
 Useful / Inspirational papers:

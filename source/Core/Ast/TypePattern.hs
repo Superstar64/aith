@@ -3,7 +3,6 @@ module Core.Ast.TypePattern where
 import Core.Ast.Common
 import Core.Ast.Kind
 import Core.Ast.Sort
-import Core.Ast.Stage
 import Data.Bifunctor (Bifunctor, bimap)
 import Misc.Identifier
 import TypeSystem.Methods
@@ -19,7 +18,7 @@ data TypePattern κ p = CoreTypePattern p (TypePatternF κ p) deriving (Show)
 instance InternalType (TypePattern KindInternal p) KindInternal where
   internalType (CoreTypePattern _ pm) = internalType $ projectTypePattern pm
 
-projectTypePattern :: TypePatternF κ p -> TypeSystem.PatternVariable () KindSort κ
+projectTypePattern :: TypePatternF κ p -> TypeSystem.PatternVariable () Sort κ
 projectTypePattern (TypePatternVariable x κ) = TypeSystem.PatternVariable x κ
 
 instance Bifunctor TypePattern where
@@ -31,14 +30,14 @@ instance TypeSystem.EmbedPatternVariable KindInternal (TypePattern KindInternal 
 instance Bindings (TypePattern KindInternal Internal) where
   bindings (CoreTypePattern Internal pm) = bindings $ projectTypePattern pm
 
-instance FreeVariables StageInternal (TypePattern KindInternal Internal) where
-  freeVariables (CoreTypePattern Internal pm) = freeVariables @StageInternal $ projectTypePattern pm
+instance FreeVariables KindInternal (TypePattern KindInternal Internal) where
+  freeVariables (CoreTypePattern Internal pm) = freeVariables @KindInternal $ projectTypePattern pm
 
-instance ModifyVariables StageInternal (TypePattern KindInternal Internal) where
-  modifyVariables pm free = freeVariables @StageInternal pm <> free
+instance ModifyVariables KindInternal (TypePattern KindInternal Internal) where
+  modifyVariables pm free = freeVariables @KindInternal pm <> free
 
-instance Substitute StageInternal (TypePattern KindInternal Internal) where
-  substitute sx x (CoreTypePattern Internal pm) = substituteImpl sx x $ projectTypePattern pm
+instance Substitute KindInternal (TypePattern KindInternal Internal) where
+  substitute κx x (CoreTypePattern Internal pm) = substituteImpl κx x $ projectTypePattern pm
 
 instance ConvertPattern (TypePattern KindInternal Internal) (TypePattern KindInternal Internal) where
   convertPattern ix x (CoreTypePattern Internal pm) = convertPattern ix x (projectTypePattern pm)

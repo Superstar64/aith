@@ -5,10 +5,10 @@ import Control.Monad.Trans.State (State, get, put, runState)
 import Control.Monad.Trans.Writer (WriterT, runWriterT, tell)
 import Core.Ast.Common
 import Core.Ast.Kind
+import Core.Ast.KindPattern
 import Core.Ast.Multiplicity
 import Core.Ast.Pattern
-import Core.Ast.Stage
-import Core.Ast.StagePattern
+import Core.Ast.Sort
 import Core.Ast.Term
 import Core.Ast.Type
 import Core.Ast.TypePattern
@@ -75,16 +75,14 @@ prettyTerm' (TypeApplication e σ) = do
   token "<"
   pretty σ
   token ">"
-prettyTerm' (StageAbstraction pm e) = do
+prettyTerm' (KindAbstraction pm e) = do
   token "Λ@"
   pretty pm
   lambda (prettyTerm e)
-prettyTerm' (StageApplication e s) = do
+prettyTerm' (KindApplication e s) = do
   prettyTerm e
   token "@"
-  token "("
-  prettyStage s
-  token ")"
+  pretty s
 prettyTerm' (OfCourseIntroduction e) = do
   token "!"
   prettyTerm e
@@ -134,7 +132,7 @@ prettyType' _ (Forall pm σ) = do
   pretty pm
   token ">"
   lambdaMini (prettyType BottomType σ)
-prettyType' _ (StageForall pm σ) = do
+prettyType' _ (KindForall pm σ) = do
   token "∀@"
   pretty pm
   lambdaMini (prettyType BottomType σ)
@@ -166,12 +164,15 @@ prettyTypePattern (CoreTypePattern Internal pm) = prettyTypePattern' pm
 instance Pretty (TypePattern KindInternal Internal) where
   pretty = prettyTypePattern
 
-prettyStagePattern' (StagePatternVariable x) = identfier x
+prettyKindPattern' (KindPatternVariable x μ) = do
+  identfier x
+  token ":"
+  pretty μ
 
-prettyStagePattern (CoreStagePattern Internal pm) = prettyStagePattern' pm
+prettyKindPattern (CoreKindPattern Internal pm) = prettyKindPattern' pm
 
-instance Pretty StagePatternInternal where
-  pretty = prettyStagePattern
+instance Pretty KindPatternInternal where
+  pretty = prettyKindPattern
 
 prettyLinear' Linear = keyword "linear"
 prettyLinear' Unrestricted = keyword "unrestricted"
@@ -181,32 +182,43 @@ prettyLinear (CoreMultiplicity Internal l) = prettyLinear' l
 instance Pretty MultiplicityInternal where
   pretty = prettyLinear
 
-prettyStage' (StageVariable x) = identfier x
-prettyStage' Runtime = keyword "runtime"
-prettyStage' Meta = keyword "meta"
+prettyRepresentation PointerRep = keyword "pointer"
+prettyRepresentation FunctionRep = keyword "function"
 
-prettyStage (CoreStage Internal s) = prettyStage' s
-
-instance Pretty StageInternal where
-  pretty = prettyStage
+instance Pretty Representation where
+  pretty = prettyRepresentation
 
 data KindPrecedence = BottomKind | ArrowKind deriving (Eq, Ord)
 
+prettyKind' _ (KindVariable x) = identfier x
+prettyKind' _ (Runtime ρ) = do
+  keyword "runtime"
+  space
+  prettyKind ArrowKind ρ
+prettyKind' _ Meta = keyword "meta"
 prettyKind' _ (Type s) = do
   keyword "type"
   space
-  pretty s
+  prettyKind ArrowKind s
 prettyKind' d (Higher κ κ') = parens (d > BottomKind) $ do
   prettyKind ArrowKind κ
   space
   token "->"
   space
   prettyKind BottomKind κ'
+prettyKind' _ (RepresentationLiteral ρ) = pretty ρ
 
 prettyKind d (CoreKind Internal κ) = prettyKind' d κ
 
 instance Pretty KindInternal where
   pretty = prettyKind BottomKind
+
+prettySort Kind = keyword "kind"
+prettySort Stage = keyword "stage"
+prettySort Representation = keyword "representation"
+
+instance Pretty Sort where
+  pretty = prettySort
 
 showItem e = s
   where

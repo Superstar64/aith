@@ -5,17 +5,15 @@ import qualified TypeSystem.Pattern as TypeSystem
 import qualified TypeSystem.Stage as TypeSystem
 import qualified TypeSystem.Type as TypeSystem
 
-data StageSort = Stage deriving (Show)
+data Sort = Kind | Stage | Representation deriving (Show)
 
-instance TypeSystem.EmbedStage StageSort where
+instance TypeSystem.EmbedStage Sort where
   stage = Stage
 
-data KindSort = Kind deriving (Show)
-
-instance TypeSystem.EmbedKind KindSort where
+instance TypeSystem.EmbedKind Sort where
   kind = Kind
 
-instance TypeSystem.EmbedType KindSort () where
+instance TypeSystem.EmbedType Sort () where
   typex () = Kind
 
 data PatternSort = Pattern

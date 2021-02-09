@@ -9,8 +9,8 @@ data StageForall s pm' pm σ = StageForall pm σ
 class EmbedStageForall pm σ where
   stageForall :: pm -> σ -> σ
 
-class CheckStageForall' s m p σ where
-  checkStageForall' :: p -> σ -> m (s -> σ)
+class CheckStageForall' μ s m p σ where
+  checkStageForall' :: p -> σ -> m (μ, s -> σ)
 
 instance
   ( Monad m,

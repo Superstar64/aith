@@ -1,6 +1,12 @@
-%let !(true: ∀@s => ∀<a:%type s> => !a -> !a -> a) = !Λ@s => Λ<a : %type s> => λ!(x : a) => λ!(y : a) => x;
-%let !(false: ∀@s => ∀<a:%type s> => !a -> !a -> a) = !Λ@s => Λ<a : %type s> => λ!(x : a) => λ!(y : a) => y;
-%let !(not : (∀@s => ∀<a:%type s> => !a -> !a -> a) -> ∀@s => ∀<a:%type s> => !a -> !a -> a) = !λ x : (∀@s => ∀<a:%type s> => !a -> !a -> a) {
-	x @ %meta <∀@s => ∀<a:%type s> => !a -> !a -> a>(!false)(!true)
+%let !(true: ∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) =
+!Λ@s : %stage => Λ<a : %type s> => λ!(x : a) => λ!(y : a) => x;
+
+%let !(false: ∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) =
+!Λ@s : %stage => Λ<a : %type s> => λ!(x : a) => λ!(y : a) => y;
+
+%let !(not : (∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) -> ∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) =
+!λ x : (∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) {
+	x @ %meta <∀@s : %stage => ∀<a:%type s> => !a -> !a -> a>(!false)(!true)
 };
+
 not(true)

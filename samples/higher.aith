@@ -1,14 +1,16 @@
-Λ<m : %type %runtime -> %type %runtime> {
-	λ!(pure : ∀<a : %type %runtime> => a -> m(a)) => 
-	λ!(bind : ∀<a : %type %runtime> => ∀<b : %type %runtime> => m(a) -> (a -> m(b)) -> m(b)) =>
+Λ@r : %stage {
+Λ<m : %type r -> %type r> {
+	λ!(pure : ∀<a : %type r> => a -> m(a)) => 
+	λ!(bind : ∀<a : %type r> => ∀<b : %type r> => m(a) -> (a -> m(b)) -> m(b)) =>
 
-	Λ<a : %type %runtime> =>
-	Λ<b : %type %runtime> =>
+	Λ<a : %type r> =>
+	Λ<b : %type r> =>
 	λf : a -> b =>
 	λa : m(a) =>
 	bind<a><b>(a)(λa : a {
 		pure<b>(f(a))
 	})
-}<λ a : %type %runtime => a>
-(!Λ<a : %type %runtime> => λ x : a => x)
-(!Λ<a : %type %runtime> => Λ<b : %type %runtime> => λ x : a => λ f : a -> b => f(x))
+}<λ a : %type r => a>
+(!Λ<a : %type r> => λ x : a => x)
+(!Λ<a : %type r> => Λ<b : %type r> => λ x : a => λ f : a -> b => f(x))
+}@%runtime %pointer

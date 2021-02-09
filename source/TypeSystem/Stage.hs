@@ -1,4 +1,9 @@
 module TypeSystem.Stage where
 
-class EmbedStage ss where
-  stage :: ss
+data Stage = Stage
+
+class EmbedStage μs where
+  stage :: μs
+
+class CheckStage μs p m where
+  checkStage :: p -> μs -> m Stage
