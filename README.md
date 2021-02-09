@@ -73,6 +73,7 @@ See ``/documentation`` for typing rules.
 
 ## Sorts(μ)
 | Description | Syntax |
+|-|-|
 | Kind | ``%kind`` |
 | Stage | ``%stage`` |
 | Representation | ``%representation`` |
