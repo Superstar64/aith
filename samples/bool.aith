@@ -1,12 +1,14 @@
-%let !(true: ∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) =
-!Λ@s : %stage => Λ<a : %type s> => λ!(x : a) => λ!(y : a) => x;
+{
+module boolean = {
+inline true = Λ@s : %stage => Λ<a : %type s> => λ!(x : a) => λ!(y : a) => x;
 
-%let !(false: ∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) =
-!Λ@s : %stage => Λ<a : %type s> => λ!(x : a) => λ!(y : a) => y;
+inline false = Λ@s : %stage => Λ<a : %type s> => λ!(x : a) => λ!(y : a) => y;
 
-%let !(not : (∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) -> ∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) =
-!λ x : (∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) {
+inline not = λ x : (∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) {
 	x @ %meta <∀@s : %stage => ∀<a:%type s> => !a -> !a -> a>(!false)(!true)
 };
-
-not(true)
+};
+import not = boolean/not;
+import true = boolean/true;
+inline main = not(true);
+}

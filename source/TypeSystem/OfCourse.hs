@@ -26,8 +26,8 @@ instance
     Type _ <- checkType @s @κ (location σ) =<< typeCheck σ
     pure $ typex (meta @s)
 
-instance (FreeVariables u σ) => FreeVariables u (OfCourse s σ) where
-  freeVariables (OfCourse σ) = freeVariables @u σ
+instance (FreeVariables u p σ) => FreeVariablesImpl u p (OfCourse s σ) where
+  freeVariablesImpl _ (OfCourse σ) = freeVariables @u σ
 
 instance
   ( EmbedOfCourse σ,

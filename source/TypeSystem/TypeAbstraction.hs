@@ -25,13 +25,12 @@ instance
     pure (forallx pm σ, lΓ)
 
 instance
-  ( FreeVariables u e,
-    FreeVariables u pm,
-    ModifyVariables u pm
+  ( FreeVariables u p e,
+    ModifyVariables u p pm
   ) =>
-  FreeVariables u (TypeAbstraction pm'' pm' pm e)
+  FreeVariablesImpl u p (TypeAbstraction pm'' pm' pm e)
   where
-  freeVariables (TypeAbstraction pm e) = modifyVariables @u pm $ freeVariables @u e
+  freeVariablesImpl _ (TypeAbstraction pm e) = modifyVariables @u pm $ freeVariables @u e
 
 instance
   ( EmbedTypeAbstraction pm e,

@@ -2,7 +2,7 @@ module Core.Ast.KindPattern where
 
 import Core.Ast.Common
 import Core.Ast.Sort
-import Misc.Identifier
+import Misc.Identifier (Identifier)
 import TypeSystem.Methods
 import qualified TypeSystem.PatternVariable as TypeSystem
 

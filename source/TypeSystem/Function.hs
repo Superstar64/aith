@@ -27,8 +27,8 @@ instance
     Type _ <- checkType @s @κ (location τ) =<< typeCheck τ
     pure $ typex @κ (meta @s)
 
-instance (FreeVariables u σ) => FreeVariables u (Function s σ) where
-  freeVariables (Function σ τ) = freeVariables @u σ <> freeVariables @u τ
+instance (FreeVariables u p σ) => FreeVariablesImpl u p (Function s σ) where
+  freeVariablesImpl _ (Function σ τ) = freeVariables @u σ <> freeVariables @u τ
 
 instance
   ( EmbedFunction σ,

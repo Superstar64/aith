@@ -25,8 +25,8 @@ instance
     sameType p μ μ'
     pure $ (f s, lΓ)
 
-instance (FreeVariables u s, FreeVariables u e) => FreeVariables u (StageApplication μ s' s e) where
-  freeVariables (StageApplication e s) = freeVariables @u e <> freeVariables @u s
+instance (FreeVariables u p s, FreeVariables u p e) => FreeVariablesImpl u p (StageApplication μ s' s e) where
+  freeVariablesImpl _ (StageApplication e s) = freeVariables @u e <> freeVariables @u s
 
 instance
   ( EmbedStageApplication s e,

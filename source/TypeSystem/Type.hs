@@ -24,8 +24,8 @@ instance
     Stage <- checkStage p =<< typeCheck @μs s
     pure kind
 
-instance FreeVariables u s => FreeVariables u (Type μs s) where
-  freeVariables (Type s) = freeVariables @u s
+instance FreeVariables u p s => FreeVariablesImpl u p (Type μs s) where
+  freeVariablesImpl _ (Type s) = freeVariables @u s
 
 instance (EmbedType κ s, Substitute u s) => SubstituteImpl (Type μs s) u κ where
   substituteImpl ux x (Type s) = typex $ substitute ux x s

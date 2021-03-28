@@ -11,9 +11,12 @@ import Core.Ast.Sort
 import Core.Ast.Term
 import Core.Ast.Type
 import Core.Ast.TypePattern
+import Core.Module
 import Data.Char (isAlphaNum, ord)
+import qualified Data.Map as Map
 import Data.Void (Void)
-import Misc.Identifier
+import Misc.Identifier (Identifier (..))
+import Misc.Path
 import Text.Megaparsec (Parsec, SourcePos, getSourcePos, satisfy, (<?>))
 import Text.Megaparsec.Char (space, string)
 
@@ -24,6 +27,9 @@ token op = Parser $ string op >> space
 
 keyword :: String -> Parser ()
 keyword name = Parser $ string ('%' : name) >> space
+
+moduleKeyword :: String -> Parser ()
+moduleKeyword name = Parser $ string name >> space
 
 isGreek :: Int -> Bool
 isGreek x = x >= 0x370 && x <= 0x3ff
@@ -233,3 +239,37 @@ term = do
     λs p = CoreTerm p <$> kindAbstraction
     bangIntro p = CoreTerm p <$> ofCourseIntroduction
     bindImpl p = CoreTerm p <$> bind
+
+path :: Parser Path
+path = do
+  top <- identfier
+  pathTail top <|> pure (Path [] top)
+
+pathTail head = do
+  token "/"
+  Path heading name <- path
+  pure $ Path (head : heading) name
+
+item' :: Parser (Item SourcePos) -> Parser (Identifier, Item SourcePos)
+item' brand = do
+  name <- identfier
+  token "="
+  binding <- brand
+  token ";"
+  pure (name, binding)
+
+item :: Parser (Identifier, Item SourcePos)
+item = do
+  p <- position
+  choice
+    [ moduleKeyword "inline" *> item' (CoreItem p <$> Global <$> Inline <$> term),
+      moduleKeyword "import" *> item' (CoreItem p <$> Global <$> Import p <$> path),
+      moduleKeyword "module" *> item' (CoreItem p <$> Module <$> modulex)
+    ]
+
+modulex :: Parser (Module SourcePos)
+modulex = do
+  token "{"
+  bindings <- Map.fromList <$> some item
+  token "}"
+  pure $ CoreModule bindings

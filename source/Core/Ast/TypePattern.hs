@@ -4,7 +4,7 @@ import Core.Ast.Common
 import Core.Ast.Kind
 import Core.Ast.Sort
 import Data.Bifunctor (Bifunctor, bimap)
-import Misc.Identifier
+import Misc.Identifier (Identifier)
 import TypeSystem.Methods
 import qualified TypeSystem.PatternVariable as TypeSystem
 
@@ -15,6 +15,8 @@ instance Bifunctor TypePatternF where
 
 data TypePattern κ p = CoreTypePattern p (TypePatternF κ p) deriving (Show)
 
+type TypePatternInternal = TypePattern KindInternal Internal
+
 instance InternalType (TypePattern KindInternal p) KindInternal where
   internalType (CoreTypePattern _ pm) = internalType $ projectTypePattern pm
 
@@ -24,26 +26,26 @@ projectTypePattern (TypePatternVariable x κ) = TypeSystem.PatternVariable x κ
 instance Bifunctor TypePattern where
   bimap f g (CoreTypePattern p pm) = CoreTypePattern (g p) (bimap f g pm)
 
-instance TypeSystem.EmbedPatternVariable KindInternal (TypePattern KindInternal Internal) where
+instance TypeSystem.EmbedPatternVariable KindInternal TypePatternInternal where
   patternVariable κ x = CoreTypePattern Internal $ TypePatternVariable κ x
 
-instance Bindings (TypePattern KindInternal Internal) where
-  bindings (CoreTypePattern Internal pm) = bindings $ projectTypePattern pm
+instance Bindings (TypePattern (Kind p) p) where
+  bindings (CoreTypePattern _ pm) = bindings $ projectTypePattern pm
 
-instance FreeVariables KindInternal (TypePattern KindInternal Internal) where
-  freeVariables (CoreTypePattern Internal pm) = freeVariables @KindInternal $ projectTypePattern pm
+instance Semigroup p => FreeVariables (Kind p) p (TypePattern (Kind p) p) where
+  freeVariables (CoreTypePattern p pm) = freeVariablesImpl @(Kind p) p $ projectTypePattern pm
 
-instance ModifyVariables KindInternal (TypePattern KindInternal Internal) where
-  modifyVariables pm free = freeVariables @KindInternal pm <> free
+instance Semigroup p => ModifyVariables (Kind p) p (TypePattern (Kind p) p) where
+  modifyVariables pm free = freeVariables @(Kind p) pm <> free
 
-instance Substitute KindInternal (TypePattern KindInternal Internal) where
+instance Substitute KindInternal TypePatternInternal where
   substitute κx x (CoreTypePattern Internal pm) = substituteImpl κx x $ projectTypePattern pm
 
-instance ConvertPattern (TypePattern KindInternal Internal) (TypePattern KindInternal Internal) where
+instance ConvertPattern TypePatternInternal TypePatternInternal where
   convertPattern ix x (CoreTypePattern Internal pm) = convertPattern ix x (projectTypePattern pm)
 
-instance Reduce (TypePattern KindInternal Internal) where
+instance Reduce TypePatternInternal where
   reduce (CoreTypePattern Internal pm) = reduceImpl $ projectTypePattern pm
 
-instance Strip (TypePattern KindInternal p) (TypePattern KindInternal Internal) where
+instance Strip (TypePattern KindInternal p) TypePatternInternal where
   strip = bimap id (const Internal)

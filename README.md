@@ -16,7 +16,7 @@ See ``/documentation`` for typing rules.
 * [ ] Multiplicity Predicates
 * [x] Levity Polymorphism
 * [x] Stage Polymorphism
-* [ ] Modules
+* [x] Modules
 * [ ] Runtime Lambda Calculus
 * [ ] Runtime Primatives
 * [ ] Hindley Milner Subset
@@ -24,6 +24,14 @@ See ``/documentation`` for typing rules.
 * [ ] Javascript Code Generation
 
 # Syntax
+
+## Modules(code)
+| Description | Syntax |
+|-|-|
+| Module | ``module x = { code };`` |
+| Inline Symbol | ``inline x =  e; ``|
+| Import | ``import x = x'/x''/...``|
+
 ## Terms(e)
 | Description | Syntax |
 |-|-|

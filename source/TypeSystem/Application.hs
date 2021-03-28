@@ -41,8 +41,8 @@ instance
     sameType (location e2) σ σ'
     pure (τ, combine lΓ1 lΓ2)
 
-instance FreeVariables u e => FreeVariables u (Application e) where
-  freeVariables (Application e1 e2) = freeVariables @u e1 <> freeVariables @u e2
+instance FreeVariables u p e => FreeVariablesImpl u p (Application e) where
+  freeVariablesImpl _ (Application e1 e2) = freeVariables @u e1 <> freeVariables @u e2
 
 instance (EmbedApplication e, Substitute u e) => SubstituteImpl (Application e) u e where
   substituteImpl ux x (Application e1 e2) = application (substitute ux x e1) (substitute ux x e2)

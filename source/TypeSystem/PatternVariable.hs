@@ -1,7 +1,7 @@
 module TypeSystem.PatternVariable where
 
 import qualified Data.Set as Set
-import Misc.Identifier
+import Misc.Identifier (Identifier)
 import TypeSystem.Methods
 import TypeSystem.Pattern
 import TypeSystem.Type
@@ -39,8 +39,8 @@ instance
   augmentLinearImpl p (PatternVariable x σ) l e = do
     augmentVariableLinear p x l σ e
 
-instance (FreeVariables u σ) => FreeVariables u (PatternVariable s κ σ) where
-  freeVariables (PatternVariable _ σ) = freeVariables @u σ
+instance (FreeVariables u p σ) => FreeVariablesImpl u p (PatternVariable s κ σ) where
+  freeVariablesImpl _ (PatternVariable _ σ) = freeVariables @u σ
 
 instance Bindings (PatternVariable s κ σ) where
   bindings (PatternVariable x _) = Set.singleton x

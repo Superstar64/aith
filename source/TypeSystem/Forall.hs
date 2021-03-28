@@ -28,13 +28,12 @@ instance
     pure $ typex @κ s
 
 instance
-  ( FreeVariables u σ,
-    FreeVariables u pm,
-    ModifyVariables u pm
+  ( FreeVariables u p σ,
+    ModifyVariables u p pm
   ) =>
-  FreeVariables u (Forall s pm' pm σ)
+  FreeVariablesImpl u p (Forall s pm' pm σ)
   where
-  freeVariables (Forall pm σ) = modifyVariables @u pm $ freeVariables @u σ
+  freeVariablesImpl _ (Forall pm σ) = modifyVariables @u pm $ freeVariables @u σ
 
 instance
   ( EmbedForall pm σ,

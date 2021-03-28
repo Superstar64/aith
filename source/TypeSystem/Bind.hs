@@ -31,13 +31,12 @@ instance
     pure (σ, combine lΓ1 lΓ2)
 
 instance
-  ( FreeVariables u pm,
-    ModifyVariables u pm,
-    FreeVariables u e
+  ( ModifyVariables u p pm,
+    FreeVariables u p e
   ) =>
-  FreeVariables u (Bind l pm' pm e)
+  FreeVariablesImpl u p (Bind l pm' pm e)
   where
-  freeVariables (Bind pm e1 e2) = freeVariables @u e1 <> modifyVariables @u pm (freeVariables @u e2)
+  freeVariablesImpl _ (Bind pm e1 e2) = freeVariables @u e1 <> modifyVariables @u pm (freeVariables @u e2)
 
 instance
   ( EmbedBind pm e,

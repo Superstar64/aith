@@ -3,8 +3,8 @@ module Core.Ast.Kind where
 import Core.Ast.Common
 import Core.Ast.KindPattern
 import Core.Ast.Sort
-import qualified Data.Set as Set
-import Misc.Identifier
+import Misc.Identifier (Identifier)
+import qualified Misc.Identifier as Variables
 import qualified TypeSystem.Function as TypeSystem
 import qualified TypeSystem.Meta as TypeSystem
 import TypeSystem.Methods
@@ -64,14 +64,20 @@ instance TypeSystem.EmbedRuntime KindInternal KindInternal where
 instance TypeSystem.EmbedMeta KindInternal where
   meta = CoreKind Internal $ Meta
 
-instance FreeVariables KindInternal KindInternal where
-  freeVariables (CoreKind Internal κ) = freeVariables @KindInternal $ projectKind κ
+instance Semigroup p => FreeVariables (Kind p) p (Kind p) where
+  freeVariables (CoreKind p κ) = freeVariablesImpl @(Kind p) p $ projectKind κ
 
-instance FreeVariables KindInternal (TypeSystem.Variable KindInternal) where
-  freeVariables (TypeSystem.Variable x) = Set.singleton x
+instance Semigroup p => FreeVariablesImpl (Kind p) p (TypeSystem.Variable (Kind p)) where
+  freeVariablesImpl p (TypeSystem.Variable x) = Variables.singleton x p
 
-instance FreeVariables KindInternal Representation where
-  freeVariables _ = Set.empty
+instance Semigroup p => FreeVariablesImpl (Kind p) p Representation where
+  freeVariablesImpl _ _ = mempty
+
+instance FreeVariablesInternal KindInternal KindInternal where
+  freeVariablesInternal = freeVariables @KindInternal
+
+instance Semigroup p => ModifyVariables (Kind p) p (KindPattern p) where
+  modifyVariables (CoreKindPattern _ pm) free = foldr Variables.delete free $ bindings (projectKindPattern pm)
 
 instance Substitute KindInternal KindInternal where
   substitute κx x (CoreKind Internal κ) = substituteImpl κx x $ projectKind κ
@@ -85,9 +91,6 @@ instance SubstituteImpl Representation KindInternal KindInternal where
 
 instance Substitute KindInternal KindPatternInternal where
   substitute _ _ pm = pm
-
-instance ModifyVariables KindInternal KindPatternInternal where
-  modifyVariables (CoreKindPattern Internal pm) free = foldr Set.delete free $ bindings (projectKindPattern pm)
 
 instance Reduce KindInternal where
   reduce = id

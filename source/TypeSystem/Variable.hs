@@ -1,6 +1,6 @@
 module TypeSystem.Variable where
 
-import Misc.Identifier
+import Misc.Identifier (Identifier)
 import TypeSystem.Methods
 
 data Variable e = Variable Identifier deriving (Show)

@@ -12,7 +12,11 @@ import Core.Ast.Sort
 import Core.Ast.Term
 import Core.Ast.Type
 import Core.Ast.TypePattern
-import Misc.Identifier
+import Core.Module
+import Data.List (intersperse)
+import qualified Data.Map as Map
+import Misc.Identifier (Identifier (..))
+import Misc.Path
 
 newtype Printer a = Printer (WriterT String (State Int) a) deriving (Functor, Applicative, Monad)
 
@@ -22,6 +26,8 @@ class Pretty a where
 token = Printer . tell
 
 keyword name = Printer $ tell (('%' : name))
+
+moduleKeyword name = Printer $ tell name
 
 identfier (Identifier name) = Printer $ tell name
 
@@ -220,7 +226,39 @@ prettySort Representation = keyword "representation"
 instance Pretty Sort where
   pretty = prettySort
 
-showItem e = s
+instance Pretty (Module Internal) where
+  pretty = prettyModule
+
+instance Pretty Path where
+  pretty (Path heading name) = sequence_ $ intersperse (token "/") $ identfier <$> (heading ++ [name])
+
+prettyItem' name brand = do
+  kspace
+  identfier name
+  space
+  token "="
+  space
+  pretty brand
+  token ";"
+  line
+
+prettyItem (name, CoreItem Internal (Module code)) = do
+  moduleKeyword "module"
+  prettyItem' name code
+prettyItem (name, CoreItem Internal (Global (Inline e))) = do
+  moduleKeyword "inline"
+  prettyItem' name e
+prettyItem (name, CoreItem Internal (Global (Import Internal path))) = do
+  moduleKeyword "import"
+  prettyItem' name path
+
+prettyModule (CoreModule code) = do
+  token "{"
+  line
+  traverse prettyItem (Map.toList code)
+  token "}"
+
+prettyPrint e = putStrLn $ s
   where
     run (Printer p) = p
     (((), s), _) = runState (runWriterT $ run $ pretty e) 0

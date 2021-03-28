@@ -1,6 +1,5 @@
 module TypeSystem.Meta where
 
-import qualified Data.Set as Set
 import TypeSystem.Methods
 import TypeSystem.Stage
 
@@ -15,8 +14,8 @@ instance EmbedMeta () where
 instance (Monad m, EmbedStage ss) => TypeCheckImpl m p Meta ss where
   typeCheckImpl _ Meta = pure $ stage
 
-instance FreeVariables u Meta where
-  freeVariables Meta = Set.empty
+instance Semigroup p => FreeVariablesImpl u p Meta where
+  freeVariablesImpl _ Meta = mempty
 
 instance EmbedMeta s => SubstituteImpl Meta u s where
   substituteImpl _ _ Meta = meta

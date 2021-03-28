@@ -2,7 +2,7 @@ module Environment where
 
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Misc.Identifier
+import Misc.Identifier (Identifier)
 
 class Usage lΓ where
   useEverything :: lΓ

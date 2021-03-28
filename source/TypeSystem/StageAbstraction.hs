@@ -24,8 +24,8 @@ instance
     let pm = strip pm' :: pm
     pure (stageForall pm σ, lΓ)
 
-instance (ModifyVariables u pm, FreeVariables u e) => FreeVariables u (StageAbstraction pm'' pm' pm e) where
-  freeVariables (StageAbstraction pm e) = modifyVariables @u pm (freeVariables @u e)
+instance (ModifyVariables u p pm, FreeVariables u p e) => FreeVariablesImpl u p (StageAbstraction pm'' pm' pm e) where
+  freeVariablesImpl _ (StageAbstraction pm e) = modifyVariables @u pm (freeVariables @u e)
 
 instance
   ( EmbedStageAbstraction pm e,

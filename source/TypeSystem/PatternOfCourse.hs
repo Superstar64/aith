@@ -20,8 +20,8 @@ instance (EmbedOfCourse σ, InternalType pm σ) => InternalType (PatternOfCourse
 instance (EmbedUnrestricted l, AugmentLinear m pm l lΓ) => AugmentLinearImpl m p (PatternOfCourse pm) l lΓ where
   augmentLinearImpl _ (PatternOfCourse pm) _ e = augmentLinear pm (unrestricted @l) e
 
-instance (FreeVariables u pm) => FreeVariables u (PatternOfCourse pm) where
-  freeVariables (PatternOfCourse pm) = freeVariables @u pm
+instance (FreeVariables u p pm) => FreeVariablesImpl u p (PatternOfCourse pm) where
+  freeVariablesImpl _ (PatternOfCourse pm) = freeVariables @u pm
 
 instance Bindings pm => Bindings (PatternOfCourse pm) where
   bindings (PatternOfCourse pm) = bindings pm

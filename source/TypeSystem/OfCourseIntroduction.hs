@@ -26,8 +26,8 @@ instance
     capture p (unrestricted @l) lΓ
     pure (ofCourse σ, lΓ)
 
-instance FreeVariables u e => FreeVariables u (OfCourseIntroduction l e) where
-  freeVariables (OfCourseIntroduction e) = freeVariables @u e
+instance FreeVariables u p e => FreeVariablesImpl u p (OfCourseIntroduction l e) where
+  freeVariablesImpl _ (OfCourseIntroduction e) = freeVariables @u e
 
 instance
   ( EmbedOfCourseIntroduction e,

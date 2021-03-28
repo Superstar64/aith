@@ -21,8 +21,8 @@ instance
     Representation <- checkRepresentation p =<< typeCheck @μr r
     pure stage
 
-instance FreeVariables u r => FreeVariables u (Runtime μr r) where
-  freeVariables (Runtime r) = freeVariables @u r
+instance FreeVariables u p r => FreeVariablesImpl u p (Runtime μr r) where
+  freeVariablesImpl _ (Runtime r) = freeVariables @u r
 
 instance (EmbedRuntime s r, Substitute u r) => SubstituteImpl (Runtime μr r) u s where
   substituteImpl ux x (Runtime r) = runtime (substitute ux x r)

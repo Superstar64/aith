@@ -9,8 +9,8 @@ import Core.Ast.Sort
 import Core.Ast.Type
 import Core.Ast.TypePattern
 import Data.Bifunctor (bimap)
-import qualified Data.Set as Set
-import Misc.Identifier
+import Misc.Identifier (Identifier, substituteVariable)
+import qualified Misc.Identifier as Variables
 import qualified TypeSystem.Abstraction as TypeSystem
 import qualified TypeSystem.Application as TypeSystem
 import qualified TypeSystem.Bind as TypeSystem
@@ -58,7 +58,7 @@ projectTerm ::
         ( Either
             (TypeSystem.Application (Term p))
             ( Either
-                (TypeSystem.TypeAbstraction (TypePattern KindInternal Internal) (TypePattern KindInternal p) (TypePattern (Kind p) p) (Term p))
+                (TypeSystem.TypeAbstraction TypePatternInternal (TypePattern KindInternal p) (TypePattern (Kind p) p) (Term p))
                 ( Either
                     (TypeSystem.TypeApplication KindInternal (Type p) (Term p))
                     ( Either
@@ -90,13 +90,13 @@ projectTerm (Bind pm e1 e2) = Right $ Right $ Right $ Right $ Right $ Right $ Ri
 instance TypeSystem.EmbedVariable TermInternal where
   variable x = CoreTerm Internal $ Variable x
 
-instance TypeSystem.EmbedAbstraction (Pattern TypeInternal Internal) TermInternal where
+instance TypeSystem.EmbedAbstraction PatternInternal TermInternal where
   abstraction pm e = CoreTerm Internal $ MacroAbstraction pm e
 
 instance TypeSystem.EmbedApplication TermInternal where
   application e1 e2 = CoreTerm Internal $ MacroApplication e1 e2
 
-instance TypeSystem.EmbedTypeAbstraction (TypePattern KindInternal Internal) TermInternal where
+instance TypeSystem.EmbedTypeAbstraction TypePatternInternal TermInternal where
   typeAbstraction pm e = CoreTerm Internal $ TypeAbstraction pm e
 
 instance TypeSystem.EmbedTypeApplication TypeInternal TermInternal where
@@ -111,46 +111,55 @@ instance TypeSystem.EmbedStageApplication KindInternal TermInternal where
 instance TypeSystem.EmbedOfCourseIntroduction TermInternal where
   ofCourseIntroduction e = CoreTerm Internal $ OfCourseIntroduction e
 
-instance TypeSystem.EmbedBind (Pattern TypeInternal Internal) TermInternal where
+instance TypeSystem.EmbedBind PatternInternal TermInternal where
   bind pm e1 e2 = CoreTerm Internal $ Bind pm e1 e2
 
-instance FreeVariables TermInternal TermInternal where
-  freeVariables (CoreTerm Internal e) = freeVariables @TermInternal $ projectTerm e
+instance Semigroup p => FreeVariables (Term p) p (Term p) where
+  freeVariables (CoreTerm p e) = freeVariablesImpl @(Term p) p $ projectTerm e
 
-instance FreeVariables TermInternal (TypeSystem.Variable TermInternal) where
-  freeVariables (TypeSystem.Variable x) = Set.singleton x
+instance Semigroup p => FreeVariablesImpl (Term p) p (TypeSystem.Variable (Term p)) where
+  freeVariablesImpl p (TypeSystem.Variable x) = Variables.singleton x p
 
-instance FreeVariables TypeInternal TermInternal where
-  freeVariables (CoreTerm Internal e) = freeVariables @TypeInternal $ projectTerm e
+instance Semigroup p => FreeVariables (Type p) p (Term p) where
+  freeVariables (CoreTerm p e) = freeVariablesImpl @(Type p) p $ projectTerm e
 
-instance FreeVariables TypeInternal (TypeSystem.Variable TermInternal) where
-  freeVariables _ = Set.empty
+instance Semigroup p => FreeVariablesImpl (Type p) p (TypeSystem.Variable (Term p)) where
+  freeVariablesImpl _ _ = mempty
 
-instance FreeVariables KindInternal TermInternal where
-  freeVariables (CoreTerm Internal e) = freeVariables @KindInternal $ projectTerm e
+instance Semigroup p => FreeVariables (Kind p) p (Term p) where
+  freeVariables (CoreTerm p e) = freeVariablesImpl @(Kind p) p $ projectTerm e
 
-instance FreeVariables KindInternal (TypeSystem.Variable TermInternal) where
-  freeVariables _ = Set.empty
+instance Semigroup p => FreeVariablesImpl (Kind p) p (TypeSystem.Variable (Term p)) where
+  freeVariablesImpl _ _ = mempty
 
-instance FreeVariables TermInternal (Pattern TypeInternal Internal) where
-  freeVariables _ = Set.empty
+instance Semigroup p => FreeVariables (Term p) p (Pattern (Type p) p) where
+  freeVariables _ = mempty
 
-instance FreeVariables TermInternal (TypePattern KindInternal Internal) where
-  freeVariables _ = Set.empty
+instance Semigroup p => FreeVariables (Term p) p (TypePattern (Kind p) p) where
+  freeVariables _ = mempty
 
-instance FreeVariables TermInternal TypeInternal where
-  freeVariables _ = Set.empty
+instance Semigroup p => FreeVariables (Term p) p (Type p) where
+  freeVariables _ = mempty
 
-instance FreeVariables TermInternal KindInternal where
-  freeVariables _ = Set.empty
+instance Semigroup p => FreeVariables (Term p) p (Kind p) where
+  freeVariables _ = mempty
 
-instance ModifyVariables TermInternal (Pattern TypeInternal Internal) where
-  modifyVariables (CorePattern Internal pm) free = foldr Set.delete free $ bindings (projectPattern pm)
+instance FreeVariablesInternal TermInternal TermInternal where
+  freeVariablesInternal = freeVariables @TermInternal
 
-instance ModifyVariables TermInternal (TypePattern KindInternal Internal) where
+instance FreeVariablesInternal TypeInternal TermInternal where
+  freeVariablesInternal = freeVariables @TypeInternal
+
+instance FreeVariablesInternal KindInternal TermInternal where
+  freeVariablesInternal = freeVariables @KindInternal
+
+instance Semigroup p => ModifyVariables (Term p) p (Pattern (Type p) p) where
+  modifyVariables (CorePattern _ pm) free = foldr Variables.delete free $ bindings (projectPattern pm)
+
+instance Semigroup p => ModifyVariables (Term p) p (TypePattern (Kind p) p) where
   modifyVariables _ free = free
 
-instance ModifyVariables TermInternal KindPatternInternal where
+instance Semigroup p => ModifyVariables (Term p) p (KindPattern p) where
   modifyVariables _ free = free
 
 instance Substitute TermInternal TermInternal where
@@ -173,10 +182,10 @@ instance SubstituteImpl (TypeSystem.Variable TermInternal) KindInternal TermInte
 
 instance SubstituteSame TermInternal
 
-instance Substitute TermInternal (Pattern TypeInternal Internal) where
+instance Substitute TermInternal PatternInternal where
   substitute _ _ pm = pm
 
-instance Substitute TermInternal (TypePattern KindInternal Internal) where
+instance Substitute TermInternal TypePatternInternal where
   substitute _ _ pm = pm
 
 instance Substitute TermInternal KindPatternInternal where
@@ -188,27 +197,27 @@ instance Substitute TermInternal TypeInternal where
 instance Substitute TermInternal KindInternal where
   substitute _ _ κ = κ
 
-instance CaptureAvoidingSubstitution TermInternal (Pattern TypeInternal Internal) TermInternal where
+instance CaptureAvoidingSubstitution TermInternal PatternInternal TermInternal where
   avoidCapture ex (CorePattern Internal pm, e) = avoidCaptureImpl @TermInternal projectPattern (CorePattern Internal) ex (pm, e)
   substituteShadow = substituteShadowImpl
 
-instance CaptureAvoidingSubstitution TypeInternal (Pattern TypeInternal Internal) TermInternal where
+instance CaptureAvoidingSubstitution TypeInternal PatternInternal TermInternal where
   avoidCapture _ = id
   substituteShadow _ = substitute
 
-instance CaptureAvoidingSubstitution KindInternal (Pattern TypeInternal Internal) TermInternal where
+instance CaptureAvoidingSubstitution KindInternal PatternInternal TermInternal where
   avoidCapture _ = id
   substituteShadow _ = substitute
 
-instance CaptureAvoidingSubstitution TermInternal (TypePattern KindInternal Internal) TermInternal where
+instance CaptureAvoidingSubstitution TermInternal TypePatternInternal TermInternal where
   avoidCapture ex (CoreTypePattern Internal pm, e) = avoidCaptureImpl @TypeInternal projectTypePattern (CoreTypePattern Internal) ex (pm, e)
   substituteShadow _ = substitute
 
-instance CaptureAvoidingSubstitution TypeInternal (TypePattern KindInternal Internal) TermInternal where
+instance CaptureAvoidingSubstitution TypeInternal TypePatternInternal TermInternal where
   avoidCapture σx (CoreTypePattern Internal pm, e) = avoidCaptureImpl @TypeInternal projectTypePattern (CoreTypePattern Internal) σx (pm, e)
   substituteShadow = substituteShadowImpl
 
-instance CaptureAvoidingSubstitution KindInternal (TypePattern KindInternal Internal) TermInternal where
+instance CaptureAvoidingSubstitution KindInternal TypePatternInternal TermInternal where
   avoidCapture _ = id
   substituteShadow _ = substitute
 
@@ -227,10 +236,10 @@ instance CaptureAvoidingSubstitution KindInternal KindPatternInternal TermIntern
 instance Reduce TermInternal where
   reduce (CoreTerm Internal e) = reduceImpl $ projectTerm e
 
-instance ReducePattern (Pattern TypeInternal Internal) TermInternal TermInternal where
+instance ReducePattern PatternInternal TermInternal TermInternal where
   reducePattern (CorePattern Internal pm) e1 e2 = reducePattern (projectPattern pm) e1 e2
 
-instance ReducePattern (TypePattern KindInternal Internal) TypeInternal TermInternal where
+instance ReducePattern TypePatternInternal TypeInternal TermInternal where
   reducePattern (CoreTypePattern Internal pm) σ e = reducePattern (projectTypePattern pm) σ e
 
 instance ReducePattern KindPatternInternal KindInternal TermInternal where

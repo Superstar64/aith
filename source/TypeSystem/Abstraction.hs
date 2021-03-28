@@ -43,13 +43,12 @@ instance
     pure (function σ τ, lΓ)
 
 instance
-  ( FreeVariables u e,
-    FreeVariables u pm,
-    ModifyVariables u pm
+  ( FreeVariables u p e,
+    ModifyVariables u p pm
   ) =>
-  FreeVariables u (Abstraction l pm' pm e)
+  FreeVariablesImpl u p (Abstraction l pm' pm e)
   where
-  freeVariables (Abstraction pm e) = modifyVariables @u pm $ freeVariables @u e
+  freeVariablesImpl _ (Abstraction pm e) = modifyVariables @u pm $ freeVariables @u e
 
 instance
   ( EmbedAbstraction pm e,

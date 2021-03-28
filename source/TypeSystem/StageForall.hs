@@ -29,8 +29,8 @@ instance
     Type _ <- checkType @s (location σ) =<< augment pm (typeCheck @κ σ)
     pure $ typex $ meta @s
 
-instance (ModifyVariables u pm, FreeVariables u σ) => FreeVariables u (StageForall s pm' pm σ) where
-  freeVariables (StageForall pm σ) = modifyVariables @u pm $ freeVariables @u σ
+instance (ModifyVariables u p pm, FreeVariables u p σ) => FreeVariablesImpl u p (StageForall s pm' pm σ) where
+  freeVariablesImpl _ (StageForall pm σ) = modifyVariables @u pm $ freeVariables @u σ
 
 instance
   ( EmbedStageForall pm σ,

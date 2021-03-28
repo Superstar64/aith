@@ -1,13 +1,16 @@
 module TypeSystem.Methods where
 
 import Data.Set (Set)
-import Misc.Identifier
+import Misc.Identifier (Identifier, Variables (..))
 
 class TypeCheckInstantiate κ σ m σ' where
   typeCheckInstantiate :: σ' -> m (κ, σ)
 
 class TypeCheck σ m e where
   typeCheck :: e -> m σ
+
+class TypeCheckImpl m p e σ where
+  typeCheckImpl :: p -> e -> m σ
 
 -- typeCheck = fmap fst . typeCheckInstantiate
 
@@ -25,17 +28,27 @@ class InternalType pm σ where
 class TypeCheckLinear σ m e lΓ where
   typeCheckLinear :: e -> m (σ, lΓ)
 
-class FreeVariables u e where
-  freeVariables :: e -> Set Identifier
+class TypeCheckLinearImpl m p e σ lΓ where
+  typeCheckLinearImpl :: p -> e -> m (σ, lΓ)
+
+class Semigroup p => FreeVariables u p e where
+  freeVariables :: e -> Variables p
+
+class Semigroup p => FreeVariablesImpl u p e where
+  freeVariablesImpl :: p -> e -> Variables p
 
 class Bindings pm where
   bindings :: pm -> Set Identifier
 
-class ModifyVariables u pm where
-  modifyVariables :: pm -> Set Identifier -> Set Identifier
+-- either remove pattern's bindings from free variables or add type variables from pattern's bindings to free variables
+class Semigroup p => ModifyVariables u p pm where
+  modifyVariables :: pm -> Variables p -> Variables p
 
 class Substitute u e where
   substitute :: u -> Identifier -> e -> e
+
+class SubstituteImpl e' u e where
+  substituteImpl :: u -> Identifier -> e' -> e
 
 class (Substitute u e, Substitute u pm) => CaptureAvoidingSubstitution u pm e where
   -- prevents (λy. x) [y/x]
@@ -56,6 +69,9 @@ class ConvertPattern pm pm' where
 -- see https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf
 class Reduce e where
   reduce :: e -> e
+
+class ReduceImpl e' e where
+  reduceImpl :: e' -> e
 
 class ReducePattern pm σ e where
   reducePattern :: pm -> σ -> e -> e
@@ -81,40 +97,37 @@ class ReadEnvironment m p κ where
 class Augment m pm where
   augment :: pm -> m a -> m a
 
+class AugmentImpl m p pm where
+  augmentImpl :: p -> pm -> m a -> m a
+
+class AugmentLinearImpl m p pm l lΓ where
+  augmentLinearImpl :: p -> pm -> l -> m (a, lΓ) -> m (a, lΓ)
+
 class Positioned e p | e -> p where
   location :: e -> p
 
 instance Positioned (p, e) p where
   location (p, _) = p
 
-class TypeCheckLinearImpl m p e σ lΓ where
-  typeCheckLinearImpl :: p -> e -> m (σ, lΓ)
+instance (TypeCheckImpl m p a σ, TypeCheckImpl m p b σ) => TypeCheckImpl m p (Either a b) σ where
+  typeCheckImpl p (Left e) = typeCheckImpl p e
+  typeCheckImpl p (Right e) = typeCheckImpl p e
 
 instance (TypeCheckLinearImpl m p a σ lΓ, TypeCheckLinearImpl m p b σ lΓ) => TypeCheckLinearImpl m p (Either a b) σ lΓ where
   typeCheckLinearImpl p (Left e) = typeCheckLinearImpl p e
   typeCheckLinearImpl p (Right e) = typeCheckLinearImpl p e
 
-class TypeCheckImpl m p e σ where
-  typeCheckImpl :: p -> e -> m σ
-
-instance (TypeCheckImpl m p a σ, TypeCheckImpl m p b σ) => TypeCheckImpl m p (Either a b) σ where
-  typeCheckImpl p (Left e) = typeCheckImpl p e
-  typeCheckImpl p (Right e) = typeCheckImpl p e
-
 instance (InternalType a σ, InternalType b σ) => InternalType (Either a b) σ where
   internalType (Left pm) = internalType pm
   internalType (Right pm) = internalType pm
 
-instance (FreeVariables u a, FreeVariables u b) => FreeVariables u (Either a b) where
-  freeVariables (Left σ) = freeVariables @u σ
-  freeVariables (Right σ) = freeVariables @u σ
+instance (FreeVariablesImpl u p a, FreeVariablesImpl u p b) => FreeVariablesImpl u p (Either a b) where
+  freeVariablesImpl p (Left σ) = freeVariablesImpl @u p σ
+  freeVariablesImpl p (Right σ) = freeVariablesImpl @u p σ
 
 instance (Bindings a, Bindings b) => Bindings (Either a b) where
   bindings (Left pm) = bindings pm
   bindings (Right pm) = bindings pm
-
-class SubstituteImpl e' u e where
-  substituteImpl :: u -> Identifier -> e' -> e
 
 instance (SubstituteImpl a u e, SubstituteImpl b u e) => SubstituteImpl (Either a b) u e where
   substituteImpl ux x (Left e) = substituteImpl ux x e
@@ -124,9 +137,6 @@ instance (ConvertPattern pm a, ConvertPattern pm b) => ConvertPattern pm (Either
   convertPattern ix x (Left pm) = convertPattern ix x pm
   convertPattern ix x (Right pm) = convertPattern ix x pm
 
-class ReduceImpl e' e where
-  reduceImpl :: e' -> e
-
 instance (ReduceImpl a e, ReduceImpl b e) => ReduceImpl (Either a b) e where
   reduceImpl (Left e) = reduceImpl e
   reduceImpl (Right e) = reduceImpl e
@@ -134,9 +144,6 @@ instance (ReduceImpl a e, ReduceImpl b e) => ReduceImpl (Either a b) e where
 instance (ReducePattern a σ e, ReducePattern b σ e) => ReducePattern (Either a b) σ e where
   reducePattern (Left pm) = reducePattern pm
   reducePattern (Right pm) = reducePattern pm
-
-class AugmentImpl m p pm where
-  augmentImpl :: p -> pm -> m a -> m a
 
 instance
   ( AugmentImpl m p a,
@@ -146,9 +153,6 @@ instance
   where
   augmentImpl p (Left pm) = augmentImpl p pm
   augmentImpl p (Right pm) = augmentImpl p pm
-
-class AugmentLinearImpl m p pm l lΓ where
-  augmentLinearImpl :: p -> pm -> l -> m (a, lΓ) -> m (a, lΓ)
 
 instance
   ( AugmentLinearImpl m p a l lΓ,
