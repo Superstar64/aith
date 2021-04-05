@@ -4,7 +4,9 @@ import Core.Ast.Common
 import Core.Ast.KindPattern
 import Core.Ast.Sort
 import Misc.Identifier (Identifier)
-import qualified Misc.Identifier as Variables
+import Misc.Isomorph
+import Misc.Prism
+import qualified Misc.Variables as Variables
 import qualified TypeSystem.Function as TypeSystem
 import qualified TypeSystem.Meta as TypeSystem
 import TypeSystem.Methods
@@ -13,6 +15,14 @@ import qualified TypeSystem.Type as TypeSystem
 import qualified TypeSystem.Variable as TypeSystem
 
 data Representation = FunctionRep | PointerRep deriving (Show)
+
+functionRep = Prism (const FunctionRep) $ \case
+  FunctionRep -> Just ()
+  _ -> Nothing
+
+pointerRep = Prism (const PointerRep) $ \case
+  PointerRep -> Just ()
+  _ -> Nothing
 
 data KindF p
   = KindVariable Identifier
@@ -23,7 +33,33 @@ data KindF p
   | RepresentationLiteral Representation
   deriving (Show, Functor)
 
+kindVariable = Prism KindVariable $ \case
+  (KindVariable x) -> Just x
+  _ -> Nothing
+
+typex = Prism Type $ \case
+  (Type κ) -> Just κ
+  _ -> Nothing
+
+higher = Prism (uncurry Higher) $ \case
+  (Higher κ κ') -> Just (κ, κ')
+  _ -> Nothing
+
+runtime = Prism Runtime $ \case
+  (Runtime κ) -> Just κ
+  _ -> Nothing
+
+meta = Prism (const Meta) $ \case
+  Meta -> Just ()
+  _ -> Nothing
+
+representationLiteral = Prism RepresentationLiteral $ \case
+  RepresentationLiteral ρ -> Just ρ
+  _ -> Nothing
+
 data Kind p = CoreKind p (KindF p) deriving (Show, Functor)
+
+coreKind = Isomorph (uncurry CoreKind) $ \(CoreKind p κ) -> (p, κ)
 
 type KindInternal = Kind Internal
 

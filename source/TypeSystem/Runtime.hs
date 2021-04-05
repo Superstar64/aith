@@ -4,25 +4,28 @@ import TypeSystem.Methods
 import TypeSystem.Representation
 import TypeSystem.Stage
 
-data Runtime μr r = Runtime r
+data Runtime μρ ρ = Runtime ρ
 
-class EmbedRuntime s r where
-  runtime :: r -> s
+class EmbedRuntime s ρ where
+  runtime :: ρ -> s
+
+class CheckRuntime ρ s m p where
+  checkRuntime :: p -> ρ -> m (Runtime μs s)
 
 instance
   ( Monad m,
     EmbedStage μs,
-    TypeCheck μr m r,
-    CheckRepresentation μr p m
+    TypeCheck μρ m ρ,
+    CheckRepresentation μρ p m
   ) =>
-  TypeCheckImpl m p (Runtime μr r) μs
+  TypeCheckImpl m p (Runtime μρ ρ) μs
   where
-  typeCheckImpl p (Runtime r) = do
-    Representation <- checkRepresentation p =<< typeCheck @μr r
+  typeCheckImpl p (Runtime ρ) = do
+    Representation <- checkRepresentation p =<< typeCheck @μρ ρ
     pure stage
 
-instance FreeVariables u p r => FreeVariablesImpl u p (Runtime μr r) where
-  freeVariablesImpl _ (Runtime r) = freeVariables @u r
+instance FreeVariables u p ρ => FreeVariablesImpl u p (Runtime μρ ρ) where
+  freeVariablesImpl _ (Runtime ρ) = freeVariables @u ρ
 
-instance (EmbedRuntime s r, Substitute u r) => SubstituteImpl (Runtime μr r) u s where
-  substituteImpl ux x (Runtime r) = runtime (substitute ux x r)
+instance (EmbedRuntime s ρ, Substitute u ρ) => SubstituteImpl (Runtime μρ ρ) u s where
+  substituteImpl ux x (Runtime ρ) = runtime (substitute ux x ρ)

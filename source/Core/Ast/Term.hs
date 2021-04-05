@@ -10,10 +10,14 @@ import Core.Ast.Type
 import Core.Ast.TypePattern
 import Data.Bifunctor (bimap)
 import Misc.Identifier (Identifier, substituteVariable)
-import qualified Misc.Identifier as Variables
+import Misc.Isomorph
+import Misc.Prism
+import Misc.Symbol
+import qualified Misc.Variables as Variables
 import qualified TypeSystem.Abstraction as TypeSystem
 import qualified TypeSystem.Application as TypeSystem
 import qualified TypeSystem.Bind as TypeSystem
+import qualified TypeSystem.Extern as TypeSystem
 import TypeSystem.Methods
 import qualified TypeSystem.OfCourseIntroduction as TypeSystem
 import qualified TypeSystem.StageAbstraction as TypeSystem
@@ -32,7 +36,48 @@ data TermF p
   | KindApplication (Term p) (Kind p)
   | OfCourseIntroduction (Term p)
   | Bind (Pattern (Type p) p) (Term p) (Term p)
+  | Extern Symbol (Type p)
   deriving (Show)
+
+variable = Prism Variable $ \case
+  (Variable x) -> Just x
+  _ -> Nothing
+
+macroAbstraction = Prism (uncurry MacroAbstraction) $ \case
+  (MacroAbstraction pm e) -> Just (pm, e)
+  _ -> Nothing
+
+macroApplication = Prism (uncurry MacroApplication) $ \case
+  (MacroApplication e e') -> Just (e, e')
+  _ -> Nothing
+
+typeAbstraction = Prism (uncurry TypeAbstraction) $ \case
+  (TypeAbstraction pm σ) -> Just (pm, σ)
+  _ -> Nothing
+
+typeApplication = Prism (uncurry TypeApplication) $ \case
+  (TypeApplication e σ) -> Just (e, σ)
+  _ -> Nothing
+
+kindAbstraction = Prism (uncurry KindAbstraction) $ \case
+  (KindAbstraction pm κ) -> Just (pm, κ)
+  _ -> Nothing
+
+kindApplication = Prism (uncurry KindApplication) $ \case
+  (KindApplication e κ) -> Just (e, κ)
+  _ -> Nothing
+
+ofCourseIntroduction = Prism OfCourseIntroduction $ \case
+  (OfCourseIntroduction e) -> Just e
+  _ -> Nothing
+
+bind = Prism (uncurry $ uncurry $ Bind) $ \case
+  (Bind pm e e') -> Just ((pm, e), e')
+  _ -> Nothing
+
+extern = Prism (uncurry Extern) $ \case
+  (Extern path σ) -> Just (path, σ)
+  _ -> Nothing
 
 instance Functor TermF where
   fmap _ (Variable x) = Variable x
@@ -44,8 +89,11 @@ instance Functor TermF where
   fmap f (KindApplication e s) = KindApplication (fmap f e) (fmap f s)
   fmap f (OfCourseIntroduction e) = OfCourseIntroduction (fmap f e)
   fmap f (Bind pm e1 e2) = Bind (bimap (fmap f) f pm) (fmap f e1) (fmap f e2)
+  fmap f (Extern sm σ) = Extern sm (fmap f σ)
 
 data Term p = CoreTerm p (TermF p) deriving (Show, Functor)
+
+coreTerm = Isomorph (uncurry CoreTerm) $ \(CoreTerm p e) -> (p, e)
 
 type TermInternal = Term Internal
 
@@ -69,7 +117,10 @@ projectTerm ::
                             )
                             ( Either
                                 (TypeSystem.OfCourseIntroduction MultiplicityInternal (Term p))
-                                (TypeSystem.Bind MultiplicityInternal (Pattern TypeInternal p) (Pattern (Type p) p) (Term p))
+                                ( Either
+                                    (TypeSystem.Bind MultiplicityInternal (Pattern TypeInternal p) (Pattern (Type p) p) (Term p))
+                                    (TypeSystem.Extern KindInternal KindInternal KindInternal (Type p))
+                                )
                             )
                         )
                     )
@@ -85,7 +136,8 @@ projectTerm (TypeApplication e σ) = Right $ Right $ Right $ Right $ Left $ Type
 projectTerm (KindAbstraction pm e) = Right $ Right $ Right $ Right $ Right $ Left $ TypeSystem.StageAbstraction pm e
 projectTerm (KindApplication e s) = Right $ Right $ Right $ Right $ Right $ Right $ Left $ TypeSystem.StageApplication e s
 projectTerm (OfCourseIntroduction e) = Right $ Right $ Right $ Right $ Right $ Right $ Right $ Left $ TypeSystem.OfCourseIntroduction e
-projectTerm (Bind pm e1 e2) = Right $ Right $ Right $ Right $ Right $ Right $ Right $ Right $ TypeSystem.Bind pm e1 e2
+projectTerm (Bind pm e1 e2) = Right $ Right $ Right $ Right $ Right $ Right $ Right $ Right $ Left $ TypeSystem.Bind pm e1 e2
+projectTerm (Extern sm σ) = Right $ Right $ Right $ Right $ Right $ Right $ Right $ Right $ Right $ TypeSystem.Extern sm σ
 
 instance TypeSystem.EmbedVariable TermInternal where
   variable x = CoreTerm Internal $ Variable x
@@ -113,6 +165,9 @@ instance TypeSystem.EmbedOfCourseIntroduction TermInternal where
 
 instance TypeSystem.EmbedBind PatternInternal TermInternal where
   bind pm e1 e2 = CoreTerm Internal $ Bind pm e1 e2
+
+instance TypeSystem.EmbedExtern TypeInternal TermInternal where
+  extern sm σ = CoreTerm Internal $ Extern sm σ
 
 instance Semigroup p => FreeVariables (Term p) p (Term p) where
   freeVariables (CoreTerm p e) = freeVariablesImpl @(Term p) p $ projectTerm e

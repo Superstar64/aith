@@ -1,7 +1,7 @@
 module Core.Ast.Common where
 
 import qualified Data.Set as Set
-import Misc.Identifier (Variables, fresh)
+import Misc.Variables (Variables, fresh)
 import TypeSystem.Methods
 import qualified TypeSystem.Variable as TypeSystem
 

@@ -3,12 +3,17 @@ module Core.Ast.KindPattern where
 import Core.Ast.Common
 import Core.Ast.Sort
 import Misc.Identifier (Identifier)
+import Misc.Isomorph
 import TypeSystem.Methods
 import qualified TypeSystem.PatternVariable as TypeSystem
 
 data KindPatternF p = KindPatternVariable Identifier Sort deriving (Show, Functor)
 
+kindPatternVariable = Isomorph (uncurry KindPatternVariable) $ \(KindPatternVariable x μ) -> (x, μ)
+
 data KindPattern p = CoreKindPattern p (KindPatternF p) deriving (Show, Functor)
+
+coreKindPattern = Isomorph (uncurry CoreKindPattern) $ \(CoreKindPattern p pm) -> (p, pm)
 
 type KindPatternInternal = KindPattern Internal
 

@@ -5,15 +5,20 @@ import Core.Ast.Kind
 import Core.Ast.Sort
 import Data.Bifunctor (Bifunctor, bimap)
 import Misc.Identifier (Identifier)
+import Misc.Isomorph
 import TypeSystem.Methods
 import qualified TypeSystem.PatternVariable as TypeSystem
 
 data TypePatternF κ p = TypePatternVariable Identifier κ deriving (Show)
 
+typePatternVariable = Isomorph (uncurry TypePatternVariable) $ \(TypePatternVariable x κ) -> (x, κ)
+
 instance Bifunctor TypePatternF where
   bimap f _ (TypePatternVariable x κ) = TypePatternVariable x (f κ)
 
 data TypePattern κ p = CoreTypePattern p (TypePatternF κ p) deriving (Show)
+
+coreTypePattern = Isomorph (uncurry CoreTypePattern) $ \(CoreTypePattern p pm) -> (p, pm)
 
 type TypePatternInternal = TypePattern KindInternal Internal
 

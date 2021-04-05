@@ -5,7 +5,7 @@
 \Large
 
 \begin{align*}
-e \tag* {[Terms]}\\
+e \tag* {[Terms]} \\
 x \tag* {[Variables]} \\
 \sigma, \tau \tag* {[Types]} \\
 \alpha \tag* {[Type Variables]} \\
@@ -26,6 +26,7 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & e \sigma \tag*{[Type Application]} \\
 & \Lambda \kappa \alpha : \mu. e \tag*{[Kind Lambda]} \\
 & e \kappa \tag*{[Kind Application]} \\
+& \text{extern} \, \sigma \\
 \\
 \sigma, \tau \Coloneqq & \alpha \tag* {[Type Variable]}\\
 & \sigma \to \tau \tag*{[Macro]}\\
@@ -104,6 +105,10 @@ All valid types have a kind who's sort is of the form $ \text{Kind} $
 \frac
 {\Phi | \Gamma \vdash e : \forall \kappa \alpha : \mu. \sigma \quad \Phi \vdash \kappa : \mu}
 {\Phi | \Gamma \vdash e \kappa : \sigma [\kappa/\kappa \alpha]} \\
+\\
+\frac
+{\Phi \vdash \sigma : \text{Type}(\text{Runtime} (\rho))}
+{\Phi | \Gamma \vdash \text{extern} \, \sigma : \sigma} \\
 \\
 \Phi \vdash \sigma : \kappa \tag* {[\text{Type Validation}]} \\
 \\

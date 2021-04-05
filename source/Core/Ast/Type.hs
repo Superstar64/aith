@@ -7,7 +7,9 @@ import Core.Ast.TypePattern
 import Data.Bifunctor (bimap)
 import Data.Void (Void)
 import Misc.Identifier (Identifier, substituteVariable)
-import qualified Misc.Identifier as Variables
+import Misc.Isomorph
+import Misc.Prism
+import qualified Misc.Variables as Variables
 import qualified TypeSystem.Abstraction as TypeSystem
 import qualified TypeSystem.Application as TypeSystem
 import qualified TypeSystem.Forall as TypeSystem
@@ -27,6 +29,34 @@ data TypeF p
   | TypeOperator (TypePattern (Kind p) p) (Type p)
   deriving (Show)
 
+typeVariable = Prism TypeVariable $ \case
+  (TypeVariable x) -> Just x
+  _ -> Nothing
+
+macro = Prism (uncurry Macro) $ \case
+  (Macro σ τ) -> Just (σ, τ)
+  _ -> Nothing
+
+forallx = Prism (uncurry Forall) $ \case
+  (Forall pm σ) -> Just (pm, σ)
+  _ -> Nothing
+
+kindForall = Prism (uncurry KindForall) $ \case
+  (KindForall pm σ) -> Just (pm, σ)
+  _ -> Nothing
+
+ofCourse = Prism OfCourse $ \case
+  (OfCourse σ) -> Just σ
+  _ -> Nothing
+
+typeConstruction = Prism (uncurry TypeConstruction) $ \case
+  (TypeConstruction σ τ) -> Just (σ, τ)
+  _ -> Nothing
+
+typeOperator = Prism (uncurry TypeOperator) $ \case
+  (TypeOperator pm σ) -> Just (pm, σ)
+  _ -> Nothing
+
 instance Functor TypeF where
   fmap _ (TypeVariable x) = TypeVariable x
   fmap f (Macro σ τ) = Macro (fmap f σ) (fmap f τ)
@@ -39,6 +69,8 @@ instance Functor TypeF where
 type TypeInternal = Type Internal
 
 data Type p = CoreType p (TypeF p) deriving (Show, Functor)
+
+coreType = Isomorph (uncurry CoreType) $ \(CoreType p σ) -> (p, σ)
 
 projectType ::
   TypeF p ->

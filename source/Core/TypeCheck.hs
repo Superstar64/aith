@@ -11,13 +11,13 @@ import Core.Ast.Sort
 import Core.Ast.Term
 import Core.Ast.Type
 import Core.Ast.TypePattern
-import Core.Error
 import Data.Bifunctor (first)
 import Data.Map (Map, (!), (!?))
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Traversable (for)
 import Environment
+import Error
 import Misc.Identifier (Identifier)
 import Misc.Util (zipWithM)
 import qualified TypeSystem.Forall as TypeSystem
@@ -26,6 +26,7 @@ import TypeSystem.Methods
 import qualified TypeSystem.OfCourse as TypeSystem
 import qualified TypeSystem.PatternVariable as TypeSystem
 import qualified TypeSystem.Representation as TypeSystem
+import qualified TypeSystem.Runtime as TypeSystem
 import qualified TypeSystem.Stage as TypeSystem
 import qualified TypeSystem.StageForall as TypeSystem
 import qualified TypeSystem.Type as TypeSystem
@@ -174,6 +175,10 @@ instance Base p m => TypeSystem.CheckOfCourse (Core p m) p TypeInternal where
 instance Base p m => TypeSystem.CheckType KindInternal KindInternal (Core p m) p where
   checkType _ (CoreKind Internal (Type s)) = pure (TypeSystem.Type s)
   checkType p κ = quit $ ExpectedType p κ
+
+instance Base p m => TypeSystem.CheckRuntime KindInternal KindInternal (Core p m) p where
+  checkRuntime _ (CoreKind Internal (Runtime ρ)) = pure (TypeSystem.Runtime ρ)
+  checkRuntime p s = quit $ ExpectedRuntime p s
 
 instance Base p m => TypeSystem.CheckType () Sort (Core p m) p where
   checkType _ Kind = pure (TypeSystem.Type ())

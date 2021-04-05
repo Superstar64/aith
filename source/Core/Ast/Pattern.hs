@@ -5,6 +5,8 @@ import Core.Ast.Kind
 import Core.Ast.Type
 import Data.Bifunctor (Bifunctor, bimap)
 import Misc.Identifier (Identifier)
+import Misc.Isomorph
+import Misc.Prism
 import TypeSystem.Methods
 import qualified TypeSystem.PatternOfCourse as TypeSystem
 import qualified TypeSystem.PatternVariable as TypeSystem
@@ -14,11 +16,21 @@ data PatternF σ p
   | PatternOfCourse (Pattern σ p)
   deriving (Show)
 
+patternVariable = Prism (uncurry PatternVariable) $ \case
+  (PatternVariable x σ) -> Just (x, σ)
+  _ -> Nothing
+
+patternOfCourse = Prism PatternOfCourse $ \case
+  (PatternOfCourse pm) -> Just pm
+  _ -> Nothing
+
 instance Bifunctor PatternF where
   bimap f _ (PatternVariable x σ) = PatternVariable x (f σ)
   bimap f g (PatternOfCourse pm) = PatternOfCourse (bimap f g pm)
 
 data Pattern σ p = CorePattern p (PatternF σ p) deriving (Show)
+
+corePattern = Isomorph (uncurry CorePattern) $ \(CorePattern p pm) -> (p, pm)
 
 instance Bifunctor Pattern where
   bimap f g (CorePattern p pm) = CorePattern (g p) (bimap f g pm)

@@ -1,0 +1,4 @@
+{
+inline x = Λ<a : %type %runtime %pointer> => %extern "x" {a};
+inline y = x;
+}

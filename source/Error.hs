@@ -1,4 +1,4 @@
-module Core.Error where
+module Error where
 
 import Core.Ast.Kind
 import Core.Ast.Multiplicity
@@ -23,6 +23,7 @@ data Error p
   | ExpectedOfCourse p TypeInternal
   | ExpectedType p KindInternal
   | ExpectedHigher p KindInternal
+  | ExpectedRuntime p KindInternal
   | ExpectedKind p Sort
   | ExpectedStage p Sort
   | ExpectedRepresentation p Sort

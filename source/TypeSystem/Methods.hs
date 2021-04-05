@@ -1,7 +1,8 @@
 module TypeSystem.Methods where
 
 import Data.Set (Set)
-import Misc.Identifier (Identifier, Variables (..))
+import Misc.Identifier
+import Misc.Variables (Variables)
 
 class TypeCheckInstantiate κ σ m σ' where
   typeCheckInstantiate :: σ' -> m (κ, σ)

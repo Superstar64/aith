@@ -47,6 +47,7 @@ See ``/documentation`` for typing rules.
 | Kind Abstraction | ``Λ@ x : μ => e`` |
 | Kind Abstraction | ``Λ@ x : μ { e }`` |
 | Kind Application | ``e @ κ`` |
+| Extern | ``%extern "c identifer" σ`` |
 
 ## Patterns(pm)
 | Description | Syntax |
@@ -91,7 +92,7 @@ Useful / Inspirational papers:
 
 ## Linear Types
 * [A taste of linear logic](https://homepages.inf.ed.ac.uk/wadler/papers/lineartaste/lineartaste-revised.pdf)
-* [The Best of Both Worlds Linear Functional Programming without Compromise](https://jgbm.github.io/pubs/morris-icfp2016-linearity-extended.pdf)
+* [The Best of Both Worlds: Linear Functional Programming without Compromise](https://jgbm.github.io/pubs/morris-icfp2016-linearity-extended.pdf)
 * [Linear Haskell](https://arxiv.org/pdf/1710.09756.pdf)
 * [Making Uniqueness Typing Less Unique](http://edsko.net/pubs/thesis.pdf)
 * [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
@@ -102,6 +103,7 @@ Useful / Inspirational papers:
 * [System F with Type Equality Coercions](https://www.microsoft.com/en-us/research/wp-content/uploads/2007/01/tldi22-sulzmann-with-appendix.pdf)
 * [Typed Tagless Final Interpreters](http://okmij.org/ftp/tagless-final/index.html)
 * [Demonstrating Lambda Calculus Reduction](https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf)
+* [Invertible Syntax Descriptions: Unifying Parsing and Pretty Printing](https://www.mathematik.uni-marburg.de/~rendel/rendel10invertible.pdf)
 
 # Copyright
 Copyright © Freddy A Cubas, "Superstar64"

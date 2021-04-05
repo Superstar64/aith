@@ -1,11 +1,10 @@
-module Core.Module where
+module Module where
 
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State (StateT, evalState, evalStateT, execStateT, get, modify)
 import Core.Ast.Common
 import Core.Ast.Multiplicity
 import Core.Ast.Term
-import Core.Error
 import Core.TypeCheck
 import Data.Bifunctor (first)
 import Data.List (find)
@@ -13,24 +12,47 @@ import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import Data.Traversable (for)
+import Error
 import Misc.Identifier (Identifier)
-import qualified Misc.Identifier as Variables
+import Misc.Isomorph
 import Misc.Path
+import Misc.Prism
+import qualified Misc.Variables as Variables
 import TypeSystem.Methods (freeVariables)
 
 newtype Module p = CoreModule (Map Identifier (Item p)) deriving (Show, Functor)
+
+coreModule = Isomorph CoreModule $ \(CoreModule code) -> code
 
 data ItemF p
   = Module (Module p)
   | Global (Global p)
   deriving (Show, Functor)
 
+modulex = Prism Module $ \case
+  (Module code) -> Just code
+  _ -> Nothing
+
+global = Prism Global $ \case
+  (Global global) -> Just global
+  _ -> Nothing
+
 data Item p = CoreItem p (ItemF p) deriving (Show, Functor)
+
+item = Isomorph (uncurry CoreItem) $ \(CoreItem p item) -> (p, item)
 
 data Global p
   = Inline (Term p)
   | Import p Path
   deriving (Show, Functor)
+
+inline = Prism Inline $ \case
+  (Inline e) -> Just e
+  _ -> Nothing
+
+importx = Prism (uncurry Import) $ \case
+  (Import p path) -> Just (p, path)
+  _ -> Nothing
 
 resolve :: Base p m => p -> Module p -> Path -> m (Global p)
 resolve p (CoreModule code) path = go code path
