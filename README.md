@@ -47,7 +47,7 @@ See ``/documentation`` for typing rules.
 | Kind Abstraction | ``Λ@ x : μ => e`` |
 | Kind Abstraction | ``Λ@ x : μ { e }`` |
 | Kind Application | ``e @ κ`` |
-| Extern | ``%extern "c identifer" σ`` |
+| Extern | ``%extern "c identifer" { σ }`` |
 
 ## Patterns(pm)
 | Description | Syntax |
