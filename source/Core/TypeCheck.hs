@@ -1,5 +1,6 @@
 module Core.TypeCheck where
 
+import Control.Monad ((<=<))
 import Control.Monad.Trans.Class (MonadTrans, lift)
 import Control.Monad.Trans.State (StateT, evalStateT, get, put)
 import Core.Ast.Common
@@ -11,7 +12,6 @@ import Core.Ast.Sort
 import Core.Ast.Term
 import Core.Ast.Type
 import Core.Ast.TypePattern
-import Data.Bifunctor (first)
 import Data.Map (Map, (!), (!?))
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -19,17 +19,7 @@ import Data.Traversable (for)
 import Environment
 import Error
 import Misc.Identifier (Identifier)
-import Misc.Util (zipWithM)
-import qualified TypeSystem.Forall as TypeSystem
-import qualified TypeSystem.Function as TypeSystem
-import TypeSystem.Methods
-import qualified TypeSystem.OfCourse as TypeSystem
-import qualified TypeSystem.PatternVariable as TypeSystem
-import qualified TypeSystem.Representation as TypeSystem
-import qualified TypeSystem.Runtime as TypeSystem
-import qualified TypeSystem.Stage as TypeSystem
-import qualified TypeSystem.StageForall as TypeSystem
-import qualified TypeSystem.Type as TypeSystem
+import Misc.Util (firstM, zipWithM)
 
 data CoreState p = CoreState
   { typeEnvironment :: Map Identifier (p, MultiplicityInternal, TypeInternal),
@@ -44,8 +34,9 @@ newtype Core p m a = Core {runCore' :: StateT (CoreState p) m a} deriving (Funct
 
 runCore c = evalStateT (runCore' c)
 
-quit :: Base p m => Error p -> Core p m a
-quit e = Core (lift $ quit' e)
+instance Base p m => Base p (Core p m) where
+  quit error = Core (lift $ quit error)
+  moduleQuit error = Core (lift $ moduleQuit error)
 
 matchSort _ Kind Kind = pure ()
 matchSort _ Stage Stage = pure ()
@@ -58,10 +49,6 @@ matchLinear' p l l' = quit $ IncompatibleLinear p (CoreMultiplicity Internal l) 
 
 matchLinear p (CoreMultiplicity Internal l) (CoreMultiplicity Internal l') = matchLinear' p l l'
 
-matchRepresentation _ PointerRep PointerRep = pure ()
-matchRepresentation _ FunctionRep FunctionRep = pure ()
-matchRepresentation p ρ ρ' = quit $ IncompatibleRepresentation p ρ ρ'
-
 matchKind' _ (KindVariable x) (KindVariable x') | x == x' = pure ()
 matchKind' p (Type s) (Type s') = do
   matchKind p s s'
@@ -70,18 +57,19 @@ matchKind' p (Higher κ1 κ2) (Higher κ1' κ2') = do
   matchKind p κ2 κ2'
 matchKind' p (Runtime ρ) (Runtime ρ') = matchKind p ρ ρ'
 matchKind' _ Meta Meta = pure ()
-matchKind' p (RepresentationLiteral ρ) (RepresentationLiteral ρ') = matchRepresentation p ρ ρ'
+matchKind' _ PointerRep PointerRep = pure ()
+matchKind' _ FunctionRep FunctionRep = pure ()
 matchKind' p κ κ' = quit $ IncompatibleKind p (CoreKind Internal κ) (CoreKind Internal κ')
 
 matchKind p (CoreKind Internal κ) (CoreKind Internal κ') = matchKind' p κ κ'
 
 matchType' _ (TypeVariable x) (TypeVariable x') | x == x' = pure ()
 matchType' p (Macro σ τ) (Macro σ' τ') = zipWithM (matchType p) [σ, τ] [σ', τ'] >> pure ()
-matchType' p (Forall (CoreTypePattern Internal (TypePatternVariable x κ)) σ) (Forall (CoreTypePattern Internal (TypePatternVariable x' κ')) σ') = do
+matchType' p (Forall (Bound (CoreTypePattern Internal (TypePatternVariable x κ)) σ)) (Forall (Bound (CoreTypePattern Internal (TypePatternVariable x' κ')) σ')) = do
   matchKind p κ κ'
   matchType p σ (substitute (CoreType Internal $ TypeVariable x) x' σ')
   pure ()
-matchType' p (KindForall (CoreKindPattern Internal (KindPatternVariable x μ)) σ) (KindForall (CoreKindPattern Internal (KindPatternVariable x' μ')) σ') = do
+matchType' p (KindForall (Bound (CoreKindPattern Internal (KindPatternVariable x μ)) σ)) (KindForall (Bound (CoreKindPattern Internal (KindPatternVariable x' μ')) σ')) = do
   matchSort p μ μ'
   matchType p σ (substitute (CoreKind Internal $ KindVariable x) x' σ')
   pure ()
@@ -90,194 +78,269 @@ matchType' p (OfCourse σ) (OfCourse σ') = do
 matchType' p (TypeConstruction σ τ) (TypeConstruction σ' τ') = do
   matchType p σ σ'
   matchType p τ τ'
-matchType' p (TypeOperator (CoreTypePattern Internal (TypePatternVariable x κ)) σ) (TypeOperator (CoreTypePattern Internal (TypePatternVariable x' κ')) σ') = do
+matchType' p (TypeOperator (Bound (CoreTypePattern Internal (TypePatternVariable x κ)) σ)) (TypeOperator (Bound (CoreTypePattern Internal (TypePatternVariable x' κ')) σ')) = do
   matchKind p κ κ'
   matchType p σ (substitute (CoreType Internal $ TypeVariable x) x' σ')
 matchType' p σ σ' = quit $ IncompatibleType p (CoreType Internal σ) (CoreType Internal σ')
 
 matchType p (CoreType Internal σ) (CoreType Internal σ') = matchType' p σ σ'
 
-instance Base p m => TypeCheckLinear TypeInternal (Core p m) (Term p) Use where
-  typeCheckLinear (CoreTerm p e) = typeCheckLinearImpl p $ projectTerm e
+checkKind _ Kind = pure ()
+checkKind p μ = quit $ ExpectedKind p μ
 
-instance Base p m => TypeCheck PatternSort (Core p m) (Pattern (Type p) p) where
-  typeCheck (CorePattern p pm) = typeCheckImpl p $ projectPattern pm
+checkStage _ Stage = pure ()
+checkStage p μ = quit $ ExpectedStage p μ
 
-instance Base p m => TypeCheck KindInternal (Core p m) (Type p) where
-  typeCheck (CoreType p σ) = typeCheckImpl p $ projectType σ
+checkRepresentation _ Representation = pure ()
+checkRepresentation p μ = quit $ ExpectedRepresentation p μ
 
-instance Base p m => TypeCheck TypePatternSort (Core p m) (TypePattern (Kind p) p) where
-  typeCheck (CoreTypePattern p pm) = typeCheckImpl p $ projectTypePattern pm
+checkType _ (CoreKind Internal (Type κ)) = pure κ
+checkType p κ = quit $ ExpectedType p κ
 
-instance Base p m => TypeCheck Sort (Core p m) (Kind p) where
-  typeCheck (CoreKind p κ) = typeCheckImpl p $ projectKind κ
+checkHigher _ (CoreKind Internal (Higher κ κ')) = pure (κ, κ')
+checkHigher p κ = quit $ ExpectedHigher p κ
 
-instance Base p m => TypeCheckImpl (Core p m) p Representation Sort where
-  typeCheckImpl _ _ = pure $ Representation
+checkRuntime _ (CoreKind Internal (Runtime κ)) = pure κ
+checkRuntime p κ = quit $ ExpectedRuntime p κ
 
-instance Base p m => TypeCheckInstantiate KindInternal TypeInternal (Core p m) (Type p) where
-  typeCheckInstantiate σ = do
-    κ <- typeCheck σ
-    pure (κ, reduce $ Internal <$ σ)
+checkMacro _ (CoreType Internal (Macro σ τ)) = pure (σ, τ)
+checkMacro p σ = quit $ ExpectedMacro p σ
 
-instance Base p m => TypeCheckInstantiate Sort KindInternal (Core p m) (Kind p) where
-  typeCheckInstantiate κ = do
-    μ <- typeCheck κ
-    pure (μ, Internal <$ κ)
+checkForall _ (CoreType Internal (Forall (Bound pm σ))) = pure $ Bound pm σ
+checkForall p σ = quit $ ExpectedForall p σ
 
-instance Base p m => TypeCheckInstantiate PatternSort (Pattern TypeInternal p) (Core p m) (Pattern (Type p) p) where
-  typeCheckInstantiate pm = do
-    Pattern <- typeCheck pm
-    pure (Pattern, first (reduce . (Internal <$)) pm)
+checkKindForall _ (CoreType Internal (KindForall (Bound pm σ))) = pure $ Bound pm σ
+checkKindForall p σ = quit $ ExpectedKindForall p σ
 
-instance Base p m => TypeCheckInstantiate TypePatternSort (TypePattern KindInternal p) (Core p m) (TypePattern (Kind p) p) where
-  typeCheckInstantiate pm = do
-    TypePattern <- typeCheck pm
-    pure (TypePattern, first (reduce . (Internal <$)) pm)
+checkOfCourse _ (CoreType Internal (OfCourse σ)) = pure σ
+checkOfCourse p σ = quit $ ExpectedOfCourse p σ
 
-instance Base p m => Instantiate (Pattern TypeInternal p) (Core p m) (Pattern (Type p) p) where
-  instantiate = fmap snd . typeCheckInstantiate @PatternSort
+checkFunctionPointer _ n (CoreType Internal (FunctionPointer σ τs)) | n == length τs = pure (σ, τs)
+checkFunctionPointer p n σ = quit $ ExpectedFunctionPointer p n σ
 
-instance Base p m => Instantiate (TypePattern KindInternal p) (Core p m) (TypePattern (Kind p) p) where
-  instantiate = fmap snd . typeCheckInstantiate @TypePatternSort
+class InternalType pm σ where
+  internalType :: pm -> σ
 
-instance Base p m => Instantiate (KindPattern p) (Core p m) (KindPattern p) where
-  instantiate = pure
+class Augment p pm where
+  augment :: Base p m => pm -> Core p m a -> Core p m a
 
-instance Base p m => Instantiate KindInternal (Core p m) (Kind p) where
-  instantiate = fmap snd . typeCheckInstantiate @Sort
+class AugmentLinear p pm where
+  augmentLinear :: Base p m => pm -> MultiplicityInternal -> Core p m (a, Use) -> Core p m (a, Use)
 
-instance Base p m => SameType (Core p m) p TypeInternal where
-  sameType p σ σ' = matchType p σ σ'
+class Instantiate p e e' | e -> e' where
+  instantiate :: Base p m => e -> Core p m e'
 
-instance Base p m => SameType (Core p m) p KindInternal where
-  sameType p κ κ' = matchKind p κ κ'
+instantiateDefault = fmap fst . typeCheckInstantiate
 
-instance Base p m => SameType (Core p m) p Sort where
-  sameType p μ μ' = matchSort p μ μ'
+class TypeCheck p e σ | e -> σ where
+  typeCheck :: Base p m => e -> Core p m σ
 
-instance Base p m => TypeSystem.CheckFunction (Core p m) p TypeInternal where
-  checkFunction _ (CoreType Internal (Macro σ τ)) = pure (TypeSystem.Function σ τ)
-  checkFunction p σ = quit $ ExpectedMacro p σ
+class (TypeCheck p e σ, Instantiate p e e') => TypeCheckInstantiate p e e' σ | e -> e', e -> σ where
+  typeCheckInstantiate :: Base p m => e -> Core p m (e', σ)
 
-instance Base p m => TypeSystem.CheckForall' (Core p m) p KindInternal TypeInternal where
-  checkForall' _ (CoreType Internal (Forall pm σ)) = pure (internalType pm, \τ -> reducePattern pm τ σ)
-  checkForall' p σ = quit $ ExpectedForall p σ
+class TypeCheck p e σ => TypeCheckLinear p e σ | e -> σ where
+  typeCheckLinear :: Base p m => e -> Core p m (σ, Use)
 
-instance Base p m => TypeSystem.CheckStageForall' Sort KindInternal (Core p m) p TypeInternal where
-  checkStageForall' _ (CoreType Internal (KindForall pm σ)) = pure $ (internalType pm, \s -> reducePattern pm s σ)
-  checkStageForall' p σ = quit $ ExpectedKindForall p σ
+instance InternalType (TypePattern Internal p) KindInternal where
+  internalType (CoreTypePattern _ (TypePatternVariable _ κ)) = κ
 
-instance Base p m => TypeSystem.CheckOfCourse (Core p m) p TypeInternal where
-  checkOfCourse _ (CoreType Internal (OfCourse σ)) = pure (TypeSystem.OfCourse σ)
-  checkOfCourse p σ = quit $ ExpectedOfCourse p σ
+instance InternalType (Pattern Internal p) TypeInternal where
+  internalType (CorePattern _ (PatternVariable _ σ)) = σ
+  internalType (CorePattern _ (PatternOfCourse pm)) = CoreType Internal $ OfCourse $ internalType pm
 
-instance Base p m => TypeSystem.CheckType KindInternal KindInternal (Core p m) p where
-  checkType _ (CoreKind Internal (Type s)) = pure (TypeSystem.Type s)
-  checkType p κ = quit $ ExpectedType p κ
-
-instance Base p m => TypeSystem.CheckRuntime KindInternal KindInternal (Core p m) p where
-  checkRuntime _ (CoreKind Internal (Runtime ρ)) = pure (TypeSystem.Runtime ρ)
-  checkRuntime p s = quit $ ExpectedRuntime p s
-
-instance Base p m => TypeSystem.CheckType () Sort (Core p m) p where
-  checkType _ Kind = pure (TypeSystem.Type ())
-  checkType p μ = quit $ ExpectedKind p μ
-
-instance Base p m => TypeSystem.CheckFunction (Core p m) p KindInternal where
-  checkFunction _ (CoreKind Internal (Higher κ κ')) = pure (TypeSystem.Function κ κ')
-  checkFunction p κ = quit $ ExpectedHigher p κ
-
-instance Base p m => TypeSystem.CheckStage Sort p (Core p m) where
-  checkStage _ Stage = pure TypeSystem.Stage
-  checkStage p μ = quit $ ExpectedStage p μ
-
-instance Base p m => TypeSystem.CheckRepresentation Sort p (Core p m) where
-  checkRepresentation _ Representation = pure TypeSystem.Representation
-  checkRepresentation p μ = quit $ ExpectedRepresentation p μ
-
-instance Base p m => ReadEnvironmentLinear (Core p m) p TypeInternal Use where
-  readEnvironmentLinear p x = do
-    env <- Core get
-    case typeEnvironment env !? x of
-      Nothing -> quit $ UnknownIdentfier p x
-      Just (_, _, σ) -> pure (σ, Use x)
-
-instance Base p m => TypeSystem.AugmentVariableLinear (Core p m) p MultiplicityInternal TypeInternal Use where
-  augmentVariableLinear p x l σ e = do
-    env <- Core get
-    let σΓ = typeEnvironment env
-    Core $ put env {typeEnvironment = Map.insert x (p, l, σ) σΓ}
-    (σ', lΓ) <- e
-    Core $ put env
-    case (count x lΓ, l) of
-      (Single, _) -> pure ()
-      (_, CoreMultiplicity Internal Unrestricted) -> pure ()
-      (_, _) -> quit $ InvalidUsage p x
-    pure (σ', Remove x lΓ)
-
-instance Base p m => AugmentLinear (Core p m) (Pattern TypeInternal p) MultiplicityInternal Use where
-  augmentLinear (CorePattern p pm) l e = augmentLinearImpl p (projectPattern pm) l e
-
-instance Base p m => ReadEnvironment (Core p m) p KindInternal where
-  readEnvironment p x = do
-    env <- Core get
-    case kindEnvironment env !? x of
-      Nothing -> quit $ UnknownIdentfier p x
-      Just (_, κ) -> pure κ
-
-instance Base p m => ReadEnvironment (Core p m) p Sort where
-  readEnvironment p x = do
-    env <- Core get
-    case sortEnvironment env !? x of
-      Nothing -> quit $ UnknownIdentfier p x
-      Just (_, μ) -> pure μ
-
-augmentEnvironmentKind p x κ e = do
-  env <- Core get
-  let κΓ = kindEnvironment env
-  Core $ put env {kindEnvironment = Map.insert x (p, κ) κΓ}
-  c <- e
-  Core $ put env
-  pure c
-
-instance Base p m => Augment (Core p m) (TypePattern KindInternal p) where
-  augment (CoreTypePattern p (TypePatternVariable x κ)) e = augmentEnvironmentKind p x κ e
-
-augmentEnvironmentSort p x μ e = do
+augmentKindVariable p x μ κ = do
   env <- Core get
   let μΓ = sortEnvironment env
   Core $ put env {sortEnvironment = Map.insert x (p, μ) μΓ}
-  c <- e
+  μ' <- κ
   Core $ put env
-  pure c
+  pure μ'
 
-instance Base p m => Augment (Core p m) (KindPattern p) where
-  augment (CoreKindPattern p (KindPatternVariable x μ)) e = augmentEnvironmentSort p x μ e
+augmentTypeVariable p x κ σ = do
+  env <- Core get
+  let κΓ = kindEnvironment env
+  Core $ put env {kindEnvironment = Map.insert x (p, κ) κΓ}
+  κ' <- σ
+  Core $ put env
+  pure κ'
 
-instance Base p m => Capture (Core p m) p MultiplicityInternal Use where
-  capture _ (CoreMultiplicity Internal Linear) _ = pure ()
-  capture p (CoreMultiplicity Internal Unrestricted) lΓ = do
-    let captures = variables lΓ
-    env <- Core get
-    let lΓ = typeEnvironment env
-    for (Set.toList captures) $ \x' -> do
-      let (_, l, _) = lΓ ! x'
-      case l of
-        CoreMultiplicity Internal Unrestricted -> pure ()
-        _ -> quit $ CaptureLinear p x'
-    pure ()
+augmentVariableLinear p x l σ e = do
+  env <- Core get
+  let σΓ = typeEnvironment env
+  Core $ put env {typeEnvironment = Map.insert x (p, l, σ) σΓ}
+  (σ', lΓ) <- e
+  Core $ put env
+  case (count x lΓ, l) of
+    (Single, _) -> pure ()
+    (_, CoreMultiplicity Internal Unrestricted) -> pure ()
+    (_, _) -> quit $ InvalidUsage p x
+  pure (σ', Remove x lΓ)
 
-typeCheckTerm :: forall p m. Base p m => Term p -> Core p m TypeInternal
-typeCheckTerm e = do
-  (σ, _) <- typeCheckLinear e :: Core p m (TypeInternal, Use)
-  pure σ
+instance Augment p (KindPattern p) where
+  augment (CoreKindPattern p (KindPatternVariable x μ)) κ = augmentKindVariable p x μ κ
 
-typeCheckType :: forall p m. Base p m => Type p -> Core p m KindInternal
-typeCheckType = typeCheck
+instance Augment p (TypePattern Internal p) where
+  augment (CoreTypePattern p (TypePatternVariable x κ)) σ = augmentTypeVariable p x κ σ
 
-substituteTerm :: TermInternal -> Identifier -> TermInternal -> TermInternal
-substituteTerm = substitute
+instance AugmentLinear p (Pattern Internal p) where
+  augmentLinear (CorePattern p (PatternVariable x σ)) l e = augmentVariableLinear p x l σ e
+  augmentLinear (CorePattern _ (PatternOfCourse pm)) _ e = augmentLinear pm (CoreMultiplicity Internal Unrestricted) e
 
-reduceTerm :: TermInternal -> TermInternal
-reduceTerm = reduce
+instance Instantiate p (Kind p) KindInternal where
+  instantiate = instantiateDefault
+
+instance Instantiate p (Type p) TypeInternal where
+  instantiate = instantiateDefault
+
+instance TypeCheckInstantiate p (Kind p) KindInternal Sort where
+  typeCheckInstantiate κ = do
+    μ <- typeCheck κ
+    pure (Internal <$ κ, μ)
+
+instance TypeCheckInstantiate p (Type p) TypeInternal KindInternal where
+  typeCheckInstantiate σ = do
+    κ <- typeCheck σ
+    pure (reduce $ Internal <$ σ, κ)
+
+instance Instantiate p (Pattern p p) (Pattern Internal p) where
+  instantiate (CorePattern p (PatternVariable x σ')) = do
+    (σ, κ) <- typeCheckInstantiate σ'
+    checkType p κ
+    pure $ CorePattern p (PatternVariable x σ)
+  instantiate (CorePattern p (PatternOfCourse pm')) = do
+    pm <- instantiate pm'
+    pure $ CorePattern p (PatternOfCourse pm)
+
+instance Instantiate p (TypePattern p p) (TypePattern Internal p) where
+  instantiate (CoreTypePattern p (TypePatternVariable x κ')) = do
+    (κ, μ) <- typeCheckInstantiate κ'
+    checkKind p μ
+    pure $ CoreTypePattern p (TypePatternVariable x κ)
+
+instance Instantiate p (KindPattern p) (KindPattern p) where
+  instantiate = pure
+
+instance TypeCheck p (Kind p) Sort where
+  typeCheck (CoreKind p (KindVariable x)) = do
+    enviroment <- Core get
+    case sortEnvironment enviroment !? x of
+      Nothing -> quit $ UnknownIdentfier p x
+      Just (_, μ) -> pure μ
+  typeCheck (CoreKind p (Type κ)) = do
+    checkStage p =<< typeCheck κ
+    pure $ Kind
+  typeCheck (CoreKind p (Higher κ κ')) = do
+    checkKind p =<< typeCheck κ
+    checkKind p =<< typeCheck κ'
+    pure $ Kind
+  typeCheck (CoreKind _ Meta) = do
+    pure $ Stage
+  typeCheck (CoreKind p (Runtime κ)) = do
+    checkRepresentation p =<< typeCheck κ
+    pure $ Stage
+  typeCheck (CoreKind _ PointerRep) = do
+    pure $ Representation
+  typeCheck (CoreKind _ FunctionRep) = do
+    pure $ Representation
+
+instance TypeCheck p (Type p) KindInternal where
+  typeCheck (CoreType p (TypeVariable x)) = do
+    enviroment <- Core get
+    case kindEnvironment enviroment !? x of
+      Nothing -> quit $ UnknownIdentfier p x
+      Just (_, κ) -> pure κ
+  typeCheck (CoreType p (Macro σ τ)) = do
+    checkType p =<< typeCheck σ
+    checkType p =<< typeCheck τ
+    pure $ CoreKind Internal (Type (CoreKind Internal Meta))
+  typeCheck (CoreType p (Forall (Bound pm' σ))) = do
+    pm <- instantiate pm'
+    κ <- checkType p =<< augment pm (typeCheck σ)
+    pure $ CoreKind Internal (Type κ)
+  typeCheck (CoreType p (KindForall (Bound pm' σ))) = do
+    pm <- instantiate pm'
+    checkType p =<< augment pm (typeCheck σ)
+    pure $ CoreKind Internal (Type (CoreKind Internal Meta))
+  typeCheck (CoreType p (OfCourse σ)) = do
+    checkType p =<< typeCheck σ
+    pure $ CoreKind Internal (Type (CoreKind Internal Meta))
+  typeCheck (CoreType p (TypeConstruction σ τ)) = do
+    (κ1, κ2) <- checkHigher p =<< typeCheck σ
+    κ1' <- typeCheck τ
+    matchKind p κ1 κ1'
+    pure $ κ2
+  typeCheck (CoreType _ (TypeOperator (Bound pm' σ))) = do
+    pm <- instantiate pm'
+    κ <- augment pm (typeCheck σ)
+    pure (CoreKind Internal (Higher (internalType pm) κ))
+  typeCheck (CoreType p (FunctionPointer σ τs)) = do
+    checkRuntime p =<< checkType p =<< typeCheck σ
+    traverse (checkRuntime p <=< checkType p <=< typeCheck) τs
+    pure $ CoreKind Internal (Type (CoreKind Internal (Runtime (CoreKind Internal FunctionRep))))
+
+instance TypeCheck p (Term p) TypeInternal where
+  typeCheck = fmap fst . typeCheckLinear
+
+capture p lΓ = do
+  let captures = variablesUsed lΓ
+  env <- Core get
+  let lΓ = typeEnvironment env
+  for (Set.toList captures) $ \x' -> do
+    let (_, l, _) = lΓ ! x'
+    case l of
+      CoreMultiplicity Internal Unrestricted -> pure ()
+      _ -> quit $ CaptureLinear p x'
+  pure ()
+
+instance TypeCheckLinear p (Term p) TypeInternal where
+  typeCheckLinear (CoreTerm p (Variable x)) = do
+    enviroment <- Core get
+    case typeEnvironment enviroment !? x of
+      Nothing -> quit $ UnknownIdentfier p x
+      Just (_, _, σ) -> pure (σ, Use x)
+  typeCheckLinear (CoreTerm _ (MacroAbstraction (Bound pm' e))) = do
+    pm <- instantiate pm'
+    let σ = internalType pm
+    (τ, lΓ) <- augmentLinear pm (CoreMultiplicity Internal Linear) (typeCheckLinear e)
+    pure (CoreType Internal $ Macro σ τ, lΓ)
+  typeCheckLinear (CoreTerm p (MacroApplication e1 e2)) = do
+    ((σ, τ), lΓ1) <- firstM (checkMacro p) =<< typeCheckLinear e1
+    (σ', lΓ2) <- typeCheckLinear e2
+    matchType p σ σ'
+    pure (τ, lΓ1 `combine` lΓ2)
+  typeCheckLinear (CoreTerm _ (TypeAbstraction (Bound pm' e))) = do
+    pm <- instantiate pm'
+    (σ, lΓ) <- augment pm (typeCheckLinear e)
+    pure (CoreType Internal (Forall (Bound (Internal <$ pm) σ)), lΓ)
+  typeCheckLinear (CoreTerm p (TypeApplication e σ')) = do
+    σ <- instantiate σ'
+    (λ, lΓ) <- firstM (checkForall p) =<< typeCheckLinear e
+    pure (apply λ σ, lΓ)
+  typeCheckLinear (CoreTerm _ (KindAbstraction (Bound pm' e))) = do
+    pm <- instantiate pm'
+    (σ, lΓ) <- augment pm (typeCheckLinear e)
+    pure (CoreType Internal (KindForall (Bound (Internal <$ pm) σ)), lΓ)
+  typeCheckLinear (CoreTerm p (KindApplication e κ')) = do
+    κ <- instantiate κ'
+    (λ, lΓ) <- firstM (checkKindForall p) =<< typeCheckLinear e
+    pure (apply λ κ, lΓ)
+  typeCheckLinear (CoreTerm p (OfCourseIntroduction e)) = do
+    (σ, lΓ) <- typeCheckLinear e
+    capture p lΓ
+    pure (CoreType Internal $ OfCourse σ, lΓ)
+  typeCheckLinear (CoreTerm p (Bind e1 (Bound pm' e2))) = do
+    pm <- instantiate pm'
+    (τ, lΓ1) <- typeCheckLinear e1
+    let τ' = internalType pm
+    matchType p τ τ'
+    (σ, lΓ2) <- augmentLinear pm (CoreMultiplicity Internal Linear) (typeCheckLinear e2)
+    pure (σ, lΓ1 `combine` lΓ2)
+  typeCheckLinear (CoreTerm p (Extern _ σ')) = do
+    (σ, κ) <- typeCheckInstantiate σ'
+    checkRuntime p =<< checkType p κ
+    pure (σ, useNothing)
+  typeCheckLinear (CoreTerm p (FunctionApplication e1 e2s)) = do
+    ((σ, τs), lΓ1) <- firstM (checkFunctionPointer p (length e2s)) =<< typeCheckLinear e1
+    (τs', lΓ2s) <- unzip <$> traverse typeCheckLinear e2s
+    sequence $ zipWith (matchType p) τs τs'
+    pure (σ, lΓ1 `combine` combineAll lΓ2s)

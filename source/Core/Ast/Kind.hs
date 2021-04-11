@@ -1,28 +1,10 @@
 module Core.Ast.Kind where
 
 import Core.Ast.Common
-import Core.Ast.KindPattern
-import Core.Ast.Sort
 import Misc.Identifier (Identifier)
 import Misc.Isomorph
 import Misc.Prism
-import qualified Misc.Variables as Variables
-import qualified TypeSystem.Function as TypeSystem
-import qualified TypeSystem.Meta as TypeSystem
-import TypeSystem.Methods
-import qualified TypeSystem.Runtime as TypeSystem
-import qualified TypeSystem.Type as TypeSystem
-import qualified TypeSystem.Variable as TypeSystem
-
-data Representation = FunctionRep | PointerRep deriving (Show)
-
-functionRep = Prism (const FunctionRep) $ \case
-  FunctionRep -> Just ()
-  _ -> Nothing
-
-pointerRep = Prism (const PointerRep) $ \case
-  PointerRep -> Just ()
-  _ -> Nothing
+import Misc.Variables as Variables
 
 data KindF p
   = KindVariable Identifier
@@ -30,7 +12,8 @@ data KindF p
   | Higher (Kind p) (Kind p)
   | Runtime (Kind p)
   | Meta
-  | RepresentationLiteral Representation
+  | PointerRep
+  | FunctionRep
   deriving (Show, Functor)
 
 kindVariable = Prism KindVariable $ \case
@@ -53,8 +36,12 @@ meta = Prism (const Meta) $ \case
   Meta -> Just ()
   _ -> Nothing
 
-representationLiteral = Prism RepresentationLiteral $ \case
-  RepresentationLiteral ρ -> Just ρ
+pointerRep = Prism (const PointerRep) $ \case
+  PointerRep -> Just ()
+  _ -> Nothing
+
+functionRep = Prism (const FunctionRep) $ \case
+  FunctionRep -> Just ()
   _ -> Nothing
 
 data Kind p = CoreKind p (KindF p) deriving (Show, Functor)
@@ -63,73 +50,35 @@ coreKind = Isomorph (uncurry CoreKind) $ \(CoreKind p κ) -> (p, κ)
 
 type KindInternal = Kind Internal
 
-projectKind ::
-  KindF p ->
-  Either
-    (TypeSystem.Variable (Kind p))
-    ( Either
-        (TypeSystem.Type Sort (Kind p))
-        ( Either
-            (TypeSystem.Function () (Kind p))
-            ( Either
-                (TypeSystem.Runtime Sort (Kind p))
-                ( Either TypeSystem.Meta Representation
-                )
-            )
-        )
-    )
-projectKind (KindVariable x) = Left $ TypeSystem.Variable x
-projectKind (Type s) = Right $ Left $ TypeSystem.Type s
-projectKind (Higher κ κ') = Right $ Right $ Left $ TypeSystem.Function κ κ'
-projectKind (Runtime κ) = Right $ Right $ Right $ Left $ TypeSystem.Runtime κ
-projectKind Meta = Right $ Right $ Right $ Right $ Left $ TypeSystem.Meta
-projectKind (RepresentationLiteral ρ) = Right $ Right $ Right $ Right $ Right $ ρ
-
-instance TypeSystem.EmbedVariable KindInternal where
-  variable x = CoreKind Internal $ KindVariable x
-
-instance TypeSystem.EmbedType KindInternal KindInternal where
-  typex s = CoreKind Internal $ Type s
-
-instance TypeSystem.EmbedFunction KindInternal where
-  function κ κ' = CoreKind Internal $ Higher κ κ'
-
-instance TypeSystem.EmbedRuntime KindInternal KindInternal where
-  runtime κ = CoreKind Internal $ Runtime κ
-
-instance TypeSystem.EmbedMeta KindInternal where
-  meta = CoreKind Internal $ Meta
+freeVariablesKindImpl :: forall u p. (Semigroup p, FreeVariables u p (Kind p)) => KindF p -> Variables p
+freeVariablesKindImpl (KindVariable _) = mempty
+freeVariablesKindImpl (Type κ) = freeVariables @u κ
+freeVariablesKindImpl (Higher κ κ') = freeVariables @u κ <> freeVariables @u κ'
+freeVariablesKindImpl (Runtime κ) = freeVariables @u κ
+freeVariablesKindImpl Meta = mempty
+freeVariablesKindImpl PointerRep = mempty
+freeVariablesKindImpl FunctionRep = mempty
 
 instance Semigroup p => FreeVariables (Kind p) p (Kind p) where
-  freeVariables (CoreKind p κ) = freeVariablesImpl @(Kind p) p $ projectKind κ
+  freeVariables (CoreKind p (KindVariable x)) = Variables.singleton x p
+  freeVariables (CoreKind _ κ) = freeVariablesKindImpl @(Kind p) κ
 
-instance Semigroup p => FreeVariablesImpl (Kind p) p (TypeSystem.Variable (Kind p)) where
-  freeVariablesImpl p (TypeSystem.Variable x) = Variables.singleton x p
-
-instance Semigroup p => FreeVariablesImpl (Kind p) p Representation where
-  freeVariablesImpl _ _ = mempty
-
-instance FreeVariablesInternal KindInternal KindInternal where
-  freeVariablesInternal = freeVariables @KindInternal
-
-instance Semigroup p => ModifyVariables (Kind p) p (KindPattern p) where
-  modifyVariables (CoreKindPattern _ pm) free = foldr Variables.delete free $ bindings (projectKindPattern pm)
+substituteKindImpl :: Substitute u KindInternal => u -> Identifier -> KindF Internal -> KindF Internal
+substituteKindImpl _ _ (KindVariable x) = KindVariable x
+substituteKindImpl ux x (Type κ) = Type (substitute ux x κ)
+substituteKindImpl ux x (Higher κ κ') = Higher (substitute ux x κ) (substitute ux x κ')
+substituteKindImpl ux x (Runtime κ) = Runtime (substitute ux x κ)
+substituteKindImpl _ _ Meta = Meta
+substituteKindImpl _ _ PointerRep = PointerRep
+substituteKindImpl _ _ FunctionRep = FunctionRep
 
 instance Substitute KindInternal KindInternal where
-  substitute κx x (CoreKind Internal κ) = substituteImpl κx x $ projectKind κ
+  substitute ux x (CoreKind Internal κ) = CoreKind Internal $ substituteKindImpl ux x κ
 
-instance SubstituteImpl (TypeSystem.Variable KindInternal) KindInternal KindInternal where
-  substituteImpl κx x (TypeSystem.Variable x') | x == x' = κx
-  substituteImpl _ _ (TypeSystem.Variable x) = CoreKind Internal $ KindVariable x
-
-instance SubstituteImpl Representation KindInternal KindInternal where
-  substituteImpl _ _ ρ = CoreKind Internal $ RepresentationLiteral ρ
-
-instance Substitute KindInternal KindPatternInternal where
-  substitute _ _ pm = pm
+avoidCaptureKind = avoidCapture (CoreKind Internal . KindVariable) (freeVariablesInternal @KindInternal)
 
 instance Reduce KindInternal where
   reduce = id
 
-instance Positioned (Kind p) p where
+instance Location Kind where
   location (CoreKind p _) = p

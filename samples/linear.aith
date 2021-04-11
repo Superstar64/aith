@@ -1,4 +1,3 @@
-{
 inline dup = Λ<b : %type %meta> {
 	λ!(x : b) =>
 	Λ<r : %type %meta> =>
@@ -14,4 +13,4 @@ inline main = Λ<a : %type %meta> {
 
 	dup<b>(f(x))
 };
-}
+

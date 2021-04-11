@@ -5,28 +5,21 @@ import Core.Ast.Kind
 import Core.Ast.KindPattern
 import Core.Ast.TypePattern
 import Data.Bifunctor (bimap)
-import Data.Void (Void)
-import Misc.Identifier (Identifier, substituteVariable)
+import Misc.Identifier (Identifier)
 import Misc.Isomorph
 import Misc.Prism
+import Misc.Variables (Variables)
 import qualified Misc.Variables as Variables
-import qualified TypeSystem.Abstraction as TypeSystem
-import qualified TypeSystem.Application as TypeSystem
-import qualified TypeSystem.Forall as TypeSystem
-import qualified TypeSystem.Function as TypeSystem
-import TypeSystem.Methods
-import qualified TypeSystem.OfCourse as TypeSystem
-import qualified TypeSystem.StageForall as TypeSystem
-import qualified TypeSystem.Variable as TypeSystem
 
 data TypeF p
   = TypeVariable Identifier
   | Macro (Type p) (Type p)
-  | Forall (TypePattern (Kind p) p) (Type p)
-  | KindForall (KindPattern p) (Type p)
+  | Forall (Bound (TypePattern p p) (Type p))
+  | KindForall (Bound (KindPattern p) (Type p))
   | OfCourse (Type p)
   | TypeConstruction (Type p) (Type p)
-  | TypeOperator (TypePattern (Kind p) p) (Type p)
+  | TypeOperator (Bound (TypePattern p p) (Type p))
+  | FunctionPointer (Type p) [Type p]
   deriving (Show)
 
 typeVariable = Prism TypeVariable $ \case
@@ -37,12 +30,12 @@ macro = Prism (uncurry Macro) $ \case
   (Macro σ τ) -> Just (σ, τ)
   _ -> Nothing
 
-forallx = Prism (uncurry Forall) $ \case
-  (Forall pm σ) -> Just (pm, σ)
+forallx = Prism Forall $ \case
+  (Forall λ) -> Just λ
   _ -> Nothing
 
-kindForall = Prism (uncurry KindForall) $ \case
-  (KindForall pm σ) -> Just (pm, σ)
+kindForall = Prism KindForall $ \case
+  (KindForall λ) -> Just λ
   _ -> Nothing
 
 ofCourse = Prism OfCourse $ \case
@@ -53,18 +46,23 @@ typeConstruction = Prism (uncurry TypeConstruction) $ \case
   (TypeConstruction σ τ) -> Just (σ, τ)
   _ -> Nothing
 
-typeOperator = Prism (uncurry TypeOperator) $ \case
-  (TypeOperator pm σ) -> Just (pm, σ)
+typeOperator = Prism TypeOperator $ \case
+  (TypeOperator λ) -> Just λ
+  _ -> Nothing
+
+functionPointer = Prism (uncurry FunctionPointer) $ \case
+  (FunctionPointer σ τs) -> Just (σ, τs)
   _ -> Nothing
 
 instance Functor TypeF where
   fmap _ (TypeVariable x) = TypeVariable x
   fmap f (Macro σ τ) = Macro (fmap f σ) (fmap f τ)
-  fmap f (Forall pm σ) = Forall (bimap (fmap f) f pm) (fmap f σ)
-  fmap f (KindForall pm σ) = KindForall (fmap f pm) (fmap f σ)
+  fmap f (Forall (Bound pm σ)) = Forall $ Bound (bimap f f pm) (fmap f σ)
+  fmap f (KindForall (Bound pm σ)) = KindForall $ Bound (fmap f pm) (fmap f σ)
   fmap f (OfCourse σ) = OfCourse (fmap f σ)
   fmap f (TypeConstruction σ τ) = TypeConstruction (fmap f σ) (fmap f τ)
-  fmap f (TypeOperator pm σ) = TypeOperator (bimap (fmap f) f pm) (fmap f σ)
+  fmap f (TypeOperator (Bound pm σ)) = TypeOperator $ Bound (bimap f f pm) (fmap f σ)
+  fmap f (FunctionPointer σ τs) = FunctionPointer (fmap f σ) (map (fmap f) τs)
 
 type TypeInternal = Type Internal
 
@@ -72,136 +70,105 @@ data Type p = CoreType p (TypeF p) deriving (Show, Functor)
 
 coreType = Isomorph (uncurry CoreType) $ \(CoreType p σ) -> (p, σ)
 
-projectType ::
+freeVariablesTypeImpl ::
+  forall u p.
+  ( Semigroup p,
+    FreeVariables u p (Type p),
+    FreeVariables u p (Bound (TypePattern p p) (Type p)),
+    FreeVariables u p (Bound (KindPattern p) (Type p))
+  ) =>
   TypeF p ->
-  Either
-    (TypeSystem.Variable (Type p))
-    ( Either
-        (TypeSystem.Function KindInternal (Type p))
-        ( Either
-            (TypeSystem.Forall KindInternal (TypePattern KindInternal p) (TypePattern (Kind p) p) (Type p))
-            ( Either
-                (TypeSystem.StageForall KindInternal (KindPattern p) (KindPattern p) (Type p))
-                ( Either
-                    (TypeSystem.OfCourse KindInternal (Type p))
-                    ( Either
-                        (TypeSystem.Application (Type p))
-                        (TypeSystem.Abstraction Void (TypePattern KindInternal p) (TypePattern (Kind p) p) (Type p))
-                    )
-                )
-            )
-        )
-    )
-projectType (TypeVariable x) = Left $ TypeSystem.Variable x
-projectType (Macro σ τ) = Right $ Left $ TypeSystem.Function σ τ
-projectType (Forall pm σ) = Right $ Right $ Left $ TypeSystem.Forall pm σ
-projectType (KindForall pm σ) = Right $ Right $ Right $ Left $ TypeSystem.StageForall pm σ
-projectType (OfCourse σ) = Right $ Right $ Right $ Right $ Left $ TypeSystem.OfCourse σ
-projectType (TypeConstruction σ τ) = Right $ Right $ Right $ Right $ Right $ Left $ TypeSystem.Application σ τ
-projectType (TypeOperator pm σ) = Right $ Right $ Right $ Right $ Right $ Right $ TypeSystem.Abstraction pm σ
-
-instance TypeSystem.EmbedVariable TypeInternal where
-  variable x = CoreType Internal $ TypeVariable x
-
-instance TypeSystem.EmbedFunction TypeInternal where
-  function σ τ = CoreType Internal $ Macro σ τ
-
-instance TypeSystem.EmbedForall TypePatternInternal TypeInternal where
-  forallx pm σ = CoreType Internal $ Forall pm σ
-
-instance TypeSystem.EmbedStageForall KindPatternInternal TypeInternal where
-  stageForall pm σ = CoreType Internal $ KindForall pm σ
-
-instance TypeSystem.EmbedOfCourse TypeInternal where
-  ofCourse σ = CoreType Internal $ OfCourse σ
-
-instance TypeSystem.EmbedAbstraction TypePatternInternal TypeInternal where
-  abstraction pm σ = CoreType Internal $ TypeOperator pm σ
-
-instance TypeSystem.EmbedApplication TypeInternal where
-  application σ τ = CoreType Internal $ TypeConstruction σ τ
+  Variables p
+freeVariablesTypeImpl (TypeVariable _) = mempty
+freeVariablesTypeImpl (Macro σ τ) = freeVariables @u σ <> freeVariables @u τ
+freeVariablesTypeImpl (Forall λ) = freeVariables @u λ
+freeVariablesTypeImpl (KindForall λ) = freeVariables @u λ
+freeVariablesTypeImpl (OfCourse σ) = freeVariables @u σ
+freeVariablesTypeImpl (TypeConstruction σ τ) = freeVariables @u σ <> freeVariables @u τ
+freeVariablesTypeImpl (TypeOperator λ) = freeVariables @u λ
+freeVariablesTypeImpl (FunctionPointer σ τs) = freeVariables @u σ <> freeVariables @u τs
 
 instance Semigroup p => FreeVariables (Type p) p (Type p) where
-  freeVariables (CoreType p σ) = freeVariablesImpl @(Type p) p $ projectType σ
+  freeVariables (CoreType p (TypeVariable x)) = Variables.singleton x p
+  freeVariables (CoreType _ σ) = freeVariablesTypeImpl @(Type p) σ
 
-instance Semigroup p => FreeVariablesImpl (Type p) p (TypeSystem.Variable (Type p)) where
-  freeVariablesImpl p (TypeSystem.Variable x) = Variables.singleton x p
+instance Semigroup p => FreeVariables (Type p) p (Bound (TypePattern p p) (Type p)) where
+  freeVariables (Bound pm σ) = removeBinds (freeVariables @(Type p) σ) (bindings @p pm)
+
+instance Semigroup p => FreeVariables (Type p) p (Bound (KindPattern p) (Type p)) where
+  freeVariables (Bound _ σ) = freeVariables @(Type p) σ
 
 instance Semigroup p => FreeVariables (Kind p) p (Type p) where
-  freeVariables (CoreType p σ) = freeVariablesImpl @(Kind p) p $ projectType σ
+  freeVariables (CoreType _ σ) = freeVariablesTypeImpl @(Kind p) σ
 
-instance Semigroup p => FreeVariablesImpl (Kind p) p (TypeSystem.Variable (Type p)) where
-  freeVariablesImpl _ _ = mempty
+instance Semigroup p => FreeVariables (Kind p) p (Bound (TypePattern p p) (Type p)) where
+  freeVariables (Bound pm σ) = freeVariables @(Kind p) pm <> freeVariables @(Kind p) σ
 
-instance Semigroup p => FreeVariables (Type p) p (TypePattern (Kind p) p) where
-  freeVariables _ = mempty
+instance Semigroup p => FreeVariables (Kind p) p (Bound (KindPattern p) (Type p)) where
+  freeVariables (Bound pm σ) = removeBinds (freeVariables @(Kind p) σ) (bindings @p pm)
 
 instance Semigroup p => FreeVariables (Type p) p (Kind p) where
   freeVariables _ = mempty
 
-instance FreeVariablesInternal TypeInternal TypeInternal where
-  freeVariablesInternal = freeVariables @TypeInternal
+avoidCaptureType = avoidCapture (CoreType Internal . TypeVariable) (freeVariablesInternal @TypeInternal)
 
-instance FreeVariablesInternal KindInternal TypeInternal where
-  freeVariablesInternal = freeVariables @KindInternal
-
-instance Semigroup p => ModifyVariables (Type p) p (TypePattern (Kind p) p) where
-  modifyVariables (CoreTypePattern _ pm) free = foldr Variables.delete free $ bindings (projectTypePattern pm)
-
-instance Semigroup p => ModifyVariables (Type p) p (KindPattern p) where
-  modifyVariables _ = id
+substituteTypeImpl _ _ (TypeVariable x) = TypeVariable x
+substituteTypeImpl ux x (Macro σ τ) = Macro (substitute ux x σ) (substitute ux x τ)
+substituteTypeImpl ux x (Forall λ) = Forall (substitute ux x λ)
+substituteTypeImpl ux x (KindForall λ) = KindForall (substitute ux x λ)
+substituteTypeImpl ux x (OfCourse σ) = OfCourse (substitute ux x σ)
+substituteTypeImpl ux x (TypeConstruction σ τ) = TypeConstruction (substitute ux x σ) (substitute ux x τ)
+substituteTypeImpl ux x (TypeOperator λ) = TypeOperator (substitute ux x λ)
+substituteTypeImpl ux x (FunctionPointer σ τs) = FunctionPointer (substitute ux x σ) (substitute ux x τs)
 
 instance Substitute TypeInternal TypeInternal where
-  substitute σx x (CoreType Internal σ) = substituteImpl σx x $ projectType σ
+  substitute ux x (CoreType Internal (TypeVariable x')) | x == x' = ux
+  substitute ux x (CoreType Internal σ) = CoreType Internal $ substituteTypeImpl ux x σ
 
-instance SubstituteImpl (TypeSystem.Variable TypeInternal) TypeInternal TypeInternal where
-  substituteImpl σx x (TypeSystem.Variable x') = substituteVariable TypeSystem.variable σx x x'
+instance Substitute TypeInternal (Bound TypePatternInternal TypeInternal) where
+  substitute _ x λ@(Bound pm _) | x `Variables.member` bindingsInternal pm = λ
+  substitute ux x λ = Bound pm (substitute ux x σ)
+    where
+      Bound pm σ = avoidCaptureType ux λ
+
+instance Substitute TypeInternal (Bound KindPatternInternal TypeInternal) where
+  substitute ux x λ = Bound pm (substitute ux x σ)
+    where
+      Bound pm σ = avoidCaptureKind ux λ
 
 instance Substitute KindInternal TypeInternal where
-  substitute sx x (CoreType Internal σ) = substituteImpl sx x $ projectType σ
+  substitute ux x (CoreType Internal σ) = CoreType Internal $ substituteTypeImpl ux x σ
 
-instance SubstituteImpl (TypeSystem.Variable TypeInternal) KindInternal TypeInternal where
-  substituteImpl _ _ (TypeSystem.Variable x) = TypeSystem.variable x
+instance Substitute KindInternal (Bound TypePatternInternal TypeInternal) where
+  substitute ux x (Bound pm σ) = Bound (substitute ux x pm) (substitute ux x σ)
 
-instance SubstituteSame TypeInternal
-
-instance Substitute TypeInternal TypePatternInternal where
-  substitute _ _ pm = pm
+instance Substitute KindInternal (Bound KindPatternInternal TypeInternal) where
+  substitute _ x λ@(Bound pm _) | x `Variables.member` bindingsInternal pm = λ
+  substitute ux x λ = Bound pm (substitute ux x σ)
+    where
+      Bound pm σ = avoidCaptureKind ux λ
 
 instance Substitute TypeInternal KindInternal where
-  substitute _ _ κ = κ
+  substitute _ _ = id
 
-instance Substitute TypeInternal KindPatternInternal where
-  substitute _ _ pm = pm
-
-instance CaptureAvoidingSubstitution TypeInternal TypePatternInternal TypeInternal where
-  avoidCapture σx (CoreTypePattern Internal pm, σ) = avoidCaptureImpl @TypeInternal projectTypePattern (CoreTypePattern Internal) σx (pm, σ)
-  substituteShadow = substituteShadowImpl
-
-instance CaptureAvoidingSubstitution KindInternal TypePatternInternal TypeInternal where
-  avoidCapture _ = id
-  substituteShadow _ = substitute
-
-instance CaptureAvoidingSubstitution TypeInternal KindPatternInternal TypeInternal where
-  avoidCapture σx (CoreKindPattern Internal pm, σ) = avoidCaptureImpl @KindInternal projectKindPattern (CoreKindPattern Internal) σx (pm, σ)
-  substituteShadow _ = substitute
-
-instance CaptureAvoidingSubstitution KindInternal KindPatternInternal TypeInternal where
-  avoidCapture sx (CoreKindPattern Internal pm, σ) = avoidCaptureImpl @KindInternal projectKindPattern (CoreKindPattern Internal) sx (pm, σ)
-  substituteShadow = substituteShadowImpl
+reduceTypeImpl (TypeVariable x) = TypeVariable x
+reduceTypeImpl (Macro σ τ) = Macro (reduce σ) (reduce τ)
+reduceTypeImpl (Forall λ) = Forall (reduce λ)
+reduceTypeImpl (KindForall λ) = KindForall (reduce λ)
+reduceTypeImpl (OfCourse σ) = OfCourse (reduce σ)
+reduceTypeImpl (TypeConstruction σ τ) | (CoreType Internal (TypeOperator λ)) <- reduce σ = let (CoreType Internal σ') = apply λ τ in σ'
+reduceTypeImpl (TypeConstruction σ τ) = TypeConstruction (reduce σ) (reduce τ)
+reduceTypeImpl (TypeOperator λ) = TypeOperator (reduce λ)
+reduceTypeImpl (FunctionPointer σ τs) = FunctionPointer (reduce σ) (reduce τs)
 
 instance Reduce TypeInternal where
-  reduce (CoreType Internal σ) = reduceImpl $ projectType σ
+  reduce (CoreType Internal σ) = CoreType Internal $ reduceTypeImpl σ
 
-instance ReducePattern TypePatternInternal TypeInternal TypeInternal where
-  reducePattern (CoreTypePattern Internal pm) σ τ = reducePattern (projectTypePattern pm) σ τ
+instance Apply (Bound TypePatternInternal TypeInternal) TypeInternal TypeInternal where
+  apply (Bound (CoreTypePattern Internal (TypePatternVariable x _)) σ) ux = reduce $ substitute ux x σ
 
-instance ReducePattern KindPatternInternal KindInternal TypeInternal where
-  reducePattern (CoreKindPattern Internal pm) s τ = reducePattern (projectKindPattern pm) s τ
+instance Apply (Bound KindPatternInternal TypeInternal) KindInternal TypeInternal where
+  apply (Bound (CoreKindPattern Internal (KindPatternVariable x _)) σ) ux = reduce $ substitute ux x σ
 
-instance ReduceMatchAbstraction TypeInternal TypeInternal where
-  reduceMatchAbstraction (CoreType Internal (TypeOperator pm σ)) = Just $ \τ -> reducePattern pm τ σ
-  reduceMatchAbstraction _ = Nothing
-
-instance Positioned (Type p) p where
+instance Location Type where
   location (CoreType p _) = p

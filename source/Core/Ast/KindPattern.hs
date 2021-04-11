@@ -4,8 +4,7 @@ import Core.Ast.Common
 import Core.Ast.Sort
 import Misc.Identifier (Identifier)
 import Misc.Isomorph
-import TypeSystem.Methods
-import qualified TypeSystem.PatternVariable as TypeSystem
+import qualified Misc.Variables as Variables
 
 data KindPatternF p = KindPatternVariable Identifier Sort deriving (Show, Functor)
 
@@ -17,23 +16,12 @@ coreKindPattern = Isomorph (uncurry CoreKindPattern) $ \(CoreKindPattern p pm) -
 
 type KindPatternInternal = KindPattern Internal
 
-projectKindPattern :: KindPatternF p -> TypeSystem.PatternVariable () () Sort
-projectKindPattern (KindPatternVariable x μ) = TypeSystem.PatternVariable x μ
+instance Rename KindPatternInternal where
+  rename ux x (CoreKindPattern Internal (KindPatternVariable x' κ)) | x == x' = CoreKindPattern Internal (KindPatternVariable ux κ)
+  rename _ _ pm = pm
 
-instance Bindings KindPatternInternal where
-  bindings (CoreKindPattern Internal pm) = bindings $ projectKindPattern pm
-
-instance TypeSystem.EmbedPatternVariable Sort KindPatternInternal where
-  patternVariable x μ = CoreKindPattern Internal $ KindPatternVariable x μ
-
-instance InternalType (KindPattern Internal) Sort where
-  internalType (CoreKindPattern Internal pm) = internalType $ projectKindPattern pm
-
-instance ConvertPattern KindPatternInternal KindPatternInternal where
-  convertPattern ix x (CoreKindPattern Internal pm) = convertPattern ix x $ projectKindPattern pm
+instance Bindings p (KindPattern p) where
+  bindings (CoreKindPattern p (KindPatternVariable x _)) = Variables.singleton x p
 
 instance Reduce KindPatternInternal where
   reduce = id
-
-instance Strip (KindPattern p) KindPatternInternal where
-  strip pm = Internal <$ pm

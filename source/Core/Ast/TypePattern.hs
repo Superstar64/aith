@@ -2,55 +2,39 @@ module Core.Ast.TypePattern where
 
 import Core.Ast.Common
 import Core.Ast.Kind
-import Core.Ast.Sort
 import Data.Bifunctor (Bifunctor, bimap)
 import Misc.Identifier (Identifier)
 import Misc.Isomorph
-import TypeSystem.Methods
-import qualified TypeSystem.PatternVariable as TypeSystem
+import qualified Misc.Variables as Variables
 
-data TypePatternF κ p = TypePatternVariable Identifier κ deriving (Show)
+data TypePatternF p' p = TypePatternVariable Identifier (Kind p') deriving (Functor, Show)
 
 typePatternVariable = Isomorph (uncurry TypePatternVariable) $ \(TypePatternVariable x κ) -> (x, κ)
 
 instance Bifunctor TypePatternF where
-  bimap f _ (TypePatternVariable x κ) = TypePatternVariable x (f κ)
+  bimap f _ (TypePatternVariable x κ) = TypePatternVariable x (fmap f κ)
 
-data TypePattern κ p = CoreTypePattern p (TypePatternF κ p) deriving (Show)
+data TypePattern p' p = CoreTypePattern p (TypePatternF p' p) deriving (Functor, Show)
 
 coreTypePattern = Isomorph (uncurry CoreTypePattern) $ \(CoreTypePattern p pm) -> (p, pm)
 
-type TypePatternInternal = TypePattern KindInternal Internal
-
-instance InternalType (TypePattern KindInternal p) KindInternal where
-  internalType (CoreTypePattern _ pm) = internalType $ projectTypePattern pm
-
-projectTypePattern :: TypePatternF κ p -> TypeSystem.PatternVariable () Sort κ
-projectTypePattern (TypePatternVariable x κ) = TypeSystem.PatternVariable x κ
+type TypePatternInternal = TypePattern Internal Internal
 
 instance Bifunctor TypePattern where
   bimap f g (CoreTypePattern p pm) = CoreTypePattern (g p) (bimap f g pm)
 
-instance TypeSystem.EmbedPatternVariable KindInternal TypePatternInternal where
-  patternVariable κ x = CoreTypePattern Internal $ TypePatternVariable κ x
+instance Bindings p (TypePattern p p) where
+  bindings (CoreTypePattern p (TypePatternVariable x _)) = Variables.singleton x p
 
-instance Bindings (TypePattern (Kind p) p) where
-  bindings (CoreTypePattern _ pm) = bindings $ projectTypePattern pm
+instance Rename TypePatternInternal where
+  rename ux x (CoreTypePattern p (TypePatternVariable x' κ)) | x == x' = (CoreTypePattern p (TypePatternVariable ux κ))
+  rename _ _ pm = pm
 
-instance Semigroup p => FreeVariables (Kind p) p (TypePattern (Kind p) p) where
-  freeVariables (CoreTypePattern p pm) = freeVariablesImpl @(Kind p) p $ projectTypePattern pm
+instance (Semigroup p, FreeVariables u p (Kind p)) => FreeVariables u p (TypePattern p p') where
+  freeVariables (CoreTypePattern _ (TypePatternVariable _ κ)) = freeVariables @u κ
 
-instance Semigroup p => ModifyVariables (Kind p) p (TypePattern (Kind p) p) where
-  modifyVariables pm free = freeVariables @(Kind p) pm <> free
-
-instance Substitute KindInternal TypePatternInternal where
-  substitute κx x (CoreTypePattern Internal pm) = substituteImpl κx x $ projectTypePattern pm
-
-instance ConvertPattern TypePatternInternal TypePatternInternal where
-  convertPattern ix x (CoreTypePattern Internal pm) = convertPattern ix x (projectTypePattern pm)
+instance Substitute u (Kind Internal) => Substitute u TypePatternInternal where
+  substitute ux x (CoreTypePattern Internal (TypePatternVariable x' κ)) = CoreTypePattern Internal $ (TypePatternVariable x' (substitute ux x κ))
 
 instance Reduce TypePatternInternal where
-  reduce (CoreTypePattern Internal pm) = reduceImpl $ projectTypePattern pm
-
-instance Strip (TypePattern KindInternal p) TypePatternInternal where
-  strip = bimap id (const Internal)
+  reduce (CoreTypePattern Internal (TypePatternVariable x κ)) = CoreTypePattern Internal $ (TypePatternVariable x (reduce κ))

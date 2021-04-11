@@ -26,7 +26,8 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & e \sigma \tag*{[Type Application]} \\
 & \Lambda \kappa \alpha : \mu. e \tag*{[Kind Lambda]} \\
 & e \kappa \tag*{[Kind Application]} \\
-& \text{extern} \, \sigma \\
+& \text{extern} \, x \{ \sigma \} \tag*{[Extern Symbol]} \\
+& e(*)(e',e'',\dots) \tag*{[Function Pointer Application]} \\
 \\
 \sigma, \tau \Coloneqq & \alpha \tag* {[Type Variable]}\\
 & \sigma \to \tau \tag*{[Macro]}\\
@@ -35,13 +36,15 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & \forall \kappa \alpha : \mu. \sigma \tag*{[Kind Forall]}\\
 & \lambda \alpha : \kappa. \sigma \tag*{[Type Operator]} \\
 & \sigma (\tau) \tag*{[Type Construction]} \\
+& \sigma (*) (\tau, \tau', \dots) \tag*{[Function Pointer]}\\
 \\
 \kappa, s, \rho \Coloneqq &  \kappa \alpha \tag*{[Kind Variable]} \\
 & \text{Type} (s) \tag*{[Type]} \\
 & \kappa \to \kappa' \tag*{[Higher Kinded Type]} \\
-& \text{Meta} \\
-& \text{Runtime} (\rho) \\
-& \text{void*} \\
+& \text{Meta} \tag*{[Meta Stage]}\\
+& \text{Runtime} (\rho) \tag*{[Runtime Stage]}\\
+& \text{void}* \tag*{[Pointer Representation]}\\
+& \text{void}(*)(\text{void}) \tag*{[Function Pointer Representation]}\\
 \\
 \mu \Coloneqq & \text{Kind} \\
 & \text{Stage} \\
@@ -108,7 +111,11 @@ All valid types have a kind who's sort is of the form $ \text{Kind} $
 \\
 \frac
 {\Phi \vdash \sigma : \text{Type}(\text{Runtime} (\rho))}
-{\Phi | \Gamma \vdash \text{extern} \, \sigma : \sigma} \\
+{\Phi | \Gamma \vdash \text{extern} \, x \{ \sigma \} : \sigma} \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : \tau(*)(\sigma, \sigma', \dots) \quad \Phi | \Gamma' \vdash e' : \sigma \quad \dots}
+{\Phi | \Gamma, \Gamma', \dots \vdash e(*)(e',e'',\dots) : \tau} \\
 \\
 \Phi \vdash \sigma : \kappa \tag* {[\text{Type Validation}]} \\
 \\
@@ -133,12 +140,16 @@ All valid types have a kind who's sort is of the form $ \text{Kind} $
 {\Phi \vdash \forall \kappa \alpha : \mu. \sigma : \text{Type} (\text{Meta}) } \\
 \\
 \frac
-{\Phi, \alpha : \kappa : \sigma : \kappa' \quad \Phi \vdash \kappa : \text{Kind}} 
+{\Phi, \alpha : \kappa \vdash \sigma : \kappa' \quad \Phi \vdash \kappa : \text{Kind}} 
 {\Phi \vdash \lambda \alpha : \kappa. \sigma : \kappa \to \kappa' } \\
 \\
 \frac
 {\Phi \vdash \sigma : \kappa \to \kappa' \quad \Phi \vdash \tau : \kappa}
 {\Phi \vdash \sigma (\tau) : \kappa' } \\
+\\
+\frac
+{\Phi \vdash \sigma : \text{Type} (\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime} (\rho)) \quad \dots}
+{\Phi \vdash \sigma (*) (\tau, \tau', \dots) : \text{Type} (\text{Runtime} (\text{void}(*)(\text{void})))} \\
 \\
 \Phi \vdash \kappa : \mu \tag*{[Kind Validation]} \\
 \\
@@ -160,7 +171,11 @@ All valid types have a kind who's sort is of the form $ \text{Kind} $
 \\
 \frac
 {}
-{\Phi \vdash \text{void*} : \text{Representation}}
+{\Phi \vdash \text{void}* : \text{Representation}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{void}(*)(\text{void}) : \text{Representation}}
 \end{gather*}
 
 \end{document}

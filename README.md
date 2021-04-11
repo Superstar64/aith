@@ -38,9 +38,9 @@ See ``/documentation`` for typing rules.
 | Variable | ``x`` |
 | Of Course Introduction | ``!e`` |
 | Binding | ``%let pm = e1 ; e2 ``|
-| Term Abstraction | ``λ pm { e }``|
-| Term Abstraction | ``λ pm => e ``|
-| Term Application | ``e(e')``|
+| Macro Abstraction | ``λ pm { e }``|
+| Macro Abstraction | ``λ pm => e ``|
+| Macro Application | ``e(e')``|
 | Type Abstraction | ``Λ<x : κ> { e }`` |
 | Type Abstraction | ``Λ<x : κ> => e`` |
 | Type Application | ``e<σ>`` |
@@ -48,6 +48,7 @@ See ``/documentation`` for typing rules.
 | Kind Abstraction | ``Λ@ x : μ { e }`` |
 | Kind Application | ``e @ κ`` |
 | Extern | ``%extern "c identifer" { σ }`` |
+| Function Application | ``e(*)(e1,e2, ...) ``|
 
 ## Patterns(pm)
 | Description | Syntax |
@@ -68,6 +69,7 @@ See ``/documentation`` for typing rules.
 | Type Operator | `` λ x : κ { σ }``|
 | Type Operator | `` λ x : κ => σ ``|
 | Type Construction | `` σ (τ) `` |
+| Function Pointer | `` σ(*)(τ, τ', ...) `` |
 
 ## Kinds(κ,s,ρ)
 | Description | Syntax |

@@ -1,4 +1,3 @@
-{
 module boolean = {
 inline true = Λ@s : %stage => Λ<a : %type s> => λ!(x : a) => λ!(y : a) => x;
 
@@ -11,4 +10,4 @@ inline not = λ x : (∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) {
 import not = boolean/not;
 import true = boolean/true;
 inline main = not(true);
-}
+

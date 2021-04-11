@@ -6,7 +6,6 @@ import Module hiding (modulex)
 import Syntax
 import System.Exit
 import Text.Megaparsec hiding (parse)
-import TypeSystem.Methods
 
 tryParse p = do
   case p of
@@ -20,8 +19,8 @@ termMain = do
   stdin <- getContents
   e' <- tryParse $ parse (withSourcePos term) "stdin" stdin
   let e = (: []) <$> e'
-  σ <- runCore (typeCheckTerm e) $ emptyState
-  κ <- runCore (typeCheckType σ) $ emptyState
+  σ <- runCore (typeCheck @[SourcePos] e) $ emptyState
+  κ <- runCore (typeCheck @Internal σ) $ emptyState
   putStrLn "Term Pretty: " >> prettyPrint term (Internal <$ e)
   putStrLn ""
   putStrLn "Term β Pretty: " >> prettyPrint term (reduce $ Internal <$ e)

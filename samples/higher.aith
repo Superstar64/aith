@@ -1,4 +1,3 @@
-{
 inline fmap = Λ@r : %stage {
 	Λ<m : %type r -> %type r> =>
 	Λ<a : %type r> =>
@@ -13,4 +12,4 @@ inline fmap = Λ@r : %stage {
 		pure<b>(f(a))
 	})
 };
-}
+

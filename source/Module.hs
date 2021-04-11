@@ -18,7 +18,6 @@ import Misc.Isomorph
 import Misc.Path
 import Misc.Prism
 import qualified Misc.Variables as Variables
-import TypeSystem.Methods (freeVariables)
 
 newtype Module p = CoreModule (Map Identifier (Item p)) deriving (Show, Functor)
 
@@ -136,7 +135,7 @@ typeCheckModule (Ordering code) = execStateT (go code) mempty
       go require
       this <- get
       let enviroment = Map.findWithDefault emptyState heading this
-      σ <- lift $ runCore (typeCheckTerm e) enviroment
+      σ <- lift $ runCore (typeCheck e) enviroment
       let enviroment' = enviroment {typeEnvironment = Map.insert name (p, CoreMultiplicity Internal Unrestricted, σ) $ typeEnvironment enviroment}
       modify $ Map.insert heading enviroment'
     go ((p, Path heading name, Import _ (Path targetHeading targetName)) : require) = do
@@ -155,7 +154,7 @@ reduceModule (Ordering code) = Ordering $ evalState (go code) Map.empty
       completed <- go require
       this <- get
       let replacements = Map.findWithDefault [] heading this
-      let e' = reduceTerm $ foldr (\(x, e') -> substituteTerm e' x) e replacements
+      let e' = reduce $ foldr (\(x, e') -> substitute e' x) e replacements
       modify $ Map.insert heading ((name, e') : replacements)
       pure $ (Internal, Path heading name, Inline e') : completed
     go ((Internal, Path heading name, Import _ (Path targetHeading targetName)) : require) = do

@@ -1,19 +1,17 @@
 module Core.Ast.Pattern where
 
 import Core.Ast.Common
-import Core.Ast.Kind
 import Core.Ast.Type
 import Data.Bifunctor (Bifunctor, bimap)
 import Misc.Identifier (Identifier)
 import Misc.Isomorph
 import Misc.Prism
-import TypeSystem.Methods
-import qualified TypeSystem.PatternOfCourse as TypeSystem
-import qualified TypeSystem.PatternVariable as TypeSystem
+import Misc.Variables (Variables)
+import qualified Misc.Variables as Variables
 
-data PatternF σ p
-  = PatternVariable Identifier σ
-  | PatternOfCourse (Pattern σ p)
+data PatternF p' p
+  = PatternVariable Identifier (Type p')
+  | PatternOfCourse (Pattern p' p)
   deriving (Show)
 
 patternVariable = Prism (uncurry PatternVariable) $ \case
@@ -25,58 +23,40 @@ patternOfCourse = Prism PatternOfCourse $ \case
   _ -> Nothing
 
 instance Bifunctor PatternF where
-  bimap f _ (PatternVariable x σ) = PatternVariable x (f σ)
+  bimap f _ (PatternVariable x σ) = PatternVariable x (fmap f σ)
   bimap f g (PatternOfCourse pm) = PatternOfCourse (bimap f g pm)
 
-data Pattern σ p = CorePattern p (PatternF σ p) deriving (Show)
+data Pattern p' p = CorePattern p (PatternF p' p) deriving (Show)
 
 corePattern = Isomorph (uncurry CorePattern) $ \(CorePattern p pm) -> (p, pm)
 
 instance Bifunctor Pattern where
   bimap f g (CorePattern p pm) = CorePattern (g p) (bimap f g pm)
 
-type PatternInternal = Pattern TypeInternal Internal
+type PatternInternal = Pattern Internal Internal
 
-projectPattern ::
-  PatternF σ p ->
-  Either
-    (TypeSystem.PatternVariable KindInternal KindInternal σ)
-    (TypeSystem.PatternOfCourse (Pattern σ p))
-projectPattern (PatternVariable x σ) = Left $ TypeSystem.PatternVariable x σ
-projectPattern (PatternOfCourse pm) = Right $ TypeSystem.PatternOfCourse pm
+instance Bindings p (Pattern p p) where
+  bindings (CorePattern p (PatternVariable x _)) = Variables.singleton x p
+  bindings (CorePattern _ (PatternOfCourse pm)) = bindings pm
 
-instance TypeSystem.EmbedPatternVariable TypeInternal PatternInternal where
-  patternVariable x σ = CorePattern Internal $ PatternVariable x σ
+instance Rename PatternInternal where
+  rename ux x (CorePattern p (PatternVariable x' κ)) | x == x' = CorePattern p (PatternVariable ux κ)
+  rename _ _ (CorePattern p (PatternVariable x κ)) = CorePattern p (PatternVariable x κ)
+  rename ux x (CorePattern p (PatternOfCourse pm)) = CorePattern p (PatternOfCourse $ rename ux x pm)
 
-instance TypeSystem.EmbedPatternOfCourse PatternInternal where
-  patternOfCourse pm = CorePattern Internal $ PatternOfCourse pm
+freeVariablesPatternImpl :: forall u p. (Semigroup p, FreeVariables u p (Type p)) => PatternF p p -> Variables p
+freeVariablesPatternImpl (PatternVariable _ σ) = freeVariables @u σ
+freeVariablesPatternImpl (PatternOfCourse pm) = freeVariables @u pm
 
-instance InternalType (Pattern TypeInternal p) TypeInternal where
-  internalType (CorePattern _ pm) = internalType $ projectPattern pm
+instance (Semigroup p, FreeVariables u p (Type p)) => FreeVariables u p (Pattern p p) where
+  freeVariables (CorePattern _ pm) = freeVariablesPatternImpl @u pm
 
-instance Semigroup p => FreeVariables (Type p) p (Pattern (Type p) p) where
-  freeVariables (CorePattern p pm) = freeVariablesImpl @(Type p) p $ projectPattern pm
+substitutePatternImpl ux x (PatternVariable x' σ) = PatternVariable x' (substitute ux x σ)
+substitutePatternImpl ux x (PatternOfCourse pm) = PatternOfCourse (substitute ux x pm)
 
-instance Semigroup p => FreeVariables (Kind p) p (Pattern (Type p) p) where
-  freeVariables (CorePattern p pm) = freeVariablesImpl @(Kind p) p $ projectPattern pm
-
-instance Bindings (Pattern (Type p) p) where
-  bindings (CorePattern _ pm) = bindings $ projectPattern pm
-
-instance Semigroup p => ModifyVariables (Type p) p (Pattern (Type p) p) where
-  modifyVariables (CorePattern p pm) free = freeVariablesImpl @(Type p) p (projectPattern pm) <> free
-
-instance Semigroup p => ModifyVariables (Kind p) p (Pattern (Type p) p) where
-  modifyVariables (CorePattern p pm) free = freeVariablesImpl @(Kind p) p (projectPattern pm) <> free
-
-instance Substitute TypeInternal PatternInternal where
-  substitute σx x (CorePattern Internal pm) = substituteImpl σx x $ projectPattern pm
-
-instance Substitute KindInternal PatternInternal where
-  substitute sx x (CorePattern Internal pm) = substituteImpl sx x $ projectPattern pm
-
-instance ConvertPattern PatternInternal PatternInternal where
-  convertPattern ix x (CorePattern Internal pm) = convertPattern ix x $ projectPattern pm
+instance Substitute u TypeInternal => Substitute u PatternInternal where
+  substitute ux x (CorePattern Internal pm) = CorePattern Internal (substitutePatternImpl ux x pm)
 
 instance Reduce PatternInternal where
-  reduce (CorePattern Internal pm) = reduceImpl $ projectPattern pm
+  reduce (CorePattern Internal (PatternVariable x κ)) = CorePattern Internal $ (PatternVariable x (reduce κ))
+  reduce (CorePattern Internal (PatternOfCourse pm)) = CorePattern Internal (PatternOfCourse (reduce pm))

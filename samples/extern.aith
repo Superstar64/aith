@@ -1,4 +1,3 @@
-{
 inline x = Λ<a : %type %runtime %pointer> => %extern "x" {a};
-inline y = x;
-}
+inline f = Λ<a : %type %runtime %pointer> => %extern "f" {a(*)(a,a)};
+inline fx = Λ<a : %type %runtime %pointer> => f<a>(*)(x<a>,x<a>);

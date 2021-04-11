@@ -28,13 +28,13 @@ instance Usage Use where
   useNothing = Empty
   combine = Both
 
-variables :: Use -> Set Identifier
-variables (Use x) = Set.singleton x
-variables Everything = mempty
-variables (Branch a b) = variables a <> variables b
-variables Empty = mempty
-variables (Both a b) = variables a <> variables b
-variables (Remove x a) = Set.delete x (variables a)
+variablesUsed :: Use -> Set Identifier
+variablesUsed (Use x) = Set.singleton x
+variablesUsed Everything = mempty
+variablesUsed (Branch a b) = variablesUsed a <> variablesUsed b
+variablesUsed Empty = mempty
+variablesUsed (Both a b) = variablesUsed a <> variablesUsed b
+variablesUsed (Remove x a) = Set.delete x (variablesUsed a)
 
 data Count = None | Single | Multiple
 

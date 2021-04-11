@@ -18,6 +18,7 @@ data LookupError p
 data Error p
   = UnknownIdentfier p Identifier
   | ExpectedMacro p TypeInternal
+  | ExpectedFunctionPointer p Int TypeInternal
   | ExpectedForall p TypeInternal
   | ExpectedKindForall p TypeInternal
   | ExpectedOfCourse p TypeInternal
@@ -31,21 +32,20 @@ data Error p
   | IncompatibleKind p KindInternal KindInternal
   | IncompatibleLinear p MultiplicityInternal MultiplicityInternal
   | IncompatibleSort p Sort Sort
-  | IncompatibleRepresentation p Representation Representation
   | CaptureLinear p Identifier
   | InvalidUsage p Identifier
   deriving (Show)
 
 class (Monad m, Semigroup p) => Base p m where
-  quit' :: Error p -> m a
+  quit :: Error p -> m a
   moduleQuit :: LookupError p -> m a
 
 instance (Semigroup p, Show p) => Base p IO where
-  quit' e = do
+  quit error = do
     putStrLn "Error:"
-    print e
+    print error
     exitWith (ExitFailure 2)
-  moduleQuit e = do
+  moduleQuit error = do
     putStrLn "Module Error:"
-    print e
+    print error
     exitWith (ExitFailure 3)
