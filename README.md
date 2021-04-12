@@ -75,7 +75,7 @@ See ``/documentation`` for typing rules.
 ## Kinds(κ,s,ρ)
 | Description | Syntax |
 |-|-|
-| Variable | ``κα`` |
+| Variable | ``x`` |
 | Type | `` %type s `` |
 | Higher | `` κ -> κ' `` |
 | Runtime | ``%runtime ρ`` |
