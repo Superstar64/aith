@@ -3,20 +3,22 @@ module Module where
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State (StateT, evalState, evalStateT, execStateT, get, modify)
 import Core.Ast.Common
+import Core.Ast.FunctionLiteral
 import Core.Ast.Multiplicity
 import Core.Ast.Term
 import Core.TypeCheck
 import Data.Bifunctor (first)
-import Data.List (find)
+import Data.List (find, intercalate)
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import Data.Traversable (for)
 import Error
-import Misc.Identifier (Identifier)
+import Misc.Identifier (Identifier (..))
 import Misc.Isomorph
 import Misc.Path
 import Misc.Prism
+import Misc.Symbol
 import qualified Misc.Variables as Variables
 
 newtype Module p = CoreModule (Map Identifier (Item p)) deriving (Show, Functor)
@@ -43,6 +45,7 @@ item = Isomorph (uncurry CoreItem) $ \(CoreItem p item) -> (p, item)
 data Global p
   = Inline (Term p)
   | Import p Path
+  | Text (FunctionLiteral p)
   deriving (Show, Functor)
 
 inline = Prism Inline $ \case
@@ -51,6 +54,10 @@ inline = Prism Inline $ \case
 
 importx = Prism (uncurry Import) $ \case
   (Import p path) -> Just (p, path)
+  _ -> Nothing
+
+text = Prism Text $ \case
+  (Text e) -> Just e
   _ -> Nothing
 
 resolve :: Base p m => p -> Module p -> Path -> m (Global p)
@@ -67,6 +74,7 @@ resolve p (CoreModule code) path = go code path
 
 depend :: forall p. Semigroup p => Global p -> Path -> [(Path, p)]
 depend (Inline e) (Path location _) = first (Path location) <$> (Variables.toList $ freeVariables @(Term p) e)
+depend (Text e) (Path location _) = first (Path location) <$> (Variables.toList $ freeVariables @(Term p) e)
 depend (Import p path) _ = [(path, p)]
 
 data ModuleOrder p = Ordering [(p, Path, Global p)] deriving (Show, Functor)
@@ -138,6 +146,13 @@ typeCheckModule (Ordering code) = execStateT (go code) mempty
       σ <- lift $ runCore (typeCheck e) enviroment
       let enviroment' = enviroment {typeEnvironment = Map.insert name (p, CoreMultiplicity Internal Unrestricted, σ) $ typeEnvironment enviroment}
       modify $ Map.insert heading enviroment'
+    go ((p, Path heading name, Text e) : require) = do
+      go require
+      this <- get
+      let enviroment = Map.findWithDefault emptyState heading this
+      σ <- lift $ runCore (typeCheck e) enviroment
+      let enviroment' = enviroment {typeEnvironment = Map.insert name (p, CoreMultiplicity Internal Unrestricted, σ) $ typeEnvironment enviroment}
+      modify $ Map.insert heading enviroment'
     go ((p, Path heading name, Import _ (Path targetHeading targetName)) : require) = do
       go require
       this <- get
@@ -145,6 +160,11 @@ typeCheckModule (Ordering code) = execStateT (go code) mempty
       let (_, _, σ) = typeEnvironment (this ! targetHeading) ! targetName
       let enviroment' = enviroment {typeEnvironment = Map.insert name (p, CoreMultiplicity Internal Unrestricted, σ) $ typeEnvironment enviroment}
       modify $ Map.insert heading enviroment'
+
+mangle :: Path -> Symbol
+mangle (Path path (Identifier name)) = Symbol $ (intercalate "_" $ extract <$> path) ++ name
+  where
+    extract (Identifier x) = x
 
 reduceModule :: ModuleOrder Internal -> ModuleOrder Internal
 reduceModule (Ordering code) = Ordering $ evalState (go code) Map.empty
@@ -157,6 +177,14 @@ reduceModule (Ordering code) = Ordering $ evalState (go code) Map.empty
       let e' = reduce $ foldr (\(x, e') -> substitute e' x) e replacements
       modify $ Map.insert heading ((name, e') : replacements)
       pure $ (Internal, Path heading name, Inline e') : completed
+    go ((Internal, path@(Path heading name), Text e) : require) = do
+      completed <- go require
+      this <- get
+      let replacements = Map.findWithDefault [] heading this
+      let e' = reduce $ foldr (\(x, e') -> substitute e' x) e replacements
+      let ref = CoreTerm Internal $ Extern (mangle path) (typeCheckInternal emptyState e)
+      modify $ Map.insert heading ((name, ref) : replacements)
+      pure $ (Internal, Path heading name, Text e') : completed
     go ((Internal, Path heading name, Import _ (Path targetHeading targetName)) : require) = do
       completed <- go require
       this <- get

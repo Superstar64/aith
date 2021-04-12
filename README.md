@@ -31,6 +31,7 @@ See ``/documentation`` for typing rules.
 | Module | ``module x = { code };`` |
 | Inline Symbol | ``inline x =  e; ``|
 | Import | ``import x = x'/x''/...``|
+| Function | ``function x = <x' : κ> <x : κ'> ... (σ)(pm, pm',...) { e };`` |
 
 ## Terms(e)
 | Description | Syntax |

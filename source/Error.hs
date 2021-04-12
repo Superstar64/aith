@@ -1,9 +1,11 @@
 module Error where
 
+import Core.Ast.Common
 import Core.Ast.Kind
 import Core.Ast.Multiplicity
 import Core.Ast.Sort
 import Core.Ast.Type
+import Data.Functor.Identity (Identity)
 import Misc.Identifier (Identifier)
 import Misc.Path
 import System.Exit (ExitCode (..), exitWith)
@@ -49,3 +51,7 @@ instance (Semigroup p, Show p) => Base p IO where
     putStrLn "Module Error:"
     print error
     exitWith (ExitFailure 3)
+
+instance Base Internal Identity where
+  quit e = error $ "Internal Error:" ++ show e
+  moduleQuit e = error $ "Internal Error:" ++ show e

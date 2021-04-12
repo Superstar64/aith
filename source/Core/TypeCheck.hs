@@ -4,6 +4,7 @@ import Control.Monad ((<=<))
 import Control.Monad.Trans.Class (MonadTrans, lift)
 import Control.Monad.Trans.State (StateT, evalStateT, get, put)
 import Core.Ast.Common
+import Core.Ast.FunctionLiteral
 import Core.Ast.Kind
 import Core.Ast.KindPattern
 import Core.Ast.Multiplicity
@@ -12,6 +13,7 @@ import Core.Ast.Sort
 import Core.Ast.Term
 import Core.Ast.Type
 import Core.Ast.TypePattern
+import Data.Functor.Identity (runIdentity)
 import Data.Map (Map, (!), (!?))
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -118,7 +120,7 @@ checkOfCourse p σ = quit $ ExpectedOfCourse p σ
 checkFunctionPointer _ n (CoreType Internal (FunctionPointer σ τs)) | n == length τs = pure (σ, τs)
 checkFunctionPointer p n σ = quit $ ExpectedFunctionPointer p n σ
 
-class InternalType pm σ where
+class InternalType pm σ | pm -> σ where
   internalType :: pm -> σ
 
 class Augment p pm where
@@ -344,3 +346,21 @@ instance TypeCheckLinear p (Term p) TypeInternal where
     (τs', lΓ2s) <- unzip <$> traverse typeCheckLinear e2s
     sequence $ zipWith (matchType p) τs τs'
     pure (σ, lΓ1 `combine` combineAll lΓ2s)
+
+typeCheckInternal env σ = runIdentity $ runCore (typeCheck σ) (Internal <$ env)
+
+instance TypeCheck p (FunctionLiteral p) TypeInternal where
+  typeCheck (FunctionLiteral p [] σ' pms' e) = do
+    env <- Core get
+    pms <- traverse instantiate pms'
+    let τs = internalType <$> pms
+    traverse (checkRuntime p <=< checkType p) (typeCheckInternal env <$> τs)
+    (σ, κ) <- typeCheckInstantiate σ'
+    checkRuntime p =<< checkType p κ
+    (σ', _) <- foldr (flip augmentLinear $ CoreMultiplicity Internal Linear) (typeCheckLinear e) pms
+    matchType p σ σ'
+    pure $ CoreType Internal (FunctionPointer σ τs)
+  typeCheck (FunctionLiteral p (pmσ' : pmσs) σ pms e) = do
+    pmσ <- instantiate pmσ'
+    σ <- augment pmσ (typeCheck $ FunctionLiteral p pmσs σ pms e)
+    pure $ CoreType Internal (Forall (Bound (Internal <$ pmσ) σ))

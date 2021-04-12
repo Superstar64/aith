@@ -8,6 +8,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State (State, get, put, runState)
 import Control.Monad.Trans.Writer (WriterT, runWriterT, tell)
 import Core.Ast.Common as Core
+import qualified Core.Ast.FunctionLiteral as Core
 import qualified Core.Ast.Kind as Core
 import qualified Core.Ast.KindPattern as Core
 import qualified Core.Ast.Multiplicity as Core
@@ -207,6 +208,13 @@ term = termBottom
             ]
         rotateBind = secondI Core.bound . associate . firstI swap
 
+functionLiteral = Core.functionLiteral ⊣ position ⊗ templateParameters ⊗ return ⊗ arguments ⊗ code
+  where
+    templateParameters = many (betweenAngle typePattern)
+    return = betweenParens typex
+    arguments = betweenParens (seperatedMany pattern (token ","))
+    code = lambdaMajor term
+
 modulex = Module.coreModule ⊣ orderless ⊣ some item
   where
     itemCore brand inner = associate ⊣ firstI swap ⊣ position ⊗ moduleKeyword brand ≫ space ≫ identifer ≪ space ≪ token "=" ≪ space ⊗ inner ≪ token ";" ≪ line
@@ -216,7 +224,8 @@ modulex = Module.coreModule ⊣ orderless ⊣ some item
           choice
             [ itemCore "module" (Module.modulex ⊣ lambdaMajor modulex),
               itemCore "inline" (Module.global . Module.inline ⊣ term),
-              itemCore "import" (Module.global . Module.importx ⊣ position ⊗ path)
+              itemCore "import" (Module.global . Module.importx ⊣ position ⊗ path),
+              itemCore "function" (Module.global . Module.text ⊣ functionLiteral)
             ]
 
 newtype Parser a = Parser (Parsec Void String a) deriving (Functor, Applicative, Monad, Alternative, MonadPlus)
