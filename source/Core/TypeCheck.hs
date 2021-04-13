@@ -143,6 +143,9 @@ class (TypeCheck p e σ, Instantiate p e e') => TypeCheckInstantiate p e e' σ |
 class TypeCheck p e σ => TypeCheckLinear p e σ | e -> σ where
   typeCheckLinear :: Base p m => e -> Core p m (σ, Use)
 
+instance InternalType (KindPattern p) Sort where
+  internalType (CoreKindPattern _ (KindPatternVariable _ μ)) = μ
+
 instance InternalType (TypePattern Internal p) KindInternal where
   internalType (CoreTypePattern _ (TypePatternVariable _ κ)) = κ
 
@@ -315,16 +318,18 @@ instance TypeCheckLinear p (Term p) TypeInternal where
     (σ, lΓ) <- augment pm (typeCheckLinear e)
     pure (CoreType Internal (Forall (Bound (Internal <$ pm) σ)), lΓ)
   typeCheckLinear (CoreTerm p (TypeApplication e σ')) = do
-    σ <- instantiate σ'
-    (λ, lΓ) <- firstM (checkForall p) =<< typeCheckLinear e
+    (σ, κ) <- typeCheckInstantiate σ'
+    (λ@(Bound pm _), lΓ) <- firstM (checkForall p) =<< typeCheckLinear e
+    matchKind p κ (internalType pm)
     pure (apply λ σ, lΓ)
   typeCheckLinear (CoreTerm _ (KindAbstraction (Bound pm' e))) = do
     pm <- instantiate pm'
     (σ, lΓ) <- augment pm (typeCheckLinear e)
     pure (CoreType Internal (KindForall (Bound (Internal <$ pm) σ)), lΓ)
   typeCheckLinear (CoreTerm p (KindApplication e κ')) = do
-    κ <- instantiate κ'
-    (λ, lΓ) <- firstM (checkKindForall p) =<< typeCheckLinear e
+    (κ, μ) <- typeCheckInstantiate κ'
+    (λ@(Bound pm _), lΓ) <- firstM (checkKindForall p) =<< typeCheckLinear e
+    matchSort p μ (internalType pm)
     pure (apply λ κ, lΓ)
   typeCheckLinear (CoreTerm p (OfCourseIntroduction e)) = do
     (σ, lΓ) <- typeCheckLinear e
