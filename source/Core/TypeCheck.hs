@@ -83,6 +83,10 @@ matchType' p (TypeConstruction σ τ) (TypeConstruction σ' τ') = do
 matchType' p (TypeOperator (Bound (CoreTypePattern Internal (TypePatternVariable x κ)) σ)) (TypeOperator (Bound (CoreTypePattern Internal (TypePatternVariable x' κ')) σ')) = do
   matchKind p κ κ'
   matchType p σ (substitute (CoreType Internal $ TypeVariable x) x' σ')
+matchType' p (FunctionPointer σ τs) (FunctionPointer σ' τs') = do
+  matchType p σ σ'
+  sequence $ zipWith (matchType p) τs τs'
+  pure ()
 matchType' p σ σ' = quit $ IncompatibleType p (CoreType Internal σ) (CoreType Internal σ')
 
 matchType p (CoreType Internal σ) (CoreType Internal σ') = matchType' p σ σ'
