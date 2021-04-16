@@ -16,12 +16,10 @@ coreKindPattern = Isomorph (uncurry CoreKindPattern) $ \(CoreKindPattern p pm) -
 
 type KindPatternInternal = KindPattern Internal
 
-instance Rename KindPatternInternal where
-  rename ux x (CoreKindPattern Internal (KindPatternVariable x' κ)) | x == x' = CoreKindPattern Internal (KindPatternVariable ux κ)
+instance Semigroup p => Binder p (KindPattern p) where
+  rename ux x (CoreKindPattern p (KindPatternVariable x' κ)) | x == x' = CoreKindPattern p (KindPatternVariable ux κ)
   rename _ _ pm = pm
-
-instance Bindings p (KindPattern p) where
   bindings (CoreKindPattern p (KindPatternVariable x _)) = Variables.singleton x p
 
-instance Reduce KindPatternInternal where
+instance Reduce (KindPattern p) where
   reduce = id

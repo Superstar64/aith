@@ -20,7 +20,7 @@ See ``/documentation`` for typing rules.
 * [ ] Runtime Lambda Calculus
 * [ ] Runtime Primatives
 * [ ] Hindley Milner Subset
-* [ ] C Code Generation
+* [x] C Code Generation
 * [ ] Javascript Code Generation
 
 # Syntax
@@ -48,7 +48,7 @@ See ``/documentation`` for typing rules.
 | Kind Abstraction | ``Λ@ x : μ => e`` |
 | Kind Abstraction | ``Λ@ x : μ { e }`` |
 | Kind Application | ``e @ κ`` |
-| Extern | ``%extern "c identifer" { σ }`` |
+| Extern | ``%extern "x" (σ)(τ, τ', ...)`` |
 | Function Application | ``e(*)(e1,e2, ...) ``|
 
 ## Patterns(pm)

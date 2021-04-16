@@ -19,7 +19,8 @@ executable aith
   other-modules: Misc.Identifier, Misc.Path, Misc.Util, Environment, Core.TypeCheck,
                  Core.Ast.Common, Core.Ast.Kind, Core.Ast.TypePattern, Core.Ast.Type,
                  Core.Ast.Multiplicity, Core.Ast.Term, Core.Ast.Pattern, Core.Ast.KindPattern, Core.Ast.Sort,
-                 Error, Module, Misc.Variables, Misc.Symbol, Misc.Prism, Misc.Isomorph, Syntax, Core.Ast.FunctionLiteral
+                 Error, Module, Misc.Variables, Misc.Symbol, Misc.Prism, Misc.Isomorph, Syntax, Core.Ast.FunctionLiteral,
+                 Misc.Syntax, C.Ast, Codegen, C.Print, Decorate
 
   -- other-extensions:
   build-depends:       base ^>=4.13.0.0, containers ^>= 0.6.2.1, transformers ^>= 0.5.6.2, megaparsec ^>= 8.0.0, parser-combinators ^>= 1.2.1
@@ -28,4 +29,4 @@ executable aith
   default-language:    Haskell2010
   default-extensions:  MultiParamTypeClasses, FunctionalDependencies, DeriveTraversable, FlexibleInstances, FlexibleContexts,
                        NoMonomorphismRestriction, TypeApplications, ScopedTypeVariables,
-                       AllowAmbiguousTypes, GeneralizedNewtypeDeriving, LambdaCase
+                       AllowAmbiguousTypes, GeneralizedNewtypeDeriving, LambdaCase, StandaloneDeriving, KindSignatures, EmptyCase

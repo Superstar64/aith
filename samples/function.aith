@@ -1,15 +1,11 @@
-inline x = %extern "x" {∀<a : %type %runtime %pointer> => a};
-
-function getX = (∀<a : %type %runtime %pointer> => a) () {
+function idPtr = <a : %type %runtime %pointer> (a)(x : a){
 	x
 };
 
-function id = <a : %type %runtime %pointer> (a)(x : a){
+function idFPtr = <a : %type %runtime %function> (a)(x : a){
 	x
 };
 
 function callId = <a : %type %runtime %pointer> (a)(x : a){
-	id<a>(*)(x)
+	idFPtr<a(*)(a)>(*)(idPtr<a>)(*)(x)
 };
-
-

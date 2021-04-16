@@ -7,257 +7,216 @@ import Core.Ast.Pattern
 import Core.Ast.Type
 import Core.Ast.TypePattern
 import Data.Bifunctor (bimap)
+import Data.Functor.Const (Const (..), getConst)
+import Data.Functor.Identity (Identity (..), runIdentity)
 import Misc.Identifier (Identifier)
 import Misc.Isomorph
 import Misc.Prism
 import Misc.Symbol
-import Misc.Variables (Variables)
 import qualified Misc.Variables as Variables
 
-data TermF p
-  = Variable Identifier
-  | MacroAbstraction (Bound (Pattern p p) (Term p))
-  | MacroApplication (Term p) (Term p)
-  | TypeAbstraction (Bound (TypePattern p p) (Term p))
-  | TypeApplication (Term p) (Type p)
-  | KindAbstraction (Bound (KindPattern p) (Term p))
-  | KindApplication (Term p) (Kind p)
-  | OfCourseIntroduction (Term p)
-  | Bind (Term p) (Bound (Pattern p p) (Term p))
-  | Extern Symbol (Type p)
-  | FunctionApplication (Term p) [Term p]
-  deriving (Show)
+data Silent (a :: * -> *) = Silent deriving (Show)
 
-variable = Prism Variable $ \case
-  (Variable x) -> Just x
+data Erased (a :: *)
+
+instance Show (Erased a) where
+  show = absurd
+
+absurd :: Erased a -> b
+absurd x = case x of
+
+data TermF d p
+  = Variable (d Identity) Identifier
+  | MacroAbstraction (d Erased) (Bound (Pattern p p) (Term d p))
+  | MacroApplication (d Erased) (Term d p) (Term d p)
+  | TypeAbstraction (d Erased) (Bound (TypePattern p p) (Term d p))
+  | TypeApplication (d Erased) (Term d p) (Type p)
+  | KindAbstraction (d Erased) (Bound (KindPattern p) (Term d p))
+  | KindApplication (d Erased) (Term d p) (Kind p)
+  | OfCourseIntroduction (d Erased) (Term d p)
+  | Bind (d Erased) (Term d p) (Bound (Pattern p p) (Term d p))
+  | Extern (d Identity) (d []) Symbol (Type p) [Type p]
+  | FunctionApplication (d Identity) (d []) (Term d p) [Term d p]
+
+deriving instance (Show p, Show (d Identity), Show (d []), Show (d Erased)) => Show (TermF d p)
+
+traverseTerm term typex kind bound typeBound kindBound = go
+  where
+    go (Variable dx x) = pure Variable <*> pure dx <*> pure x
+    go (MacroAbstraction i λ) = pure MacroAbstraction <*> pure i <*> bound λ
+    go (MacroApplication i e1 e2) = pure MacroApplication <*> pure i <*> term e1 <*> term e2
+    go (TypeAbstraction i λ) = pure TypeAbstraction <*> pure i <*> typeBound λ
+    go (TypeApplication i e σ) = pure TypeApplication <*> pure i <*> term e <*> typex σ
+    go (KindAbstraction i λ) = pure KindAbstraction <*> pure i <*> kindBound λ
+    go (KindApplication i e κ) = pure KindApplication <*> pure i <*> term e <*> kind κ
+    go (OfCourseIntroduction i e) = pure OfCourseIntroduction <*> pure i <*> term e
+    go (Bind i e λ) = pure Bind <*> pure i <*> term e <*> bound λ
+    go (Extern dσ dτs sm σ τs) = pure Extern <*> pure dσ <*> pure dτs <*> pure sm <*> typex σ <*> traverse typex τs
+    go (FunctionApplication de1 de2s e1 e2s) = pure FunctionApplication <*> pure de1 <*> pure de2s <*> term e1 <*> traverse term e2s
+
+foldTerm term typex kind bound typeBound kindBound e = getConst $ traverseTerm (Const . term) (Const . typex) (Const . kind) (Const . bound) (Const . typeBound) (Const . kindBound) e
+
+mapTerm term typex kind bound typeBound kindBound e = runIdentity $ traverseTerm (Identity . term) (Identity . typex) (Identity . kind) (Identity . bound) (Identity . typeBound) (Identity . kindBound) e
+
+variable = Prism (Variable Silent) $ \case
+  (Variable _ x) -> Just x
   _ -> Nothing
 
-macroAbstraction = Prism MacroAbstraction $ \case
-  (MacroAbstraction λ) -> Just λ
+macroAbstraction = Prism (MacroAbstraction Silent) $ \case
+  (MacroAbstraction _ λ) -> Just λ
   _ -> Nothing
 
-macroApplication = Prism (uncurry MacroApplication) $ \case
-  (MacroApplication e e') -> Just (e, e')
+macroApplication = Prism (uncurry $ MacroApplication Silent) $ \case
+  (MacroApplication _ e e') -> Just (e, e')
   _ -> Nothing
 
-typeAbstraction = Prism TypeAbstraction $ \case
-  (TypeAbstraction λ) -> Just λ
+typeAbstraction = Prism (TypeAbstraction Silent) $ \case
+  (TypeAbstraction _ λ) -> Just λ
   _ -> Nothing
 
-typeApplication = Prism (uncurry TypeApplication) $ \case
-  (TypeApplication e σ) -> Just (e, σ)
+typeApplication = Prism (uncurry $ TypeApplication Silent) $ \case
+  (TypeApplication _ e σ) -> Just (e, σ)
   _ -> Nothing
 
-kindAbstraction = Prism KindAbstraction $ \case
-  (KindAbstraction λ) -> Just λ
+kindAbstraction = Prism (KindAbstraction Silent) $ \case
+  (KindAbstraction _ λ) -> Just λ
   _ -> Nothing
 
-kindApplication = Prism (uncurry KindApplication) $ \case
-  (KindApplication e κ) -> Just (e, κ)
+kindApplication = Prism (uncurry $ KindApplication Silent) $ \case
+  (KindApplication _ e κ) -> Just (e, κ)
   _ -> Nothing
 
-ofCourseIntroduction = Prism OfCourseIntroduction $ \case
-  (OfCourseIntroduction e) -> Just e
+ofCourseIntroduction = Prism (OfCourseIntroduction Silent) $ \case
+  (OfCourseIntroduction _ e) -> Just e
   _ -> Nothing
 
-bind = Prism (uncurry $ Bind) $ \case
-  (Bind e λ) -> Just (e, λ)
+bind = Prism (uncurry $ Bind Silent) $ \case
+  (Bind _ e λ) -> Just (e, λ)
   _ -> Nothing
 
-extern = Prism (uncurry Extern) $ \case
-  (Extern path σ) -> Just (path, σ)
+extern = Prism (uncurry $ uncurry $ Extern Silent Silent) $ \case
+  (Extern _ _ path σ τs) -> Just ((path, σ), τs)
   _ -> Nothing
 
-functionApplication = Prism (uncurry FunctionApplication) $ \case
-  (FunctionApplication e e's) -> Just (e, e's)
+functionApplication = Prism (uncurry $ FunctionApplication Silent Silent) $ \case
+  (FunctionApplication _ _ e e's) -> Just (e, e's)
   _ -> Nothing
 
-instance Functor TermF where
-  fmap _ (Variable x) = Variable x
-  fmap f (MacroAbstraction (Bound pm e)) = MacroAbstraction $ Bound (bimap f f pm) (fmap f e)
-  fmap f (MacroApplication e1 e2) = MacroApplication (fmap f e1) (fmap f e2)
-  fmap f (TypeAbstraction (Bound pm e)) = TypeAbstraction $ Bound (bimap f f pm) (fmap f e)
-  fmap f (TypeApplication e σ) = TypeApplication (fmap f e) (fmap f σ)
-  fmap f (KindAbstraction (Bound pm e)) = KindAbstraction $ Bound (fmap f pm) (fmap f e)
-  fmap f (KindApplication e s) = KindApplication (fmap f e) (fmap f s)
-  fmap f (OfCourseIntroduction e) = OfCourseIntroduction (fmap f e)
-  fmap f (Bind e1 (Bound pm e2)) = Bind (fmap f e1) $ Bound (bimap f f pm) (fmap f e2)
-  fmap f (Extern sm σ) = Extern sm (fmap f σ)
-  fmap f (FunctionApplication e e's) = FunctionApplication (fmap f e) (fmap f <$> e's)
+instance Functor (TermF d) where
+  fmap f e = runIdentity $ traverseTerm term typex kind bound typeBound kindBound e
+    where
+      term = Identity . fmap f
+      typex = Identity . fmap f
+      kind = Identity . fmap f
+      bound = Identity . bimap (bimap f f) (fmap f)
+      typeBound = Identity . bimap (bimap f f) (fmap f)
+      kindBound = Identity . bimap (fmap f) (fmap f)
 
-data Term p = CoreTerm p (TermF p) deriving (Show, Functor)
+data Term d p = CoreTerm p (TermF d p) deriving (Functor)
+
+deriving instance (Show p, Show (d Identity), Show (d []), Show (d Erased)) => Show (Term d p)
 
 coreTerm = Isomorph (uncurry CoreTerm) $ \(CoreTerm p e) -> (p, e)
 
-type TermInternal = Term Internal
+avoidCaptureTerm ::
+  forall d p pm e u.
+  (Algebra (Term d p) p u, Algebra (Term d p) p e, Binder p pm) =>
+  u ->
+  Bound pm e ->
+  Bound pm e
+avoidCaptureTerm = avoidCapture @(Term d p)
 
-freeVariablesTermImpl ::
-  forall u p.
-  ( Semigroup p,
-    FreeVariables u p (Term p),
-    FreeVariables u p (Type p),
-    FreeVariables u p (Kind p),
-    FreeVariables u p (Bound (Pattern p p) (Term p)),
-    FreeVariables u p (Bound (TypePattern p p) (Term p)),
-    FreeVariables u p (Bound (KindPattern p) (Term p))
-  ) =>
-  TermF p ->
-  Variables p
-freeVariablesTermImpl (Variable _) = mempty
-freeVariablesTermImpl (MacroAbstraction λ) = freeVariables @u λ
-freeVariablesTermImpl (MacroApplication e1 e2) = freeVariables @u e1 <> freeVariables @u e2
-freeVariablesTermImpl (TypeAbstraction λ) = freeVariables @u λ
-freeVariablesTermImpl (TypeApplication e σ) = freeVariables @u e <> freeVariables @u σ
-freeVariablesTermImpl (KindAbstraction λ) = freeVariables @u λ
-freeVariablesTermImpl (KindApplication e κ) = freeVariables @u e <> freeVariables @u κ
-freeVariablesTermImpl (OfCourseIntroduction e) = freeVariables @u e
-freeVariablesTermImpl (Bind e λ) = freeVariables @u e <> freeVariables @u λ
-freeVariablesTermImpl (Extern _ σ) = freeVariables @u σ
-freeVariablesTermImpl (FunctionApplication e1 e2s) = freeVariables @u e1 <> freeVariables @u e2s
+avoidCaptureTermConvert ::
+  forall d p pm e.
+  (Binder p pm, Algebra (Term d p) p e) =>
+  Identifier ->
+  Bound pm e ->
+  Bound pm e
+avoidCaptureTermConvert = avoidCaptureGeneral internalVariable (convert @(Term d p))
 
-instance Semigroup p => FreeVariables (Term p) p (Term p) where
-  freeVariables (CoreTerm p (Variable x)) = Variables.singleton x p
-  freeVariables (CoreTerm _ e) = freeVariablesTermImpl @(Term p) e
+instance Semigroup p => Algebra (Term d p) p (Term d p) where
+  freeVariables (CoreTerm p (Variable _ x)) = Variables.singleton x p
+  freeVariables (CoreTerm _ e) = foldTerm go go go go go go e
+    where
+      go = freeVariables @(Term d p)
+  convert ix x (CoreTerm p (Variable d x')) | x == x' = CoreTerm p $ Variable d ix
+  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go e
+    where
+      go = convert @(Term d p) ix x
+  substitute ux x (CoreTerm _ (Variable _ x')) | x == x' = ux
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go e
+    where
+      go = substitute ux x
 
-instance Semigroup p => FreeVariables (Term p) p (Bound (Pattern p p) (Term p)) where
-  freeVariables (Bound pm e) = removeBinds (freeVariables @(Term p) e) (bindings @p pm)
+instance Semigroup p => Algebra (Type p) p (Term d p) where
+  freeVariables (CoreTerm _ e) = foldTerm go go go go go go e
+    where
+      go = freeVariables @(Type p)
+  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go e
+    where
+      go = convert @(Type p) ix x
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go e
+    where
+      go = substitute ux x
 
-instance Semigroup p => FreeVariables (Term p) p (Bound (TypePattern p p) (Term p)) where
-  freeVariables (Bound _ e) = freeVariables @(Term p) e
+instance Semigroup p => Algebra (Kind p) p (Term d p) where
+  freeVariables (CoreTerm _ e) = foldTerm go go go go go go e
+    where
+      go = freeVariables @(Kind p)
+  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go e
+    where
+      go = convert @(Kind p) ix x
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go e
+    where
+      go = substitute ux x
 
-instance Semigroup p => FreeVariables (Term p) p (Bound (KindPattern p) (Term p)) where
-  freeVariables (Bound _ e) = freeVariables @(Term p) e
-
-instance Semigroup p => FreeVariables (Term p) p (Type p) where
+instance Semigroup p => Algebra (Term d p) p (Type p) where
   freeVariables _ = mempty
-
-instance Semigroup p => FreeVariables (Term p) p (Kind p) where
-  freeVariables _ = mempty
-
-instance Semigroup p => FreeVariables (Type p) p (Term p) where
-  freeVariables (CoreTerm _ e) = freeVariablesTermImpl @(Type p) e
-
-instance Semigroup p => FreeVariables (Type p) p (Bound (Pattern p p) (Term p)) where
-  freeVariables (Bound pm e) = freeVariables @(Type p) pm <> freeVariables @(Type p) e
-
-instance Semigroup p => FreeVariables (Type p) p (Bound (TypePattern p p) (Term p)) where
-  freeVariables (Bound pm e) = removeBinds (freeVariables @(Type p) e) (bindings @p pm)
-
-instance Semigroup p => FreeVariables (Type p) p (Bound (KindPattern p) (Term p)) where
-  freeVariables (Bound _ e) = freeVariables @(Type p) e
-
-instance Semigroup p => FreeVariables (Kind p) p (Term p) where
-  freeVariables (CoreTerm _ e) = freeVariablesTermImpl @(Kind p) e
-
-instance Semigroup p => FreeVariables (Kind p) p (Bound (Pattern p p) (Term p)) where
-  freeVariables (Bound pm e) = freeVariables @(Kind p) pm <> freeVariables @(Kind p) e
-
-instance Semigroup p => FreeVariables (Kind p) p (Bound (TypePattern p p) (Term p)) where
-  freeVariables (Bound pm e) = freeVariables @(Kind p) pm <> freeVariables @(Kind p) e
-
-instance Semigroup p => FreeVariables (Kind p) p (Bound (KindPattern p) (Term p)) where
-  freeVariables (Bound pm e) = removeBinds (freeVariables @(Kind p) e) (bindings @p pm)
-
-avoidCaptureTerm = avoidCapture (CoreTerm Internal . Variable) (freeVariablesInternal @TermInternal)
-
-substituteTermImpl _ _ (Variable x) = Variable x
-substituteTermImpl ux x (MacroAbstraction λ) = MacroAbstraction (substitute ux x λ)
-substituteTermImpl ux x (MacroApplication e1 e2) = MacroApplication (substitute ux x e1) (substitute ux x e2)
-substituteTermImpl ux x (TypeAbstraction λ) = TypeAbstraction (substitute ux x λ)
-substituteTermImpl ux x (TypeApplication e σ) = TypeApplication (substitute ux x e) (substitute ux x σ)
-substituteTermImpl ux x (KindAbstraction λ) = KindAbstraction (substitute ux x λ)
-substituteTermImpl ux x (KindApplication e κ) = KindApplication (substitute ux x e) (substitute ux x κ)
-substituteTermImpl ux x (OfCourseIntroduction e) = OfCourseIntroduction (substitute ux x e)
-substituteTermImpl ux x (Bind e λ) = Bind (substitute ux x e) (substitute ux x λ)
-substituteTermImpl ux x (Extern sm σ) = Extern sm (substitute ux x σ)
-substituteTermImpl ux x (FunctionApplication e1 e2s) = FunctionApplication (substitute ux x e1) (substitute ux x e2s)
-
-instance Substitute TermInternal TermInternal where
-  substitute ux x (CoreTerm Internal (Variable x')) | x == x' = ux
-  substitute ux x (CoreTerm Internal e) = CoreTerm Internal $ substituteTermImpl ux x e
-
-instance Substitute TermInternal (Bound PatternInternal TermInternal) where
-  substitute _ x λ@(Bound pm _) | x `Variables.member` bindingsInternal pm = λ
-  substitute ux x λ = Bound pm (substitute ux x e)
-    where
-      Bound pm e = avoidCaptureTerm ux λ
-
-instance Substitute TermInternal (Bound TypePatternInternal TermInternal) where
-  substitute ux x λ = Bound pm (substitute ux x e)
-    where
-      Bound pm e = avoidCaptureType ux λ
-
-instance Substitute TermInternal (Bound KindPatternInternal TermInternal) where
-  substitute ux x λ = Bound pm (substitute ux x e)
-    where
-      Bound pm e = avoidCaptureKind ux λ
-
-instance Substitute TypeInternal TermInternal where
-  substitute ux x (CoreTerm Internal e) = CoreTerm Internal (substituteTermImpl ux x e)
-
-instance Substitute TypeInternal (Bound PatternInternal TermInternal) where
-  substitute ux x (Bound pm σ) = Bound (substitute ux x pm) (substitute ux x σ)
-
-instance Substitute TypeInternal (Bound TypePatternInternal TermInternal) where
-  substitute _ x λ@(Bound pm _) | x `Variables.member` bindingsInternal pm = λ
-  substitute ux x λ = Bound pm (substitute ux x e)
-    where
-      Bound pm e = avoidCaptureType ux λ
-
-instance Substitute TypeInternal (Bound KindPatternInternal TermInternal) where
-  substitute ux x λ = Bound pm (substitute ux x e)
-    where
-      Bound pm e = avoidCaptureKind ux λ
-
-instance Substitute KindInternal TermInternal where
-  substitute ux x (CoreTerm Internal e) = CoreTerm Internal (substituteTermImpl ux x e)
-
-instance Substitute KindInternal (Bound PatternInternal TermInternal) where
-  substitute ux x (Bound pm e) = Bound (substitute ux x pm) (substitute ux x e)
-
-instance Substitute KindInternal (Bound TypePatternInternal TermInternal) where
-  substitute ux x (Bound pm e) = Bound (substitute ux x pm) (substitute ux x e)
-
-instance Substitute KindInternal (Bound KindPatternInternal TermInternal) where
-  substitute _ x λ@(Bound pm _) | x `Variables.member` bindingsInternal pm = λ
-  substitute ux x λ = Bound pm (substitute ux x e)
-    where
-      Bound pm e = avoidCaptureKind ux λ
-
-instance Substitute TermInternal TypeInternal where
+  convert _ _ = id
   substitute _ _ = id
 
-instance Substitute TermInternal KindInternal where
+instance Semigroup p => Algebra (Term d p) p (Kind p) where
+  freeVariables _ = mempty
+  convert _ _ = id
   substitute _ _ = id
 
-reduceTermImpl (Variable x) = Variable x
-reduceTermImpl (MacroAbstraction λ) = MacroAbstraction (reduce λ)
-reduceTermImpl (MacroApplication e1 e2) | (CoreTerm Internal (MacroAbstraction λ)) <- reduce e1 = let CoreTerm Internal e' = apply λ (reduce e2) in e'
-reduceTermImpl (MacroApplication e1 e2) = MacroApplication (reduce e1) (reduce e2)
-reduceTermImpl (TypeAbstraction λ) = TypeAbstraction (reduce λ)
-reduceTermImpl (TypeApplication e σ) | (CoreTerm Internal (TypeAbstraction λ)) <- reduce e = let CoreTerm Internal e' = apply λ (reduce σ) in e'
-reduceTermImpl (TypeApplication e σ) = TypeApplication (reduce e) (reduce σ)
-reduceTermImpl (KindAbstraction λ) = KindAbstraction (reduce λ)
-reduceTermImpl (KindApplication e κ) | (CoreTerm Internal (KindAbstraction λ)) <- reduce e = let CoreTerm Internal e' = apply λ (reduce κ) in e'
-reduceTermImpl (KindApplication e κ) = KindApplication (reduce e) (reduce κ)
-reduceTermImpl (OfCourseIntroduction e) = OfCourseIntroduction (reduce e)
-reduceTermImpl (Bind e λ) = let CoreTerm Internal e' = apply λ (reduce e) in e'
-reduceTermImpl (Extern sm σ) = Extern sm (reduce σ)
-reduceTermImpl (FunctionApplication e1 e2s) = FunctionApplication (reduce e1) (reduce e2s)
+instance Algebra (Term d p) p u => Algebra (Term d p) p (Bound (Pattern p p) u) where
+  freeVariables (Bound pm e) = removeBinds (freeVariables @(Term d p) e) (bindings pm)
+  convert = substituteSame (convert @(Term d p)) (avoidCaptureTermConvert @d @p)
+  substitute = substituteSame substitute (avoidCaptureTerm @d)
 
-instance Reduce TermInternal where
-  reduce (CoreTerm Internal e) = CoreTerm Internal (reduceTermImpl e)
+instance (Algebra (Type p) p u, Algebra (Term d p) p u) => Algebra (Term d p) p (Bound (TypePattern p p) u) where
+  freeVariables (Bound _ e) = freeVariables @(Term d p) e
+  convert = substituteLower (convert @(Term d p)) (flip const)
+  substitute = substituteLower substitute avoidCaptureType
 
-instance Apply (Bound PatternInternal TermInternal) TermInternal TermInternal where
-  apply (Bound (CorePattern Internal (PatternVariable x _)) e) ux = reduce $ substitute ux x e
-  apply (Bound (CorePattern Internal (PatternOfCourse pm)) e) (CoreTerm Internal (OfCourseIntroduction ux)) = apply (Bound pm e) ux
-  apply λ ux = CoreTerm Internal $ Bind ux λ
+instance (Algebra (Term d p) p u, Algebra (Kind p) p u) => Algebra (Term d p) p (Bound (KindPattern p) u) where
+  freeVariables (Bound _ e) = freeVariables @(Term d p) e
+  convert = substituteLower (convert @(Term d p)) (flip const)
+  substitute = substituteLower substitute avoidCaptureKind
 
-instance Apply (Bound TypePatternInternal TermInternal) TypeInternal TermInternal where
-  apply (Bound (CoreTypePattern Internal (TypePatternVariable x _)) e) ux = reduce $ substitute ux x e
+reduceTermImpl (Bind _ e λ) = let CoreTerm _ e' = apply λ (reduce e) in e'
+reduceTermImpl (MacroApplication _ e1 e2) | (CoreTerm _ (MacroAbstraction _ λ)) <- reduce e1 = let CoreTerm _ e' = apply λ (reduce e2) in e'
+reduceTermImpl (TypeApplication _ e σ) | (CoreTerm _ (TypeAbstraction _ λ)) <- reduce e = let CoreTerm _ e' = apply λ (reduce σ) in e'
+reduceTermImpl (KindApplication _ e κ) | (CoreTerm _ (KindAbstraction _ λ)) <- reduce e = let CoreTerm _ e' = apply λ (reduce κ) in e'
+reduceTermImpl e = runIdentity $ traverseTerm go go go go go go e
+  where
+    go = Identity . reduce
 
-instance Apply (Bound KindPatternInternal TermInternal) KindInternal TermInternal where
-  apply (Bound (CoreKindPattern Internal (KindPatternVariable x _)) e) ux = reduce $ substitute ux x e
+instance Semigroup p => Reduce (Term Silent p) where
+  reduce (CoreTerm p e) = CoreTerm p (reduceTermImpl e)
 
-instance Location Term where
+instance Semigroup p => Apply (Bound (Pattern p p) (Term Silent p)) (Term Silent p) (Term Silent p) where
+  apply (Bound (CorePattern _ (PatternVariable x _)) e) ux = reduce $ substitute ux x e
+  apply (Bound (CorePattern _ (PatternOfCourse pm)) e) (CoreTerm _ (OfCourseIntroduction _ ux)) = apply (Bound pm e) ux
+  -- to find better position here
+  apply λ ux@(CoreTerm p _) = CoreTerm p $ Bind Silent ux λ
+
+instance Semigroup p => Apply (Bound (TypePattern p p) (Term Silent p)) (Type p) (Term Silent p) where
+  apply (Bound (CoreTypePattern _ (TypePatternVariable x _)) e) ux = reduce $ substitute ux x e
+
+instance Semigroup p => Apply (Bound (KindPattern p) (Term Silent p)) (Kind p) (Term Silent p) where
+  apply (Bound (CoreKindPattern _ (KindPatternVariable x _)) e) ux = reduce $ substitute ux x e
+
+instance Location (Term d) where
   location (CoreTerm p _) = p

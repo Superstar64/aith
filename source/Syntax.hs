@@ -1,12 +1,10 @@
 module Syntax where
 
-import Control.Applicative (Alternative, empty, (<|>))
 import Control.Category (id, (.))
-import Control.Monad (MonadPlus, liftM2)
 import qualified Control.Monad.Combinators as Combinators
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State (State, get, put, runState)
-import Control.Monad.Trans.Writer (WriterT, runWriterT, tell)
+import Control.Monad.Trans.State (get, put)
+import Control.Monad.Trans.Writer (tell)
 import Core.Ast.Common as Core
 import qualified Core.Ast.FunctionLiteral as Core
 import qualified Core.Ast.Kind as Core
@@ -18,41 +16,23 @@ import qualified Core.Ast.Term as Core
 import qualified Core.Ast.Type as Core
 import qualified Core.Ast.TypePattern as Core
 import Data.Char (isAlphaNum, ord)
-import Data.Maybe (fromJust)
-import Data.Void (Void)
 import Misc.Identifier
 import Misc.Isomorph
 import qualified Misc.Path as Path
 import Misc.Prism
 import qualified Misc.Symbol as Symbol
+import Misc.Syntax
 import qualified Module as Module
-import Text.Megaparsec (Parsec, SourcePos)
+import Text.Megaparsec (SourcePos)
 import qualified Text.Megaparsec as Megaparsec
 import qualified Text.Megaparsec.Char as Megaparsec
 import Prelude hiding (id, (.))
 
 -- https://www.mathematik.uni-marburg.de/~rendel/rendel10invertible.pdf
 
-infixr 4 ⊣
-
-infixl 7 ≫
-
-infixl 7 ≪
-
-infixl 5 ⊕
-
-infixl 6 ⊗
-
-infixl 3 ∥
-
 infixl 3 ∥#
 
-class Syntax δ where
-  syntaxmap :: Prism a b -> δ a -> δ b
-  (⊗) :: δ a -> δ b -> δ (a, b)
-  (∥) :: δ a -> δ a -> δ a
-  never :: δ a
-  always :: δ () -- effictivly 'pure ()'
+class SyntaxBase δ => Syntax δ where
   string :: String -> δ ()
   identifer :: δ Identifier
   stringLiteral :: δ String
@@ -64,38 +44,6 @@ class Syntax δ where
   indent :: δ ()
   dedent :: δ ()
 
-(⊣) :: (Syntax δ, ToPrism f) => f a b -> δ a -> δ b
-f ⊣ p = syntaxmap (toPrism f) p
-
-(⊕) :: Syntax δ => δ a -> δ b -> δ (Either a b)
-p ⊕ q = left ⊣ p ∥ right ⊣ q
-
-(≫) :: Syntax p => p () -> p a -> p a
-p ≫ q = unit ⊣ p ⊗ q
-
-(≪) :: Syntax p => p a -> p () -> p a
-p ≪ q = unit' ⊣ p ⊗ q
-
-choice = foldl (∥) never
-
-many p = cons ⊣ p ⊗ (many p) ∥ nil ⊣ always
-
-some p = cons ⊣ p ⊗ (many p)
-
-seperatedMany p c = seperatedSome p c ∥ nil ⊣ always
-
-seperatedSome p c = cons ⊣ p ⊗ (c ≫ seperatedSome p c ∥ nil ⊣ always)
-
-between a b p = a ≫ p ≪ b
-
-betweenParens = between (token "(") (token ")")
-
-betweenAngle = between (token "<") (token ">")
-
-betweenBracket = between (token "[") (token "]")
-
-betweenBraces = between (token "{") (token "}")
-
 class Position δ p where
   position :: δ p
 
@@ -104,6 +52,14 @@ token = string
 keyword word = string ('%' : word)
 
 moduleKeyword = string
+
+betweenParens = between (token "(") (token ")")
+
+betweenAngle = between (token "<") (token ">")
+
+betweenBracket = between (token "[") (token "]")
+
+betweenBraces = between (token "{") (token "}")
 
 symbol = Symbol.symbol ⊣ stringLiteral
 
@@ -183,7 +139,6 @@ pattern = patternBottom
       where
         patternOfCourse = Core.patternOfCourse ⊣ token "!" ≫ patternCore
 
-term :: (Syntax δ, Position δ p) => δ (Core.Term p)
 term = termBottom
   where
     termBottom = foldlP applyPostfix ⊣ termCore ⊗ many postfix
@@ -204,7 +159,7 @@ term = termBottom
               Core.kindAbstraction ⊣ Core.bound ⊣ token "Λ@" ≫ kindPattern ≪ space ⊗ lambdaMajor termBottom,
               Core.ofCourseIntroduction ⊣ token "!" ≫ termBottom,
               Core.bind ⊣ rotateBind ⊣ keyword "let" ≫ space ≫ pattern ≪ space ≪ token "=" ≪ space ⊗ termBottom ≪ token ";" ⊗ line ≫ termBottom,
-              Core.extern ⊣ keyword "extern" ≫ space ≫ symbol ≪ space ⊗ betweenBraces typex
+              Core.extern ⊣ keyword "extern" ≫ space ≫ symbol ≪ space ⊗ betweenParens typex ⊗ betweenParens (seperatedMany typex (token ";"))
             ]
         rotateBind = secondI Core.bound . associate . firstI swap
 
@@ -217,18 +172,14 @@ functionLiteral = Core.functionLiteral ⊣ position ⊗ templateParameters ⊗ r
 
 modulex = Module.coreModule ⊣ orderless ⊣ some item
   where
-    itemCore brand inner = associate ⊣ firstI swap ⊣ position ⊗ moduleKeyword brand ≫ space ≫ identifer ≪ space ≪ token "=" ≪ space ⊗ inner ≪ token ";" ≪ line
-    item = secondI Module.item ⊣ core
-      where
-        core =
-          choice
-            [ itemCore "module" (Module.modulex ⊣ lambdaMajor modulex),
-              itemCore "inline" (Module.global . Module.inline ⊣ term),
-              itemCore "import" (Module.global . Module.importx ⊣ position ⊗ path),
-              itemCore "function" (Module.global . Module.text ⊣ functionLiteral)
-            ]
-
-newtype Parser a = Parser (Parsec Void String a) deriving (Functor, Applicative, Monad, Alternative, MonadPlus)
+    itemCore brand inner = moduleKeyword brand ≫ space ≫ identifer ≪ space ≪ token "=" ≪ space ⊗ inner ≪ token ";" ≪ line
+    item =
+      choice
+        [ itemCore "module" (Module.modulex ⊣ lambdaMajor modulex),
+          itemCore "inline" (Module.global . Module.inline ⊣ term),
+          itemCore "import" (Module.global . Module.importx ⊣ position ⊗ path),
+          itemCore "function" (Module.global . Module.text ⊣ functionLiteral)
+        ]
 
 withSourcePos :: g (f SourcePos) -> g (f SourcePos)
 withSourcePos = id
@@ -236,16 +187,7 @@ withSourcePos = id
 withInternal :: g (f Internal) -> g (f Internal)
 withInternal = id
 
-parseTest (Parser p) = Megaparsec.parseTest p
-
-parse (Parser p) = Megaparsec.parse p
-
 instance Syntax Parser where
-  syntaxmap (Prism f _) p = f <$> p
-  (⊗) = liftM2 (,)
-  (∥) = (<|>)
-  never = empty
-  always = pure ()
   string op = Parser $ Megaparsec.string op >> Megaparsec.space
   identifer = Parser $ Identifier <$> Combinators.some (Megaparsec.satisfy legalChar Megaparsec.<?> "letter") <* Megaparsec.space
     where
@@ -266,17 +208,7 @@ instance Position Parser SourcePos where
 instance Position Parser Internal where
   position = Parser $ pure Internal
 
-newtype Printer a = Printer (a -> Maybe (WriterT String (State Int) ()))
-
-prettyPrint :: Printer a -> a -> IO ()
-prettyPrint (Printer p) a = putStrLn $ snd $ fst $ (runState $ runWriterT $ fromJust $ p a) 0
-
 instance Syntax Printer where
-  syntaxmap (Prism _ f) (Printer p) = Printer $ \b -> f b >>= p
-  Printer p ⊗ Printer q = Printer $ \(x, y) -> liftM2 (>>) (p x) (q y)
-  Printer p ∥ Printer q = Printer $ \x -> (p x) <|> (q x)
-  never = Printer $ const Nothing
-  always = Printer $ \() -> Just $ pure ()
   string op = Printer $ \() -> Just $ tell op
   identifer = Printer $ \(Identifier name) -> Just $ tell name
   stringLiteral = Printer $ \str -> Just $ do

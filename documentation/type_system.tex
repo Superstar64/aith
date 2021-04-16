@@ -26,7 +26,7 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & e \sigma \tag*{[Type Application]} \\
 & \Lambda \kappa \alpha : \mu. e \tag*{[Kind Lambda]} \\
 & e \kappa \tag*{[Kind Application]} \\
-& \text{extern} \, x \{ \sigma \} \tag*{[Extern Symbol]} \\
+& \text{extern} \, x (\sigma) (\tau, \tau', \dots) \tag*{[Extern Symbol]} \\
 & e(*)(e',e'',\dots) \tag*{[Function Pointer Application]} \\
 \\
 \sigma, \tau \Coloneqq & \alpha \tag* {[Type Variable]}\\
@@ -110,8 +110,8 @@ All valid types have a kind who's sort is of the form $ \text{Kind} $
 {\Phi | \Gamma \vdash e \kappa : \sigma [\kappa/\kappa \alpha]} \\
 \\
 \frac
-{\Phi \vdash \sigma : \text{Type}(\text{Runtime} (\rho))}
-{\Phi | \Gamma \vdash \text{extern} \, x \{ \sigma \} : \sigma} \\
+{\Phi \vdash \sigma : \text{Type}(\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type}(\text{Runtime} (\rho)) \quad \dots}
+{\Phi | \Gamma \vdash \text{extern} \, x ( \sigma )(\tau, \dots) : \sigma (*)(\tau, \dots)} \\
 \\
 \frac
 {\Phi | \Gamma \vdash e : \tau(*)(\sigma, \sigma', \dots) \quad \Phi | \Gamma' \vdash e' : \sigma \quad \dots}

@@ -1,6 +1,9 @@
 module Core.Ast.Kind where
 
 import Core.Ast.Common
+import Core.Ast.KindPattern
+import Data.Functor.Const (Const (..), getConst)
+import Data.Functor.Identity (Identity (..), runIdentity)
 import Misc.Identifier (Identifier)
 import Misc.Isomorph
 import Misc.Prism
@@ -15,6 +18,20 @@ data KindF p
   | PointerRep
   | FunctionRep
   deriving (Show, Functor)
+
+traverseKind kind = go
+  where
+    go (KindVariable x) = pure KindVariable <*> pure x
+    go (Type κ) = pure Type <*> kind κ
+    go (Higher κ κ') = pure Higher <*> kind κ <*> kind κ'
+    go (Runtime κ) = pure Runtime <*> kind κ
+    go Meta = pure Meta
+    go PointerRep = pure PointerRep
+    go FunctionRep = pure FunctionRep
+
+mapKind kind κ = runIdentity $ traverseKind (Identity . kind) κ
+
+foldKind kind κ = getConst $ traverseKind (Const . kind) κ
 
 kindVariable = Prism KindVariable $ \case
   (KindVariable x) -> Just x
@@ -50,34 +67,36 @@ coreKind = Isomorph (uncurry CoreKind) $ \(CoreKind p κ) -> (p, κ)
 
 type KindInternal = Kind Internal
 
-freeVariablesKindImpl :: forall u p. (Semigroup p, FreeVariables u p (Kind p)) => KindF p -> Variables p
-freeVariablesKindImpl (KindVariable _) = mempty
-freeVariablesKindImpl (Type κ) = freeVariables @u κ
-freeVariablesKindImpl (Higher κ κ') = freeVariables @u κ <> freeVariables @u κ'
-freeVariablesKindImpl (Runtime κ) = freeVariables @u κ
-freeVariablesKindImpl Meta = mempty
-freeVariablesKindImpl PointerRep = mempty
-freeVariablesKindImpl FunctionRep = mempty
+avoidCaptureKind ::
+  forall p pm e u.
+  (Algebra (Kind p) p e, Algebra (Kind p) p u, Binder p pm) =>
+  u ->
+  Bound pm e ->
+  Bound pm e
+avoidCaptureKind = avoidCapture @(Kind p)
 
-instance Semigroup p => FreeVariables (Kind p) p (Kind p) where
+avoidCaptureKindConvert ::
+  forall p pm e.
+  (Algebra (Kind p) p e, Binder p pm) =>
+  Identifier ->
+  Bound pm e ->
+  Bound pm e
+avoidCaptureKindConvert = avoidCaptureGeneral internalVariable (convert @(Kind p))
+
+instance Semigroup p => Algebra (Kind p) p (Kind p) where
   freeVariables (CoreKind p (KindVariable x)) = Variables.singleton x p
-  freeVariables (CoreKind _ κ) = freeVariablesKindImpl @(Kind p) κ
+  freeVariables (CoreKind _ κ) = foldKind (freeVariables @(Kind p)) κ
+  substitute ux x (CoreKind _ (KindVariable x')) | x == x' = ux
+  substitute ux x (CoreKind p κ) = CoreKind p $ mapKind (substitute ux x) κ
+  convert ix x (CoreKind p (KindVariable x')) | x == x' = CoreKind p (KindVariable ix)
+  convert ix x (CoreKind p κ) = CoreKind p $ mapKind (convert @(Kind p) ix x) κ
 
-substituteKindImpl :: Substitute u KindInternal => u -> Identifier -> KindF Internal -> KindF Internal
-substituteKindImpl _ _ (KindVariable x) = KindVariable x
-substituteKindImpl ux x (Type κ) = Type (substitute ux x κ)
-substituteKindImpl ux x (Higher κ κ') = Higher (substitute ux x κ) (substitute ux x κ')
-substituteKindImpl ux x (Runtime κ) = Runtime (substitute ux x κ)
-substituteKindImpl _ _ Meta = Meta
-substituteKindImpl _ _ PointerRep = PointerRep
-substituteKindImpl _ _ FunctionRep = FunctionRep
+instance Algebra (Kind p) p u => Algebra (Kind p) p (Bound (KindPattern p) u) where
+  freeVariables (Bound pm σ) = removeBinds (freeVariables @(Kind p) σ) (bindings pm)
+  substitute = substituteSame substitute avoidCaptureKind
+  convert = substituteSame (convert @(Kind p)) (avoidCaptureKindConvert)
 
-instance Substitute KindInternal KindInternal where
-  substitute ux x (CoreKind Internal κ) = CoreKind Internal $ substituteKindImpl ux x κ
-
-avoidCaptureKind = avoidCapture (CoreKind Internal . KindVariable) (freeVariablesInternal @KindInternal)
-
-instance Reduce KindInternal where
+instance Reduce (Kind p) where
   reduce = id
 
 instance Location Kind where

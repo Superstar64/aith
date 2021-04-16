@@ -12,8 +12,8 @@ import System.Exit (ExitCode (..), exitWith)
 
 data LookupError p
   = IllegalPath p Path
-  | IncompletePath p p Path
-  | IndexingGlobal p p Path
+  | IncompletePath p Path
+  | IndexingGlobal p Path
   | Cycle p Path
   deriving (Show)
 
@@ -53,5 +53,5 @@ instance (Semigroup p, Show p) => Base p IO where
     exitWith (ExitFailure 3)
 
 instance Base Internal Identity where
-  quit e = error $ "Internal Error:" ++ show e
-  moduleQuit e = error $ "Internal Error:" ++ show e
+  quit e = error $ "" ++ show e
+  moduleQuit e = error $ "" ++ show e

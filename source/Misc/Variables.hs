@@ -25,4 +25,6 @@ singleton name position = Variables $ Map.singleton name position
 
 toList (Variables variables) = Map.toList variables
 
+fromList xs = Variables $ Map.fromList xs
+
 fresh disallow canditate = fromJust $ find (flip notMember disallow) $ temporaries canditate

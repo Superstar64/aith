@@ -15,7 +15,3 @@ stage = Prism (const Stage) $ \case
 representation = Prism (const Representation) $ \case
   Representation -> Just ()
   _ -> Nothing
-
-data PatternSort = Pattern
-
-data TypePatternSort = TypePattern

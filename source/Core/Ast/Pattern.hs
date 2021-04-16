@@ -1,12 +1,12 @@
 module Core.Ast.Pattern where
 
 import Core.Ast.Common
+import Core.Ast.Kind
 import Core.Ast.Type
 import Data.Bifunctor (Bifunctor, bimap)
 import Misc.Identifier (Identifier)
 import Misc.Isomorph
 import Misc.Prism
-import Misc.Variables (Variables)
 import qualified Misc.Variables as Variables
 
 data PatternF p' p
@@ -35,28 +35,31 @@ instance Bifunctor Pattern where
 
 type PatternInternal = Pattern Internal Internal
 
-instance Bindings p (Pattern p p) where
+instance Semigroup p => Binder p (Pattern p p) where
   bindings (CorePattern p (PatternVariable x _)) = Variables.singleton x p
   bindings (CorePattern _ (PatternOfCourse pm)) = bindings pm
-
-instance Rename PatternInternal where
   rename ux x (CorePattern p (PatternVariable x' κ)) | x == x' = CorePattern p (PatternVariable ux κ)
   rename _ _ (CorePattern p (PatternVariable x κ)) = CorePattern p (PatternVariable x κ)
   rename ux x (CorePattern p (PatternOfCourse pm)) = CorePattern p (PatternOfCourse $ rename ux x pm)
 
-freeVariablesPatternImpl :: forall u p. (Semigroup p, FreeVariables u p (Type p)) => PatternF p p -> Variables p
-freeVariablesPatternImpl (PatternVariable _ σ) = freeVariables @u σ
-freeVariablesPatternImpl (PatternOfCourse pm) = freeVariables @u pm
+instance Algebra u p (Type p) => Algebra u p (Pattern p p) where
+  freeVariables (CorePattern _ (PatternVariable _ σ)) = freeVariables @u σ
+  freeVariables (CorePattern _ (PatternOfCourse pm)) = freeVariables @u pm
+  convert ix x (CorePattern p (PatternVariable x' σ)) = CorePattern p $ PatternVariable x' (convert @u ix x σ)
+  convert ix x (CorePattern p (PatternOfCourse pm)) = CorePattern p $ PatternOfCourse $ convert @u ix x pm
+  substitute ux x (CorePattern p (PatternVariable x' σ)) = CorePattern p $ PatternVariable x' (substitute ux x σ)
+  substitute ux x (CorePattern p (PatternOfCourse pm)) = CorePattern p $ PatternOfCourse $ substitute ux x pm
 
-instance (Semigroup p, FreeVariables u p (Type p)) => FreeVariables u p (Pattern p p) where
-  freeVariables (CorePattern _ pm) = freeVariablesPatternImpl @u pm
+instance Algebra (Type p) p u => Algebra (Type p) p (Bound (Pattern p p) u) where
+  freeVariables (Bound pm e) = freeVariables @(Type p) pm <> freeVariables @(Type p) e
+  substitute ux x (Bound pm σ) = Bound (substitute ux x pm) (substitute ux x σ)
+  convert = substituteHigher (convert @(Type p)) (convert @(Type p))
 
-substitutePatternImpl ux x (PatternVariable x' σ) = PatternVariable x' (substitute ux x σ)
-substitutePatternImpl ux x (PatternOfCourse pm) = PatternOfCourse (substitute ux x pm)
+instance Algebra (Kind p) p u => Algebra (Kind p) p (Bound (Pattern p p) u) where
+  freeVariables (Bound pm e) = freeVariables @(Kind p) pm <> freeVariables @(Kind p) e
+  substitute ux x (Bound pm σ) = Bound (substitute ux x pm) (substitute ux x σ)
+  convert = substituteHigher (convert @(Kind p)) (convert @(Kind p))
 
-instance Substitute u TypeInternal => Substitute u PatternInternal where
-  substitute ux x (CorePattern Internal pm) = CorePattern Internal (substitutePatternImpl ux x pm)
-
-instance Reduce PatternInternal where
-  reduce (CorePattern Internal (PatternVariable x κ)) = CorePattern Internal $ (PatternVariable x (reduce κ))
-  reduce (CorePattern Internal (PatternOfCourse pm)) = CorePattern Internal (PatternOfCourse (reduce pm))
+instance Semigroup p => Reduce (Pattern p p) where
+  reduce (CorePattern p (PatternVariable x σ)) = CorePattern p $ (PatternVariable x (reduce σ))
+  reduce (CorePattern p (PatternOfCourse pm)) = CorePattern p (PatternOfCourse (reduce pm))
