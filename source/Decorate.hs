@@ -37,8 +37,8 @@ decorateTerm (CoreTerm p (Extern _ _ sm σ τs)) = do
   dσ <- Identity <$> decoration <$> typeCheck σ
   dτs <- (fmap decoration) <$> traverse typeCheck τs
   pure $ CoreTerm p (Extern (Decorate dσ) (Decorate dτs) sm σ τs)
-decorateTerm (CoreTerm p (FunctionApplication _ _ e1 e2s)) = do
-  dσ <- Identity <$> decoration <$> (typeCheck =<< typeCheck e1)
+decorateTerm e@(CoreTerm p (FunctionApplication _ _ e1 e2s)) = do
+  dσ <- Identity <$> decoration <$> (typeCheck =<< typeCheck e)
   dτs <- (fmap decoration) <$> traverse (typeCheck <=< typeCheck) e2s
   e1' <- decorateTerm e1
   e2s' <- traverse decorateTerm e2s
