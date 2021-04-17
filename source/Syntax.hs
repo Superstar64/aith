@@ -6,7 +6,6 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State (get, put)
 import Control.Monad.Trans.Writer (tell)
 import Core.Ast.Common as Core
-import qualified Core.Ast.FunctionLiteral as Core
 import qualified Core.Ast.Kind as Core
 import qualified Core.Ast.KindPattern as Core
 import qualified Core.Ast.Multiplicity as Core
@@ -98,6 +97,7 @@ kind = kindBottom
               Core.typex ⊣ keyword "type" ≫ space ≫ kindCore,
               Core.runtime ⊣ keyword "runtime" ≫ space ≫ kindCore,
               Core.meta ⊣ keyword "meta",
+              Core.text ⊣ keyword "text",
               Core.functionRep ⊣ keyword "function",
               Core.pointerRep ⊣ keyword "pointer"
             ]
@@ -118,10 +118,13 @@ typex = typeBottom
     typeBottom = typeLambda lambdaCore ∥# macro `branchDistribute` unit' ⊣ typeCore ⊗ (space ≫ token "->" ≫ space ≫ typeBottom ⊕ always)
       where
         macro = withInnerPosition Core.coreType Core.macro
-    typeCore = foldlP (functionPointer `branchDistribute` typeConstruction) ⊣ top ⊗ many postfix
+    typeCore = foldlP (functionLiteralType `branchDistribute` functionPointer `branchDistribute` typeConstruction) ⊣ top ⊗ many postfix
       where
-        postfix = token "(*)" ≫ betweenParens (seperatedMany typex (token ",")) ⊕ betweenParens typeBottom
+        postfix = keyword "function" ≫ manyTypes ⊕ token "(*)" ≫ manyTypes ⊕ betweenParens typeBottom
+          where
+            manyTypes = betweenParens (seperatedMany typex (token ","))
         typeConstruction = withInnerPosition Core.coreType Core.typeConstruction
+        functionLiteralType = withInnerPosition Core.coreType Core.functionLiteralType
         functionPointer = withInnerPosition Core.coreType Core.functionPointer
         top = typeLambda lambdaOuter ∥ Core.coreType ⊣ position ⊗ core ∥ betweenParens typeBottom
         core =
@@ -149,7 +152,7 @@ term = termBottom
         macroApplication = withInnerPosition Core.coreTerm Core.macroApplication
         typeApplication = withInnerPosition Core.coreTerm Core.typeApplication
         kindApplication = withInnerPosition Core.coreTerm Core.kindApplication
-    termCore = Core.coreTerm ⊣ position ⊗ core ∥ betweenParens termBottom
+    termCore = Core.coreTerm ⊣ position ⊗ core ∥ keyword "function" ≫ functionCore ∥ betweenParens termBottom
       where
         core =
           choice
@@ -163,12 +166,15 @@ term = termBottom
             ]
         rotateBind = secondI Core.bound . associate . firstI swap
 
-functionLiteral = Core.functionLiteral ⊣ position ⊗ templateParameters ⊗ return ⊗ arguments ⊗ code
+functionCore = Core.coreTerm ⊣ position ⊗ core
   where
-    templateParameters = many (betweenAngle typePattern)
-    return = betweenParens typex
-    arguments = betweenParens (seperatedMany pattern (token ","))
-    code = lambdaMajor term
+    core = Core.functionLiteral ⊣ betweenParens typex ⊗ binding
+      where
+        binding = Core.bound ⊣ betweenParens (seperatedMany pattern (token ",")) ⊗ lambdaMajor term
+
+functionLiteral = templateParameters ∥ functionCore ∥ token "~" ≫ term
+  where
+    templateParameters = Core.coreTerm ⊣ position ⊗ (Core.typeAbstraction ⊣ Core.bound ⊣ betweenAngle typePattern ⊗ functionLiteral)
 
 modulex = Module.coreModule ⊣ orderless ⊣ some item
   where

@@ -15,6 +15,7 @@ data KindF p
   | Higher (Kind p) (Kind p)
   | Runtime (Kind p)
   | Meta
+  | Text
   | PointerRep
   | FunctionRep
   deriving (Show, Functor)
@@ -26,6 +27,7 @@ traverseKind kind = go
     go (Higher κ κ') = pure Higher <*> kind κ <*> kind κ'
     go (Runtime κ) = pure Runtime <*> kind κ
     go Meta = pure Meta
+    go Text = pure Text
     go PointerRep = pure PointerRep
     go FunctionRep = pure FunctionRep
 
@@ -51,6 +53,10 @@ runtime = Prism Runtime $ \case
 
 meta = Prism (const Meta) $ \case
   Meta -> Just ()
+  _ -> Nothing
+
+text = Prism (const Text) $ \case
+  Text -> Just ()
   _ -> Nothing
 
 pointerRep = Prism (const PointerRep) $ \case

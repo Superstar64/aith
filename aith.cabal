@@ -19,7 +19,7 @@ executable aith
   other-modules: Misc.Identifier, Misc.Path, Misc.Util, Environment, Core.TypeCheck,
                  Core.Ast.Common, Core.Ast.Kind, Core.Ast.TypePattern, Core.Ast.Type,
                  Core.Ast.Multiplicity, Core.Ast.Term, Core.Ast.Pattern, Core.Ast.KindPattern, Core.Ast.Sort,
-                 Error, Module, Misc.Variables, Misc.Symbol, Misc.Prism, Misc.Isomorph, Syntax, Core.Ast.FunctionLiteral,
+                 Error, Module, Misc.Variables, Misc.Symbol, Misc.Prism, Misc.Isomorph, Syntax,
                  Misc.Syntax, C.Ast, Codegen, C.Print, Decorate
 
   -- other-extensions:

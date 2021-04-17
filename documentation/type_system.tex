@@ -28,6 +28,7 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & e \kappa \tag*{[Kind Application]} \\
 & \text{extern} \, x (\sigma) (\tau, \tau', \dots) \tag*{[Extern Symbol]} \\
 & e(*)(e',e'',\dots) \tag*{[Function Pointer Application]} \\
+& \text{function} (x : \sigma, x', \sigma', \dots). e \tag*{[Function Literal]}
 \\
 \sigma, \tau \Coloneqq & \alpha \tag* {[Type Variable]}\\
 & \sigma \to \tau \tag*{[Macro]}\\
@@ -37,11 +38,13 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & \lambda \alpha : \kappa. \sigma \tag*{[Type Operator]} \\
 & \sigma (\tau) \tag*{[Type Construction]} \\
 & \sigma (*) (\tau, \tau', \dots) \tag*{[Function Pointer]}\\
+& \tau \text{function}(\sigma, \sigma', \dots) \tag*{[Function Literal Type]} \\
 \\
 \kappa, s, \rho \Coloneqq &  \kappa \alpha \tag*{[Kind Variable]} \\
 & \text{Type} (s) \tag*{[Type]} \\
 & \kappa \to \kappa' \tag*{[Higher Kinded Type]} \\
 & \text{Meta} \tag*{[Meta Stage]}\\
+& \text{Text} \tag*{[Symbol Stage]} \\
 & \text{Runtime} (\rho) \tag*{[Runtime Stage]}\\
 & \text{void}* \tag*{[Pointer Representation]}\\
 & \text{void}(*)(\text{void}) \tag*{[Function Pointer Representation]}\\
@@ -54,10 +57,12 @@ e \Coloneqq & x \tag*{[Variable]}\\
 \Phi \Coloneqq & \Phi, \alpha : \kappa | \Phi, \kappa \alpha : \mu |  \emptyset \\
 \end{align*}
 
-All valid terms have a type who's kind is of the form $ \text{Type} (\kappa) $
-
-All valid types have a kind who's sort is of the form $ \text{Kind} $
-
+All valid terms have a type who's kind is of the form $ \text{Type} (\kappa) $. \\
+\\
+All valid types have a kind who's sort is of the form $ \text{Kind} $.\\
+\\
+Function literals and function literal types can not appear at runtime. They must be bound by a global "function" binding.
+This binding converts a function literal into an extern and a function literal type into a function pointer type. \\
 \begin{gather*}
 \Phi | \Gamma \vdash e : \sigma \tag* {[\text{Term Validation}]}  \\
 \\
@@ -117,6 +122,12 @@ All valid types have a kind who's sort is of the form $ \text{Kind} $
 {\Phi | \Gamma \vdash e : \tau(*)(\sigma, \sigma', \dots) \quad \Phi | \Gamma' \vdash e' : \sigma \quad \dots}
 {\Phi | \Gamma, \Gamma', \dots \vdash e(*)(e',e'',\dots) : \tau} \\
 \\
+\frac
+{\splitfrac
+{\Phi | \Gamma, x : \sigma, x' : \sigma', \dots \vdash e : \tau \quad \Phi \vdash \tau : \text{Type}(\text{Runtime}(\rho))}
+{\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho')) \quad \Phi \vdash \sigma' : \text{Type}(\text{Runtime}(\rho'')) \quad\dots }}
+{\Phi | \Gamma \vdash (\text{function}(x : \sigma, x' : \sigma', \dots). e) : \tau } \\
+\\
 \Phi \vdash \sigma : \kappa \tag* {[\text{Type Validation}]} \\
 \\
 \frac
@@ -151,6 +162,10 @@ All valid types have a kind who's sort is of the form $ \text{Kind} $
 {\Phi \vdash \sigma : \text{Type} (\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime} (\rho)) \quad \dots}
 {\Phi \vdash \sigma (*) (\tau, \tau', \dots) : \text{Type} (\text{Runtime} (\text{void}(*)(\text{void})))} \\
 \\
+\frac
+{\Phi \vdash \sigma : \text{Type} (\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime} (\rho)) \quad \dots}
+{\Phi \vdash \sigma \, \text{function} (\tau, \tau', \dots) : \text{Type} (\text{Symbol})} \\
+\\
 \Phi \vdash \kappa : \mu \tag*{[Kind Validation]} \\
 \\
 \frac
@@ -164,6 +179,10 @@ All valid types have a kind who's sort is of the form $ \text{Kind} $
 \frac
 {}
 {\Phi \vdash \text{Meta} : \text{Stage}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Text} : \text{Stage}} \\
 \\
 \frac
 {\Phi \vdash \rho : \text{Representation}}

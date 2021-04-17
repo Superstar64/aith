@@ -4,7 +4,6 @@ import qualified C.Ast as C
 import Control.Monad ((<=<))
 import Control.Monad.Trans.State (get, put)
 import Core.Ast.Common
-import Core.Ast.FunctionLiteral
 import Core.Ast.Kind
 import Core.Ast.Multiplicity
 import Core.Ast.Pattern
@@ -45,14 +44,12 @@ decorateTerm e@(CoreTerm p (FunctionApplication _ _ e1 e2s)) = do
   pure $ CoreTerm p (FunctionApplication (Decorate dσ) (Decorate dτs) e1' e2s')
 decorateTerm (CoreTerm _ (TypeAbstraction _ (Bound pmσ e))) = augment pmσ $ decorateTerm e
 decorateTerm (CoreTerm _ (TypeApplication _ e _)) = decorateTerm e
-decorateTerm _ = error "unable to decorate term"
-
-decorateFunctionLiteral (FunctionLiteral Silent Silent p [] σ pms e) = do
-  dσ <- Identity <$> decoration <$> typeCheck σ
-  dτs <- (fmap decoration) <$> traverse (typeCheck <=< typeCheck) pms
+decorateTerm (CoreTerm p (FunctionLiteral _ _ τ (Bound pms e))) = do
+  dτ <- Identity <$> decoration <$> (typeCheck τ)
+  dσs <- (fmap decoration) <$> traverse (typeCheck <=< typeCheck) pms
   e' <- foldr augmentPattern (decorateTerm e) pms
-  pure $ FunctionLiteral (Decorate dσ) (Decorate dτs) p [] σ pms e'
-decorateFunctionLiteral (FunctionLiteral dσ dτs p (pmσ : pmσs) σ pms e) = augment pmσ $ decorateFunctionLiteral (FunctionLiteral dσ dτs p pmσs σ pms e)
+  pure $ CoreTerm p $ FunctionLiteral (Decorate dτ) (Decorate dσs) τ (Bound pms e')
+decorateTerm _ = error "unable to decorate term"
 
 runDecorate :: Core.TypeCheck.Core Internal Identity a -> a
 runDecorate e = runIdentity $ runCore e emptyState

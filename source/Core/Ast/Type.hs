@@ -21,6 +21,7 @@ data TypeF p
   | TypeConstruction (Type p) (Type p)
   | TypeOperator (Bound (TypePattern p p) (Type p))
   | FunctionPointer (Type p) [Type p]
+  | FunctionLiteralType (Type p) [Type p]
   deriving (Show)
 
 traverseType typex typeBound kindBound = go
@@ -33,6 +34,7 @@ traverseType typex typeBound kindBound = go
     go (TypeConstruction σ τ) = pure TypeConstruction <*> typex σ <*> typex τ
     go (TypeOperator λ) = pure TypeOperator <*> typeBound λ
     go (FunctionPointer σ τs) = pure FunctionPointer <*> typex σ <*> traverse typex τs
+    go (FunctionLiteralType σ τs) = pure FunctionLiteralType <*> typex σ <*> traverse typex τs
 
 foldType typex typeBound kindBound σ = getConst $ traverseType (Const . typex) (Const . typeBound) (Const . kindBound) σ
 
@@ -68,6 +70,10 @@ typeOperator = Prism TypeOperator $ \case
 
 functionPointer = Prism (uncurry FunctionPointer) $ \case
   (FunctionPointer σ τs) -> Just (σ, τs)
+  _ -> Nothing
+
+functionLiteralType = Prism (uncurry FunctionLiteralType) $ \case
+  (FunctionLiteralType σ τs) -> Just (σ, τs)
   _ -> Nothing
 
 instance Functor TypeF where

@@ -37,10 +37,11 @@ data TermF d p
   | Bind (d Erased) (Term d p) (Bound (Pattern p p) (Term d p))
   | Extern (d Identity) (d []) Symbol (Type p) [Type p]
   | FunctionApplication (d Identity) (d []) (Term d p) [Term d p]
+  | FunctionLiteral (d Identity) (d []) (Type p) (Bound [Pattern p p] (Term d p))
 
 deriving instance (Show p, Show (d Identity), Show (d []), Show (d Erased)) => Show (TermF d p)
 
-traverseTerm term typex kind bound typeBound kindBound = go
+traverseTerm term typex kind bound bound' typeBound kindBound = go
   where
     go (Variable dx x) = pure Variable <*> pure dx <*> pure x
     go (MacroAbstraction i λ) = pure MacroAbstraction <*> pure i <*> bound λ
@@ -53,10 +54,11 @@ traverseTerm term typex kind bound typeBound kindBound = go
     go (Bind i e λ) = pure Bind <*> pure i <*> term e <*> bound λ
     go (Extern dσ dτs sm σ τs) = pure Extern <*> pure dσ <*> pure dτs <*> pure sm <*> typex σ <*> traverse typex τs
     go (FunctionApplication de1 de2s e1 e2s) = pure FunctionApplication <*> pure de1 <*> pure de2s <*> term e1 <*> traverse term e2s
+    go (FunctionLiteral dσ dτs σ λ) = pure FunctionLiteral <*> pure dσ <*> pure dτs <*> typex σ <*> bound' λ
 
-foldTerm term typex kind bound typeBound kindBound e = getConst $ traverseTerm (Const . term) (Const . typex) (Const . kind) (Const . bound) (Const . typeBound) (Const . kindBound) e
+foldTerm term typex kind bound bound' typeBound kindBound e = getConst $ traverseTerm (Const . term) (Const . typex) (Const . kind) (Const . bound) (Const . bound') (Const . typeBound) (Const . kindBound) e
 
-mapTerm term typex kind bound typeBound kindBound e = runIdentity $ traverseTerm (Identity . term) (Identity . typex) (Identity . kind) (Identity . bound) (Identity . typeBound) (Identity . kindBound) e
+mapTerm term typex kind bound bound' typeBound kindBound e = runIdentity $ traverseTerm (Identity . term) (Identity . typex) (Identity . kind) (Identity . bound) (Identity . bound') (Identity . typeBound) (Identity . kindBound) e
 
 variable = Prism (Variable Silent) $ \case
   (Variable _ x) -> Just x
@@ -102,13 +104,18 @@ functionApplication = Prism (uncurry $ FunctionApplication Silent Silent) $ \cas
   (FunctionApplication _ _ e e's) -> Just (e, e's)
   _ -> Nothing
 
+functionLiteral = Prism (uncurry $ FunctionLiteral Silent Silent) $ \case
+  (FunctionLiteral _ _ σ λ) -> Just (σ, λ)
+  _ -> Nothing
+
 instance Functor (TermF d) where
-  fmap f e = runIdentity $ traverseTerm term typex kind bound typeBound kindBound e
+  fmap f e = runIdentity $ traverseTerm term typex kind bound bound' typeBound kindBound e
     where
       term = Identity . fmap f
       typex = Identity . fmap f
       kind = Identity . fmap f
       bound = Identity . bimap (bimap f f) (fmap f)
+      bound' = Identity . bimap (fmap (bimap f f)) (fmap f)
       typeBound = Identity . bimap (bimap f f) (fmap f)
       kindBound = Identity . bimap (fmap f) (fmap f)
 
@@ -136,37 +143,37 @@ avoidCaptureTermConvert = avoidCaptureGeneral internalVariable (convert @(Term d
 
 instance Semigroup p => Algebra (Term d p) p (Term d p) where
   freeVariables (CoreTerm p (Variable _ x)) = Variables.singleton x p
-  freeVariables (CoreTerm _ e) = foldTerm go go go go go go e
+  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go e
     where
       go = freeVariables @(Term d p)
   convert ix x (CoreTerm p (Variable d x')) | x == x' = CoreTerm p $ Variable d ix
-  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go e
+  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go e
     where
       go = convert @(Term d p) ix x
   substitute ux x (CoreTerm _ (Variable _ x')) | x == x' = ux
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go e
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go e
     where
       go = substitute ux x
 
 instance Semigroup p => Algebra (Type p) p (Term d p) where
-  freeVariables (CoreTerm _ e) = foldTerm go go go go go go e
+  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go e
     where
       go = freeVariables @(Type p)
-  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go e
+  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go e
     where
       go = convert @(Type p) ix x
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go e
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go e
     where
       go = substitute ux x
 
 instance Semigroup p => Algebra (Kind p) p (Term d p) where
-  freeVariables (CoreTerm _ e) = foldTerm go go go go go go e
+  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go e
     where
       go = freeVariables @(Kind p)
-  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go e
+  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go e
     where
       go = convert @(Kind p) ix x
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go e
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go e
     where
       go = substitute ux x
 
@@ -185,6 +192,8 @@ instance Algebra (Term d p) p u => Algebra (Term d p) p (Bound (Pattern p p) u) 
   convert = substituteSame (convert @(Term d p)) (avoidCaptureTermConvert @d @p)
   substitute = substituteSame substitute (avoidCaptureTerm @d)
 
+instance Algebra (Term d p) p (e p) => AlgebraBound (Term d p) p e (Pattern p p)
+
 instance (Algebra (Type p) p u, Algebra (Term d p) p u) => Algebra (Term d p) p (Bound (TypePattern p p) u) where
   freeVariables (Bound _ e) = freeVariables @(Term d p) e
   convert = substituteLower (convert @(Term d p)) (flip const)
@@ -199,9 +208,9 @@ reduceTermImpl (Bind _ e λ) = let CoreTerm _ e' = apply λ (reduce e) in e'
 reduceTermImpl (MacroApplication _ e1 e2) | (CoreTerm _ (MacroAbstraction _ λ)) <- reduce e1 = let CoreTerm _ e' = apply λ (reduce e2) in e'
 reduceTermImpl (TypeApplication _ e σ) | (CoreTerm _ (TypeAbstraction _ λ)) <- reduce e = let CoreTerm _ e' = apply λ (reduce σ) in e'
 reduceTermImpl (KindApplication _ e κ) | (CoreTerm _ (KindAbstraction _ λ)) <- reduce e = let CoreTerm _ e' = apply λ (reduce κ) in e'
-reduceTermImpl e = runIdentity $ traverseTerm go go go go go go e
+reduceTermImpl e = mapTerm go go go go go go go e
   where
-    go = Identity . reduce
+    go = reduce
 
 instance Semigroup p => Reduce (Term Silent p) where
   reduce (CoreTerm p e) = CoreTerm p (reduceTermImpl e)

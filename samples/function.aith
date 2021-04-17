@@ -2,6 +2,10 @@ function idPtr = <a : %type %runtime %pointer> (a)(x : a){
 	x
 };
 
+function idPtrAlternative = ~ Λ<a : %type %runtime %pointer> => %function(a)(x : a){
+	x
+};
+
 function idFPtr = <a : %type %runtime %function> (a)(x : a){
 	x
 };

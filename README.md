@@ -31,7 +31,7 @@ See ``/documentation`` for typing rules.
 | Module | ``module x = { code };`` |
 | Inline Symbol | ``inline x =  e; ``|
 | Import | ``import x = x'/x''/...``|
-| Function | ``function x = <x' : κ> <x : κ'> ... (σ)(pm, pm',...) { e };`` |
+| Function | ``function x = e'`` |
 
 ## Terms(e)
 | Description | Syntax |
@@ -50,6 +50,15 @@ See ``/documentation`` for typing rules.
 | Kind Application | ``e @ κ`` |
 | Extern | ``%extern "x" (σ)(τ, τ', ...)`` |
 | Function Application | ``e(*)(e1,e2, ...) ``|
+| Function Literal | ``%function (τ)(σ x, σ' x', ...) => e`` |
+| Function Literal | ``%function (τ)(σ x, σ' x', ...) { e }`` |
+
+# Function Sugar Term (e')
+|Description | Syntax |
+| Type Abstraction | `` <x : κ> e' `` |
+| Function Literal | ``(τ)(σ x, σ' x', ...) => e `` |
+| Function Literal | ``(τ)(σ x, σ' x', ...) { e } `` |
+| Explict | ``~e`` |
 
 ## Patterns(pm)
 | Description | Syntax |
@@ -71,6 +80,7 @@ See ``/documentation`` for typing rules.
 | Type Operator | `` λ x : κ => σ ``|
 | Type Construction | `` σ (τ) `` |
 | Function Pointer | `` σ(*)(τ, τ', ...) `` |
+| Function Literal Type | `` σ %function (τ, τ', ...) `` |
 
 ## Kinds(κ,s,ρ)
 | Description | Syntax |
@@ -80,6 +90,7 @@ See ``/documentation`` for typing rules.
 | Higher | `` κ -> κ' `` |
 | Runtime | ``%runtime ρ`` |
 | Meta | ``%meta`` |
+| Text | ``%text`` |
 | Pointer Representation | ``%pointer``|
 | Function Pointer Representation | ``%functinon`` |
 

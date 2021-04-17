@@ -4,7 +4,6 @@ import Control.Monad ((<=<))
 import Control.Monad.Trans.Class (MonadTrans, lift)
 import Control.Monad.Trans.State (StateT, evalStateT, get, put)
 import Core.Ast.Common
-import Core.Ast.FunctionLiteral
 import Core.Ast.Kind
 import Core.Ast.KindPattern
 import Core.Ast.Multiplicity
@@ -249,6 +248,8 @@ instance TypeCheck p (Kind p) Sort where
     pure $ Kind
   typeCheck (CoreKind _ Meta) = do
     pure $ Stage
+  typeCheck (CoreKind _ Text) = do
+    pure $ Stage
   typeCheck (CoreKind p (Runtime κ)) = do
     checkRepresentation p =<< typeCheck κ
     pure $ Stage
@@ -291,6 +292,10 @@ instance TypeCheck p (Type p) KindInternal where
     checkRuntime p =<< checkType p =<< typeCheck σ
     traverse (checkRuntime p <=< checkType p <=< typeCheck) τs
     pure $ CoreKind Internal (Type (CoreKind Internal (Runtime (CoreKind Internal FunctionRep))))
+  typeCheck (CoreType p (FunctionLiteralType σ τs)) = do
+    checkRuntime p =<< checkType p =<< typeCheck σ
+    traverse (checkRuntime p <=< checkType p <=< typeCheck) τs
+    pure $ CoreKind Internal (Type (CoreKind Internal Text))
 
 instance TypeCheck p (Term d p) TypeInternal where
   typeCheck = fmap fst . typeCheckLinear
@@ -362,21 +367,15 @@ instance TypeCheckLinear p (Term d p) TypeInternal where
     (τs', lΓ2s) <- unzip <$> traverse typeCheckLinear e2s
     sequence $ zipWith (matchType p) τs τs'
     pure (σ, lΓ1 `combine` combineAll lΓ2s)
+  typeCheckLinear (CoreTerm p (FunctionLiteral _ _ τ' (Bound pms' e))) = do
+    (pms, σs) <- unzip <$> traverse typeCheckInstantiate pms'
+    τ <- instantiate τ'
+    checkRuntime p =<< checkType p =<< typeCheckInternal τ
+    traverse (checkRuntime p <=< checkType p <=< typeCheckInternal) σs
+    (τ', lΓ) <- foldr (flip augmentLinear $ CoreMultiplicity Internal Linear) (typeCheckLinear e) pms
+    matchType p τ τ'
+    pure (CoreType Internal $ FunctionLiteralType τ σs, lΓ)
 
 typeCheckInternal σ = do
   env <- Core get
   pure $ runIdentity $ runCore (typeCheck σ) (Internal <$ env)
-
-instance TypeCheck p (FunctionLiteral d p) TypeInternal where
-  typeCheck (FunctionLiteral _ _ p [] σ' pms' e) = do
-    (pms, τs) <- unzip <$> traverse typeCheckInstantiate pms'
-    traverse (checkRuntime p <=< checkType p <=< typeCheckInternal) τs
-    (σ, κ) <- typeCheckInstantiate σ'
-    checkRuntime p =<< checkType p κ
-    (σ', _) <- foldr (flip augmentLinear $ CoreMultiplicity Internal Linear) (typeCheckLinear e) pms
-    matchType p σ σ'
-    pure $ CoreType Internal (FunctionPointer σ τs)
-  typeCheck (FunctionLiteral dσ dpms p (pmσ' : pmσs) σ pms e) = do
-    pmσ <- instantiate pmσ'
-    σ <- augment pmσ (typeCheck $ FunctionLiteral dσ dpms p pmσs σ pms e)
-    pure $ CoreType Internal (Forall (Bound (Internal <$ pmσ) σ))

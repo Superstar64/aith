@@ -3,10 +3,10 @@ module Module where
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State (State, StateT, evalState, evalStateT, execStateT, get, modify)
 import Core.Ast.Common
-import Core.Ast.FunctionLiteral
 import Core.Ast.Multiplicity
 import Core.Ast.Pattern
 import Core.Ast.Term
+import Core.Ast.Type
 import Core.TypeCheck
 import Data.Bifunctor (first)
 import Data.Functor.Identity (Identity)
@@ -47,7 +47,7 @@ global = Prism Global $ \case
 data Global d p
   = Inline (Term d p)
   | Import p Path
-  | Text (FunctionLiteral d p)
+  | Text (Term d p)
   deriving (Functor)
 
 deriving instance (Show (d Identity), Show (d []), Show p, Show (d Erased)) => Show (Global d p)
@@ -154,11 +154,11 @@ typeCheckModule (Ordering code) = execStateT (go code) mempty
       σ <- lift $ runCore (typeCheck e) enviroment
       let enviroment' = enviroment {typeEnvironment = Map.insert name (p, CoreMultiplicity Internal Unrestricted, σ) $ typeEnvironment enviroment}
       modify $ Map.insert heading enviroment'
-    go ((Path heading name, Text e@(FunctionLiteral _ _ p _ _ _ _)) : require) = do
+    go ((Path heading name, Text e@(CoreTerm p _)) : require) = do
       go require
       this <- get
       let enviroment = Map.findWithDefault emptyState heading this
-      σ <- lift $ runCore (typeCheck e) enviroment
+      σ <- lift $ convert <$> runCore (typeCheck e) enviroment
       let enviroment' = enviroment {typeEnvironment = Map.insert name (p, CoreMultiplicity Internal Unrestricted, σ) $ typeEnvironment enviroment}
       modify $ Map.insert heading enviroment'
     go ((Path heading name, Import p (Path targetHeading targetName)) : require) = do
@@ -168,6 +168,10 @@ typeCheckModule (Ordering code) = execStateT (go code) mempty
       let (_, _, σ) = typeEnvironment (this ! targetHeading) ! targetName
       let enviroment' = enviroment {typeEnvironment = Map.insert name (p, CoreMultiplicity Internal Unrestricted, σ) $ typeEnvironment enviroment}
       modify $ Map.insert heading enviroment'
+    convert (CoreType p (FunctionLiteralType σ τs)) = CoreType p $ FunctionPointer σ τs
+    convert (CoreType p σ) = CoreType p $ mapType convert bound bound σ
+      where
+        bound (Bound pm σ) = Bound pm $ convert σ
 
 mangle :: Path -> Symbol
 mangle (Path path (Identifier name)) = Symbol $ (intercalate "_" $ extract <$> path) ++ name
@@ -201,11 +205,10 @@ reduceModule (Ordering code) = Ordering $ evalState (go code) Map.empty
       let e' = fromJust $ lookup targetName (this ! targetHeading)
       modify $ Map.insert heading ((name, e') : replacements)
       pure $ (Path heading name, Inline e') : completed
-    makeRef :: Path -> FunctionLiteral Silent p -> Term Silent p
-    makeRef path (FunctionLiteral dσ dpms p [] σ pms _) = CoreTerm p $ Extern dσ dpms (mangle path) σ (map extract pms)
+    extract (CorePattern _ (PatternVariable _ σ)) = σ
+    extract (CorePattern _ (PatternOfCourse _)) = error "of course in function pattern"
+    makeRef :: Path -> Term Silent p -> Term Silent p
+    makeRef path (CoreTerm p (FunctionLiteral _ _ τ (Bound pms _))) = CoreTerm p $ Extern Silent Silent (mangle path) τ (extract <$> pms)
+    makeRef path (CoreTerm p e) = CoreTerm p $ mapTerm (makeRef path) id id bound bound bound bound e
       where
-        extract (CorePattern _ (PatternVariable _ σ)) = σ
-        extract (CorePattern _ (PatternOfCourse _)) = error "of course in function pattern"
-    makeRef path (FunctionLiteral dσ dpms p (pmσ : pmσs) σ pms e) = CoreTerm p $ TypeAbstraction Silent (Bound pmσ inner)
-      where
-        inner = makeRef path (FunctionLiteral dσ dpms p pmσs σ pms e)
+        bound (Bound pm e) = Bound pm (makeRef path e)

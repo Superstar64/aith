@@ -4,7 +4,7 @@ import qualified C.Ast as C
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State (State, evalState, get, put)
 import Control.Monad.Trans.Writer (WriterT (..), runWriterT, tell)
-import Core.Ast.FunctionLiteral
+import Core.Ast.Common
 import Core.Ast.Pattern
 import Core.Ast.Term
 import Data.Functor.Identity (Identity (..))
@@ -19,9 +19,10 @@ import qualified Misc.Variables as Variables
 import Module
 
 external (CoreTerm _ (Extern _ _ sm _ _)) = [sm]
-external (CoreTerm _ e) = foldTerm external x x x x x e
+external (CoreTerm _ e) = foldTerm external go go bound bound bound bound e
   where
-    x = const mempty
+    go = const mempty
+    bound (Bound _ e) = external e
 
 newtype Codegen a = Codegen (State (Variables (), Map Identifier String) a) deriving (Functor, Applicative, Monad)
 
@@ -44,6 +45,7 @@ compileTerm (CoreTerm _ (FunctionApplication (Decorate (Identity dσ)) (Decorate
   e1' <- compileTerm e1
   e2s' <- traverse compileTerm e2s
   pure $ C.Call dσ dτs e1' e2s'
+compileTerm (CoreTerm _ (FunctionLiteral _ _ _ _)) = error "function literal inside runtime"
 compileTerm (CoreTerm _ (MacroAbstraction (Decorate i) _)) = absurd i
 compileTerm (CoreTerm _ (TypeAbstraction (Decorate i) _)) = absurd i
 compileTerm (CoreTerm _ (KindAbstraction (Decorate i) _)) = absurd i
@@ -61,18 +63,20 @@ nameArgument (CorePattern _ (PatternVariable x _)) = do
   pure name
 nameArgument (CorePattern _ (PatternOfCourse _)) = error "unable to name argument"
 
-compileFunctionLiteral :: Symbol -> FunctionLiteral Decorate p -> Codegen (C.FunctionDefinition String)
-compileFunctionLiteral (Symbol name) (FunctionLiteral (Decorate (Identity dσ)) (Decorate dpms) _ _ _ pms e) = do
+compileFunctionLiteral :: Symbol -> Term Decorate p -> Codegen (C.FunctionDefinition String)
+compileFunctionLiteral (Symbol name) (CoreTerm _ (FunctionLiteral (Decorate (Identity dσ)) (Decorate dpms) _ (Bound pms e))) = do
   arguments <- traverse nameArgument pms
   (result, depend) <- runWriterT (compileTerm e)
   pure $ C.FunctionDefinition dσ name (zip dpms arguments) (depend ++ [C.Return result])
+compileFunctionLiteral _ _ = error "top level non function literal"
 
 compileModule path (CoreModule code) = Map.toList code >>= compileItem
   where
     compileItem (x, (Module items)) = compileModule (path ++ [x]) items
-    compileItem (x, (Global (Text e@(FunctionLiteral _ _ _ _ _ _ ei)))) = [runCodegen (compileFunctionLiteral manging decorated) (external ei)]
+    compileItem (x, (Global (Text e))) = [run $ compileFunctionLiteral manging decorated]
       where
-        decorated = runDecorate $ decorateFunctionLiteral e
         manging = mangle $ Path path x
+        decorated = runDecorate $ decorateTerm e
+        run c = runCodegen c (external e)
     compileItem (_, (Global (Inline _))) = []
     compileItem (_, (Global (Import _ _))) = []
