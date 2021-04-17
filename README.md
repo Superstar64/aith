@@ -50,15 +50,15 @@ See ``/documentation`` for typing rules.
 | Kind Application | ``e @ κ`` |
 | Extern | ``%extern "x" (σ)(τ, τ', ...)`` |
 | Function Application | ``e(*)(e1,e2, ...) ``|
-| Function Literal | ``%function (τ)(σ x, σ' x', ...) => e`` |
-| Function Literal | ``%function (τ)(σ x, σ' x', ...) { e }`` |
+| Function Literal | ``%function (τ)(x : σ,x' : σ', ...) => e`` |
+| Function Literal | ``%function (τ)(x : σ,x' : σ', ...) { e }`` |
 
 # Function Sugar Term (ef)
 |Description | Syntax |
 |-|-|
 | Type Abstraction | `` <x : κ> ef `` |
-| Function Literal | ``(τ)(σ x, σ' x', ...) => e `` |
-| Function Literal | ``(τ)(σ x, σ' x', ...) { e } `` |
+| Function Literal | ``(τ)(x : σ,x' : σ', ...) => e `` |
+| Function Literal | ``(τ)(x : σ,x' : σ', ...) { e } `` |
 | Explict | ``~e`` |
 
 ## Patterns(pm)
