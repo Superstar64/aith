@@ -158,7 +158,9 @@ typeCheckModule (Ordering code) = execStateT (go code) mempty
       go require
       this <- get
       let enviroment = Map.findWithDefault emptyState heading this
-      σ <- lift $ convert <$> runCore (typeCheck e) enviroment
+      σ' <- lift $ runCore (typeCheck e) enviroment
+      lift $ runCore (checkText p =<< checkType p =<< typeCheckInternal σ') enviroment
+      let σ = convert σ'
       let enviroment' = enviroment {typeEnvironment = Map.insert name (p, CoreMultiplicity Internal Unrestricted, σ) $ typeEnvironment enviroment}
       modify $ Map.insert heading enviroment'
     go ((Path heading name, Import p (Path targetHeading targetName)) : require) = do

@@ -108,6 +108,9 @@ checkHigher p κ = quit $ ExpectedHigher p κ
 checkRuntime _ (CoreKind Internal (Runtime κ)) = pure κ
 checkRuntime p κ = quit $ ExpectedRuntime p κ
 
+checkText _ (CoreKind Internal Text) = pure ()
+checkText p κ = quit $ ExpectedText p κ
+
 checkMacro _ (CoreType Internal (Macro σ τ)) = pure (σ, τ)
 checkMacro p σ = quit $ ExpectedMacro p σ
 

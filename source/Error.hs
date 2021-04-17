@@ -26,6 +26,7 @@ data Error p
   | ExpectedOfCourse p TypeInternal
   | ExpectedType p KindInternal
   | ExpectedHigher p KindInternal
+  | ExpectedText p KindInternal
   | ExpectedRuntime p KindInternal
   | ExpectedKind p Sort
   | ExpectedStage p Sort
