@@ -31,7 +31,7 @@ See ``/documentation`` for typing rules.
 | Module | ``module x = { code };`` |
 | Inline Symbol | ``inline x =  e; ``|
 | Import | ``import x = x'/x''/...``|
-| Function | ``function x = e'`` |
+| Function | ``function x = ef;`` |
 
 ## Terms(e)
 | Description | Syntax |
@@ -53,10 +53,10 @@ See ``/documentation`` for typing rules.
 | Function Literal | ``%function (τ)(σ x, σ' x', ...) => e`` |
 | Function Literal | ``%function (τ)(σ x, σ' x', ...) { e }`` |
 
-# Function Sugar Term (e')
+# Function Sugar Term (ef)
 |Description | Syntax |
 |-|-|
-| Type Abstraction | `` <x : κ> e' `` |
+| Type Abstraction | `` <x : κ> ef `` |
 | Function Literal | ``(τ)(σ x, σ' x', ...) => e `` |
 | Function Literal | ``(τ)(σ x, σ' x', ...) { e } `` |
 | Explict | ``~e`` |
