@@ -55,6 +55,7 @@ See ``/documentation`` for typing rules.
 
 # Function Sugar Term (e')
 |Description | Syntax |
+|-|-|
 | Type Abstraction | `` <x : κ> e' `` |
 | Function Literal | ``(τ)(σ x, σ' x', ...) => e `` |
 | Function Literal | ``(τ)(σ x, σ' x', ...) { e } `` |
