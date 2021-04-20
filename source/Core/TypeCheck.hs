@@ -59,7 +59,6 @@ matchKind' p (Higher κ1 κ2) (Higher κ1' κ2') = do
 matchKind' p (Runtime ρ) (Runtime ρ') = matchKind p ρ ρ'
 matchKind' _ Meta Meta = pure ()
 matchKind' _ PointerRep PointerRep = pure ()
-matchKind' _ FunctionRep FunctionRep = pure ()
 matchKind' p κ κ' = quit $ IncompatibleKind p (CoreKind Internal κ) (CoreKind Internal κ')
 
 matchKind p (CoreKind Internal κ) (CoreKind Internal κ') = matchKind' p κ κ'
@@ -258,8 +257,6 @@ instance TypeCheck p (Kind p) Sort where
     pure $ Stage
   typeCheck (CoreKind _ PointerRep) = do
     pure $ Representation
-  typeCheck (CoreKind _ FunctionRep) = do
-    pure $ Representation
 
 instance TypeCheck p (Type p) KindInternal where
   typeCheck (CoreType p (TypeVariable x)) = do
@@ -294,7 +291,7 @@ instance TypeCheck p (Type p) KindInternal where
   typeCheck (CoreType p (FunctionPointer σ τs)) = do
     checkRuntime p =<< checkType p =<< typeCheck σ
     traverse (checkRuntime p <=< checkType p <=< typeCheck) τs
-    pure $ CoreKind Internal (Type (CoreKind Internal (Runtime (CoreKind Internal FunctionRep))))
+    pure $ CoreKind Internal (Type (CoreKind Internal (Runtime (CoreKind Internal PointerRep))))
   typeCheck (CoreType p (FunctionLiteralType σ τs)) = do
     checkRuntime p =<< checkType p =<< typeCheck σ
     traverse (checkRuntime p <=< checkType p <=< typeCheck) τs

@@ -1,15 +1,7 @@
-function idPtr = <a : %type %runtime %pointer> (a)(x : a){
+function id = <a> (a)(x : a){
 	x
 };
 
-function idPtrAlternative = ~ Λ<a : %type %runtime %pointer> => %function(a)(x : a){
-	x
-};
-
-function idFPtr = <a : %type %runtime %function> (a)(x : a){
-	x
-};
-
-function callId = <a : %type %runtime %pointer> (a)(x : a){
-	idFPtr<a(*)(a)>(*)(idPtr<a>)(*)(x)
+function callId = <a> (a)(x : a){
+	id<a(*)(a)>(*)(id<a>)(*)(x)
 };

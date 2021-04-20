@@ -26,7 +26,6 @@ header =
       string "#define AITH AITH",
       line,
       string "typedef void* pointer;",
-      string "typedef void(*function)();",
       line,
       string "#endif",
       line

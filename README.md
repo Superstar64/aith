@@ -42,8 +42,8 @@ See ``/documentation`` for typing rules.
 | Macro Abstraction | ``λ pm { e }``|
 | Macro Abstraction | ``λ pm => e ``|
 | Macro Application | ``e(e')``|
-| Type Abstraction | ``Λ<x : κ> { e }`` |
-| Type Abstraction | ``Λ<x : κ> => e`` |
+| Type Abstraction | ``Λ<pmσ> { e }`` |
+| Type Abstraction | ``Λ<pmσ> => e`` |
 | Type Application | ``e<σ>`` |
 | Kind Abstraction | ``Λ@ x : μ => e`` |
 | Kind Abstraction | ``Λ@ x : μ { e }`` |
@@ -71,8 +71,8 @@ See ``/documentation`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Forall | ``∀<x : κ> { σ }`` |
-| Forall | ``∀<x : κ> => σ`` |
+| Forall | ``∀<pmσ> { σ }`` |
+| Forall | ``∀<pmσ> => σ`` |
 | KindForall | ``∀@s : μ => σ`` |
 | KindForall | ``∀@s : μ { σ }`` |
 | Macro | ``σ -> σ'``|
@@ -82,6 +82,12 @@ See ``/documentation`` for typing rules.
 | Type Construction | `` σ (τ) `` |
 | Function Pointer | `` σ(*)(τ, τ', ...) `` |
 | Function Literal Type | `` σ %function (τ, τ', ...) `` |
+
+## Type Pattern(pmσ)
+|Description | Syntax |
+|-|-|
+| Variable | ``x : κ`` |
+| Runtime Pointer Variable | ``x`` |
 
 ## Kinds(κ,s,ρ)
 | Description | Syntax |
@@ -93,7 +99,6 @@ See ``/documentation`` for typing rules.
 | Meta | ``%meta`` |
 | Text | ``%text`` |
 | Pointer Representation | ``%pointer``|
-| Function Pointer Representation | ``%functinon`` |
 
 ## Sorts(μ)
 | Description | Syntax |
@@ -101,6 +106,9 @@ See ``/documentation`` for typing rules.
 | Kind | ``%kind`` |
 | Stage | ``%stage`` |
 | Representation | ``%representation`` |
+
+# C Compiler Requirements
+* All pointers must have the same representation
 
 # Papers
 Useful / Inspirational papers:

@@ -98,13 +98,13 @@ kind = kindBottom
               Core.runtime ⊣ keyword "runtime" ≫ space ≫ kindCore,
               Core.meta ⊣ keyword "meta",
               Core.text ⊣ keyword "text",
-              Core.functionRep ⊣ keyword "function",
               Core.pointerRep ⊣ keyword "pointer"
             ]
 
 typePattern = Core.coreTypePattern ⊣ position ⊗ core
   where
-    core = Core.typePatternVariable ⊣ identifer ⊗ token ":" ≫ kind
+    core = Core.typePatternVariable ⊣ identifer ⊗ (pointer ∥# token ":" ≫ kind ∥ pointer)
+    pointer = Core.coreKind ⊣ position ⊗ (Core.typex ⊣ Core.coreKind ⊣ position ⊗ (Core.runtime ⊣ Core.coreKind ⊣ position ⊗ (Core.pointerRep ⊣ always)))
 
 typex = typeBottom
   where

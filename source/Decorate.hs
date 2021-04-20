@@ -15,7 +15,6 @@ import qualified Data.Map as Map
 newtype Decorate f = Decorate (f C.Representation)
 
 decoration (CoreKind _ (Type (CoreKind _ (Runtime (CoreKind _ PointerRep))))) = C.Pointer
-decoration (CoreKind _ (Type (CoreKind _ (Runtime (CoreKind _ FunctionRep))))) = C.Function
 decoration _ = error "unable to decorate kind"
 
 augmentVariable p x σ e = do
