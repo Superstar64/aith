@@ -60,7 +60,7 @@ See ``/documentation`` for typing rules.
 # Function Sugar Term (ef)
 |Description | Syntax |
 |-|-|
-| Type Abstraction | `` <x : κ> ef `` |
+| Type Abstraction | `` <pmσ> ef `` |
 | Erased Qualified Assumption | `` when (σ) ef `` |
 | Function Literal | ``(τ)(pme, pme', ...) => e `` |
 | Function Literal | ``(τ)(pme, pme', ...) { e } `` |
