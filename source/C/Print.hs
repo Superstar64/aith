@@ -48,7 +48,8 @@ compound = betweenBraces $ many statement
 statement =
   choice
     [ C.returnx ⊣ string "return" ≫ expression ≪ string ";",
-      C.forwardDeclare ⊣ representation ⊗ identifer ⊗ argumentList representation ≪ string ";"
+      C.forwardDeclare ⊣ representation ⊗ identifer ⊗ argumentList representation ≪ string ";",
+      C.variableDeclation ⊣ representation ⊗ identifer ≪ string "=" ⊗ expression ≪ string ";"
     ]
 
 expression = variable ∥ call

@@ -1,5 +1,6 @@
 function id = <a> (a)(x : a){
-	x
+	%alias y : a = x;
+	y
 };
 
 function callId = <a> (a)(x : a){

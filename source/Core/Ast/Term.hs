@@ -27,6 +27,7 @@ data TermF d p
   | KindApplication (d Erased) (Term d p) (Kind p)
   | OfCourseIntroduction (d Erased) (Term d p)
   | Bind (d Erased) (Term d p) (Bound (Pattern p p) (Term d p))
+  | Alias (Term d p) (Bound (RuntimePattern d p p) (Term d p))
   | Extern (d Identity) (d []) Symbol (Type p) [Type p]
   | FunctionApplication (d Identity) (d []) (Term d p) [Term d p]
   | FunctionLiteral (d Identity) (Type p) (Bound [RuntimePattern d p p] (Term d p))
@@ -35,7 +36,7 @@ data TermF d p
 
 deriving instance (Show p, Show (d Identity), Show (d []), Show (d Erased)) => Show (TermF d p)
 
-traverseTerm term typex kind bound runtimeBoundMany typeBound kindBound = go
+traverseTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindBound = go
   where
     go (Variable dx x) = pure Variable <*> pure dx <*> pure x
     go (MacroAbstraction i λ) = pure MacroAbstraction <*> pure i <*> bound λ
@@ -46,15 +47,16 @@ traverseTerm term typex kind bound runtimeBoundMany typeBound kindBound = go
     go (KindApplication i e κ) = pure KindApplication <*> pure i <*> term e <*> kind κ
     go (OfCourseIntroduction i e) = pure OfCourseIntroduction <*> pure i <*> term e
     go (Bind i e λ) = pure Bind <*> pure i <*> term e <*> bound λ
+    go (Alias e λ) = pure Alias <*> term e <*> runtimeBound λ
     go (Extern dσ dτs sm σ τs) = pure Extern <*> pure dσ <*> pure dτs <*> pure sm <*> typex σ <*> traverse typex τs
     go (FunctionApplication de1 de2s e1 e2s) = pure FunctionApplication <*> pure de1 <*> pure de2s <*> term e1 <*> traverse term e2s
     go (FunctionLiteral dσ σ λ) = pure FunctionLiteral <*> pure dσ <*> typex σ <*> runtimeBoundMany λ
     go (ErasedQualifiedAssume i π e) = pure ErasedQualifiedAssume <*> pure i <*> typex π <*> term e
     go (ErasedQualifiedCheck i e) = pure ErasedQualifiedCheck <*> pure i <*> term e
 
-foldTerm term typex kind bound bound' typeBound kindBound e = getConst $ traverseTerm (Const . term) (Const . typex) (Const . kind) (Const . bound) (Const . bound') (Const . typeBound) (Const . kindBound) e
+foldTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindBound e = getConst $ traverseTerm (Const . term) (Const . typex) (Const . kind) (Const . bound) (Const . runtimeBound) (Const . runtimeBoundMany) (Const . typeBound) (Const . kindBound) e
 
-mapTerm term typex kind bound bound' typeBound kindBound e = runIdentity $ traverseTerm (Identity . term) (Identity . typex) (Identity . kind) (Identity . bound) (Identity . bound') (Identity . typeBound) (Identity . kindBound) e
+mapTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindBound e = runIdentity $ traverseTerm (Identity . term) (Identity . typex) (Identity . kind) (Identity . bound) (Identity . runtimeBound) (Identity . runtimeBoundMany) (Identity . typeBound) (Identity . kindBound) e
 
 variable = Prism (Variable Silent) $ \case
   (Variable _ x) -> Just x
@@ -92,6 +94,10 @@ bind = Prism (uncurry $ Bind Silent) $ \case
   (Bind _ e λ) -> Just (e, λ)
   _ -> Nothing
 
+alias = Prism (uncurry $ Alias) $ \case
+  (Alias e λ) -> Just (e, λ)
+  _ -> Nothing
+
 extern = Prism (uncurry $ uncurry $ Extern Silent Silent) $ \case
   (Extern _ _ path σ τs) -> Just ((path, σ), τs)
   _ -> Nothing
@@ -113,15 +119,16 @@ erasedQualifiedCheck = Prism (ErasedQualifiedCheck Silent) $ \case
   _ -> Nothing
 
 instance Functor (TermF d) where
-  fmap f e = runIdentity $ traverseTerm term typex kind bound bound' typeBound kindBound e
+  fmap f e = mapTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindBound e
     where
-      term = Identity . fmap f
-      typex = Identity . fmap f
-      kind = Identity . fmap f
-      bound = Identity . bimap (bimap f f) (fmap f)
-      bound' = Identity . bimap (fmap (bimap f f)) (fmap f)
-      typeBound = Identity . bimap (bimap f f) (fmap f)
-      kindBound = Identity . bimap (fmap f) (fmap f)
+      term = fmap f
+      typex = fmap f
+      kind = fmap f
+      bound = bimap (bimap f f) (fmap f)
+      runtimeBound = bimap (bimap f f) (fmap f)
+      runtimeBoundMany = bimap (fmap (bimap f f)) (fmap f)
+      typeBound = bimap (bimap f f) (fmap f)
+      kindBound = bimap (fmap f) (fmap f)
 
 data Term d p = CoreTerm p (TermF d p) deriving (Functor)
 
@@ -147,37 +154,37 @@ avoidCaptureTermConvert = avoidCaptureGeneral internalVariable (convert @(Term d
 
 instance Semigroup p => Algebra (Term d p) p (Term d p) where
   freeVariables (CoreTerm p (Variable _ x)) = Variables.singleton x p
-  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go e
+  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go go e
     where
       go = freeVariables @(Term d p)
   convert ix x (CoreTerm p (Variable d x')) | x == x' = CoreTerm p $ Variable d ix
-  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go e
+  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
     where
       go = convert @(Term d p) ix x
   substitute ux x (CoreTerm _ (Variable _ x')) | x == x' = ux
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go e
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
     where
       go = substitute ux x
 
 instance Semigroup p => Algebra (Type p) p (Term d p) where
-  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go e
+  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go go e
     where
       go = freeVariables @(Type p)
-  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go e
+  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
     where
       go = convert @(Type p) ix x
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go e
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
     where
       go = substitute ux x
 
 instance Semigroup p => Algebra (Kind p) p (Term d p) where
-  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go e
+  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go go e
     where
       go = freeVariables @(Kind p)
-  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go e
+  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
     where
       go = convert @(Kind p) ix x
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go e
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
     where
       go = substitute ux x
 
@@ -220,7 +227,7 @@ reduceTermImpl (MacroApplication _ e1 e2) | (CoreTerm _ (MacroAbstraction _ λ))
 reduceTermImpl (TypeApplication _ e σ) | (CoreTerm _ (TypeAbstraction _ λ)) <- reduce e = let CoreTerm _ e' = apply λ (reduce σ) in e'
 reduceTermImpl (KindApplication _ e κ) | (CoreTerm _ (KindAbstraction _ λ)) <- reduce e = let CoreTerm _ e' = apply λ (reduce κ) in e'
 reduceTermImpl (ErasedQualifiedCheck _ e) | (CoreTerm _ (ErasedQualifiedAssume _ _ e')) <- reduce e = let CoreTerm _ e'' = e' in e''
-reduceTermImpl e = mapTerm go go go go go go go e
+reduceTermImpl e = mapTerm go go go go go go go go e
   where
     go = reduce
 

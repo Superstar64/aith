@@ -419,6 +419,13 @@ instance TypeCheckLinear p (Term d p) TypeInternal where
     matchType p τ τ'
     (σ, lΓ2) <- augmentLinear pm (typeCheckLinear e2)
     pure (σ, lΓ1 `combine` lΓ2)
+  typeCheckLinear (CoreTerm p (Alias e1 (Bound pm' e2))) = do
+    (pm, τ) <- typeCheckInstantiate pm'
+    (τ', lΓ1) <- typeCheckLinear e1
+    matchType p τ τ'
+    (σ, lΓ2) <- augmentLinear pm (typeCheckLinear e2)
+    checkRuntime p =<< checkType p =<< typeCheckInternal σ
+    pure (σ, lΓ1 `combine` lΓ2)
   typeCheckLinear (CoreTerm p (Extern _ _ _ σ' τs')) = do
     (σ, κ) <- typeCheckInstantiate σ'
     checkRuntime p =<< checkType p κ

@@ -20,7 +20,7 @@ import qualified Misc.Variables as Variables
 import Module
 
 external (CoreTerm _ (Extern _ _ sm _ _)) = [sm]
-external (CoreTerm _ e) = foldTerm external go go bound bound bound bound e
+external (CoreTerm _ e) = foldTerm external go go bound bound bound bound bound e
   where
     go = const mempty
     bound (Bound _ e) = external e
@@ -35,6 +35,13 @@ lookupVariable x = do
   (_, mapping) <- Codegen get
   pure $ mapping ! x
 
+nameArgument :: RuntimePattern Decorate p p -> Codegen String
+nameArgument (CoreRuntimePattern _ _ (RuntimePatternVariable x _)) = do
+  (vars, mapping) <- Codegen get
+  let (Identifier name) = Variables.fresh vars x
+  Codegen $ put (vars <> Variables.singleton x (), Map.insert x name mapping)
+  pure name
+
 compileTerm :: Term Decorate p -> WriterT [C.Statement] Codegen C.Expression
 compileTerm (CoreTerm _ (Variable _ x)) = do
   x' <- lift $ lookupVariable x
@@ -46,6 +53,11 @@ compileTerm (CoreTerm _ (FunctionApplication (Decorate (Identity dσ)) (Decorate
   e1' <- compileTerm e1
   e2s' <- traverse compileTerm e2s
   pure $ C.Call dσ dτs e1' e2s'
+compileTerm (CoreTerm _ (Alias e1 (Bound pm@(CoreRuntimePattern (Decorate (Identity dσ)) _ _) e2))) = do
+  e1' <- compileTerm e1
+  x <- lift $ nameArgument pm
+  tell $ [C.VariableDeclaration dσ x e1']
+  compileTerm e2
 compileTerm (CoreTerm _ (FunctionLiteral _ _ _)) = error "function literal inside runtime"
 compileTerm (CoreTerm _ (MacroAbstraction (Decorate i) _)) = absurd i
 compileTerm (CoreTerm _ (TypeAbstraction (Decorate i) _)) = absurd i
@@ -57,13 +69,6 @@ compileTerm (CoreTerm _ (OfCourseIntroduction (Decorate i) _)) = absurd i
 compileTerm (CoreTerm _ (Bind (Decorate i) _ _)) = absurd i
 compileTerm (CoreTerm _ (ErasedQualifiedAssume (Decorate i) _ _)) = absurd i
 compileTerm (CoreTerm _ (ErasedQualifiedCheck (Decorate i) _)) = absurd i
-
-nameArgument :: RuntimePattern Decorate p p -> Codegen String
-nameArgument (CoreRuntimePattern _ _ (RuntimePatternVariable x _)) = do
-  (vars, mapping) <- Codegen get
-  let (Identifier name) = Variables.fresh vars x
-  Codegen $ put (vars <> Variables.singleton x (), Map.insert x name mapping)
-  pure name
 
 compileFunctionLiteral :: Symbol -> Term Decorate p -> Codegen C.FunctionDefinition
 compileFunctionLiteral (Symbol name) (CoreTerm _ (FunctionLiteral (Decorate (Identity dσ)) _ (Bound pms e))) = do

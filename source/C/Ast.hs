@@ -19,7 +19,7 @@ functionDefinition = Isomorph (uncurry $ uncurry $ uncurry $ FunctionDefinition)
   where
     f (FunctionDefinition returnType name arguments text) = (((returnType, name), arguments), text)
 
-data Statement = Return (Expression) | ForwardDeclare Representation String [Representation] deriving (Show)
+data Statement = Return (Expression) | ForwardDeclare Representation String [Representation] | VariableDeclaration Representation String Expression deriving (Show)
 
 returnx = Prism Return $ \case
   (Return e) -> Just e
@@ -27,6 +27,10 @@ returnx = Prism Return $ \case
 
 forwardDeclare = Prism (uncurry $ uncurry $ ForwardDeclare) $ \case
   (ForwardDeclare returnType name argumentTypes) -> Just ((returnType, name), argumentTypes)
+  _ -> Nothing
+
+variableDeclation = Prism (uncurry $ uncurry $ VariableDeclaration) $ \case
+  (VariableDeclaration variableType name value) -> Just ((variableType, name), value)
   _ -> Nothing
 
 data Expression = Variable String | Call Representation [Representation] (Expression) [Expression] deriving (Show)

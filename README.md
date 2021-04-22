@@ -39,6 +39,7 @@ See ``/documentation`` for typing rules.
 | Variable | ``x`` |
 | Of Course Introduction | ``!e`` |
 | Binding | ``%let pm = e1 ; e2 ``|
+| Runtime Binding | ``%alias pme = e1; e2`` |
 | Macro Abstraction | ``λ pm { e }``|
 | Macro Abstraction | ``λ pm => e ``|
 | Macro Application | ``e(e')``|

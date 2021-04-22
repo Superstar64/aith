@@ -170,6 +170,7 @@ term = termBottom
               Core.erasedQualifiedAssume ⊣ token "ξ" ≫ typex ≪ space ⊗ lambdaMajor termBottom,
               Core.ofCourseIntroduction ⊣ token "!" ≫ termBottom,
               Core.bind ⊣ rotateBind ⊣ keyword "let" ≫ space ≫ pattern ≪ space ≪ token "=" ≪ space ⊗ termBottom ≪ token ";" ⊗ line ≫ termBottom,
+              Core.alias ⊣ rotateBind ⊣ keyword "alias" ≫ space ≫ runtimePattern ≪ space ≪ token "=" ≪ space ⊗ termBottom ≪ token ";" ⊗ line ≫ termBottom,
               Core.extern ⊣ keyword "extern" ≫ space ≫ symbol ≪ space ⊗ betweenParens typex ⊗ betweenParens (seperatedMany typex (token ";"))
             ]
         rotateBind = secondI Core.bound . associate . firstI swap

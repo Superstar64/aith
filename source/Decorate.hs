@@ -54,6 +54,11 @@ decorateTerm (CoreTerm p (FunctionLiteral _ τ (Bound pms e))) = do
   pure $ CoreTerm p $ FunctionLiteral (Decorate dτ) τ (Bound dpms e')
 decorateTerm (CoreTerm _ (ErasedQualifiedAssume _ _ e)) = decorateTerm e
 decorateTerm (CoreTerm _ (ErasedQualifiedCheck _ e)) = decorateTerm e
+decorateTerm (CoreTerm p (Alias e1 (Bound pm e2))) = do
+  pm' <- decoratePattern pm
+  e1' <- decorateTerm e1
+  e2' <- decorateTerm e2
+  pure $ CoreTerm p (Alias e1' (Bound pm' e2'))
 decorateTerm _ = error "unable to decorate term"
 
 runDecorate :: Core.TypeCheck.Core Internal Identity a -> a
