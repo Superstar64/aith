@@ -107,6 +107,7 @@ See ``/documentation`` for typing rules.
 | Variable | ``x`` |
 | Type | `` %type s `` |
 | Higher | `` κ -> κ' `` |
+| Constraint | `` %constraint `` |
 | Runtime | ``%runtime ρ`` |
 | Meta | ``%meta`` |
 | Text | ``%text`` |
