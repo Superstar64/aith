@@ -5,7 +5,7 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State (State, evalState, get, put)
 import Control.Monad.Trans.Writer (WriterT (..), runWriterT, tell)
 import Core.Ast.Common
-import Core.Ast.Pattern
+import Core.Ast.RuntimePattern
 import Core.Ast.Term
 import Data.Functor.Identity (Identity (..))
 import Data.Map (Map, (!))
@@ -13,6 +13,7 @@ import qualified Data.Map as Map
 import Decorate
 import Misc.Identifier
 import Misc.Path
+import Misc.Silent
 import Misc.Symbol
 import Misc.Variables (Variables)
 import qualified Misc.Variables as Variables
@@ -34,7 +35,7 @@ lookupVariable x = do
   (_, mapping) <- Codegen get
   pure $ mapping ! x
 
-compileTerm :: Term Decorate p -> WriterT [C.Statement String] Codegen (C.Expression String)
+compileTerm :: Term Decorate p -> WriterT [C.Statement] Codegen C.Expression
 compileTerm (CoreTerm _ (Variable _ x)) = do
   x' <- lift $ lookupVariable x
   pure $ C.Variable x'
@@ -45,7 +46,7 @@ compileTerm (CoreTerm _ (FunctionApplication (Decorate (Identity dσ)) (Decorate
   e1' <- compileTerm e1
   e2s' <- traverse compileTerm e2s
   pure $ C.Call dσ dτs e1' e2s'
-compileTerm (CoreTerm _ (FunctionLiteral _ _ _ _)) = error "function literal inside runtime"
+compileTerm (CoreTerm _ (FunctionLiteral _ _ _)) = error "function literal inside runtime"
 compileTerm (CoreTerm _ (MacroAbstraction (Decorate i) _)) = absurd i
 compileTerm (CoreTerm _ (TypeAbstraction (Decorate i) _)) = absurd i
 compileTerm (CoreTerm _ (KindAbstraction (Decorate i) _)) = absurd i
@@ -54,20 +55,22 @@ compileTerm (CoreTerm _ (TypeApplication (Decorate i) _ _)) = absurd i
 compileTerm (CoreTerm _ (KindApplication (Decorate i) _ _)) = absurd i
 compileTerm (CoreTerm _ (OfCourseIntroduction (Decorate i) _)) = absurd i
 compileTerm (CoreTerm _ (Bind (Decorate i) _ _)) = absurd i
+compileTerm (CoreTerm _ (ErasedQualifiedAssume (Decorate i) _ _)) = absurd i
+compileTerm (CoreTerm _ (ErasedQualifiedCheck (Decorate i) _)) = absurd i
 
-nameArgument :: Pattern p p -> Codegen String
-nameArgument (CorePattern _ (PatternVariable x _)) = do
+nameArgument :: RuntimePattern Decorate p p -> Codegen String
+nameArgument (CoreRuntimePattern _ _ (RuntimePatternVariable x _)) = do
   (vars, mapping) <- Codegen get
   let (Identifier name) = Variables.fresh vars x
   Codegen $ put (vars <> Variables.singleton x (), Map.insert x name mapping)
   pure name
-nameArgument (CorePattern _ (PatternOfCourse _)) = error "unable to name argument"
 
-compileFunctionLiteral :: Symbol -> Term Decorate p -> Codegen (C.FunctionDefinition String)
-compileFunctionLiteral (Symbol name) (CoreTerm _ (FunctionLiteral (Decorate (Identity dσ)) (Decorate dpms) _ (Bound pms e))) = do
+compileFunctionLiteral :: Symbol -> Term Decorate p -> Codegen C.FunctionDefinition
+compileFunctionLiteral (Symbol name) (CoreTerm _ (FunctionLiteral (Decorate (Identity dσ)) _ (Bound pms e))) = do
   arguments <- traverse nameArgument pms
+  let argumentTypes = map (\(CoreRuntimePattern (Decorate σ) _ _) -> runIdentity σ) pms
   (result, depend) <- runWriterT (compileTerm e)
-  pure $ C.FunctionDefinition dσ name (zip dpms arguments) (depend ++ [C.Return result])
+  pure $ C.FunctionDefinition dσ name (zip argumentTypes arguments) (depend ++ [C.Return result])
 compileFunctionLiteral _ _ = error "top level non function literal"
 
 compileModule path (CoreModule code) = Map.toList code >>= compileItem

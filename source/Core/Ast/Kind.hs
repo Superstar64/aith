@@ -13,6 +13,7 @@ data KindF p
   = KindVariable Identifier
   | Type (Kind p)
   | Higher (Kind p) (Kind p)
+  | Constraint
   | Runtime (Kind p)
   | Meta
   | Text
@@ -24,6 +25,7 @@ traverseKind kind = go
     go (KindVariable x) = pure KindVariable <*> pure x
     go (Type κ) = pure Type <*> kind κ
     go (Higher κ κ') = pure Higher <*> kind κ <*> kind κ'
+    go Constraint = pure Constraint
     go (Runtime κ) = pure Runtime <*> kind κ
     go Meta = pure Meta
     go Text = pure Text
@@ -43,6 +45,10 @@ typex = Prism Type $ \case
 
 higher = Prism (uncurry Higher) $ \case
   (Higher κ κ') -> Just (κ, κ')
+  _ -> Nothing
+
+constraint = Prism (const Constraint) $ \case
+  Constraint -> Just ()
   _ -> Nothing
 
 runtime = Prism Runtime $ \case

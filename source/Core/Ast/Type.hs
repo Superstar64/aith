@@ -22,6 +22,8 @@ data TypeF p
   | TypeOperator (Bound (TypePattern p p) (Type p))
   | FunctionPointer (Type p) [Type p]
   | FunctionLiteralType (Type p) [Type p]
+  | ErasedQualified (Type p) (Type p)
+  | Copy (Type p)
   deriving (Show)
 
 traverseType typex typeBound kindBound = go
@@ -35,6 +37,8 @@ traverseType typex typeBound kindBound = go
     go (TypeOperator λ) = pure TypeOperator <*> typeBound λ
     go (FunctionPointer σ τs) = pure FunctionPointer <*> typex σ <*> traverse typex τs
     go (FunctionLiteralType σ τs) = pure FunctionLiteralType <*> typex σ <*> traverse typex τs
+    go (ErasedQualified π σ) = pure ErasedQualified <*> typex π <*> typex σ
+    go (Copy σ) = pure Copy <*> typex σ
 
 foldType typex typeBound kindBound σ = getConst $ traverseType (Const . typex) (Const . typeBound) (Const . kindBound) σ
 
@@ -74,6 +78,14 @@ functionPointer = Prism (uncurry FunctionPointer) $ \case
 
 functionLiteralType = Prism (uncurry FunctionLiteralType) $ \case
   (FunctionLiteralType σ τs) -> Just (σ, τs)
+  _ -> Nothing
+
+erasedQualified = Prism (uncurry ErasedQualified) $ \case
+  (ErasedQualified π σ) -> Just (π, σ)
+  _ -> Nothing
+
+copy = Prism Copy $ \case
+  (Copy σ) -> Just σ
   _ -> Nothing
 
 instance Functor TypeF where

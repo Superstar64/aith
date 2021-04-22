@@ -14,3 +14,15 @@ inline main = Λ<a : %type %meta> {
 	dup<b>(f(x))
 };
 
+
+function wasteful = <a> when(%copy a) (a)(x : a, y : a){
+	x
+};
+
+function ignoreFPtr = <a> (a)(x : a, f : a(*)(a)){
+	x
+};
+
+function useWasteful = <a> (a(*)(a)) (xf : a(*)(a), yf: a(*)(a)) {
+	wasteful<a(*)(a)>?(*)(xf, yf)
+};

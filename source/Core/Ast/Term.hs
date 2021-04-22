@@ -4,6 +4,7 @@ import Core.Ast.Common
 import Core.Ast.Kind
 import Core.Ast.KindPattern
 import Core.Ast.Pattern
+import Core.Ast.RuntimePattern
 import Core.Ast.Type
 import Core.Ast.TypePattern
 import Data.Bifunctor (bimap)
@@ -12,18 +13,9 @@ import Data.Functor.Identity (Identity (..), runIdentity)
 import Misc.Identifier (Identifier)
 import Misc.Isomorph
 import Misc.Prism
+import Misc.Silent
 import Misc.Symbol
 import qualified Misc.Variables as Variables
-
-data Silent (a :: * -> *) = Silent deriving (Show)
-
-data Erased (a :: *)
-
-instance Show (Erased a) where
-  show = absurd
-
-absurd :: Erased a -> b
-absurd x = case x of
 
 data TermF d p
   = Variable (d Identity) Identifier
@@ -37,11 +29,13 @@ data TermF d p
   | Bind (d Erased) (Term d p) (Bound (Pattern p p) (Term d p))
   | Extern (d Identity) (d []) Symbol (Type p) [Type p]
   | FunctionApplication (d Identity) (d []) (Term d p) [Term d p]
-  | FunctionLiteral (d Identity) (d []) (Type p) (Bound [Pattern p p] (Term d p))
+  | FunctionLiteral (d Identity) (Type p) (Bound [RuntimePattern d p p] (Term d p))
+  | ErasedQualifiedAssume (d Erased) (Type p) (Term d p)
+  | ErasedQualifiedCheck (d Erased) (Term d p)
 
 deriving instance (Show p, Show (d Identity), Show (d []), Show (d Erased)) => Show (TermF d p)
 
-traverseTerm term typex kind bound bound' typeBound kindBound = go
+traverseTerm term typex kind bound runtimeBoundMany typeBound kindBound = go
   where
     go (Variable dx x) = pure Variable <*> pure dx <*> pure x
     go (MacroAbstraction i λ) = pure MacroAbstraction <*> pure i <*> bound λ
@@ -54,7 +48,9 @@ traverseTerm term typex kind bound bound' typeBound kindBound = go
     go (Bind i e λ) = pure Bind <*> pure i <*> term e <*> bound λ
     go (Extern dσ dτs sm σ τs) = pure Extern <*> pure dσ <*> pure dτs <*> pure sm <*> typex σ <*> traverse typex τs
     go (FunctionApplication de1 de2s e1 e2s) = pure FunctionApplication <*> pure de1 <*> pure de2s <*> term e1 <*> traverse term e2s
-    go (FunctionLiteral dσ dτs σ λ) = pure FunctionLiteral <*> pure dσ <*> pure dτs <*> typex σ <*> bound' λ
+    go (FunctionLiteral dσ σ λ) = pure FunctionLiteral <*> pure dσ <*> typex σ <*> runtimeBoundMany λ
+    go (ErasedQualifiedAssume i π e) = pure ErasedQualifiedAssume <*> pure i <*> typex π <*> term e
+    go (ErasedQualifiedCheck i e) = pure ErasedQualifiedCheck <*> pure i <*> term e
 
 foldTerm term typex kind bound bound' typeBound kindBound e = getConst $ traverseTerm (Const . term) (Const . typex) (Const . kind) (Const . bound) (Const . bound') (Const . typeBound) (Const . kindBound) e
 
@@ -104,8 +100,16 @@ functionApplication = Prism (uncurry $ FunctionApplication Silent Silent) $ \cas
   (FunctionApplication _ _ e e's) -> Just (e, e's)
   _ -> Nothing
 
-functionLiteral = Prism (uncurry $ FunctionLiteral Silent Silent) $ \case
-  (FunctionLiteral _ _ σ λ) -> Just (σ, λ)
+functionLiteral = Prism (uncurry $ FunctionLiteral Silent) $ \case
+  (FunctionLiteral _ σ λ) -> Just (σ, λ)
+  _ -> Nothing
+
+erasedQualifiedAssume = Prism (uncurry $ ErasedQualifiedAssume Silent) $ \case
+  (ErasedQualifiedAssume _ π e) -> Just (π, e)
+  _ -> Nothing
+
+erasedQualifiedCheck = Prism (ErasedQualifiedCheck Silent) $ \case
+  (ErasedQualifiedCheck _ e) -> Just e
   _ -> Nothing
 
 instance Functor (TermF d) where
@@ -194,6 +198,13 @@ instance Algebra (Term d p) p u => Algebra (Term d p) p (Bound (Pattern p p) u) 
 
 instance Algebra (Term d p) p (e p) => AlgebraBound (Term d p) p e (Pattern p p)
 
+instance Algebra (Term d p) p u => Algebra (Term d p) p (Bound (RuntimePattern d p p) u) where
+  freeVariables (Bound pm e) = removeBinds (freeVariables @(Term d p) e) (bindings pm)
+  convert = substituteSame (convert @(Term d p)) (avoidCaptureTermConvert @d @p)
+  substitute = substituteSame substitute (avoidCaptureTerm @d)
+
+instance Algebra (Term d p) p (e p) => AlgebraBound (Term d p) p e (RuntimePattern d p p)
+
 instance (Algebra (Type p) p u, Algebra (Term d p) p u) => Algebra (Term d p) p (Bound (TypePattern p p) u) where
   freeVariables (Bound _ e) = freeVariables @(Term d p) e
   convert = substituteLower (convert @(Term d p)) (flip const)
@@ -208,6 +219,7 @@ reduceTermImpl (Bind _ e λ) = let CoreTerm _ e' = apply λ (reduce e) in e'
 reduceTermImpl (MacroApplication _ e1 e2) | (CoreTerm _ (MacroAbstraction _ λ)) <- reduce e1 = let CoreTerm _ e' = apply λ (reduce e2) in e'
 reduceTermImpl (TypeApplication _ e σ) | (CoreTerm _ (TypeAbstraction _ λ)) <- reduce e = let CoreTerm _ e' = apply λ (reduce σ) in e'
 reduceTermImpl (KindApplication _ e κ) | (CoreTerm _ (KindAbstraction _ λ)) <- reduce e = let CoreTerm _ e' = apply λ (reduce κ) in e'
+reduceTermImpl (ErasedQualifiedCheck _ e) | (CoreTerm _ (ErasedQualifiedAssume _ _ e')) <- reduce e = let CoreTerm _ e'' = e' in e''
 reduceTermImpl e = mapTerm go go go go go go go e
   where
     go = reduce

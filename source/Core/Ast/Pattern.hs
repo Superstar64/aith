@@ -38,8 +38,8 @@ type PatternInternal = Pattern Internal Internal
 instance Semigroup p => Binder p (Pattern p p) where
   bindings (CorePattern p (PatternVariable x _)) = Variables.singleton x p
   bindings (CorePattern _ (PatternOfCourse pm)) = bindings pm
-  rename ux x (CorePattern p (PatternVariable x' κ)) | x == x' = CorePattern p (PatternVariable ux κ)
-  rename _ _ (CorePattern p (PatternVariable x κ)) = CorePattern p (PatternVariable x κ)
+  rename ux x (CorePattern p (PatternVariable x' σ)) | x == x' = CorePattern p (PatternVariable ux σ)
+  rename _ _ x@(CorePattern _ (PatternVariable _ _)) = x
   rename ux x (CorePattern p (PatternOfCourse pm)) = CorePattern p (PatternOfCourse $ rename ux x pm)
 
 instance Algebra u p (Type p) => Algebra u p (Pattern p p) where

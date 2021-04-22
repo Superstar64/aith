@@ -3,8 +3,8 @@ module Main where
 import C.Print
 import Codegen
 import Core.Ast.Common
-import Core.Ast.Term
 import Core.TypeCheck
+import Misc.Silent
 import Misc.Syntax
 import Module hiding (modulex)
 import Syntax

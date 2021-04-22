@@ -8,8 +8,8 @@ import Control.Monad.Trans.Writer (tell)
 import Core.Ast.Common as Core
 import qualified Core.Ast.Kind as Core
 import qualified Core.Ast.KindPattern as Core
-import qualified Core.Ast.Multiplicity as Core
 import qualified Core.Ast.Pattern as Core
+import qualified Core.Ast.RuntimePattern as Core
 import qualified Core.Ast.Sort as Core
 import qualified Core.Ast.Term as Core
 import qualified Core.Ast.Type as Core
@@ -74,10 +74,6 @@ path = (Path.path . swapNonEmpty) ⊣ identifer ⊗ pathTail
   where
     pathTail = cons ⊣ token "/" ≫ identifer ⊗ pathTail ∥ nil ⊣ always
 
-linear = Core.coreMultiplicity ⊣ position ⊗ core
-  where
-    core = Core.linear ⊣ keyword "linear" ∥ Core.unrestricted ⊣ keyword "unrestricted"
-
 sort = Core.kind ⊣ keyword "kind" ∥ Core.stage ⊣ keyword "stage" ∥ Core.representation ⊣ keyword "representation"
 
 kindPattern = Core.coreKindPattern ⊣ position ⊗ core
@@ -96,6 +92,7 @@ kind = kindBottom
             [ Core.kindVariable ⊣ identifer,
               Core.typex ⊣ keyword "type" ≫ space ≫ kindCore,
               Core.runtime ⊣ keyword "runtime" ≫ space ≫ kindCore,
+              Core.constraint ⊣ keyword "constraint",
               Core.meta ⊣ keyword "meta",
               Core.text ⊣ keyword "text",
               Core.pointerRep ⊣ keyword "pointer"
@@ -115,9 +112,11 @@ typex = typeBottom
             Core.kindForall ⊣ Core.bound ⊣ token "∀@" ≫ kindPattern ≪ space ⊗ lambda (typeBottom),
             Core.typeOperator ⊣ Core.bound ⊣ token "λ" ≫ typePattern ≪ space ⊗ lambda (typeBottom)
           ]
-    typeBottom = typeLambda lambdaCore ∥# macro `branchDistribute` unit' ⊣ typeCore ⊗ (space ≫ token "->" ≫ space ≫ typeBottom ⊕ always)
+    typeBottom = typeLambda lambdaCore ∥# binary ⊣ typeCore ⊗ (space ≫ token "->" ≫ space ≫ typeBottom ⊕ space ≫ token "=>?" ≫ space ≫ typeBottom ⊕ always)
       where
+        binary = macro `branchDistribute` erasedQualified `branchDistribute` unit'
         macro = withInnerPosition Core.coreType Core.macro
+        erasedQualified = withInnerPosition Core.coreType Core.erasedQualified
     typeCore = foldlP (functionLiteralType `branchDistribute` functionPointer `branchDistribute` typeConstruction) ⊣ top ⊗ many postfix
       where
         postfix = keyword "function" ≫ manyTypes ⊕ token "(*)" ≫ manyTypes ⊕ betweenParens typeBottom
@@ -130,7 +129,8 @@ typex = typeBottom
         core =
           choice
             [ Core.typeVariable ⊣ identifer,
-              Core.ofCourse ⊣ token "!" ≫ typeCore
+              Core.ofCourse ⊣ token "!" ≫ typeCore,
+              Core.copy ⊣ token "%copy" ≫ space ≫ typeCore
             ]
 
 pattern = patternBottom
@@ -142,16 +142,23 @@ pattern = patternBottom
       where
         patternOfCourse = Core.patternOfCourse ⊣ token "!" ≫ patternCore
 
+runtimePattern = patternBottom
+  where
+    patternBottom = Core.coreRuntimePattern ⊣ position ⊗ variable
+      where
+        variable = Core.runtimePatternVariable ⊣ identifer ⊗ token ":" ≫ typex
+
 term = termBottom
   where
     termBottom = foldlP applyPostfix ⊣ termCore ⊗ many postfix
       where
-        applyPostfix = functionApplication `branchDistribute` macroApplication `branchDistribute` typeApplication `branchDistribute` kindApplication
-        postfix = token "(*)" ≫ betweenParens (seperatedMany termBottom (token ",")) ⊕ betweenParens term ⊕ betweenAngle typex ⊕ token "@" ≫ kind
+        applyPostfix = functionApplication `branchDistribute` macroApplication `branchDistribute` typeApplication `branchDistribute` kindApplication `branchDistribute` erasedQualifiedCheck
+        postfix = token "(*)" ≫ betweenParens (seperatedMany termBottom (token ",")) ⊕ betweenParens term ⊕ betweenAngle typex ⊕ token "@" ≫ kind ⊕ token "?"
         functionApplication = withInnerPosition Core.coreTerm Core.functionApplication
         macroApplication = withInnerPosition Core.coreTerm Core.macroApplication
         typeApplication = withInnerPosition Core.coreTerm Core.typeApplication
         kindApplication = withInnerPosition Core.coreTerm Core.kindApplication
+        erasedQualifiedCheck = withInnerPosition Core.coreTerm (Core.erasedQualifiedCheck . toPrism unit')
     termCore = Core.coreTerm ⊣ position ⊗ core ∥ keyword "function" ≫ functionCore ∥ betweenParens termBottom
       where
         core =
@@ -160,6 +167,7 @@ term = termBottom
               Core.macroAbstraction ⊣ Core.bound ⊣ token "λ" ≫ pattern ≪ space ⊗ lambdaMajor termBottom,
               Core.typeAbstraction ⊣ Core.bound ⊣ token "Λ<" ≫ typePattern ≪ token ">" ≪ space ⊗ lambdaMajor termBottom,
               Core.kindAbstraction ⊣ Core.bound ⊣ token "Λ@" ≫ kindPattern ≪ space ⊗ lambdaMajor termBottom,
+              Core.erasedQualifiedAssume ⊣ token "ξ" ≫ typex ≪ space ⊗ lambdaMajor termBottom,
               Core.ofCourseIntroduction ⊣ token "!" ≫ termBottom,
               Core.bind ⊣ rotateBind ⊣ keyword "let" ≫ space ≫ pattern ≪ space ≪ token "=" ≪ space ⊗ termBottom ≪ token ";" ⊗ line ≫ termBottom,
               Core.extern ⊣ keyword "extern" ≫ space ≫ symbol ≪ space ⊗ betweenParens typex ⊗ betweenParens (seperatedMany typex (token ";"))
@@ -170,11 +178,12 @@ functionCore = Core.coreTerm ⊣ position ⊗ core
   where
     core = Core.functionLiteral ⊣ betweenParens typex ⊗ binding
       where
-        binding = Core.bound ⊣ betweenParens (seperatedMany pattern (token ",")) ⊗ lambdaMajor term
+        binding = Core.bound ⊣ betweenParens (seperatedMany runtimePattern (token "," ≪ space)) ⊗ lambdaMajor term
 
-functionLiteral = templateParameters ∥ functionCore ∥ token "~" ≫ term
+functionLiteral = templateParameters ∥ concepts ∥ functionCore ∥ token "~" ≫ term
   where
-    templateParameters = Core.coreTerm ⊣ position ⊗ (Core.typeAbstraction ⊣ Core.bound ⊣ betweenAngle typePattern ⊗ functionLiteral)
+    templateParameters = Core.coreTerm ⊣ position ⊗ (Core.typeAbstraction ⊣ Core.bound ⊣ betweenAngle typePattern ≪ space ⊗ functionLiteral)
+    concepts = Core.coreTerm ⊣ position ⊗ (Core.erasedQualifiedAssume ⊣ moduleKeyword "when" ≫ betweenParens typex ≪ space ⊗ functionLiteral)
 
 modulex = Module.coreModule ⊣ orderless ⊣ some item
   where

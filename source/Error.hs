@@ -2,7 +2,6 @@ module Error where
 
 import Core.Ast.Common
 import Core.Ast.Kind
-import Core.Ast.Multiplicity
 import Core.Ast.Sort
 import Core.Ast.Type
 import Data.Functor.Identity (Identity)
@@ -23,9 +22,11 @@ data Error p
   | ExpectedFunctionPointer p Int TypeInternal
   | ExpectedForall p TypeInternal
   | ExpectedKindForall p TypeInternal
+  | ExpectedErasedQualified p TypeInternal
   | ExpectedOfCourse p TypeInternal
   | ExpectedType p KindInternal
   | ExpectedHigher p KindInternal
+  | ExpectedConstraint p KindInternal
   | ExpectedText p KindInternal
   | ExpectedRuntime p KindInternal
   | ExpectedKind p Sort
@@ -33,10 +34,10 @@ data Error p
   | ExpectedRepresentation p Sort
   | IncompatibleType p TypeInternal TypeInternal
   | IncompatibleKind p KindInternal KindInternal
-  | IncompatibleLinear p MultiplicityInternal MultiplicityInternal
   | IncompatibleSort p Sort Sort
   | CaptureLinear p Identifier
   | InvalidUsage p Identifier
+  | NoProof p TypeInternal
   deriving (Show)
 
 class (Monad m, Semigroup p) => Base p m where
@@ -56,3 +57,7 @@ instance (Semigroup p, Show p) => Base p IO where
 instance Base Internal Identity where
   quit e = error $ "" ++ show e
   moduleQuit e = error $ "" ++ show e
+
+instance Base Internal Maybe where
+  quit _ = Nothing
+  moduleQuit _ = Nothing

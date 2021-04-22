@@ -50,15 +50,20 @@ See ``/documentation`` for typing rules.
 | Kind Application | ``e @ κ`` |
 | Extern | ``%extern "x" (σ)(τ, τ', ...)`` |
 | Function Application | ``e(*)(e1,e2, ...) ``|
-| Function Literal | ``%function (τ)(x : σ,x' : σ', ...) => e`` |
-| Function Literal | ``%function (τ)(x : σ,x' : σ', ...) { e }`` |
+| Function Literal | ``%function (τ)(pme, pme', ...) => e`` |
+| Function Literal | ``%function (τ)(pme, pme', ...) { e }`` |
+| Erased Qualified Assumption | ``ξ σ => e `` |
+| Erased Qualified Assumption | ``ξ σ { e } `` |
+| Erased Qualified Check | ``e?`` |
+
 
 # Function Sugar Term (ef)
 |Description | Syntax |
 |-|-|
 | Type Abstraction | `` <x : κ> ef `` |
-| Function Literal | ``(τ)(x : σ,x' : σ', ...) => e `` |
-| Function Literal | ``(τ)(x : σ,x' : σ', ...) { e } `` |
+| Erased Qualified Assumption | `` when (σ) ef `` |
+| Function Literal | ``(τ)(pme, pme', ...) => e `` |
+| Function Literal | ``(τ)(pme, pme', ...) { e } `` |
 | Explict | ``~e`` |
 
 ## Patterns(pm)
@@ -67,7 +72,12 @@ See ``/documentation`` for typing rules.
 | Variable | ``(x : σ)``|
 | OfCourse | ``!pm`` |
 
-## Types(σ, τ)
+## Runtime Patterns(pme)
+| Description | Syntax |
+|-|-|
+| Variable | ``(x : σ)``|
+
+## Types(σ, τ, π)
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
@@ -82,6 +92,8 @@ See ``/documentation`` for typing rules.
 | Type Construction | `` σ (τ) `` |
 | Function Pointer | `` σ(*)(τ, τ', ...) `` |
 | Function Literal Type | `` σ %function (τ, τ', ...) `` |
+| Erased Qualified Type | `` π =>? σ `` |
+| Copy Predicate | ``%copy σ`` |
 
 ## Type Pattern(pmσ)
 |Description | Syntax |
