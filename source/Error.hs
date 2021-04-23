@@ -7,7 +7,7 @@ import Core.Ast.Type
 import Data.Functor.Identity (Identity)
 import Misc.Identifier (Identifier)
 import Misc.Path
-import System.Exit (ExitCode (..), exitWith)
+import System.Exit (die)
 
 data LookupError p
   = IllegalPath p Path
@@ -45,14 +45,8 @@ class (Monad m, Semigroup p) => Base p m where
   moduleQuit :: LookupError p -> m a
 
 instance (Semigroup p, Show p) => Base p IO where
-  quit error = do
-    putStrLn "Error:"
-    print error
-    exitWith (ExitFailure 2)
-  moduleQuit error = do
-    putStrLn "Module Error:"
-    print error
-    exitWith (ExitFailure 3)
+  quit error = die $ "Error:" ++ show error
+  moduleQuit error = die $ "Module Error:" ++ show error
 
 instance Base Internal Identity where
   quit e = error $ "" ++ show e

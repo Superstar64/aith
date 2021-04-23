@@ -1,3 +1,5 @@
+module:
+
 inline fmap = Λ@r : %stage {
 	Λ<m : %type r -> %type r> =>
 	Λ<a : %type r> =>
@@ -13,3 +15,14 @@ inline fmap = Λ@r : %stage {
 	})
 };
 
+inline pureIdentityPtr = Λ<a> => λx : a {
+	x
+};
+
+inline bindIdentityPtr = Λ<a> => Λ<b> => λx : a => λf : a -> b {
+	f(x)
+};
+
+function usefmap = <a> (a)(x : a) {
+	fmap @ %runtime %pointer <λ x => x> <a> <a> (!pureIdentityPtr) (!bindIdentityPtr) (λ x : a => x)(x) 
+};

@@ -1,4 +1,5 @@
-module boolean = {
+module:
+
 inline true = Λ@s : %stage => Λ<a : %type s> => λ!(x : a) => λ!(y : a) => x;
 
 inline false = Λ@s : %stage => Λ<a : %type s> => λ!(x : a) => λ!(y : a) => y;
@@ -6,8 +7,14 @@ inline false = Λ@s : %stage => Λ<a : %type s> => λ!(x : a) => λ!(y : a) => y
 inline not = λ x : (∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) {
 	x @ %meta <∀@s : %stage => ∀<a:%type s> => !a -> !a -> a>(!false)(!true)
 };
-};
-import not = boolean/not;
-import true = boolean/true;
-inline main = not(true);
 
+inline boolToFunction = λ x : (∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) {
+	Λ<b> => ξ %copy b {
+		%function (b)(left : b, right : b){
+			x @ %runtime %pointer <b>(!left)(!right)
+		}
+	}
+};
+
+function runtimeTrue = ~boolToFunction(true);
+function runtimeNotTrue = ~boolToFunction(not(true));

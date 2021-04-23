@@ -18,7 +18,7 @@ See ``/documentation`` for typing rules.
 * [x] Stage Polymorphism
 * [x] Modules
 * [ ] Runtime Lambda Calculus
-* [ ] Runtime Primatives
+* [ ] Runtime Primitives
 * [ ] Hindley Milner Subset
 * [x] C Code Generation
 * [ ] Javascript Code Generation
@@ -30,7 +30,7 @@ See ``/documentation`` for typing rules.
 |-|-|
 | Module | ``module x = { code };`` |
 | Inline Symbol | ``inline x =  e; ``|
-| Import | ``import x = x'/x''/...``|
+| Import | ``import x = /x'/x''/...;``|
 | Function | ``function x = ef;`` |
 
 ## Terms(e)

@@ -10,7 +10,7 @@ import Core.Ast.Type
 import Core.TypeCheck
 import Data.Bifunctor (first)
 import Data.Functor.Identity (Identity)
-import Data.List (find, intercalate)
+import Data.List (find)
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
@@ -177,7 +177,7 @@ typeCheckModule (Ordering code) = execStateT (go code) mempty
         bound (Bound pm σ) = Bound pm $ convert σ
 
 mangle :: Path -> Symbol
-mangle (Path path (Identifier name)) = Symbol $ (intercalate "_" $ extract <$> path) ++ name
+mangle (Path path (Identifier name)) = Symbol $ (concat $ map (++ "_") $ extract <$> path) ++ name
   where
     extract (Identifier x) = x
 

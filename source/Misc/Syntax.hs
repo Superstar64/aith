@@ -66,6 +66,8 @@ parseTest (Parser p) = Megaparsec.parseTest p
 
 parse (Parser p) = Megaparsec.parse p
 
+parseMaybe (Parser p) = Megaparsec.parseMaybe p
+
 instance SyntaxBase Parser where
   syntaxmap (Prism f _) p = f <$> p
   (⊗) = liftM2 (,)
@@ -75,8 +77,10 @@ instance SyntaxBase Parser where
 
 newtype Printer a = Printer (a -> Maybe (WriterT String (State Int) ()))
 
+pretty (Printer p) a = snd $ fst $ (runState $ runWriterT $ fromJust $ p a) 0
+
 prettyPrint :: Printer a -> a -> IO ()
-prettyPrint (Printer p) a = putStrLn $ snd $ fst $ (runState $ runWriterT $ fromJust $ p a) 0
+prettyPrint p a = putStrLn $ pretty p a
 
 instance SyntaxBase Printer where
   syntaxmap (Prism _ f) (Printer p) = Printer $ \b -> f b >>= p

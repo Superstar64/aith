@@ -70,21 +70,23 @@ compileTerm (CoreTerm _ (Bind (Decorate i) _ _)) = absurd i
 compileTerm (CoreTerm _ (ErasedQualifiedAssume (Decorate i) _ _)) = absurd i
 compileTerm (CoreTerm _ (ErasedQualifiedCheck (Decorate i) _)) = absurd i
 
-compileFunctionLiteral :: Symbol -> Term Decorate p -> Codegen C.FunctionDefinition
-compileFunctionLiteral (Symbol name) (CoreTerm _ (FunctionLiteral (Decorate (Identity dσ)) _ (Bound pms e))) = do
+compileFunctionLiteralImpl :: Symbol -> Term Decorate p -> Codegen C.FunctionDefinition
+compileFunctionLiteralImpl (Symbol name) (CoreTerm _ (FunctionLiteral (Decorate (Identity dσ)) _ (Bound pms e))) = do
   arguments <- traverse nameArgument pms
   let argumentTypes = map (\(CoreRuntimePattern (Decorate σ) _ _) -> runIdentity σ) pms
   (result, depend) <- runWriterT (compileTerm e)
   pure $ C.FunctionDefinition dσ name (zip argumentTypes arguments) (depend ++ [C.Return result])
-compileFunctionLiteral _ _ = error "top level non function literal"
+compileFunctionLiteralImpl _ _ = error "top level non function literal"
 
-compileModule path (CoreModule code) = Map.toList code >>= compileItem
+compileFunctionLiteral path name e = [run $ compileFunctionLiteralImpl manging decorated]
   where
-    compileItem (x, (Module items)) = compileModule (path ++ [x]) items
-    compileItem (x, (Global (Text e))) = [run $ compileFunctionLiteral manging decorated]
-      where
-        manging = mangle $ Path path x
-        decorated = runDecorate $ decorateTerm e
-        run c = runCodegen c (external e)
-    compileItem (_, (Global (Inline _))) = []
-    compileItem (_, (Global (Import _ _))) = []
+    manging = mangle $ Path path name
+    decorated = runDecorate $ decorateTerm e
+    run c = runCodegen c (external e)
+
+compileModule path (CoreModule code) = Map.toList code >>= (uncurry $ compileItem path)
+
+compileItem path name (Module items) = compileModule (path ++ [name]) items
+compileItem path name (Global (Text e)) = compileFunctionLiteral path name e
+compileItem _ _ (Global (Inline _)) = []
+compileItem _ _ (Global (Import _ _)) = []

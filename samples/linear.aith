@@ -1,3 +1,5 @@
+module:
+
 inline dup = Λ<b : %type %meta> {
 	λ!(x : b) =>
 	Λ<r : %type %meta> =>

@@ -19,6 +19,7 @@ import Misc.Identifier
 import Misc.Isomorph
 import qualified Misc.Path as Path
 import Misc.Prism
+import Misc.Silent
 import qualified Misc.Symbol as Symbol
 import Misc.Syntax
 import qualified Module as Module
@@ -70,9 +71,13 @@ lambdaMajor e = betweenBraces (indent ≫ line ≫ e ≪ dedent ≪ line) ∥ la
 
 withInnerPosition core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst)
 
-path = (Path.path . swapNonEmpty) ⊣ identifer ⊗ pathTail
+path = (Path.path . swapNonEmpty) ⊣ token "/" ≫ identifer ⊗ pathTail
   where
     pathTail = cons ⊣ token "/" ≫ identifer ⊗ pathTail ∥ nil ⊣ always
+
+semiPath = token "/" ≫ pathTail ∥ nil ⊣ always
+  where
+    pathTail = cons ⊣ identifer ⊗ (token "/" ≫ pathTail ∥ nil ⊣ always)
 
 sort = Core.kind ⊣ keyword "kind" ∥ Core.stage ⊣ keyword "stage" ∥ Core.representation ⊣ keyword "representation"
 
@@ -186,16 +191,26 @@ functionLiteral = templateParameters ∥ concepts ∥ functionCore ∥ token "~"
     templateParameters = Core.coreTerm ⊣ position ⊗ (Core.typeAbstraction ⊣ Core.bound ⊣ betweenAngle typePattern ≪ space ⊗ functionLiteral)
     concepts = Core.coreTerm ⊣ position ⊗ (Core.erasedQualifiedAssume ⊣ moduleKeyword "when" ≫ betweenParens typex ≪ space ⊗ functionLiteral)
 
-modulex = Module.coreModule ⊣ orderless ⊣ some item
+modulex = Module.coreModule ⊣ orderless ⊣ some (item itemCore lambdaMajor)
   where
     itemCore brand inner = moduleKeyword brand ≫ space ≫ identifer ≪ space ≪ token "=" ≪ space ⊗ inner ≪ token ";" ≪ line
-    item =
-      choice
-        [ itemCore "module" (Module.modulex ⊣ lambdaMajor modulex),
-          itemCore "inline" (Module.global . Module.inline ⊣ term),
-          itemCore "import" (Module.global . Module.importx ⊣ position ⊗ path),
-          itemCore "function" (Module.global . Module.text ⊣ functionLiteral)
-        ]
+
+item ::
+  (Syntax δ, Position δ p) =>
+  (String -> δ (Module.Item Silent p) -> δ a) ->
+  (δ (Module.Module Silent p) -> δ (Module.Module Silent p)) ->
+  δ a
+item itemCore lambda =
+  choice
+    [ itemCore "module" (Module.modulex ⊣ lambda modulex),
+      itemCore "inline" (Module.global . Module.inline ⊣ term),
+      itemCore "import" (Module.global . Module.importx ⊣ position ⊗ path),
+      itemCore "function" (Module.global . Module.text ⊣ functionLiteral)
+    ]
+
+itemSingleton = item itemCore id
+  where
+    itemCore brand inner = moduleKeyword brand ≫ token ":" ≫ inner
 
 withSourcePos :: g (f SourcePos) -> g (f SourcePos)
 withSourcePos = id
