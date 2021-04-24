@@ -113,6 +113,7 @@ See ``/documentation`` for typing rules.
 | Meta | ``%meta`` |
 | Text | ``%text`` |
 | Pointer Representation | ``%pointer``|
+| Struct Representation | ``%struct (ρ, ρ', ...)`` |
 
 ## Sorts(μ)
 | Description | Syntax |

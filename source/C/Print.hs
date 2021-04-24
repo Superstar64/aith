@@ -1,8 +1,12 @@
 module C.Print where
 
 import qualified C.Ast as C
+import Control.Category ((.))
 import Control.Monad.Trans.Writer (tell)
+import Misc.Isomorph
+import Misc.Prism
 import Misc.Syntax
+import Prelude hiding (id, (.))
 
 string op = Printer $ \() -> Just $ do
   tell op >> tell " "
@@ -17,31 +21,30 @@ betweenBraces = between (string "{") (string "}")
 
 argumentList e = betweenParens (seperatedMany e (string ","))
 
-header =
-  foldr
-    (≫)
-    always
-    [ string "#ifndef AITH",
-      line,
-      string "#define AITH AITH",
-      line,
-      string "typedef void* pointer;",
-      line,
-      string "#endif",
-      line
-    ]
+preprocess x = line ≫ x ≪ line
 
-globals = header ≫ many functionDefinition
+once name x = preprocess (string "#ifndef " ≫ name) ⊗ preprocess (string "#define " ≫ name ⊗ string " " ≫ name) ⊗ x ≪ preprocess (string "#endif")
 
-pointer = C.pointer ⊣ string "pointer"
+header :: Printer ()
+header = discardInfo (\() -> ((), ((), ()))) ⊣ once (string "AITH") (string "typedef void* pointer;")
 
-function = C.function ⊣ string "function"
+globals = header ≫ many global
 
-representation = pointer ∥ function
+pointer = C.pointer ⊣ string "pointer" ∥ C.struct ⊣ string "struct" ≫ identifer
 
-functionDefinition = C.functionDefinition ⊣ representation ⊗ identifer ⊗ arguments ⊗ compound
+representation = pointer
+
+global = functionDefinition ∥ structDefinition
   where
-    arguments = argumentList (representation ⊗ identifer)
+    functionDefinition = C.functionDefinition ⊣ representation ⊗ identifer ⊗ arguments ⊗ compound
+      where
+        arguments = argumentList (representation ⊗ identifer)
+    structDefinition = C.structDefinition . toPrism ignoreCpp ⊣ once identifer definition
+      where
+        definition = string "struct" ≫ identifer ⊗ betweenBraces (many declare) ≪ string ";"
+          where
+            declare = representation ⊗ identifer ≪ string ";"
+    ignoreCpp = discardInfo (\(name, _) -> (name, (name, name)))
 
 compound = betweenBraces $ many statement
 

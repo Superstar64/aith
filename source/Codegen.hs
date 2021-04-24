@@ -27,9 +27,10 @@ external (CoreTerm _ e) = foldTerm external go go bound bound bound bound bound 
 
 newtype Codegen a = Codegen (State (Variables (), Map Identifier String) a) deriving (Functor, Applicative, Monad)
 
-runCodegen (Codegen x) symbols = evalState x (Variables.fromList $ go <$> symbols, mempty)
+runCodegen (Codegen x) symbols = evalState x (illegal, mempty)
   where
     go (Symbol x) = (Identifier x, ())
+    illegal = Variables.fromList $ go <$> symbols
 
 lookupVariable x = do
   (_, mapping) <- Codegen get
@@ -42,7 +43,7 @@ nameArgument (CoreRuntimePattern _ _ (RuntimePatternVariable x _)) = do
   Codegen $ put (vars <> Variables.singleton x (), Map.insert x name mapping)
   pure name
 
-compileTerm :: Term Decorate p -> WriterT [C.Statement] Codegen C.Expression
+compileTerm :: Term Decorate p -> WriterT [C.Statement (C.Representation C.RepresentationFix)] Codegen (C.Expression (C.Representation C.RepresentationFix))
 compileTerm (CoreTerm _ (Variable _ x)) = do
   x' <- lift $ lookupVariable x
   pure $ C.Variable x'
@@ -70,7 +71,7 @@ compileTerm (CoreTerm _ (Bind (Decorate i) _ _)) = absurd i
 compileTerm (CoreTerm _ (ErasedQualifiedAssume (Decorate i) _ _)) = absurd i
 compileTerm (CoreTerm _ (ErasedQualifiedCheck (Decorate i) _)) = absurd i
 
-compileFunctionLiteralImpl :: Symbol -> Term Decorate p -> Codegen C.FunctionDefinition
+compileFunctionLiteralImpl :: Symbol -> Term Decorate p -> Codegen (C.Global (C.Representation C.RepresentationFix))
 compileFunctionLiteralImpl (Symbol name) (CoreTerm _ (FunctionLiteral (Decorate (Identity dσ)) _ (Bound pms e))) = do
   arguments <- traverse nameArgument pms
   let argumentTypes = map (\(CoreRuntimePattern (Decorate σ) _ _) -> runIdentity σ) pms

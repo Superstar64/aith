@@ -312,6 +312,9 @@ instance TypeCheck p (Kind p) Sort where
     pure $ Stage
   typeCheck (CoreKind _ PointerRep) = do
     pure $ Representation
+  typeCheck (CoreKind p (StructRep ρs)) = do
+    traverse (checkRepresentation p <=< typeCheck) ρs
+    pure $ Representation
 
 instance TypeCheck p (Type p) KindInternal where
   typeCheck (CoreType p (TypeVariable x)) = do

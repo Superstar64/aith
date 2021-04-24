@@ -13,9 +13,13 @@ import Data.Functor.Identity
 import qualified Data.Map as Map
 import Misc.Silent
 
-newtype Decorate f = Decorate (f C.Representation)
+newtype Decorate f = Decorate (f (C.Representation C.RepresentationFix))
 
-decoration (CoreKind _ (Type (CoreKind _ (Runtime (CoreKind _ PointerRep))))) = C.Pointer
+decorateImpl (CoreKind _ PointerRep) = C.Pointer
+decorateImpl (CoreKind _ (StructRep ρs)) = C.Struct $ C.RepresentationFix $ decorateImpl <$> ρs
+decorateImpl _ = error "unable to decorate kind"
+
+decoration (CoreKind _ (Type (CoreKind _ (Runtime κ)))) = decorateImpl κ
 decoration _ = error "unable to decorate kind"
 
 augmentVariable p x σ e = do

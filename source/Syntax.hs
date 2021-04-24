@@ -100,7 +100,8 @@ kind = kindBottom
               Core.constraint ⊣ keyword "constraint",
               Core.meta ⊣ keyword "meta",
               Core.text ⊣ keyword "text",
-              Core.pointerRep ⊣ keyword "pointer"
+              Core.pointerRep ⊣ keyword "pointer",
+              Core.structRep ⊣ keyword "struct" ≫ betweenParens (seperatedMany kind (token ","))
             ]
 
 typePattern = Core.coreTypePattern ⊣ position ⊗ core

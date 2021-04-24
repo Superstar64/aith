@@ -53,6 +53,7 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & \text{Text} \tag*{[Symbol Stage]} \\
 & \text{Runtime} (\rho) \tag*{[Runtime Stage]}\\
 & \text{Pointer} \tag*{[Pointer Representation]}\\
+& \text{Structure} \{ \rho, \rho', \dots \} \tag*{[Structure Representation]}
 \\
 \mu \Coloneqq & \text{Kind} \\
 & \text{Stage} \\
@@ -255,6 +256,10 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \frac
 {}
 {\Phi \vdash \text{Pointer} : \text{Representation}} \\
+\\
+\frac
+{\Phi \vdash \rho : \text{Representation} \quad \Phi \vdash \rho' : \text{Representation} \quad \dots}
+{\Phi \vdash \text{Structure} \{ \rho, \rho', \dots \} : \text{Representation} } \\
 \\
 \Phi \models \pi \tag*{[Qualified Validation]} \\
 \\

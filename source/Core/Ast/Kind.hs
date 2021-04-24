@@ -18,6 +18,7 @@ data KindF p
   | Meta
   | Text
   | PointerRep
+  | StructRep [Kind p]
   deriving (Show, Functor)
 
 traverseKind kind = go
@@ -30,6 +31,7 @@ traverseKind kind = go
     go Meta = pure Meta
     go Text = pure Text
     go PointerRep = pure PointerRep
+    go (StructRep ρs) = pure StructRep <*> traverse kind ρs
 
 mapKind kind κ = runIdentity $ traverseKind (Identity . kind) κ
 
@@ -65,6 +67,10 @@ text = Prism (const Text) $ \case
 
 pointerRep = Prism (const PointerRep) $ \case
   PointerRep -> Just ()
+  _ -> Nothing
+
+structRep = Prism StructRep $ \case
+  (StructRep ρs) -> Just ρs
   _ -> Nothing
 
 data Kind p = CoreKind p (KindF p) deriving (Show, Functor)

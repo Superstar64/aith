@@ -1,5 +1,6 @@
 module Main where
 
+import qualified C.Ast as C
 import qualified C.Print as C
 import Codegen
 import Core.Ast.Common
@@ -114,7 +115,8 @@ generateAll [] _ = pure ()
 generateAll ((path@(Path heading name), file) : remainder) code = do
   generateAll remainder code
   item <- pickItem path code
-  writeFile file (pretty C.globals $ compileItem heading name item)
+  let (functions, structs) = C.escapeStructs $ compileItem heading name item
+  writeFile file (pretty C.globals $ structs ++ functions)
 
 main = do
   arguments <- getArgs

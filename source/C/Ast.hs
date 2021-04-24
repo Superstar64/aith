@@ -1,25 +1,57 @@
 module C.Ast where
 
-import Misc.Isomorph
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State (evalStateT, get, modify)
+import Control.Monad.Trans.Writer (runWriter, tell)
+import qualified Data.Set as Set
 import Misc.Prism
 
-data Representation = Pointer | Function deriving (Show)
+data Representation x = Pointer | Struct x deriving (Show, Eq, Ord)
 
 pointer = Prism (const Pointer) $ \case
   Pointer -> Just ()
   _ -> Nothing
 
-function = Prism (const Function) $ \case
-  Function -> Just ()
+struct = Prism Struct $ \case
+  (Struct x) -> Just x
   _ -> Nothing
 
-data FunctionDefinition = FunctionDefinition Representation String [(Representation, String)] [Statement] deriving (Show)
+data RepresentationFix = RepresentationFix ([Representation RepresentationFix]) deriving (Show, Eq, Ord)
 
-functionDefinition = Isomorph (uncurry $ uncurry $ uncurry $ FunctionDefinition) $ f
-  where
-    f (FunctionDefinition returnType name arguments text) = (((returnType, name), arguments), text)
+mangleType Pointer = "p"
+mangleType (Struct (RepresentationFix items)) = "s" ++ (items >>= mangleType) ++ "e"
 
-data Statement = Return (Expression) | ForwardDeclare Representation String [Representation] | VariableDeclaration Representation String Expression deriving (Show)
+fields = map (\x -> '_' : show x) [0 ..]
+
+escapeStruct Pointer = pure Pointer
+escapeStruct (Struct (RepresentationFix items)) = do
+  let mangling = "s" ++ (items >>= mangleType) ++ "e"
+  solved <- get
+  if items `Set.notMember` solved
+    then do
+      modify $ Set.insert items
+      items' <- traverse escapeStruct items
+      lift $ tell [StructDefinition mangling (zip items' fields)]
+    else pure ()
+  pure $ Struct $ mangling
+
+escapeStructs :: [Global (Representation RepresentationFix)] -> ([Global (Representation String)], [Global (Representation String)])
+escapeStructs x = runWriter $ evalStateT (traverse (traverse escapeStruct) x) (Set.empty)
+
+data Global x
+  = FunctionDefinition x String [(x, String)] [Statement x]
+  | StructDefinition String [(x, String)]
+  deriving (Show, Functor, Foldable, Traversable)
+
+functionDefinition = Prism (uncurry $ uncurry $ uncurry $ FunctionDefinition) $ \case
+  (FunctionDefinition returnType name arguments text) -> Just (((returnType, name), arguments), text)
+  _ -> Nothing
+
+structDefinition = Prism (uncurry StructDefinition) $ \case
+  (StructDefinition name items) -> Just (name, items)
+  _ -> Nothing
+
+data Statement x = Return (Expression x) | ForwardDeclare x String [x] | VariableDeclaration x String (Expression x) deriving (Show, Functor, Foldable, Traversable)
 
 returnx = Prism Return $ \case
   (Return e) -> Just e
@@ -33,7 +65,7 @@ variableDeclation = Prism (uncurry $ uncurry $ VariableDeclaration) $ \case
   (VariableDeclaration variableType name value) -> Just ((variableType, name), value)
   _ -> Nothing
 
-data Expression = Variable String | Call Representation [Representation] (Expression) [Expression] deriving (Show)
+data Expression x = Variable String | Call x [x] (Expression x) [Expression x] deriving (Show, Functor, Foldable, Traversable)
 
 variable = Prism Variable $ \case
   (Variable x) -> Just x

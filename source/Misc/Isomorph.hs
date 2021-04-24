@@ -50,8 +50,15 @@ secondI (Isomorph f g) = Isomorph f' g'
     f' (a, b) = (a, f b)
     g' (a, b) = (a, g b)
 
+-- extract info from something already parsed
+
 extractInfo :: (b -> a) -> Isomorph b (a, b)
-extractInfo info = Isomorph (\a -> (info a, a)) snd
+extractInfo extract = Isomorph (\a -> (extract a, a)) snd
+
+-- discord info, prefering the second
+
+discardInfo :: (b -> a) -> Isomorph (a, b) b
+discardInfo generate = inverse (extractInfo generate)
 
 distribute :: Isomorph (a, Either b1 b2) (Either (a, b1) (a, b2))
 distribute = Isomorph f g
