@@ -69,11 +69,13 @@ lambdaOuter e = betweenBraces e ∥ lambdaCore e
 
 lambdaMajor e = betweenBraces (indent ≫ line ≫ e ≪ dedent ≪ line) ∥ lambdaCore e
 
-multiarg core paren = betweenParens (singleton ∥# keyword "multiarg" ≫ space ≫ seperatedMany core (token ",") ∥ singleton)
+commaMany e = many (token "," ≫ space ≫ e)
+
+commaSeperatedMany e = seperatedMany e (token "," ≫ space)
+
+multiarg core paren = betweenParens (singleton ∥# keyword "multiarg" ≫ space ≫ commaSeperatedMany core ∥ singleton)
   where
     singleton = cons ⊣ paren ⊗ (nil ⊣ always)
-
-commaSeperated e = many (token "," ≫ e)
 
 withInnerPosition core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst)
 
@@ -107,7 +109,7 @@ kind = kindBottom
               Core.meta ⊣ keyword "meta",
               Core.text ⊣ keyword "text",
               Core.pointerRep ⊣ keyword "pointer",
-              Core.structRep ⊣ keyword "struct" ≫ betweenParens (seperatedMany kind (token ","))
+              Core.structRep ⊣ keyword "struct" ≫ betweenParens (commaSeperatedMany kind)
             ]
 
 typePattern = Core.coreTypePattern ⊣ position ⊗ core
@@ -115,7 +117,7 @@ typePattern = Core.coreTypePattern ⊣ position ⊗ core
     core = Core.typePatternVariable ⊣ identifer ⊗ (pointer ∥# token ":" ≫ kind ∥ pointer)
     pointer = Core.coreKind ⊣ position ⊗ (Core.typex ⊣ Core.coreKind ⊣ position ⊗ (Core.runtime ⊣ Core.coreKind ⊣ position ⊗ (Core.pointerRep ⊣ always)))
 
-typeParensImpl = foldlP runtimePair ⊣ typex ⊗ commaSeperated typex
+typeParensImpl = foldlP runtimePair ⊣ typex ⊗ commaMany typex
   where
     runtimePair = withInnerPosition Core.coreType Core.runtimePair
 
@@ -160,7 +162,7 @@ pattern = patternBottom
       where
         patternOfCourse = Core.patternOfCourse ⊣ token "!" ≫ patternCore
 
-runtimePatternParensImpl = foldlP runtimePatternPair ⊣ runtimePattern ⊗ commaSeperated runtimePattern
+runtimePatternParensImpl = foldlP runtimePatternPair ⊣ runtimePattern ⊗ commaMany runtimePattern
   where
     runtimePatternPair = withInnerPosition Core.coreRuntimePattern Core.runtimePatternPair
 
@@ -174,7 +176,7 @@ runtimePattern = patternBottom
       where
         variable = Core.runtimePatternVariable ⊣ identifer ⊗ token ":" ≫ typex
 
-termParensImpl = foldlP runtimePairIntrouction ⊣ term ⊗ commaSeperated term
+termParensImpl = foldlP runtimePairIntrouction ⊣ term ⊗ commaMany term
   where
     runtimePairIntrouction = withInnerPosition Core.coreTerm Core.runtimePairIntrouction
 
