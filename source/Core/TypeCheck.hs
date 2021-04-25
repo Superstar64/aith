@@ -88,6 +88,9 @@ matchType' p (ErasedQualified π σ) (ErasedQualified π' σ') = do
   matchType p π π'
   matchType p σ σ'
 matchType' p (Copy σ) (Copy σ') = matchType p σ σ'
+matchType' p (RuntimePair σ τ) (RuntimePair σ' τ') = do
+  matchType p σ σ'
+  matchType p τ τ'
 matchType' p σ σ' = quit $ IncompatibleType p (CoreType Internal σ) (CoreType Internal σ')
 
 matchType p (CoreType Internal σ) (CoreType Internal σ') = matchType' p σ σ'
@@ -203,6 +206,9 @@ checkAssumptionImpl p π (π' : πs) = do
   valid <- matchTypeFailable π π'
   if valid then pure () else checkAssumptionImpl p π πs
 checkAssumptionImpl _ (CoreType Internal (Copy (CoreType Internal (FunctionPointer _ _)))) [] = pure ()
+checkAssumptionImpl p (CoreType Internal (Copy (CoreType Internal (RuntimePair σ τ)))) [] = do
+  checkAssumption p (CoreType Internal (Copy σ))
+  checkAssumption p (CoreType Internal (Copy τ))
 checkAssumptionImpl p π [] = quit $ NoProof p π
 
 checkAssumption p π = do
@@ -223,6 +229,7 @@ instance AugmentLinear p (Pattern Internal p) where
 
 instance AugmentLinear p (RuntimePattern d Internal p) where
   augmentLinear (CoreRuntimePattern _ p (RuntimePatternVariable x σ)) e = augmentVariableLinear p x LinearRuntime σ e
+  augmentLinear (CoreRuntimePattern _ _ (RuntimePatternPair pm pm')) e = augmentLinear pm (augmentLinear pm' e)
 
 instance Instantiate p (Kind p) KindInternal where
   instantiate = instantiateDefault
@@ -266,6 +273,10 @@ instance TypeCheckInstantiate p (RuntimePattern d p p) (RuntimePattern d Interna
     (σ, κ) <- typeCheckInstantiate σ'
     checkRuntime p =<< checkType p κ
     pure (CoreRuntimePattern dσ p (RuntimePatternVariable x σ), σ)
+  typeCheckInstantiate (CoreRuntimePattern dσ p (RuntimePatternPair pm1' pm2')) = do
+    (pm1, σ) <- typeCheckInstantiate pm1'
+    (pm2, τ) <- typeCheckInstantiate pm2'
+    pure (CoreRuntimePattern dσ p (RuntimePatternPair pm1 pm2), CoreType Internal (RuntimePair σ τ))
 
 instance Instantiate p (TypePattern p p) (TypePattern Internal p) where
   instantiate = instantiateDefault
@@ -361,6 +372,10 @@ instance TypeCheck p (Type p) KindInternal where
   typeCheck (CoreType p (Copy σ)) = do
     checkRuntime p =<< checkType p =<< typeCheck σ
     pure $ CoreKind Internal Constraint
+  typeCheck (CoreType p (RuntimePair σ τ)) = do
+    ρ <- checkRuntime p =<< checkType p =<< typeCheck σ
+    ρ' <- checkRuntime p =<< checkType p =<< typeCheck τ
+    pure $ CoreKind Internal $ Type $ CoreKind Internal $ Runtime $ CoreKind Internal $ StructRep [ρ, ρ']
 
 instance TypeCheck p (Term d p) TypeInternal where
   typeCheck = fmap fst . typeCheckLinear
@@ -455,6 +470,14 @@ instance TypeCheckLinear p (Term d p) TypeInternal where
     ((π, σ), lΓ) <- firstM (checkErasedQualified p) =<< typeCheckLinear e
     checkAssumption p π
     pure (σ, lΓ)
+  typeCheckLinear (CoreTerm p (RuntimePairIntroduction _ e1 e2)) = do
+    (σ, lΓ1) <- typeCheckLinear e1
+    (τ, lΓ2) <- typeCheckLinear e2
+    κ <- typeCheckInternal σ
+    checkRuntime p =<< checkType p κ
+    κ' <- typeCheckInternal τ
+    checkRuntime p =<< checkType p κ'
+    pure (CoreType Internal (RuntimePair σ τ), lΓ1 `combine` lΓ2)
 
 typeCheckInternal :: (Monad m, TypeCheck Internal e σ) => e -> Core p m σ
 typeCheckInternal σ = do

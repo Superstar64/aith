@@ -198,7 +198,7 @@ reduceModule (Ordering code) = Ordering $ evalState (go code) Map.empty
       this <- get
       let replacements = Map.findWithDefault [] heading this
       let e' = reduce $ foldr (\(x, e') -> substitute e' x) e replacements
-      let ref = makeRef path e
+      let ref = makeRef path e'
       modify $ Map.insert heading ((name, ref) : replacements)
       pure $ (Path heading name, Text e') : completed
     go ((Path heading name, Import _ (Path targetHeading targetName)) : require) = do
@@ -209,6 +209,7 @@ reduceModule (Ordering code) = Ordering $ evalState (go code) Map.empty
       modify $ Map.insert heading ((name, e') : replacements)
       pure $ (Path heading name, Inline e') : completed
     extract (CoreRuntimePattern _ _ (RuntimePatternVariable _ σ)) = σ
+    extract (CoreRuntimePattern _ _ (RuntimePatternPair pm@(CoreRuntimePattern _ p _) pm')) = CoreType p $ RuntimePair (extract pm) (extract pm')
     makeRef :: Path -> Term Silent p -> Term Silent p
     makeRef path (CoreTerm p (FunctionLiteral _ τ (Bound pms _))) = CoreTerm p $ Extern Silent Silent (mangle path) τ (extract <$> pms)
     makeRef path (CoreTerm p e) = CoreTerm p $ mapTerm (makeRef path) id id bound bound bound bound bound e

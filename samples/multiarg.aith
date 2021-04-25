@@ -1,0 +1,8 @@
+module:
+function makeTripletMultiArg = <a> when(%copy a) (a,a,a) (%multiarg x : a, y : a, z : a){
+	(x,y,z)	
+};
+
+function makeTripletSingleArg = <a> when(%copy a) (a,a,a) (x : a, y : a, z : a){
+	(x,y,z)	
+};

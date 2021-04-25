@@ -10,6 +10,7 @@ import Core.Ast.Term
 import Data.Functor.Identity (Identity (..))
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
+import Data.Traversable (for)
 import Decorate
 import Misc.Identifier
 import Misc.Path
@@ -18,6 +19,10 @@ import Misc.Symbol
 import Misc.Variables (Variables)
 import qualified Misc.Variables as Variables
 import Module
+
+type CStatement = C.Statement (C.Representation C.RepresentationFix)
+
+type CExpression = C.Expression (C.Representation C.RepresentationFix)
 
 external (CoreTerm _ (Extern _ _ sm _ _)) = [sm]
 external (CoreTerm _ e) = foldTerm external go go bound bound bound bound bound e
@@ -36,14 +41,26 @@ lookupVariable x = do
   (_, mapping) <- Codegen get
   pure $ mapping ! x
 
-nameArgument :: RuntimePattern Decorate p p -> Codegen String
-nameArgument (CoreRuntimePattern _ _ (RuntimePatternVariable x _)) = do
+temporary = do
   (vars, mapping) <- Codegen get
-  let (Identifier name) = Variables.fresh vars x
-  Codegen $ put (vars <> Variables.singleton x (), Map.insert x name mapping)
+  let new@(Identifier name) = Variables.fresh vars (Identifier "_")
+  Codegen $ put (vars <> Variables.singleton new (), mapping)
   pure name
 
-compileTerm :: Term Decorate p -> WriterT [C.Statement (C.Representation C.RepresentationFix)] Codegen (C.Expression (C.Representation C.RepresentationFix))
+compilePattern :: RuntimePattern Decorate p p -> CExpression -> Codegen ([CStatement])
+compilePattern (CoreRuntimePattern (Decorate (Identity dσ)) _ (RuntimePatternVariable x _)) target = do
+  (vars, mapping) <- Codegen get
+  let new@(Identifier name) = Variables.fresh vars x
+  Codegen $ put (vars <> Variables.singleton new (), Map.insert x name mapping)
+  pure [C.VariableDeclaration dσ name target]
+compilePattern (CoreRuntimePattern (Decorate (Identity dσ)) _ (RuntimePatternPair pm1 pm2)) target = do
+  new <- temporary
+  let initial = C.VariableDeclaration dσ new target
+  pm1' <- compilePattern pm1 (C.Member (C.Variable new) "_0")
+  pm2' <- compilePattern pm2 (C.Member (C.Variable new) "_1")
+  pure $ initial : pm1' ++ pm2'
+
+compileTerm :: Term Decorate p -> WriterT [CStatement] Codegen CExpression
 compileTerm (CoreTerm _ (Variable _ x)) = do
   x' <- lift $ lookupVariable x
   pure $ C.Variable x'
@@ -54,11 +71,15 @@ compileTerm (CoreTerm _ (FunctionApplication (Decorate (Identity dσ)) (Decorate
   e1' <- compileTerm e1
   e2s' <- traverse compileTerm e2s
   pure $ C.Call dσ dτs e1' e2s'
-compileTerm (CoreTerm _ (Alias e1 (Bound pm@(CoreRuntimePattern (Decorate (Identity dσ)) _ _) e2))) = do
+compileTerm (CoreTerm _ (Alias e1 (Bound pm e2))) = do
   e1' <- compileTerm e1
-  x <- lift $ nameArgument pm
-  tell $ [C.VariableDeclaration dσ x e1']
+  bindings <- lift $ compilePattern pm e1'
+  tell $ bindings
   compileTerm e2
+compileTerm (CoreTerm _ (RuntimePairIntroduction (Decorate (Identity dσ)) e1 e2)) = do
+  e1' <- compileTerm e1
+  e2' <- compileTerm e2
+  pure $ C.CompoundLiteral dσ [e1', e2']
 compileTerm (CoreTerm _ (FunctionLiteral _ _ _)) = error "function literal inside runtime"
 compileTerm (CoreTerm _ (MacroAbstraction (Decorate i) _)) = absurd i
 compileTerm (CoreTerm _ (TypeAbstraction (Decorate i) _)) = absurd i
@@ -73,10 +94,16 @@ compileTerm (CoreTerm _ (ErasedQualifiedCheck (Decorate i) _)) = absurd i
 
 compileFunctionLiteralImpl :: Symbol -> Term Decorate p -> Codegen (C.Global (C.Representation C.RepresentationFix))
 compileFunctionLiteralImpl (Symbol name) (CoreTerm _ (FunctionLiteral (Decorate (Identity dσ)) _ (Bound pms e))) = do
-  arguments <- traverse nameArgument pms
   let argumentTypes = map (\(CoreRuntimePattern (Decorate σ) _ _) -> runIdentity σ) pms
+  heading <- for pms $ \pm -> do
+    new <- temporary
+    bindings <- compilePattern pm (C.Variable new)
+    pure (new, bindings)
+  let (argumentNames, bindings) = unzip heading
+  let arguments = zip argumentTypes argumentNames
   (result, depend) <- runWriterT (compileTerm e)
-  pure $ C.FunctionDefinition dσ name (zip argumentTypes arguments) (depend ++ [C.Return result])
+  let body = concat bindings ++ depend ++ [C.Return result]
+  pure $ C.FunctionDefinition dσ name arguments body
 compileFunctionLiteralImpl _ _ = error "top level non function literal"
 
 compileFunctionLiteral path name e = [run $ compileFunctionLiteralImpl manging decorated]

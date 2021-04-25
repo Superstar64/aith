@@ -32,6 +32,8 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & \xi \pi. e \tag*{[Qualified Assumption]} \\
 & e? \tag*{[Qualified Check]} \\
 & \text{alias} \, x = e; e' \tag*{[Runtime Let]} \\
+& (e, e') \tag*{[Runtime Pair Introduction]} \\
+& \text{alias} (x, x') = e; e' \tag*{[Runtime Pair Elimination]}
 \\
 \sigma, \tau, \pi \Coloneqq & \alpha \tag* {[Type Variable]}\\
 & \sigma \to \tau \tag*{[Macro]}\\
@@ -44,6 +46,7 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & \tau \, \text{function}(\sigma, \sigma', \dots) \tag*{[Function Literal Type]} \\
 & \pi \Rightarrow \sigma \tag*{[Erased Qualified Type]} \\
 & \text{Copy} \, \sigma \tag*{[Runtime Copyable Constraint]} \\
+& (\sigma, \tau) \tag*{[Runtime Pair]} \\
 \\
 \kappa, s, \rho \Coloneqq &  \kappa \alpha \tag*{[Kind Variable]} \\
 & \text{Type} (s) \tag*{[Type]} \\
@@ -53,7 +56,7 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & \text{Text} \tag*{[Symbol Stage]} \\
 & \text{Runtime} (\rho) \tag*{[Runtime Stage]}\\
 & \text{Pointer} \tag*{[Pointer Representation]}\\
-& \text{Structure} \{ \rho, \rho', \dots \} \tag*{[Structure Representation]}
+& \text{Structure} \{ \rho, \rho', \dots \} \tag*{[Structure Representation]} \\
 \\
 \mu \Coloneqq & \text{Kind} \\
 & \text{Stage} \\
@@ -181,6 +184,15 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 { \Phi \models \text{Copy}(\tau)}}}
 {\Phi | \Gamma, \Gamma' \vdash \text{alias} \, x = e; e' : \sigma} \tag*{[Unrestricted Variant]}\\
 \\
+\frac
+{\splitfrac{\Phi | \Gamma \vdash e : \sigma \quad \Phi | \Gamma' \vdash e' : \tau}
+{\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho)) \quad \Phi \vdash \tau : \text{Type}(\text{Runtime}(\rho')) }}
+{\Phi | \Gamma, \Gamma' \vdash (e, e') : (\sigma, \tau) } \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : (\tau, \tau') \quad \Phi | \Gamma , \langle x : \tau \rangle, \langle x' : \tau' \rangle,  \vdash e : \sigma  }
+{\Phi | \Gamma, \Gamma' \vdash \text{alias} (x, x') = e; e' : \sigma} \\
+\\
 \Phi \vdash \sigma : \kappa \tag* {[\text{Type Validation}]} \\
 \\
 \frac
@@ -226,6 +238,10 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \frac
 {\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho))}
 {\Phi \vdash \text{Copy} \, \sigma : \text{Constraint}} \\
+\\
+\frac
+{\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\kappa)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime}(\kappa')) }
+{\Phi \vdash (\sigma, \tau) : \text{Type} (\text{Runtime} (\text{Structure} \{ \kappa,\kappa'\} ))} \\
 \\
 \Phi \vdash \kappa : \mu \tag*{[Kind Validation]} \\
 \\

@@ -69,6 +69,12 @@ lambdaOuter e = betweenBraces e ∥ lambdaCore e
 
 lambdaMajor e = betweenBraces (indent ≫ line ≫ e ≪ dedent ≪ line) ∥ lambdaCore e
 
+multiarg core paren = betweenParens (singleton ∥# keyword "multiarg" ≫ space ≫ seperatedMany core (token ",") ∥ singleton)
+  where
+    singleton = cons ⊣ paren ⊗ (nil ⊣ always)
+
+commaSeperated e = many (token "," ≫ e)
+
 withInnerPosition core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst)
 
 path = (Path.path . swapNonEmpty) ⊣ token "/" ≫ identifer ⊗ pathTail
@@ -87,10 +93,10 @@ kindPattern = Core.coreKindPattern ⊣ position ⊗ core
 
 kind = kindBottom
   where
-    kindBottom = higher `branchDistribute` unit' ⊣ kindCore ⊗ (space ≫ token "->" ≫ space ≫ kindBottom ⊕ always)
+    kindBottom = higher `branchDistribute` unit' ⊣ kindCore ⊗ (space ≫ token "->" ≫ space ≫ kind ⊕ always)
       where
         higher = withInnerPosition Core.coreKind Core.higher
-    kindCore = Core.coreKind ⊣ position ⊗ core ∥ betweenParens kindBottom
+    kindCore = Core.coreKind ⊣ position ⊗ core ∥ betweenParens kind
       where
         core =
           choice
@@ -109,29 +115,35 @@ typePattern = Core.coreTypePattern ⊣ position ⊗ core
     core = Core.typePatternVariable ⊣ identifer ⊗ (pointer ∥# token ":" ≫ kind ∥ pointer)
     pointer = Core.coreKind ⊣ position ⊗ (Core.typex ⊣ Core.coreKind ⊣ position ⊗ (Core.runtime ⊣ Core.coreKind ⊣ position ⊗ (Core.pointerRep ⊣ always)))
 
+typeParensImpl = foldlP runtimePair ⊣ typex ⊗ commaSeperated typex
+  where
+    runtimePair = withInnerPosition Core.coreType Core.runtimePair
+
+typeParens = betweenParens typeParensImpl
+
+typeMultiarg = multiarg typex typeParensImpl
+
 typex = typeBottom
   where
     typeLambda lambda =
       Core.coreType ⊣ position
         ⊗ choice
-          [ Core.forallx ⊣ Core.bound ⊣ token "∀<" ≫ typePattern ≪ token ">" ≪ space ⊗ lambda (typeBottom),
-            Core.kindForall ⊣ Core.bound ⊣ token "∀@" ≫ kindPattern ≪ space ⊗ lambda (typeBottom),
-            Core.typeOperator ⊣ Core.bound ⊣ token "λ" ≫ typePattern ≪ space ⊗ lambda (typeBottom)
+          [ Core.forallx ⊣ Core.bound ⊣ token "∀<" ≫ typePattern ≪ token ">" ≪ space ⊗ lambda typex,
+            Core.kindForall ⊣ Core.bound ⊣ token "∀@" ≫ kindPattern ≪ space ⊗ lambda typex,
+            Core.typeOperator ⊣ Core.bound ⊣ token "λ" ≫ typePattern ≪ space ⊗ lambda typex
           ]
-    typeBottom = typeLambda lambdaCore ∥# binary ⊣ typeCore ⊗ (space ≫ token "->" ≫ space ≫ typeBottom ⊕ space ≫ token "=>?" ≫ space ≫ typeBottom ⊕ always)
+    typeBottom = typeLambda lambdaCore ∥# binary ⊣ typeCore ⊗ (space ≫ token "->" ≫ space ≫ typex ⊕ space ≫ token "=>?" ≫ space ≫ typex ⊕ always)
       where
         binary = macro `branchDistribute` erasedQualified `branchDistribute` unit'
         macro = withInnerPosition Core.coreType Core.macro
         erasedQualified = withInnerPosition Core.coreType Core.erasedQualified
     typeCore = foldlP (functionLiteralType `branchDistribute` functionPointer `branchDistribute` typeConstruction) ⊣ top ⊗ many postfix
       where
-        postfix = keyword "function" ≫ manyTypes ⊕ token "(*)" ≫ manyTypes ⊕ betweenParens typeBottom
-          where
-            manyTypes = betweenParens (seperatedMany typex (token ","))
+        postfix = keyword "function" ≫ typeMultiarg ⊕ token "(*)" ≫ typeMultiarg ⊕ typeParens
         typeConstruction = withInnerPosition Core.coreType Core.typeConstruction
         functionLiteralType = withInnerPosition Core.coreType Core.functionLiteralType
         functionPointer = withInnerPosition Core.coreType Core.functionPointer
-        top = typeLambda lambdaOuter ∥ Core.coreType ⊣ position ⊗ core ∥ betweenParens typeBottom
+        top = typeLambda lambdaOuter ∥ Core.coreType ⊣ position ⊗ core ∥ typeParens
         core =
           choice
             [ Core.typeVariable ⊣ identifer,
@@ -144,53 +156,69 @@ pattern = patternBottom
     patternBottom = Core.corePattern ⊣ position ⊗ variable ∥ patternCore
       where
         variable = Core.patternVariable ⊣ identifer ⊗ token ":" ≫ typex
-    patternCore = Core.corePattern ⊣ position ⊗ patternOfCourse ∥ betweenParens patternBottom
+    patternCore = Core.corePattern ⊣ position ⊗ patternOfCourse ∥ betweenParens pattern
       where
         patternOfCourse = Core.patternOfCourse ⊣ token "!" ≫ patternCore
 
+runtimePatternParensImpl = foldlP runtimePatternPair ⊣ runtimePattern ⊗ commaSeperated runtimePattern
+  where
+    runtimePatternPair = withInnerPosition Core.coreRuntimePattern Core.runtimePatternPair
+
+runtimePatternParens = betweenParens runtimePatternParensImpl
+
+runtimePatternMultiarg = multiarg runtimePattern runtimePatternParensImpl
+
 runtimePattern = patternBottom
   where
-    patternBottom = Core.coreRuntimePattern ⊣ position ⊗ variable
+    patternBottom = Core.coreRuntimePattern ⊣ position ⊗ variable ∥ runtimePatternParens
       where
         variable = Core.runtimePatternVariable ⊣ identifer ⊗ token ":" ≫ typex
+
+termParensImpl = foldlP runtimePairIntrouction ⊣ term ⊗ commaSeperated term
+  where
+    runtimePairIntrouction = withInnerPosition Core.coreTerm Core.runtimePairIntrouction
+
+termParens = betweenParens termParensImpl
+
+termMultarg = multiarg term termParensImpl
 
 term = termBottom
   where
     termBottom = foldlP applyPostfix ⊣ termCore ⊗ many postfix
       where
         applyPostfix = functionApplication `branchDistribute` macroApplication `branchDistribute` typeApplication `branchDistribute` kindApplication `branchDistribute` erasedQualifiedCheck
-        postfix = token "(*)" ≫ betweenParens (seperatedMany termBottom (token ",")) ⊕ betweenParens term ⊕ betweenAngle typex ⊕ token "@" ≫ kind ⊕ token "?"
+        postfix = token "(*)" ≫ termMultarg ⊕ termParens ⊕ betweenAngle typex ⊕ token "@" ≫ kind ⊕ token "?"
         functionApplication = withInnerPosition Core.coreTerm Core.functionApplication
         macroApplication = withInnerPosition Core.coreTerm Core.macroApplication
         typeApplication = withInnerPosition Core.coreTerm Core.typeApplication
         kindApplication = withInnerPosition Core.coreTerm Core.kindApplication
         erasedQualifiedCheck = withInnerPosition Core.coreTerm (Core.erasedQualifiedCheck . toPrism unit')
-    termCore = Core.coreTerm ⊣ position ⊗ core ∥ keyword "function" ≫ functionCore ∥ betweenParens termBottom
+    termCore = Core.coreTerm ⊣ position ⊗ core ∥ keyword "function" ≫ functionCore ∥ termParens
       where
         core =
           choice
             [ Core.variable ⊣ identifer,
-              Core.macroAbstraction ⊣ Core.bound ⊣ token "λ" ≫ pattern ≪ space ⊗ lambdaMajor termBottom,
-              Core.typeAbstraction ⊣ Core.bound ⊣ token "Λ<" ≫ typePattern ≪ token ">" ≪ space ⊗ lambdaMajor termBottom,
-              Core.kindAbstraction ⊣ Core.bound ⊣ token "Λ@" ≫ kindPattern ≪ space ⊗ lambdaMajor termBottom,
-              Core.erasedQualifiedAssume ⊣ token "ξ" ≫ typex ≪ space ⊗ lambdaMajor termBottom,
-              Core.ofCourseIntroduction ⊣ token "!" ≫ termBottom,
-              Core.bind ⊣ rotateBind ⊣ keyword "let" ≫ space ≫ pattern ≪ space ≪ token "=" ≪ space ⊗ termBottom ≪ token ";" ⊗ line ≫ termBottom,
-              Core.alias ⊣ rotateBind ⊣ keyword "alias" ≫ space ≫ runtimePattern ≪ space ≪ token "=" ≪ space ⊗ termBottom ≪ token ";" ⊗ line ≫ termBottom,
-              Core.extern ⊣ keyword "extern" ≫ space ≫ symbol ≪ space ⊗ betweenParens typex ⊗ betweenParens (seperatedMany typex (token ";"))
+              Core.macroAbstraction ⊣ Core.bound ⊣ token "λ" ≫ pattern ≪ space ⊗ lambdaMajor term,
+              Core.typeAbstraction ⊣ Core.bound ⊣ token "Λ<" ≫ typePattern ≪ token ">" ≪ space ⊗ lambdaMajor term,
+              Core.kindAbstraction ⊣ Core.bound ⊣ token "Λ@" ≫ kindPattern ≪ space ⊗ lambdaMajor term,
+              Core.erasedQualifiedAssume ⊣ token "ξ" ≫ typex ≪ space ⊗ lambdaMajor term,
+              Core.ofCourseIntroduction ⊣ token "!" ≫ term,
+              Core.bind ⊣ rotateBind ⊣ keyword "let" ≫ space ≫ pattern ≪ space ≪ token "=" ≪ space ⊗ term ≪ token ";" ⊗ line ≫ term,
+              Core.alias ⊣ rotateBind ⊣ keyword "alias" ≫ space ≫ runtimePattern ≪ space ≪ token "=" ≪ space ⊗ term ≪ token ";" ⊗ line ≫ term,
+              Core.extern ⊣ keyword "extern" ≫ space ≫ symbol ≪ space ⊗ typeParens ⊗ typeMultiarg
             ]
         rotateBind = secondI Core.bound . associate . firstI swap
 
 functionCore = Core.coreTerm ⊣ position ⊗ core
   where
-    core = Core.functionLiteral ⊣ betweenParens typex ⊗ binding
+    core = Core.functionLiteral ⊣ typeParens ⊗ binding
       where
-        binding = Core.bound ⊣ betweenParens (seperatedMany runtimePattern (token "," ≪ space)) ⊗ lambdaMajor term
+        binding = Core.bound ⊣ runtimePatternMultiarg ⊗ lambdaMajor term
 
 functionLiteral = templateParameters ∥ concepts ∥ functionCore ∥ token "~" ≫ term
   where
     templateParameters = Core.coreTerm ⊣ position ⊗ (Core.typeAbstraction ⊣ Core.bound ⊣ betweenAngle typePattern ≪ space ⊗ functionLiteral)
-    concepts = Core.coreTerm ⊣ position ⊗ (Core.erasedQualifiedAssume ⊣ moduleKeyword "when" ≫ betweenParens typex ≪ space ⊗ functionLiteral)
+    concepts = Core.coreTerm ⊣ position ⊗ (Core.erasedQualifiedAssume ⊣ moduleKeyword "when" ≫ typeParens ≪ space ⊗ functionLiteral)
 
 modulex = Module.coreModule ⊣ orderless ⊣ some (item itemCore lambdaMajor)
   where

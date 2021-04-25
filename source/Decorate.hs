@@ -31,10 +31,15 @@ augmentVariable p x σ e = do
   pure e'
 
 augmentPattern (CoreRuntimePattern Silent p (RuntimePatternVariable x σ)) e = augmentVariable p x σ e
+augmentPattern (CoreRuntimePattern Silent _ (RuntimePatternPair pm pm')) e = augmentPattern pm (augmentPattern pm' e)
 
 decoratePattern (CoreRuntimePattern Silent p (RuntimePatternVariable x σ)) = do
   dσ <- decoration <$> typeCheck σ
   pure $ CoreRuntimePattern (Decorate (Identity dσ)) p (RuntimePatternVariable x σ)
+decoratePattern (CoreRuntimePattern _ p (RuntimePatternPair pm1 pm2)) = do
+  pm1'@(CoreRuntimePattern (Decorate (Identity d1)) _ _) <- decoratePattern pm1
+  pm2'@(CoreRuntimePattern (Decorate (Identity d2)) _ _) <- decoratePattern pm2
+  pure $ CoreRuntimePattern (Decorate (Identity (C.Struct $ C.RepresentationFix [d1, d2]))) p (RuntimePatternPair pm1' pm2')
 
 decorateTerm e@(CoreTerm p (Variable Silent x)) = do
   dσ <- Identity <$> decoration <$> (typeCheck =<< typeCheck e)
@@ -61,9 +66,16 @@ decorateTerm (CoreTerm _ (ErasedQualifiedCheck _ e)) = decorateTerm e
 decorateTerm (CoreTerm p (Alias e1 (Bound pm e2))) = do
   pm' <- decoratePattern pm
   e1' <- decorateTerm e1
-  e2' <- decorateTerm e2
+  e2' <- augmentPattern pm (decorateTerm e2)
   pure $ CoreTerm p (Alias e1' (Bound pm' e2'))
-decorateTerm _ = error "unable to decorate term"
+decorateTerm (CoreTerm p (RuntimePairIntroduction _ e1 e2)) = do
+  e1' <- decorateTerm e1
+  e2' <- decorateTerm e2
+  de1 <- decoration <$> (typeCheck =<< typeCheck e1)
+  de2 <- decoration <$> (typeCheck =<< typeCheck e2)
+  let dσ = Decorate (Identity $ C.Struct $ C.RepresentationFix [de1, de2])
+  pure (CoreTerm p (RuntimePairIntroduction dσ e1' e2'))
+decorateTerm e = e `seq` error "unable to decorate term"
 
 runDecorate :: Core.TypeCheck.Core Internal Identity a -> a
 runDecorate e = runIdentity $ runCore e emptyState

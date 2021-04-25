@@ -51,7 +51,11 @@ structDefinition = Prism (uncurry StructDefinition) $ \case
   (StructDefinition name items) -> Just (name, items)
   _ -> Nothing
 
-data Statement x = Return (Expression x) | ForwardDeclare x String [x] | VariableDeclaration x String (Expression x) deriving (Show, Functor, Foldable, Traversable)
+data Statement x
+  = Return (Expression x)
+  | ForwardDeclare x String [x]
+  | VariableDeclaration x String (Expression x)
+  deriving (Show, Functor, Foldable, Traversable)
 
 returnx = Prism Return $ \case
   (Return e) -> Just e
@@ -65,7 +69,12 @@ variableDeclation = Prism (uncurry $ uncurry $ VariableDeclaration) $ \case
   (VariableDeclaration variableType name value) -> Just ((variableType, name), value)
   _ -> Nothing
 
-data Expression x = Variable String | Call x [x] (Expression x) [Expression x] deriving (Show, Functor, Foldable, Traversable)
+data Expression x
+  = Variable String
+  | Call x [x] (Expression x) [Expression x]
+  | CompoundLiteral x [Expression x]
+  | Member (Expression x) String
+  deriving (Show, Functor, Foldable, Traversable)
 
 variable = Prism Variable $ \case
   (Variable x) -> Just x
@@ -73,4 +82,12 @@ variable = Prism Variable $ \case
 
 call = Prism (uncurry $ uncurry $ uncurry $ Call) $ \case
   (Call returnType argumentTypes function arguments) -> Just (((returnType, argumentTypes), function), arguments)
+  _ -> Nothing
+
+compoundLiteral = Prism (uncurry $ CompoundLiteral) $ \case
+  (CompoundLiteral typex items) -> Just (typex, items)
+  _ -> Nothing
+
+member = Prism (uncurry $ Member) $ \case
+  (Member value name) -> Just (value, name)
   _ -> Nothing

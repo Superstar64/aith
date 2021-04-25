@@ -33,6 +33,7 @@ data TermF d p
   | FunctionLiteral (d Identity) (Type p) (Bound [RuntimePattern d p p] (Term d p))
   | ErasedQualifiedAssume (d Erased) (Type p) (Term d p)
   | ErasedQualifiedCheck (d Erased) (Term d p)
+  | RuntimePairIntroduction (d Identity) (Term d p) (Term d p)
 
 deriving instance (Show p, Show (d Identity), Show (d []), Show (d Erased)) => Show (TermF d p)
 
@@ -53,6 +54,7 @@ traverseTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindB
     go (FunctionLiteral dσ σ λ) = pure FunctionLiteral <*> pure dσ <*> typex σ <*> runtimeBoundMany λ
     go (ErasedQualifiedAssume i π e) = pure ErasedQualifiedAssume <*> pure i <*> typex π <*> term e
     go (ErasedQualifiedCheck i e) = pure ErasedQualifiedCheck <*> pure i <*> term e
+    go (RuntimePairIntroduction dσ e e') = pure RuntimePairIntroduction <*> pure dσ <*> term e <*> term e'
 
 foldTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindBound e = getConst $ traverseTerm (Const . term) (Const . typex) (Const . kind) (Const . bound) (Const . runtimeBound) (Const . runtimeBoundMany) (Const . typeBound) (Const . kindBound) e
 
@@ -116,6 +118,10 @@ erasedQualifiedAssume = Prism (uncurry $ ErasedQualifiedAssume Silent) $ \case
 
 erasedQualifiedCheck = Prism (ErasedQualifiedCheck Silent) $ \case
   (ErasedQualifiedCheck _ e) -> Just e
+  _ -> Nothing
+
+runtimePairIntrouction = Prism (uncurry $ RuntimePairIntroduction Silent) $ \case
+  (RuntimePairIntroduction _ e1 e2) -> Just (e1, e2)
   _ -> Nothing
 
 instance Functor (TermF d) where

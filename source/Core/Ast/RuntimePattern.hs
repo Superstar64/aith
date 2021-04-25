@@ -11,11 +11,19 @@ import Misc.Prism
 import Misc.Silent
 import qualified Misc.Variables as Variables
 
-data RuntimePatternF (d :: (* -> *) -> *) p' p = RuntimePatternVariable Identifier (Type p')
+data RuntimePatternF (d :: (* -> *) -> *) p' p
+  = RuntimePatternVariable Identifier (Type p')
+  | RuntimePatternPair (RuntimePattern d p' p) (RuntimePattern d p' p)
 
-runtimePatternVariable = Prism (uncurry RuntimePatternVariable) $ \(RuntimePatternVariable x σ) -> Just (x, σ)
+runtimePatternVariable = Prism (uncurry RuntimePatternVariable) $ \case
+  (RuntimePatternVariable x σ) -> Just (x, σ)
+  _ -> Nothing
 
-deriving instance (Show p') => Show (RuntimePatternF d p' p)
+runtimePatternPair = Prism (uncurry RuntimePatternPair) $ \case
+  (RuntimePatternPair pm pm') -> Just (pm, pm')
+  _ -> Nothing
+
+deriving instance (Show (d Identity), Show p, Show p') => Show (RuntimePatternF d p' p)
 
 data RuntimePattern d p' p = CoreRuntimePattern (d Identity) p (RuntimePatternF d p' p)
 
@@ -25,19 +33,25 @@ deriving instance (Show p, Show p', Show (d Identity)) => Show (RuntimePattern d
 
 instance Bifunctor (RuntimePatternF d) where
   bimap f _ (RuntimePatternVariable x σ) = RuntimePatternVariable x (fmap f σ)
+  bimap f g (RuntimePatternPair pm pm') = RuntimePatternPair (bimap f g pm) (bimap f g pm')
 
 instance Bifunctor (RuntimePattern d) where
   bimap f g (CoreRuntimePattern dσ p pm) = CoreRuntimePattern dσ (g p) (bimap f g pm)
 
 instance Semigroup p => Binder p (RuntimePattern d p p) where
   bindings (CoreRuntimePattern _ p (RuntimePatternVariable x _)) = Variables.singleton x p
+  bindings (CoreRuntimePattern _ _ (RuntimePatternPair pm pm')) = bindings pm <> bindings pm'
   rename ux x (CoreRuntimePattern dσ p (RuntimePatternVariable x' σ)) | x == x' = CoreRuntimePattern dσ p (RuntimePatternVariable ux σ)
   rename _ _ x@(CoreRuntimePattern _ _ (RuntimePatternVariable _ _)) = x
+  rename ux x (CoreRuntimePattern dσ p (RuntimePatternPair pm pm')) = CoreRuntimePattern dσ p (RuntimePatternPair (rename ux x pm) (rename ux x pm'))
 
 instance Algebra u p (Type p) => Algebra u p (RuntimePattern d p p) where
-  freeVariables (CoreRuntimePattern _ _ (RuntimePatternVariable _ σ)) = freeVariables @(Type p) σ
-  convert ix x (CoreRuntimePattern dσ p (RuntimePatternVariable x' σ)) = CoreRuntimePattern dσ p (RuntimePatternVariable x' (convert @(Type p) ix x σ))
+  freeVariables (CoreRuntimePattern _ _ (RuntimePatternVariable _ σ)) = freeVariables @u σ
+  freeVariables (CoreRuntimePattern _ _ (RuntimePatternPair pm pm')) = freeVariables @u pm <> freeVariables @u pm'
+  convert ix x (CoreRuntimePattern dσ p (RuntimePatternVariable x' σ)) = CoreRuntimePattern dσ p (RuntimePatternVariable x' (convert @u ix x σ))
+  convert ix x (CoreRuntimePattern dσ p (RuntimePatternPair pm pm')) = CoreRuntimePattern dσ p (RuntimePatternPair (convert @u ix x pm) (convert @u ix x pm'))
   substitute ux x (CoreRuntimePattern dσ p (RuntimePatternVariable x' σ)) = CoreRuntimePattern dσ p (RuntimePatternVariable x' (substitute ux x σ))
+  substitute ux x (CoreRuntimePattern dσ p (RuntimePatternPair pm pm')) = CoreRuntimePattern dσ p (RuntimePatternPair (substitute ux x pm) (substitute ux x pm'))
 
 instance Algebra (Type p) p u => Algebra (Type p) p (Bound (RuntimePattern d p p) u) where
   freeVariables (Bound pm e) = freeVariables @(Type p) pm <> freeVariables @(Type p) e
@@ -55,3 +69,7 @@ instance Algebra (Kind p) p (e p) => AlgebraBound (Kind p) p e (RuntimePattern d
 
 instance Semigroup p => Reduce (RuntimePattern d p p) where
   reduce (CoreRuntimePattern dσ p (RuntimePatternVariable x σ)) = CoreRuntimePattern dσ p (RuntimePatternVariable x (reduce σ))
+  reduce (CoreRuntimePattern dσ p (RuntimePatternPair pm pm')) = CoreRuntimePattern dσ p (RuntimePatternPair (reduce pm) (reduce pm'))
+
+instance Location (RuntimePattern Silent p') where
+  location (CoreRuntimePattern _ p _) = p

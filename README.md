@@ -50,21 +50,24 @@ See ``/documentation`` for typing rules.
 | Kind Abstraction | ``Λ@ x : μ { e }`` |
 | Kind Application | ``e @ κ`` |
 | Extern | ``%extern "x" (σ)(τ, τ', ...)`` |
-| Function Application | ``e(*)(e1,e2, ...) ``|
-| Function Literal | ``%function (τ)(pme, pme', ...) => e`` |
-| Function Literal | ``%function (τ)(pme, pme', ...) { e }`` |
+| Function Application | ``e(*)(%multiarg e1,e2, ...) ``|
+| Function Application | ``e(*)(e') ``|
+| Function Literal | ``%function (τ)(%multiarg pme, pme', ...) => e`` |
+| Function Literal | ``%function (τ)(%multiarg pme, pme', ...) { e }`` |
+| Function Literal | ``%function (τ)(pme) => e`` |
+| Function Literal | ``%function (τ)(pme) { e }`` |
 | Erased Qualified Assumption | ``ξ σ => e `` |
 | Erased Qualified Assumption | ``ξ σ { e } `` |
 | Erased Qualified Check | ``e?`` |
-
+| Pair Constructor (Left Associative) | ``(e,e',...)`` |
 
 # Function Sugar Term (ef)
 |Description | Syntax |
 |-|-|
 | Type Abstraction | `` <pmσ> ef `` |
 | Erased Qualified Assumption | `` when (σ) ef `` |
-| Function Literal | ``(τ)(pme, pme', ...) => e `` |
-| Function Literal | ``(τ)(pme, pme', ...) { e } `` |
+| Function Literal | ``(τ)(%multiarg pme, pme', ...) => e `` |
+| Function Literal | ``(τ)(%multiarg pme, pme', ...) { e } `` |
 | Explict | ``~e`` |
 
 ## Patterns(pm)
@@ -77,6 +80,7 @@ See ``/documentation`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Variable | ``(x : σ)``|
+| Pair Destruction (Left Associative) | ``(pm, pm', ...)`` |
 
 ## Types(σ, τ, π)
 | Description | Syntax |
@@ -92,9 +96,11 @@ See ``/documentation`` for typing rules.
 | Type Operator | `` λ x : κ => σ ``|
 | Type Construction | `` σ (τ) `` |
 | Function Pointer | `` σ(*)(τ, τ', ...) `` |
-| Function Literal Type | `` σ %function (τ, τ', ...) `` |
+| Function Literal Type | `` σ %function (%multiarg τ, τ', ...) `` |
+| Function Literal Type | `` σ %function (τ) `` |
 | Erased Qualified Type | `` π =>? σ `` |
 | Copy Predicate | ``%copy σ`` |
+| Pair (Left Associative) | ``(σ, σ', ...)`` |
 
 ## Type Pattern(pmσ)
 |Description | Syntax |

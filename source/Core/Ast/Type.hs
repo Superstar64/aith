@@ -24,6 +24,7 @@ data TypeF p
   | FunctionLiteralType (Type p) [Type p]
   | ErasedQualified (Type p) (Type p)
   | Copy (Type p)
+  | RuntimePair (Type p) (Type p)
   deriving (Show)
 
 traverseType typex typeBound kindBound = go
@@ -39,6 +40,7 @@ traverseType typex typeBound kindBound = go
     go (FunctionLiteralType σ τs) = pure FunctionLiteralType <*> typex σ <*> traverse typex τs
     go (ErasedQualified π σ) = pure ErasedQualified <*> typex π <*> typex σ
     go (Copy σ) = pure Copy <*> typex σ
+    go (RuntimePair σ τ) = pure RuntimePair <*> typex σ <*> typex τ
 
 foldType typex typeBound kindBound σ = getConst $ traverseType (Const . typex) (Const . typeBound) (Const . kindBound) σ
 
@@ -86,6 +88,10 @@ erasedQualified = Prism (uncurry ErasedQualified) $ \case
 
 copy = Prism Copy $ \case
   (Copy σ) -> Just σ
+  _ -> Nothing
+
+runtimePair = Prism (uncurry RuntimePair) $ \case
+  (RuntimePair σ τ) -> Just (σ, τ)
   _ -> Nothing
 
 instance Functor TypeF where

@@ -55,9 +55,11 @@ statement =
       C.variableDeclation ⊣ representation ⊗ identifer ≪ string "=" ⊗ expression ≪ string ";"
     ]
 
-expression = variable ∥ call
+expression = variable ∥ call ∥ compoundLiteral ∥ member
   where
     variable = C.variable ⊣ identifer
     call = C.call ⊣ betweenParens (betweenParens castFunctionPointer ⊗ expression) ⊗ argumentList expression
       where
         castFunctionPointer = representation ≪ string "(*)" ⊗ argumentList representation
+    compoundLiteral = C.compoundLiteral ⊣ betweenParens representation ⊗ betweenBraces (seperatedMany expression (string ","))
+    member = C.member ⊣ betweenParens expression ≪ string "." ⊗ identifer
