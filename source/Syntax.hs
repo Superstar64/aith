@@ -241,7 +241,7 @@ item itemCore lambda =
 
 itemSingleton = item itemCore id
   where
-    itemCore brand inner = moduleKeyword brand ≫ token ":" ≫ inner
+    itemCore brand inner = moduleKeyword brand ≫ token ":" ≫ line ≫ inner
 
 withSourcePos :: g (f SourcePos) -> g (f SourcePos)
 withSourcePos = id
