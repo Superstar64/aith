@@ -26,9 +26,9 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & e \sigma \tag*{[Type Application]} \\
 & \Lambda \kappa \alpha : \mu. e \tag*{[Kind Lambda]} \\
 & e \kappa \tag*{[Kind Application]} \\
-& \text{extern} \, x (\sigma) (\tau, \tau', \dots) \tag*{[Extern Symbol]} \\
-& e(*)(e',e'',\dots) \tag*{[Function Pointer Application]} \\
-& \text{function} (x : \sigma, x', \sigma', \dots). e \tag*{[Function Literal]} \\
+& \text{extern} \, x (\sigma) (\tau) \tag*{[Extern Symbol]} \\
+& e(*)(e') \tag*{[Function Pointer Application]} \\
+& \text{function} (x : \sigma). e \tag*{[Function Literal]} \\
 & \xi \pi. e \tag*{[Qualified Assumption]} \\
 & e? \tag*{[Qualified Check]} \\
 & \text{alias} \, x = e; e' \tag*{[Runtime Let]} \\
@@ -44,8 +44,8 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & \forall \kappa \alpha : \mu. \sigma \tag*{[Kind Forall]}\\
 & \lambda \alpha : \kappa. \sigma \tag*{[Type Operator]} \\
 & \sigma (\tau) \tag*{[Type Construction]} \\
-& \sigma (*) (\tau, \tau', \dots) \tag*{[Function Pointer]}\\
-& \tau \, \text{function}(\sigma, \sigma', \dots) \tag*{[Function Literal Type]} \\
+& \sigma (*) (\tau) \tag*{[Function Pointer]}\\
+& \sigma \, \text{function}(\tau) \tag*{[Function Literal Type]} \\
 & \pi \Rightarrow \sigma \tag*{[Erased Qualified Type]} \\
 & \text{Copy} \, \sigma \tag*{[Runtime Copyable Constraint]} \\
 & (\sigma, \tau) \tag*{[Runtime Pair]} \\
@@ -89,7 +89,7 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 !\sigma & !e \\
 \forall \alpha : \kappa. \sigma & \Lambda \alpha : \kappa. e  \\
 \forall \kappa \alpha : \mu. \sigma & \Lambda \kappa \alpha : \mu. e \\
-\tau \, \text{function} (\sigma, \dots) & \text{function}(x : \sigma, \dots). e \\
+\tau \, \text{function} (\sigma) & \text{function}(x : \sigma). e \\
 \pi \Rightarrow \sigma & \xi \sigma. e
 \end{array}
 \end{gather*}
@@ -146,27 +146,24 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 {\Phi | \Gamma \vdash e \kappa : \sigma [\kappa/\kappa \alpha]} \\
 \\
 \frac
-{\Phi \vdash \sigma : \text{Type}(\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type}(\text{Runtime} (\rho)) \quad \dots}
-{\Phi | \Gamma \vdash \text{extern} \, x ( \sigma )(\tau, \dots) : \sigma (*)(\tau, \dots)} \\
+{\Phi \vdash \sigma : \text{Type}(\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type}(\text{Runtime} (\rho'))}
+{\Phi | \Gamma \vdash \text{extern} \, x ( \sigma )(\tau) : \sigma (*)(\tau)} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \tau(*)(\sigma, \sigma', \dots) \quad \Phi | \Gamma' \vdash e' : \sigma \quad \dots}
-{\Phi | \Gamma, \Gamma', \dots \vdash e(*)(e',e'',\dots) : \tau} \\
-\\
-\frac
-{\splitfrac
-{\Phi | \Gamma, \langle x : \sigma \rangle , \langle x' : \sigma' \rangle, \dots \vdash e : \tau \quad \Phi \vdash \tau : \text{Type}(\text{Runtime}(\rho))}
-{\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho')) \quad \Phi \vdash \sigma' : \text{Type}(\text{Runtime}(\rho'')) \quad\dots }}
-{\Phi | \Gamma \vdash (\text{function}(x : \sigma, x' : \sigma', \dots). e) : \tau } \tag*{[Linear Variant]}\\
+{\Phi | \Gamma \vdash e : \tau(*)(\sigma) \quad \Phi | \Gamma' \vdash e' : \sigma}
+{\Phi | \Gamma, \Gamma' \vdash e(*)(e') : \tau} \\
 \\
 \frac
 {\splitfrac
-{\Phi | \Gamma, [x : \sigma], \langle x' : \sigma' \rangle, \dots \vdash e : \tau \quad \Phi \vdash \tau : \text{Type}(\text{Runtime}(\rho))}
-{\splitfrac{
-\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho')) \quad \Phi \vdash \sigma' : \text{Type}(\text{Runtime}(\rho'')) \quad\dots }{
-\Phi \models \text{Copy} \sigma 
-}}}
-{\Phi | \Gamma \vdash (\text{function}(x : \sigma, x' : \sigma', \dots). e) : \tau } \tag*{[Unrestricted Variant]}\\
+{\Phi | \Gamma, \langle x : \sigma \rangle \vdash e : \tau \quad \Phi \vdash \tau : \text{Type}(\text{Runtime}(\rho))}
+{\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho'))}}
+{\Phi | \Gamma \vdash (\text{function}(x : \sigma). e) : \tau \text{function}(\sigma)  } \tag*{[Linear Variant]}\\
+\\
+\frac
+{\splitfrac
+{\Phi | \Gamma, \langle x : \sigma \rangle \vdash e : \tau \quad \Phi \vdash \tau : \text{Type}(\text{Runtime}(\rho))}
+{\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho')) \quad \Phi \models \text{Copy}}}
+{\Phi | \Gamma \vdash (\text{function}(x : \sigma). e) : \tau \text{function}(\sigma)  } \tag*{[Unrestricted Variant]}\\
 \\
 \frac
 {\Phi, \pi | \Gamma \vdash e : \sigma \quad \Phi \vdash \pi : \text{Constraint}}
@@ -235,12 +232,12 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 {\Phi \vdash \sigma (\tau) : \kappa' } \\
 \\
 \frac
-{\Phi \vdash \sigma : \text{Type} (\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime} (\rho')) \quad \dots}
-{\Phi \vdash \sigma (*) (\tau, \tau', \dots) : \text{Type} (\text{Runtime} (\text{pointer}))} \\
+{\Phi \vdash \sigma : \text{Type} (\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime} (\rho'))}
+{\Phi \vdash \sigma (*) (\tau) : \text{Type} (\text{Runtime} (\text{pointer}))} \\
 \\
 \frac
-{\Phi \vdash \sigma : \text{Type} (\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime} (\rho')) \quad \dots}
-{\Phi \vdash \sigma \, \text{function} (\tau, \tau', \dots) : \text{Type} (\text{Text})} \\
+{\Phi \vdash \sigma : \text{Type} (\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime} (\rho'))}
+{\Phi \vdash \sigma \, \text{function} (\tau) : \text{Type} (\text{Text})} \\
 \\
 \frac
 {\Phi \vdash \pi : \text{Constraint} \quad \Phi \vdash \sigma : \text{Type}(s)}
@@ -300,7 +297,7 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \\
 \frac
 {}
-{\Phi \models \text{Copy} \, \tau(*)(\sigma, \sigma', \dots)} \\
+{\Phi \models \text{Copy} \, \tau(*)(\sigma)} \\
 \\
 \frac
 {\Phi \models \text {Copy} \, \sigma \quad \Phi \models \text{Copy} \, \tau}
