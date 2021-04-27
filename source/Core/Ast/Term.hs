@@ -34,10 +34,12 @@ data TermF d p
   | ErasedQualifiedAssume (d Erased) (Type p) (Term d p)
   | ErasedQualifiedCheck (d Erased) (Term d p)
   | RuntimePairIntroduction (d Identity) (Term d p) (Term d p)
+  | Pack (d Erased) (Bound (TypePattern p p) (Type p)) (Term d p)
+  | Unpack (d Erased) (Term d p)
 
 deriving instance (Show p, Show (d Identity), Show (d []), Show (d Erased)) => Show (TermF d p)
 
-traverseTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindBound = go
+traverseTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindBound typeBoundType = go
   where
     go (Variable dx x) = pure Variable <*> pure dx <*> pure x
     go (MacroAbstraction i λ) = pure MacroAbstraction <*> pure i <*> bound λ
@@ -55,10 +57,12 @@ traverseTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindB
     go (ErasedQualifiedAssume i π e) = pure ErasedQualifiedAssume <*> pure i <*> typex π <*> term e
     go (ErasedQualifiedCheck i e) = pure ErasedQualifiedCheck <*> pure i <*> term e
     go (RuntimePairIntroduction dσ e e') = pure RuntimePairIntroduction <*> pure dσ <*> term e <*> term e'
+    go (Pack i λ e) = pure Pack <*> pure i <*> typeBoundType λ <*> term e
+    go (Unpack i e) = pure Unpack <*> pure i <*> term e
 
-foldTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindBound e = getConst $ traverseTerm (Const . term) (Const . typex) (Const . kind) (Const . bound) (Const . runtimeBound) (Const . runtimeBoundMany) (Const . typeBound) (Const . kindBound) e
+foldTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindBound typeBoundType e = getConst $ traverseTerm (Const . term) (Const . typex) (Const . kind) (Const . bound) (Const . runtimeBound) (Const . runtimeBoundMany) (Const . typeBound) (Const . kindBound) (Const . typeBoundType) e
 
-mapTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindBound e = runIdentity $ traverseTerm (Identity . term) (Identity . typex) (Identity . kind) (Identity . bound) (Identity . runtimeBound) (Identity . runtimeBoundMany) (Identity . typeBound) (Identity . kindBound) e
+mapTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindBound typeBoundType e = runIdentity $ traverseTerm (Identity . term) (Identity . typex) (Identity . kind) (Identity . bound) (Identity . runtimeBound) (Identity . runtimeBoundMany) (Identity . typeBound) (Identity . kindBound) (Identity . typeBoundType) e
 
 variable = Prism (Variable Silent) $ \case
   (Variable _ x) -> Just x
@@ -124,8 +128,16 @@ runtimePairIntrouction = Prism (uncurry $ RuntimePairIntroduction Silent) $ \cas
   (RuntimePairIntroduction _ e1 e2) -> Just (e1, e2)
   _ -> Nothing
 
+pack = Prism (uncurry $ Pack Silent) $ \case
+  (Pack _ λ e) -> Just (λ, e)
+  _ -> Nothing
+
+unpack = Prism (Unpack Silent) $ \case
+  (Unpack _ e) -> Just e
+  _ -> Nothing
+
 instance Functor (TermF d) where
-  fmap f e = mapTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindBound e
+  fmap f e = mapTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindBound typeBound e
     where
       term = fmap f
       typex = fmap f
@@ -160,37 +172,37 @@ avoidCaptureTermConvert = avoidCaptureGeneral internalVariable (convert @(Term d
 
 instance Semigroup p => Algebra (Term d p) p (Term d p) where
   freeVariables (CoreTerm p (Variable _ x)) = Variables.singleton x p
-  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go go e
+  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go go go e
     where
       go = freeVariables @(Term d p)
   convert ix x (CoreTerm p (Variable d x')) | x == x' = CoreTerm p $ Variable d ix
-  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
+  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go go e
     where
       go = convert @(Term d p) ix x
   substitute ux x (CoreTerm _ (Variable _ x')) | x == x' = ux
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go go e
     where
       go = substitute ux x
 
 instance Semigroup p => Algebra (Type p) p (Term d p) where
-  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go go e
+  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go go go e
     where
       go = freeVariables @(Type p)
-  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
+  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go go e
     where
       go = convert @(Type p) ix x
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go go e
     where
       go = substitute ux x
 
 instance Semigroup p => Algebra (Kind p) p (Term d p) where
-  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go go e
+  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go go go e
     where
       go = freeVariables @(Kind p)
-  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
+  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go go e
     where
       go = convert @(Kind p) ix x
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go go e
     where
       go = substitute ux x
 
@@ -233,7 +245,7 @@ reduceTermImpl (MacroApplication _ e1 e2) | (CoreTerm _ (MacroAbstraction _ λ))
 reduceTermImpl (TypeApplication _ e σ) | (CoreTerm _ (TypeAbstraction _ λ)) <- reduce e = let CoreTerm _ e' = apply λ (reduce σ) in e'
 reduceTermImpl (KindApplication _ e κ) | (CoreTerm _ (KindAbstraction _ λ)) <- reduce e = let CoreTerm _ e' = apply λ (reduce κ) in e'
 reduceTermImpl (ErasedQualifiedCheck _ e) | (CoreTerm _ (ErasedQualifiedAssume _ _ e')) <- reduce e = let CoreTerm _ e'' = e' in e''
-reduceTermImpl e = mapTerm go go go go go go go go e
+reduceTermImpl e = mapTerm go go go go go go go go go e
   where
     go = reduce
 

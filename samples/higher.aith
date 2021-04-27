@@ -1,28 +1,28 @@
 module:
 
-inline fmap = Λ@r : %stage {
-	Λ<m : %type r -> %type r> =>
-	Λ<a : %type r> =>
-	Λ<b : %type r> =>
+inline fmap = ``\r : %stage {
+	`\m : %type r -> %type r =>
+	`\a : %type r =>
+	`\b : %type r =>
 	
-	λ!(pure : ∀<a : %type r> => a -> m(a)) => 
-	λ!(bind : ∀<a : %type r> => ∀<b : %type r> => m(a) -> (a -> m(b)) -> m(b)) =>
+	\!(pure : `\/a : %type r => a -> m(a)) => 
+	\!(bind : `\/a : %type r => `\/b : %type r => m(a) -> (a -> m(b)) -> m(b)) =>
 
-	λf : a -> b =>
-	λa : m(a) =>
-	bind<a><b>(a)(λa : a {
-		pure<b>(f(a))
+	\f : a -> b =>
+	\a : m(a) =>
+	bind`(a)`(b)(a)(\a : a {
+		pure`(b)(f(a))
 	})
 };
 
-inline pureIdentityPtr = Λ<a> => λx : a {
+inline pureIdentityPtr = `\a => \x : a {
 	x
 };
 
-inline bindIdentityPtr = Λ<a> => Λ<b> => λx : a => λf : a -> b {
+inline bindIdentityPtr = `\a => `\b => \x : a => \f : a -> b {
 	f(x)
 };
 
 function usefmap = <a> (a)(x : a) {
-	fmap @ %runtime %pointer <λ x => x> <a> <a> (!pureIdentityPtr) (!bindIdentityPtr) (λ x : a => x)(x) 
+	fmap``(%runtime %pointer)`(\x => x)`(a)`(a)(!pureIdentityPtr)(!bindIdentityPtr)(\x : a => x)(x) 
 };

@@ -33,7 +33,9 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & e? \tag*{[Qualified Check]} \\
 & \text{alias} \, x = e; e' \tag*{[Runtime Let]} \\
 & (e, e') \tag*{[Runtime Pair Introduction]} \\
-& \text{alias} (x, x') = e; e' \tag*{[Runtime Pair Elimination]}
+& \text{alias} (x, x') = e; e' \tag*{[Runtime Pair Elimination]} \\
+& \text{pack}  \alpha : \kappa. \sigma \, e \tag*{[Recursive Pack]}\\
+& \text{unpack} \, e \tag*{[Recursive Unpack]}\\
 \\
 \sigma, \tau, \pi \Coloneqq & \alpha \tag* {[Type Variable]}\\
 & \sigma \to \tau \tag*{[Macro]}\\
@@ -47,6 +49,7 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & \pi \Rightarrow \sigma \tag*{[Erased Qualified Type]} \\
 & \text{Copy} \, \sigma \tag*{[Runtime Copyable Constraint]} \\
 & (\sigma, \tau) \tag*{[Runtime Pair]} \\
+& \text{Recursive} \alpha : \kappa. \sigma \tag*{[Recursive Type]} \\
 \\
 \kappa, s, \rho \Coloneqq &  \kappa \alpha \tag*{[Kind Variable]} \\
 & \text{Type} (s) \tag*{[Type]} \\
@@ -193,6 +196,14 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 {\Phi | \Gamma \vdash e : (\tau, \tau') \quad \Phi | \Gamma , \langle x : \tau \rangle, \langle x' : \tau' \rangle,  \vdash e : \sigma  }
 {\Phi | \Gamma, \Gamma' \vdash \text{alias} (x, x') = e; e' : \sigma} \\
 \\
+\frac
+{\Phi | \Gamma \vdash e :  \sigma [(\text{Recursive} \alpha : \kappa. \sigma ) /x] }
+{\Phi | \Gamma \vdash \text{pack} \alpha : \kappa. \sigma  \, e : \text{Recursive} \alpha : \kappa. \sigma} \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : \text{Recursive} x : \alpha. \sigma }
+{\Phi | \Gamma \vdash \text{unpack} \, e : \sigma [(\text{Recursive} \alpha : \kappa. \sigma ) /\alpha]} \\
+\\
 \Phi \vdash \sigma : \kappa \tag* {[\text{Type Validation}]} \\
 \\
 \frac
@@ -243,6 +254,10 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 {\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\kappa)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime}(\kappa')) }
 {\Phi \vdash (\sigma, \tau) : \text{Type} (\text{Runtime} (\text{Structure} \{ \kappa,\kappa'\} ))} \\
 \\
+\frac
+{\Phi, \alpha : \text{Type} (\text{Runtime} (\rho)) \vdash \text{Type} (\text{Runtime} (\rho)) }
+{\Phi \vdash \text{Recursive} \alpha : \text{Type} (\text{Runtime} (\rho)) : \text{Type} (\text{Runtime} (\rho))  } \\
+\\
 \Phi \vdash \kappa : \mu \tag*{[Kind Validation]} \\
 \\
 \frac
@@ -285,7 +300,15 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \\
 \frac
 {}
-{\Phi \models \text{Copy} \, \tau(*)(\sigma, \sigma', \dots)}
+{\Phi \models \text{Copy} \, \tau(*)(\sigma, \sigma', \dots)} \\
+\\
+\frac
+{\Phi \models \text {Copy} \, \sigma \quad \Phi \models \text{Copy} \, \tau}
+{\Phi \models \text{Copy} (\sigma, \tau) } \\
+\\
+\frac
+{\Phi, \text{Copy}(a)  \models \text{Copy} \sigma }
+{\Phi \models \text{Copy} (\text{Recursive} \alpha : \kappa. (\sigma)) }
 \end{gather*}
 
 \end{document}

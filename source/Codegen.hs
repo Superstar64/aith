@@ -25,7 +25,7 @@ type CStatement = C.Statement (C.Representation C.RepresentationFix)
 type CExpression = C.Expression (C.Representation C.RepresentationFix)
 
 external (CoreTerm _ (Extern _ _ sm _ _)) = [sm]
-external (CoreTerm _ e) = foldTerm external go go bound bound bound bound bound e
+external (CoreTerm _ e) = foldTerm external go go bound bound bound bound bound go e
   where
     go = const mempty
     bound (Bound _ e) = external e
@@ -91,6 +91,8 @@ compileTerm (CoreTerm _ (OfCourseIntroduction (Decorate i) _)) = absurd i
 compileTerm (CoreTerm _ (Bind (Decorate i) _ _)) = absurd i
 compileTerm (CoreTerm _ (ErasedQualifiedAssume (Decorate i) _ _)) = absurd i
 compileTerm (CoreTerm _ (ErasedQualifiedCheck (Decorate i) _)) = absurd i
+compileTerm (CoreTerm _ (Pack (Decorate i) _ _)) = absurd i
+compileTerm (CoreTerm _ (Unpack (Decorate i) _)) = absurd i
 
 compileFunctionLiteralImpl :: Symbol -> Term Decorate p -> Codegen (C.Global (C.Representation C.RepresentationFix))
 compileFunctionLiteralImpl (Symbol name) (CoreTerm _ (FunctionLiteral (Decorate (Identity dσ)) _ (Bound pms e))) = do

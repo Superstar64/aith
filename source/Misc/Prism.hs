@@ -3,7 +3,6 @@ module Misc.Prism where
 import Control.Category (Category, id, (.))
 import Control.Monad ((<=<))
 import Data.List (uncons)
-import Data.Maybe (fromJust)
 import Misc.Isomorph
 import Prelude hiding (id, (.))
 
@@ -66,15 +65,15 @@ secondP (Prism f g) = Prism f' g'
       b' <- g b
       pure (a, b')
 
-foldlP :: Prism (a, b) a -> Prism (a, [b]) a
-foldlP (Prism f g) = Prism f' g'
+foldlP :: Prism (a, b) a -> Isomorph (a, [b]) a
+foldlP (Prism f g) = Isomorph f' g'
   where
     f' (x, xs) = foldl (curry f) x xs
     g' x = case g x of
-      Nothing -> Just (x, [])
-      Just (a, b) -> Just (first, a' ++ [b])
+      Nothing -> (x, [])
+      Just (a, b) -> (first, a' ++ [b])
         where
-          (first, a') = fromJust $ g' a
+          (first, a') = g' a
 
 branch :: (ToPrism f, ToPrism g) => f a c -> g b c -> Prism (Either a b) c
 branch a b = Prism pick prefer

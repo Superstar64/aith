@@ -1,17 +1,17 @@
 module:
 
-inline true = Λ@s : %stage => Λ<a : %type s> => λ!(x : a) => λ!(y : a) => x;
+inline true = ``\s : %stage => `\a : %type s => \!(x : a) => \!(y : a) => x;
 
-inline false = Λ@s : %stage => Λ<a : %type s> => λ!(x : a) => λ!(y : a) => y;
+inline false = ``\s : %stage => `\a : %type s => \!(x : a) => \!(y : a) => y;
 
-inline not = λ x : (∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) {
-	x @ %meta <∀@s : %stage => ∀<a:%type s> => !a -> !a -> a>(!false)(!true)
+inline not = \ x : (``\/s : %stage => `\/ a:%type s => !a -> !a -> a) {
+	x``(%meta)`(``\/s : %stage => `\/ a:%type s => !a -> !a -> a)(!false)(!true)
 };
 
-inline boolToFunction = λ x : (∀@s : %stage => ∀<a:%type s> => !a -> !a -> a) {
-	Λ<b> => ξ %copy b {
+inline boolToFunction = \x : (``\/s : %stage => `\/a:%type s => !a -> !a -> a) {
+	`\b => %when %copy b {
 		%function (b)(left : b, right : b){
-			x @ %runtime %pointer <b>(!left)(!right)
+			x``(%runtime %pointer)`(b)(!left)(!right)
 		}
 	}
 };

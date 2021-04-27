@@ -14,7 +14,7 @@ import qualified Core.Ast.Sort as Core
 import qualified Core.Ast.Term as Core
 import qualified Core.Ast.Type as Core
 import qualified Core.Ast.TypePattern as Core
-import Data.Char (isAlphaNum, ord)
+import Data.Char (isAlphaNum)
 import Misc.Identifier
 import Misc.Isomorph
 import qualified Misc.Path as Path
@@ -55,9 +55,11 @@ moduleKeyword = string
 
 betweenParens = between (token "(") (token ")")
 
+betweenTypeParens = between (token "`(") (token ")")
+
 betweenAngle = between (token "<") (token ">")
 
-betweenBracket = between (token "[") (token "]")
+betweenKindParens = between (token "``(") (token ")")
 
 betweenBraces = between (token "{") (token "}")
 
@@ -130,9 +132,10 @@ typex = typeBottom
     typeLambda lambda =
       Core.coreType ⊣ position
         ⊗ choice
-          [ Core.forallx ⊣ Core.bound ⊣ token "∀<" ≫ typePattern ≪ token ">" ≪ space ⊗ lambda typex,
-            Core.kindForall ⊣ Core.bound ⊣ token "∀@" ≫ kindPattern ≪ space ⊗ lambda typex,
-            Core.typeOperator ⊣ Core.bound ⊣ token "λ" ≫ typePattern ≪ space ⊗ lambda typex
+          [ Core.forallx ⊣ Core.bound ⊣ token "`\\/" ≫ typePattern ≪ space ⊗ lambda typex,
+            Core.kindForall ⊣ Core.bound ⊣ token "``\\/" ≫ kindPattern ≪ space ⊗ lambda typex,
+            Core.typeOperator ⊣ Core.bound ⊣ token "\\" ≫ typePattern ≪ space ⊗ lambda typex,
+            Core.recursive ⊣ Core.bound ⊣ keyword "recursive" ≫ space ≫ typePattern ≪ space ⊗ lambda typex
           ]
     typeBottom = typeLambda lambdaCore ∥# binary ⊣ typeCore ⊗ (space ≫ token "->" ≫ space ≫ typex ⊕ space ≫ token "=>?" ≫ space ≫ typex ⊕ always)
       where
@@ -150,7 +153,7 @@ typex = typeBottom
           choice
             [ Core.typeVariable ⊣ identifer,
               Core.ofCourse ⊣ token "!" ≫ typeCore,
-              Core.copy ⊣ token "%copy" ≫ space ≫ typeCore
+              Core.copy ⊣ keyword "copy" ≫ space ≫ typeCore
             ]
 
 pattern = patternBottom
@@ -189,7 +192,7 @@ term = termBottom
     termBottom = foldlP applyPostfix ⊣ termCore ⊗ many postfix
       where
         applyPostfix = functionApplication `branchDistribute` macroApplication `branchDistribute` typeApplication `branchDistribute` kindApplication `branchDistribute` erasedQualifiedCheck
-        postfix = token "(*)" ≫ termMultarg ⊕ termParens ⊕ betweenAngle typex ⊕ token "@" ≫ kind ⊕ token "?"
+        postfix = token "(*)" ≫ termMultarg ⊕ termParens ⊕ betweenTypeParens typex ⊕ betweenKindParens kind ⊕ token "?"
         functionApplication = withInnerPosition Core.coreTerm Core.functionApplication
         macroApplication = withInnerPosition Core.coreTerm Core.macroApplication
         typeApplication = withInnerPosition Core.coreTerm Core.typeApplication
@@ -200,14 +203,16 @@ term = termBottom
         core =
           choice
             [ Core.variable ⊣ identifer,
-              Core.macroAbstraction ⊣ Core.bound ⊣ token "λ" ≫ pattern ≪ space ⊗ lambdaMajor term,
-              Core.typeAbstraction ⊣ Core.bound ⊣ token "Λ<" ≫ typePattern ≪ token ">" ≪ space ⊗ lambdaMajor term,
-              Core.kindAbstraction ⊣ Core.bound ⊣ token "Λ@" ≫ kindPattern ≪ space ⊗ lambdaMajor term,
-              Core.erasedQualifiedAssume ⊣ token "ξ" ≫ typex ≪ space ⊗ lambdaMajor term,
+              Core.macroAbstraction ⊣ Core.bound ⊣ token "\\" ≫ pattern ≪ space ⊗ lambdaMajor term,
+              Core.typeAbstraction ⊣ Core.bound ⊣ token "`\\" ≫ typePattern ≪ space ⊗ lambdaMajor term,
+              Core.kindAbstraction ⊣ Core.bound ⊣ token "``\\" ≫ kindPattern ≪ space ⊗ lambdaMajor term,
+              Core.erasedQualifiedAssume ⊣ keyword "when" ≫ typex ≪ space ⊗ lambdaMajor term,
               Core.ofCourseIntroduction ⊣ token "!" ≫ term,
               Core.bind ⊣ rotateBind ⊣ keyword "let" ≫ space ≫ pattern ≪ space ≪ token "=" ≪ space ⊗ term ≪ token ";" ⊗ line ≫ term,
               Core.alias ⊣ rotateBind ⊣ keyword "alias" ≫ space ≫ runtimePattern ≪ space ≪ token "=" ≪ space ⊗ term ≪ token ";" ⊗ line ≫ term,
-              Core.extern ⊣ keyword "extern" ≫ space ≫ symbol ≪ space ⊗ typeParens ⊗ typeMultiarg
+              Core.extern ⊣ keyword "extern" ≫ space ≫ symbol ≪ space ⊗ typeParens ⊗ typeMultiarg,
+              Core.pack ⊣ keyword "pack" ≫ space ≫ (Core.bound ⊣ typePattern ⊗ lambdaOuter typex) ⊗ term,
+              Core.unpack ⊣ keyword "unpack" ≫ space ≫ term
             ]
         rotateBind = secondI Core.bound . associate . firstI swap
 
@@ -253,8 +258,7 @@ instance Syntax Parser where
   string op = Parser $ Megaparsec.string op >> Megaparsec.space
   identifer = Parser $ Identifier <$> Combinators.some (Megaparsec.satisfy legalChar Megaparsec.<?> "letter") <* Megaparsec.space
     where
-      isGreek x = x >= 0x370 && x <= 0x3ff
-      legalChar x = isAlphaNum x && not (isGreek (ord x))
+      legalChar x = isAlphaNum x
   stringLiteral = Parser $ do
     Megaparsec.string "\""
     Combinators.manyTill (Megaparsec.satisfy (const True)) (Megaparsec.string "\"") <* Megaparsec.space

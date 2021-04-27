@@ -40,15 +40,15 @@ See ``/documentation`` for typing rules.
 | Of Course Introduction | ``!e`` |
 | Binding | ``%let pm = e1 ; e2 ``|
 | Runtime Binding | ``%alias pme = e1; e2`` |
-| Macro Abstraction | ``λ pm { e }``|
-| Macro Abstraction | ``λ pm => e ``|
+| Macro Abstraction | ``\pm { e }``|
+| Macro Abstraction | ``\pm => e ``|
 | Macro Application | ``e(e')``|
-| Type Abstraction | ``Λ<pmσ> { e }`` |
-| Type Abstraction | ``Λ<pmσ> => e`` |
-| Type Application | ``e<σ>`` |
-| Kind Abstraction | ``Λ@ x : μ => e`` |
-| Kind Abstraction | ``Λ@ x : μ { e }`` |
-| Kind Application | ``e @ κ`` |
+| Type Abstraction | `` `\pmσ { e }`` |
+| Type Abstraction | `` `pmσ => e`` |
+| Type Application | ``e`(σ)`` |
+| Kind Abstraction | ``` ``\x : μ => e``` |
+| Kind Abstraction | ``` ``\x : μ { e }``` |
+| Kind Application | ```e``(κ)``` |
 | Extern | ``%extern "x" (σ)(τ, τ', ...)`` |
 | Function Application | ``e(*)(%multiarg e1,e2, ...) ``|
 | Function Application | ``e(*)(e') ``|
@@ -56,10 +56,13 @@ See ``/documentation`` for typing rules.
 | Function Literal | ``%function (τ)(%multiarg pme, pme', ...) { e }`` |
 | Function Literal | ``%function (τ)(pme) => e`` |
 | Function Literal | ``%function (τ)(pme) { e }`` |
-| Erased Qualified Assumption | ``ξ σ => e `` |
-| Erased Qualified Assumption | ``ξ σ { e } `` |
+| Erased Qualified Assumption | ``%when σ => e `` |
+| Erased Qualified Assumption | ``%when σ { e } `` |
 | Erased Qualified Check | ``e?`` |
 | Pair Constructor (Left Associative) | ``(e,e',...)`` |
+| Recursive Type Introduction | ``%pack pmσ => σ e `` |
+| Recursive Type Introduction| ``%pack pmσ { σ } e `` |
+| Recursive Type Elimination | ``%unpack e`` |
 
 # Function Sugar Term (ef)
 |Description | Syntax |
@@ -68,6 +71,8 @@ See ``/documentation`` for typing rules.
 | Erased Qualified Assumption | `` when (σ) ef `` |
 | Function Literal | ``(τ)(%multiarg pme, pme', ...) => e `` |
 | Function Literal | ``(τ)(%multiarg pme, pme', ...) { e } `` |
+| Function Literal | ``(τ)(pme) { e } `` |
+| Function Literal | ``(τ)(pme) =>  e `` |
 | Explict | ``~e`` |
 
 ## Patterns(pm)
@@ -86,14 +91,14 @@ See ``/documentation`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Forall | ``∀<pmσ> { σ }`` |
-| Forall | ``∀<pmσ> => σ`` |
-| KindForall | ``∀@s : μ => σ`` |
-| KindForall | ``∀@s : μ { σ }`` |
+| Forall | `` `\/pmσ { σ }`` |
+| Forall | `` `\/pmσ => σ`` |
+| KindForall | ``` ``\/s : μ => σ``` |
+| KindForall | ``` ``\/s : μ { σ }``` |
 | Macro | ``σ -> σ'``|
 | Of Course | ``!σ``|
-| Type Operator | `` λ x : κ { σ }``|
-| Type Operator | `` λ x : κ => σ ``|
+| Type Operator | `` \x : κ { σ }``|
+| Type Operator | `` \x : κ => σ ``|
 | Type Construction | `` σ (τ) `` |
 | Function Pointer | `` σ(*)(τ, τ', ...) `` |
 | Function Literal Type | `` σ %function (%multiarg τ, τ', ...) `` |
@@ -101,6 +106,8 @@ See ``/documentation`` for typing rules.
 | Erased Qualified Type | `` π =>? σ `` |
 | Copy Predicate | ``%copy σ`` |
 | Pair (Left Associative) | ``(σ, σ', ...)`` |
+| Recursive Type | `` %recursive pmσ => σ`` |
+| Recursive Type | `` %recursive pmσ { σ }`` |
 
 ## Type Pattern(pmσ)
 |Description | Syntax |

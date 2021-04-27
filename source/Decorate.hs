@@ -75,7 +75,9 @@ decorateTerm (CoreTerm p (RuntimePairIntroduction _ e1 e2)) = do
   de2 <- decoration <$> (typeCheck =<< typeCheck e2)
   let dσ = Decorate (Identity $ C.Struct $ C.RepresentationFix [de1, de2])
   pure (CoreTerm p (RuntimePairIntroduction dσ e1' e2'))
-decorateTerm e = e `seq` error "unable to decorate term"
+decorateTerm (CoreTerm _ (Pack _ _ e)) = decorateTerm e
+decorateTerm (CoreTerm _ (Unpack _ e)) = decorateTerm e
+decorateTerm _ = error "unable to decorate term"
 
 runDecorate :: Core.TypeCheck.Core Internal Identity a -> a
 runDecorate e = runIdentity $ runCore e emptyState

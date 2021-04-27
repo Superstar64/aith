@@ -212,6 +212,6 @@ reduceModule (Ordering code) = Ordering $ evalState (go code) Map.empty
     extract (CoreRuntimePattern _ _ (RuntimePatternPair pm@(CoreRuntimePattern _ p _) pm')) = CoreType p $ RuntimePair (extract pm) (extract pm')
     makeRef :: Path -> Term Silent p -> Term Silent p
     makeRef path (CoreTerm p (FunctionLiteral _ τ (Bound pms _))) = CoreTerm p $ Extern Silent Silent (mangle path) τ (extract <$> pms)
-    makeRef path (CoreTerm p e) = CoreTerm p $ mapTerm (makeRef path) id id bound bound bound bound bound e
+    makeRef path (CoreTerm p e) = CoreTerm p $ mapTerm (makeRef path) id id bound bound bound bound bound id e
       where
         bound (Bound pm e) = Bound pm (makeRef path e)

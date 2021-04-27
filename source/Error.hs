@@ -24,6 +24,7 @@ data Error p
   | ExpectedKindForall p TypeInternal
   | ExpectedErasedQualified p TypeInternal
   | ExpectedOfCourse p TypeInternal
+  | ExpectedRecursive p TypeInternal
   | ExpectedType p KindInternal
   | ExpectedHigher p KindInternal
   | ExpectedConstraint p KindInternal

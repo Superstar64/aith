@@ -6,5 +6,5 @@ function id = <a> (a)(x : a){
 };
 
 function callId = <a> (a)(x : a){
-	id<a(*)(a)>(*)(id<a>)(*)(x)
+	id`(a(*)(a))(*)(id`(a))(*)(x)
 };

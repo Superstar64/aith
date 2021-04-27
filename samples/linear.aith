@@ -1,19 +1,19 @@
 module:
 
-inline dup = Λ<b : %type %meta> {
-	λ!(x : b) =>
-	Λ<r : %type %meta> =>
-	λ(f : !b -> !b -> r) =>
+inline dup = `\b : %type %meta {
+	\!(x : b) =>
+	`\r : %type %meta =>
+	\(f : !b -> !b -> r) =>
 	f(!x)(!x)
 };
 
-inline main = Λ<a : %type %meta> {
-	Λ<b : %type %meta> =>
+inline main = `\a : %type %meta {
+	`\b : %type %meta =>
 
-	λ(f : a -> !b) =>
-	λ(x : a) =>
+	\(f : a -> !b) =>
+	\(x : a) =>
 
-	dup<b>(f(x))
+	dup`(b)(f(x))
 };
 
 
@@ -26,5 +26,5 @@ function ignoreFPtr = <a> (a)(x : a, f : a(*)(a)){
 };
 
 function useWasteful = <a> (a(*)(a)) (xf : a(*)(a), yf: a(*)(a)) {
-	wasteful<a(*)(a)>?(*)(xf, yf)
+	wasteful`(a(*)(a))?(*)(xf, yf)
 };

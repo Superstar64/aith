@@ -66,11 +66,11 @@ matchType' _ (TypeVariable x) (TypeVariable x') | x == x' = pure ()
 matchType' p (Macro σ τ) (Macro σ' τ') = zipWithM (matchType p) [σ, τ] [σ', τ'] >> pure ()
 matchType' p (Forall (Bound (CoreTypePattern Internal (TypePatternVariable x κ)) σ)) (Forall (Bound (CoreTypePattern Internal (TypePatternVariable x' κ')) σ')) = do
   matchKind p κ κ'
-  matchType p σ (substitute (CoreType Internal $ TypeVariable x) x' σ')
+  matchType p σ (convert @TypeInternal x x' σ')
   pure ()
 matchType' p (KindForall (Bound (CoreKindPattern Internal (KindPatternVariable x μ)) σ)) (KindForall (Bound (CoreKindPattern Internal (KindPatternVariable x' μ')) σ')) = do
   matchSort p μ μ'
-  matchType p σ (substitute (CoreKind Internal $ KindVariable x) x' σ')
+  matchType p σ (convert @KindInternal x x' σ')
   pure ()
 matchType' p (OfCourse σ) (OfCourse σ') = do
   matchType p σ σ'
@@ -79,7 +79,7 @@ matchType' p (TypeConstruction σ τ) (TypeConstruction σ' τ') = do
   matchType p τ τ'
 matchType' p (TypeOperator (Bound (CoreTypePattern Internal (TypePatternVariable x κ)) σ)) (TypeOperator (Bound (CoreTypePattern Internal (TypePatternVariable x' κ')) σ')) = do
   matchKind p κ κ'
-  matchType p σ (substitute (CoreType Internal $ TypeVariable x) x' σ')
+  matchType p σ (convert @TypeInternal x x' σ')
 matchType' p (FunctionPointer σ τs) (FunctionPointer σ' τs') = do
   matchType p σ σ'
   sequence $ zipWith (matchType p) τs τs'
@@ -91,6 +91,9 @@ matchType' p (Copy σ) (Copy σ') = matchType p σ σ'
 matchType' p (RuntimePair σ τ) (RuntimePair σ' τ') = do
   matchType p σ σ'
   matchType p τ τ'
+matchType' p (Recursive (Bound (CoreTypePattern Internal (TypePatternVariable x κ)) σ)) (Recursive (Bound (CoreTypePattern Internal (TypePatternVariable x' κ')) σ')) = do
+  matchKind p κ κ'
+  matchType p σ (convert @TypeInternal x x' σ')
 matchType' p σ σ' = quit $ IncompatibleType p (CoreType Internal σ) (CoreType Internal σ')
 
 matchType p (CoreType Internal σ) (CoreType Internal σ') = matchType' p σ σ'
@@ -122,10 +125,10 @@ checkText p κ = quit $ ExpectedText p κ
 checkMacro _ (CoreType Internal (Macro σ τ)) = pure (σ, τ)
 checkMacro p σ = quit $ ExpectedMacro p σ
 
-checkForall _ (CoreType Internal (Forall (Bound pm σ))) = pure $ Bound pm σ
+checkForall _ (CoreType Internal (Forall λ)) = pure λ
 checkForall p σ = quit $ ExpectedForall p σ
 
-checkKindForall _ (CoreType Internal (KindForall (Bound pm σ))) = pure $ Bound pm σ
+checkKindForall _ (CoreType Internal (KindForall λ)) = pure λ
 checkKindForall p σ = quit $ ExpectedKindForall p σ
 
 checkOfCourse _ (CoreType Internal (OfCourse σ)) = pure σ
@@ -136,6 +139,9 @@ checkFunctionPointer p n σ = quit $ ExpectedFunctionPointer p n σ
 
 checkErasedQualified _ (CoreType Internal (ErasedQualified π σ)) = pure (π, σ)
 checkErasedQualified p σ = quit $ ExpectedErasedQualified p σ
+
+checkRecursive _ (CoreType Internal (Recursive λ)) = pure λ
+checkRecursive p σ = quit $ ExpectedRecursive p σ
 
 class Augment p pm | pm -> p where
   augment :: Base p m => pm -> Core p m a -> Core p m a
@@ -205,10 +211,12 @@ matchTypeFailable σ τ = do
 checkAssumptionImpl p π (π' : πs) = do
   valid <- matchTypeFailable π π'
   if valid then pure () else checkAssumptionImpl p π πs
-checkAssumptionImpl _ (CoreType Internal (Copy (CoreType Internal (FunctionPointer _ _)))) [] = pure ()
-checkAssumptionImpl p (CoreType Internal (Copy (CoreType Internal (RuntimePair σ τ)))) [] = do
+checkAssumptionImpl _ (CoreType _ (Copy (CoreType Internal (FunctionPointer _ _)))) [] = pure ()
+checkAssumptionImpl p (CoreType _ (Copy (CoreType Internal (RuntimePair σ τ)))) [] = do
   checkAssumption p (CoreType Internal (Copy σ))
   checkAssumption p (CoreType Internal (Copy τ))
+checkAssumptionImpl p (CoreType _ (Copy (CoreType _ (Recursive (Bound (CoreTypePattern _ (TypePatternVariable x _)) σ))))) [] = do
+  augmentAssumption (CoreType Internal $ Copy $ CoreType Internal $ TypeVariable x) $ checkAssumption p (CoreType Internal (Copy σ))
 checkAssumptionImpl p π [] = quit $ NoProof p π
 
 checkAssumption p π = do
@@ -376,6 +384,12 @@ instance TypeCheck p (Type p) KindInternal where
     ρ <- checkRuntime p =<< checkType p =<< typeCheck σ
     ρ' <- checkRuntime p =<< checkType p =<< typeCheck τ
     pure $ CoreKind Internal $ Type $ CoreKind Internal $ Runtime $ CoreKind Internal $ StructRep [ρ, ρ']
+  typeCheck (CoreType p (Recursive (Bound pm' σ))) = do
+    (pm, κ) <- typeCheckInstantiate pm'
+    checkRuntime p =<< checkType p κ
+    κ' <- augment pm (typeCheck σ)
+    matchKind p κ κ'
+    pure κ
 
 instance TypeCheck p (Term d p) TypeInternal where
   typeCheck = fmap fst . typeCheckLinear
@@ -478,6 +492,18 @@ instance TypeCheckLinear p (Term d p) TypeInternal where
     κ' <- typeCheckInternal τ
     checkRuntime p =<< checkType p κ'
     pure (CoreType Internal (RuntimePair σ τ), lΓ1 `combine` lΓ2)
+  typeCheckLinear (CoreTerm p (Pack _ (Bound pm'' σ') e)) = do
+    pm' <- instantiate pm''
+    σ <- augment pm' (instantiate σ')
+    let pm = Internal <$ pm'
+    let recursive = CoreType Internal (Recursive (Bound pm σ))
+    (τ, lΓ) <- typeCheckLinear e
+    matchType p τ (apply (Bound pm σ) recursive)
+    pure (recursive, lΓ)
+  typeCheckLinear (CoreTerm p (Unpack _ e)) = do
+    (τ, lΓ) <- typeCheckLinear e
+    λ <- checkRecursive p τ
+    pure (apply λ τ, lΓ)
 
 typeCheckInternal :: (Monad m, TypeCheck Internal e σ) => e -> Core p m σ
 typeCheckInternal σ = do
