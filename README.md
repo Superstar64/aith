@@ -42,20 +42,20 @@ See ``/documentation`` for typing rules.
 | Runtime Binding | ``%alias pme = e1; e2`` |
 | Macro Abstraction | ``\pm { e }``|
 | Macro Abstraction | ``\pm => e ``|
-| Macro Application | ``e(e')``|
+| Macro Application | ``e e'``|
 | Type Abstraction | `` `\pmσ { e }`` |
 | Type Abstraction | `` `pmσ => e`` |
-| Type Application | ``e`(σ)`` |
+| Type Application | ``e` σ`` |
 | Kind Abstraction | ``` ``\x : μ => e``` |
 | Kind Abstraction | ``` ``\x : μ { e }``` |
-| Kind Application | ```e``(κ)``` |
+| Kind Application | ``` e``κ ``` |
 | Extern | ``%extern "x" (σ)(τ, τ', ...)`` |
-| Function Application | ``e(*)(%multiarg e1,e2, ...) ``|
-| Function Application | ``e(*)(e') ``|
-| Function Literal | ``%function (τ)(%multiarg pme, pme', ...) => e`` |
-| Function Literal | ``%function (τ)(%multiarg pme, pme', ...) { e }`` |
-| Function Literal | ``%function (τ)(pme) => e`` |
-| Function Literal | ``%function (τ)(pme) { e }`` |
+| Function Application | ``e(*) %multiarg (e1,e2, ...) ``|
+| Function Application | ``e(*) e' ``|
+| Function Literal | ``%function %multiarg (pme, pme', ...) => e`` |
+| Function Literal | ``%function %multiarg (pme, pme', ...) { e }`` |
+| Function Literal | ``%function pme => e`` |
+| Function Literal | ``%function pme { e }`` |
 | Erased Qualified Assumption | ``%when σ => e `` |
 | Erased Qualified Assumption | ``%when σ { e } `` |
 | Erased Qualified Check | ``e?`` |
@@ -67,12 +67,12 @@ See ``/documentation`` for typing rules.
 # Function Sugar Term (ef)
 |Description | Syntax |
 |-|-|
-| Type Abstraction | `` <pmσ> ef `` |
-| Erased Qualified Assumption | `` when (σ) ef `` |
-| Function Literal | ``(τ)(%multiarg pme, pme', ...) => e `` |
-| Function Literal | ``(τ)(%multiarg pme, pme', ...) { e } `` |
-| Function Literal | ``(τ)(pme) { e } `` |
-| Function Literal | ``(τ)(pme) =>  e `` |
+| Type Abstraction | `` `\pmσ ef `` |
+| Erased Qualified Assumption | `` when σ ef `` |
+| Function Literal | ``%multiarg (pme, pme', ...) => e `` |
+| Function Literal | ``%multiarg (pme, pme', ...) { e } `` |
+| Function Literal | ``pme { e } `` |
+| Function Literal | ``pme =>  e `` |
 | Explict | ``~e`` |
 
 ## Patterns(pm)
@@ -99,10 +99,11 @@ See ``/documentation`` for typing rules.
 | Of Course | ``!σ``|
 | Type Operator | `` \x : κ { σ }``|
 | Type Operator | `` \x : κ => σ ``|
-| Type Construction | `` σ (τ) `` |
-| Function Pointer | `` σ(*)(τ, τ', ...) `` |
-| Function Literal Type | `` σ %function (%multiarg τ, τ', ...) `` |
-| Function Literal Type | `` σ %function (τ) `` |
+| Type Construction | `` σ τ `` |
+| Function Pointer | `` σ(*) %multiarg (τ, τ', ...) `` |
+| Function Pointer | `` σ(*) τ `` |
+| Function Literal Type | `` σ %function %multiarg(τ, τ', ...) `` |
+| Function Literal Type | `` σ %function τ `` |
 | Erased Qualified Type | `` π =>? σ `` |
 | Copy Predicate | ``%copy σ`` |
 | Pair (Left Associative) | ``(σ, σ', ...)`` |

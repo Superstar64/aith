@@ -30,7 +30,7 @@ data TermF d p
   | Alias (Term d p) (Bound (RuntimePattern d p p) (Term d p))
   | Extern (d Identity) (d []) Symbol (Type p) [Type p]
   | FunctionApplication (d Identity) (d []) (Term d p) [Term d p]
-  | FunctionLiteral (d Identity) (Type p) (Bound [RuntimePattern d p p] (Term d p))
+  | FunctionLiteral (d Identity) (Bound [RuntimePattern d p p] (Term d p))
   | ErasedQualifiedAssume (d Erased) (Type p) (Term d p)
   | ErasedQualifiedCheck (d Erased) (Term d p)
   | RuntimePairIntroduction (d Identity) (Term d p) (Term d p)
@@ -53,7 +53,7 @@ traverseTerm term typex kind bound runtimeBound runtimeBoundMany typeBound kindB
     go (Alias e λ) = pure Alias <*> term e <*> runtimeBound λ
     go (Extern dσ dτs sm σ τs) = pure Extern <*> pure dσ <*> pure dτs <*> pure sm <*> typex σ <*> traverse typex τs
     go (FunctionApplication de1 de2s e1 e2s) = pure FunctionApplication <*> pure de1 <*> pure de2s <*> term e1 <*> traverse term e2s
-    go (FunctionLiteral dσ σ λ) = pure FunctionLiteral <*> pure dσ <*> typex σ <*> runtimeBoundMany λ
+    go (FunctionLiteral dσ λ) = pure FunctionLiteral <*> pure dσ <*> runtimeBoundMany λ
     go (ErasedQualifiedAssume i π e) = pure ErasedQualifiedAssume <*> pure i <*> typex π <*> term e
     go (ErasedQualifiedCheck i e) = pure ErasedQualifiedCheck <*> pure i <*> term e
     go (RuntimePairIntroduction dσ e e') = pure RuntimePairIntroduction <*> pure dσ <*> term e <*> term e'
@@ -112,8 +112,8 @@ functionApplication = Prism (uncurry $ FunctionApplication Silent Silent) $ \cas
   (FunctionApplication _ _ e e's) -> Just (e, e's)
   _ -> Nothing
 
-functionLiteral = Prism (uncurry $ FunctionLiteral Silent) $ \case
-  (FunctionLiteral _ σ λ) -> Just (σ, λ)
+functionLiteral = Prism (FunctionLiteral Silent) $ \case
+  (FunctionLiteral _ λ) -> Just λ
   _ -> Nothing
 
 erasedQualifiedAssume = Prism (uncurry $ ErasedQualifiedAssume Silent) $ \case

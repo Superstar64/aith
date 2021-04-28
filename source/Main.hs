@@ -127,7 +127,7 @@ main = do
   code <- (fmap (: [])) <$> addAll (loadItem command) :: IO (Module Silent [SourcePos])
   prettyAll (prettyItem command) (Internal <$ code)
   ordering <- order code
-  typeCheckModule ordering
-  let code = unorder $ reduceModule ordering
+  environment <- typeCheckModule ordering
+  let code = unorder $ reduceModule environment ordering
   prettyAll (prettyItemReduced command) (Internal <$ code)
   generateAll (generateCItem command) (Internal <$ code)

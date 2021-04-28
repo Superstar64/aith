@@ -1,14 +1,13 @@
 module Module where
 
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State (State, StateT, evalState, evalStateT, execStateT, get, modify)
+import Control.Monad.Trans.State (StateT, evalState, evalStateT, execStateT, get, modify)
 import Core.Ast.Common
 import Core.Ast.Multiplicity
-import Core.Ast.RuntimePattern
 import Core.Ast.Term
 import Core.Ast.Type
 import Core.TypeCheck
-import Data.Bifunctor (first)
+import Data.Bifunctor (bimap, first)
 import Data.Functor.Identity (Identity)
 import Data.List (find)
 import Data.Map (Map, (!))
@@ -147,30 +146,24 @@ unorder (Ordering (item : remaining)) = insert item (unorder $ Ordering remainin
 typeCheckModule :: Base p m => ModuleOrder d p -> m (Map [Identifier] (CoreState p))
 typeCheckModule (Ordering code) = execStateT (go code) mempty
   where
+    goCommon heading name p require f = do
+      go require
+      this <- get
+      let environment = Map.findWithDefault emptyState heading this
+      σ <- lift $ f environment this
+      let environment' = environment {typeEnvironment = Map.insert name (p, Unrestricted, σ) $ typeEnvironment environment}
+      modify $ Map.insert heading environment'
     go [] = pure ()
-    go ((Path heading name, Inline e@(CoreTerm p _)) : require) = do
-      go require
-      this <- get
-      let enviroment = Map.findWithDefault emptyState heading this
-      σ <- lift $ runCore (typeCheck e) enviroment
-      let enviroment' = enviroment {typeEnvironment = Map.insert name (p, Unrestricted, σ) $ typeEnvironment enviroment}
-      modify $ Map.insert heading enviroment'
-    go ((Path heading name, Text e@(CoreTerm p _)) : require) = do
-      go require
-      this <- get
-      let enviroment = Map.findWithDefault emptyState heading this
-      σ' <- lift $ runCore (typeCheck e) enviroment
-      lift $ runCore (checkText p =<< checkType p =<< typeCheckInternal σ') enviroment
-      let σ = convert σ'
-      let enviroment' = enviroment {typeEnvironment = Map.insert name (p, Unrestricted, σ) $ typeEnvironment enviroment}
-      modify $ Map.insert heading enviroment'
-    go ((Path heading name, Import p (Path targetHeading targetName)) : require) = do
-      go require
-      this <- get
-      let enviroment = Map.findWithDefault emptyState heading this
+    go ((Path heading name, Inline e@(CoreTerm p _)) : require) = goCommon heading name p require $ \environment _ -> do
+      σ <- runCore (typeCheck e) environment
+      pure σ
+    go ((Path heading name, Text e@(CoreTerm p _)) : require) = goCommon heading name p require $ \environment _ -> do
+      σ' <- runCore (typeCheck e) environment
+      runCore (checkText p =<< checkType p =<< typeCheckInternal σ') environment
+      pure $ convert σ'
+    go ((Path heading name, Import p (Path targetHeading targetName)) : require) = goCommon heading name p require $ \_ this -> do
       let (_, _, σ) = typeEnvironment (this ! targetHeading) ! targetName
-      let enviroment' = enviroment {typeEnvironment = Map.insert name (p, Unrestricted, σ) $ typeEnvironment enviroment}
-      modify $ Map.insert heading enviroment'
+      pure σ
     convert (CoreType p (FunctionLiteralType σ τs)) = CoreType p $ FunctionPointer σ τs
     convert (CoreType p σ) = CoreType p $ mapType convert bound bound σ
       where
@@ -181,37 +174,29 @@ mangle (Path path (Identifier name)) = Symbol $ (concat $ map (++ "_") $ extract
   where
     extract (Identifier x) = x
 
-reduceModule :: Semigroup p => ModuleOrder Silent p -> ModuleOrder Silent p
-reduceModule (Ordering code) = Ordering $ evalState (go code) Map.empty
+reduceModule :: Semigroup p => Map [Identifier] (CoreState p) -> ModuleOrder Silent p -> ModuleOrder Silent p
+reduceModule environment (Ordering code) = Ordering $ evalState (go code) Map.empty
   where
-    go :: Semigroup p => [(Path, Global Silent p)] -> State (Map [Identifier] [(Identifier, Term Silent p)]) [(Path, Global Silent p)]
+    goCommon heading name require f = do
+      completed <- go require
+      this <- get
+      let replacements = Map.findWithDefault [] heading this
+      let (e', global') = f replacements this
+      modify $ Map.insert heading ((name, e') : replacements)
+      pure $ (Path heading name, global') : completed
     go [] = pure []
-    go ((Path heading name, Inline e) : require) = do
-      completed <- go require
-      this <- get
-      let replacements = Map.findWithDefault [] heading this
+    go ((Path heading name, Inline e) : require) = goCommon heading name require $ \replacements _ ->
       let e' = reduce $ foldr (\(x, e') -> substitute e' x) e replacements
-      modify $ Map.insert heading ((name, e') : replacements)
-      pure $ (Path heading name, Inline e') : completed
-    go ((path@(Path heading name), Text e) : require) = do
-      completed <- go require
-      this <- get
-      let replacements = Map.findWithDefault [] heading this
+       in (e', Inline e')
+    go ((path@(Path heading name), Text e) : require) = goCommon heading name require $ \replacements _ ->
       let e' = reduce $ foldr (\(x, e') -> substitute e' x) e replacements
-      let ref = makeRef path e'
-      modify $ Map.insert heading ((name, ref) : replacements)
-      pure $ (Path heading name, Text e') : completed
-    go ((Path heading name, Import _ (Path targetHeading targetName)) : require) = do
-      completed <- go require
-      this <- get
-      let replacements = Map.findWithDefault [] heading this
+          (p, _, σ) = typeEnvironment (environment ! heading) ! name
+          ref = convert p (mangle path) σ
+       in (ref, Text e')
+    go ((Path heading name, Import _ (Path targetHeading targetName)) : require) = goCommon heading name require $ \_ this ->
       let e' = fromJust $ lookup targetName (this ! targetHeading)
-      modify $ Map.insert heading ((name, e') : replacements)
-      pure $ (Path heading name, Inline e') : completed
-    extract (CoreRuntimePattern _ _ (RuntimePatternVariable _ σ)) = σ
-    extract (CoreRuntimePattern _ _ (RuntimePatternPair pm@(CoreRuntimePattern _ p _) pm')) = CoreType p $ RuntimePair (extract pm) (extract pm')
-    makeRef :: Path -> Term Silent p -> Term Silent p
-    makeRef path (CoreTerm p (FunctionLiteral _ τ (Bound pms _))) = CoreTerm p $ Extern Silent Silent (mangle path) τ (extract <$> pms)
-    makeRef path (CoreTerm p e) = CoreTerm p $ mapTerm (makeRef path) id id bound bound bound bound bound id e
-      where
-        bound (Bound pm e) = Bound pm (makeRef path e)
+       in (e', Inline e')
+    convert p name (CoreType _ (FunctionPointer σ τs)) = CoreTerm p $ Extern Silent Silent name (p <$ σ) (fmap (p <$) τs)
+    convert p name (CoreType _ (Forall (Bound pm σ))) = CoreTerm p $ TypeAbstraction Silent $ Bound (bimap (const p) (const p) pm) (convert p name σ)
+    convert p name (CoreType _ (ErasedQualified τ σ)) = CoreTerm p $ ErasedQualifiedAssume Silent (p <$ τ) (convert p name σ)
+    convert _ _ _ = error "unable to convert type to extern"

@@ -1,10 +1,10 @@
 module:
 
-function id = <a> (a)(x : a){
+function id = `\a (x : a){
 	%alias y : a = x;
 	y
 };
 
-function callId = <a> (a)(x : a){
+function callId = `\a (x : a){
 	id`(a(*)(a))(*)(id`(a))(*)(x)
 };

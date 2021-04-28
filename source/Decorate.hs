@@ -56,11 +56,11 @@ decorateTerm e@(CoreTerm p (FunctionApplication _ _ e1 e2s)) = do
   pure $ CoreTerm p (FunctionApplication (Decorate dσ) (Decorate dτs) e1' e2s')
 decorateTerm (CoreTerm _ (TypeAbstraction _ (Bound pmσ e))) = augment pmσ $ decorateTerm e
 decorateTerm (CoreTerm _ (TypeApplication _ e _)) = decorateTerm e
-decorateTerm (CoreTerm p (FunctionLiteral _ τ (Bound pms e))) = do
-  dτ <- Identity <$> decoration <$> (typeCheck τ)
+decorateTerm (CoreTerm p (FunctionLiteral _ (Bound pms e))) = do
   dpms <- traverse decoratePattern pms
   e' <- foldr augmentPattern (decorateTerm e) pms
-  pure $ CoreTerm p $ FunctionLiteral (Decorate dτ) τ (Bound dpms e')
+  dτ <- Identity <$> decoration <$> foldr augmentPattern (typeCheck =<< typeCheck e) pms
+  pure $ CoreTerm p $ FunctionLiteral (Decorate dτ) (Bound dpms e')
 decorateTerm (CoreTerm _ (ErasedQualifiedAssume _ _ e)) = decorateTerm e
 decorateTerm (CoreTerm _ (ErasedQualifiedCheck _ e)) = decorateTerm e
 decorateTerm (CoreTerm p (Alias e1 (Bound pm e2))) = do

@@ -1,8 +1,8 @@
 module:
-function selfApp = (%recursive a { a(*)(a) })(x : %recursive a { a(*)(a) }){
+function selfApp = (x : %recursive a { a(*)(a) }){
 	(%unpack x)(*)(x)
 };
 
-function omega = (%recursive a { a(*)(a) } )(%multiarg) {
+function omega = %multiarg() {
 	selfApp(*)(%pack a { a(*)(a) } selfApp)
 };

@@ -10,7 +10,7 @@ inline not = \ x : (``\/s : %stage => `\/ a:%type s => !a -> !a -> a) {
 
 inline boolToFunction = \x : (``\/s : %stage => `\/a:%type s => !a -> !a -> a) {
 	`\b => %when %copy b {
-		%function (b)(left : b, right : b){
+		%function (left : b, right : b){
 			x``(%runtime %pointer)`(b)(!left)(!right)
 		}
 	}

@@ -23,6 +23,6 @@ inline bindIdentityPtr = `\a => `\b => \x : a => \f : a -> b {
 	f(x)
 };
 
-function usefmap = <a> (a)(x : a) {
+function usefmap = `\a (x : a) {
 	fmap``(%runtime %pointer)`(\x => x)`(a)`(a)(!pureIdentityPtr)(!bindIdentityPtr)(\x : a => x)(x) 
 };

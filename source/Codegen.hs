@@ -10,32 +10,30 @@ import Core.Ast.Term
 import Data.Functor.Identity (Identity (..))
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Traversable (for)
 import Decorate
 import Misc.Identifier
 import Misc.Path
 import Misc.Silent
 import Misc.Symbol
-import Misc.Variables (Variables)
-import qualified Misc.Variables as Variables
+import Misc.Util
 import Module
 
 type CStatement = C.Statement (C.Representation C.RepresentationFix)
 
 type CExpression = C.Expression (C.Representation C.RepresentationFix)
 
-external (CoreTerm _ (Extern _ _ sm _ _)) = [sm]
+external (CoreTerm _ (Extern _ _ (Symbol sm) _ _)) = Set.singleton sm
 external (CoreTerm _ e) = foldTerm external go go bound bound bound bound bound go e
   where
     go = const mempty
     bound (Bound _ e) = external e
 
-newtype Codegen a = Codegen (State (Variables (), Map Identifier String) a) deriving (Functor, Applicative, Monad)
+newtype Codegen a = Codegen (State (Set String, Map Identifier String) a) deriving (Functor, Applicative, Monad)
 
-runCodegen (Codegen x) symbols = evalState x (illegal, mempty)
-  where
-    go (Symbol x) = (Identifier x, ())
-    illegal = Variables.fromList $ go <$> symbols
+runCodegen (Codegen x) symbols = evalState x (symbols, mempty)
 
 lookupVariable x = do
   (_, mapping) <- Codegen get
@@ -43,15 +41,15 @@ lookupVariable x = do
 
 temporary = do
   (vars, mapping) <- Codegen get
-  let new@(Identifier name) = Variables.fresh vars (Identifier "_")
-  Codegen $ put (vars <> Variables.singleton new (), mapping)
+  let name = fresh vars "_"
+  Codegen $ put (vars <> Set.singleton name, mapping)
   pure name
 
 compilePattern :: RuntimePattern Decorate p p -> CExpression -> Codegen ([CStatement])
-compilePattern (CoreRuntimePattern (Decorate (Identity dσ)) _ (RuntimePatternVariable x _)) target = do
+compilePattern (CoreRuntimePattern (Decorate (Identity dσ)) _ (RuntimePatternVariable x@(Identifier base) _)) target = do
   (vars, mapping) <- Codegen get
-  let new@(Identifier name) = Variables.fresh vars x
-  Codegen $ put (vars <> Variables.singleton new (), Map.insert x name mapping)
+  let name = fresh vars base
+  Codegen $ put (Set.insert name vars, Map.insert x name mapping)
   pure [C.VariableDeclaration dσ name target]
 compilePattern (CoreRuntimePattern (Decorate (Identity dσ)) _ (RuntimePatternPair pm1 pm2)) target = do
   new <- temporary
@@ -80,7 +78,7 @@ compileTerm (CoreTerm _ (RuntimePairIntroduction (Decorate (Identity dσ)) e1 e2
   e1' <- compileTerm e1
   e2' <- compileTerm e2
   pure $ C.CompoundLiteral dσ [e1', e2']
-compileTerm (CoreTerm _ (FunctionLiteral _ _ _)) = error "function literal inside runtime"
+compileTerm (CoreTerm _ (FunctionLiteral _ _)) = error "function literal inside runtime"
 compileTerm (CoreTerm _ (MacroAbstraction (Decorate i) _)) = absurd i
 compileTerm (CoreTerm _ (TypeAbstraction (Decorate i) _)) = absurd i
 compileTerm (CoreTerm _ (KindAbstraction (Decorate i) _)) = absurd i
@@ -95,7 +93,7 @@ compileTerm (CoreTerm _ (Pack (Decorate i) _ _)) = absurd i
 compileTerm (CoreTerm _ (Unpack (Decorate i) _)) = absurd i
 
 compileFunctionLiteralImpl :: Symbol -> Term Decorate p -> Codegen (C.Global (C.Representation C.RepresentationFix))
-compileFunctionLiteralImpl (Symbol name) (CoreTerm _ (FunctionLiteral (Decorate (Identity dσ)) _ (Bound pms e))) = do
+compileFunctionLiteralImpl (Symbol name) (CoreTerm _ (FunctionLiteral (Decorate (Identity dσ)) (Bound pms e))) = do
   let argumentTypes = map (\(CoreRuntimePattern (Decorate σ) _ _) -> runIdentity σ) pms
   heading <- for pms $ \pm -> do
     new <- temporary

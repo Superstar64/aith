@@ -5,6 +5,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import Misc.Identifier
+import Misc.Util hiding (fresh)
 
 data Variables p = Variables (Map Identifier p)
 
@@ -27,4 +28,4 @@ toList (Variables variables) = Map.toList variables
 
 fromList xs = Variables $ Map.fromList xs
 
-fresh disallow canditate = fromJust $ find (flip notMember disallow) $ temporaries canditate
+fresh disallow (Identifier canditate) = fromJust $ find (flip notMember disallow) $ map Identifier (temporaries canditate)
