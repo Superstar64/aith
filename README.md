@@ -45,10 +45,10 @@ See ``/documentation`` for typing rules.
 | Macro Application | ``e e'``|
 | Type Abstraction | `` `\pmσ { e }`` |
 | Type Abstraction | `` `pmσ => e`` |
-| Type Application | ``e` σ`` |
+| Type Application | ``e`(σ)`` |
 | Kind Abstraction | ``` ``\x : μ => e``` |
 | Kind Abstraction | ``` ``\x : μ { e }``` |
-| Kind Application | ``` e``κ ``` |
+| Kind Application | ``` e``(κ) ``` |
 | Extern | ``%extern "x" (σ)(τ, τ', ...)`` |
 | Function Application | ``e(*) %multiarg (e1,e2, ...) ``|
 | Function Application | ``e(*) e' ``|
