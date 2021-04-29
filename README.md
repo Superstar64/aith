@@ -32,6 +32,7 @@ See ``/documentation`` for typing rules.
 | Inline Symbol | ``inline x =  e; ``|
 | Import | ``import x = /x'/x''/...;``|
 | Function | ``function x = ef;`` |
+| Type Synonym | ``type x = σ;`` |
 
 ## Terms(e)
 | Description | Syntax |
