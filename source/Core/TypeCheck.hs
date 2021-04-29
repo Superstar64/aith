@@ -1,6 +1,6 @@
 module Core.TypeCheck where
 
-import Control.Monad ((<=<))
+import Control.Monad (liftM2, (<=<))
 import Control.Monad.Trans.Class (MonadTrans, lift)
 import Control.Monad.Trans.State (StateT, evalStateT, get, put)
 import Core.Ast.Common
@@ -16,7 +16,7 @@ import Core.Ast.TypePattern
 import Data.Functor.Identity (runIdentity)
 import Data.Map (Map, (!), (!?))
 import qualified Data.Map as Map
-import Data.Maybe (isJust)
+import Data.Maybe (catMaybes, isJust)
 import qualified Data.Set as Set
 import Data.Traversable (for)
 import Environment
@@ -27,7 +27,7 @@ import qualified Misc.Variables as Variables
 
 data CoreState p = CoreState
   { typeEnvironment :: Map Identifier (p, Multiplicity, TypeInternal),
-    kindEnvironment :: Map Identifier (p, KindInternal),
+    kindEnvironment :: Map Identifier (p, KindInternal, Maybe TypeInternal), -- 3rd item exists if variable is type alias
     sortEnvironment :: Map Identifier (p, Sort),
     assumptions :: [TypeInternal]
   }
@@ -185,7 +185,7 @@ augmentTypeVariable p x κ σ = do
   env <- Core get
   let κΓ = kindEnvironment env
   let shadowedassumptions = filter (\σ -> x `Variables.member` freeVariables @TypeInternal σ) (assumptions env)
-  Core $ put env {kindEnvironment = Map.insert x (p, κ) κΓ, assumptions = shadowedassumptions}
+  Core $ put env {kindEnvironment = Map.insert x (p, κ, Nothing) κΓ, assumptions = shadowedassumptions}
   κ' <- σ
   Core $ put env
   pure κ'
@@ -259,9 +259,12 @@ instance TypeCheckInstantiate p (Kind p) KindInternal Sort where
     pure (Internal <$ κ, μ)
 
 instance TypeCheckInstantiate p (Type p) TypeInternal KindInternal where
-  typeCheckInstantiate σ = do
-    κ <- typeCheck σ
-    pure (reduce $ Internal <$ σ, κ)
+  typeCheckInstantiate σ' = do
+    κ <- typeCheck σ'
+    environment <- Core get
+    let replacements = catMaybes $ map (\(x, τ) -> liftM2 (,) (pure x) τ) $ Map.toList $ (\(_, _, τ) -> τ) <$> (kindEnvironment environment)
+    let σ = reduce $ foldr (\(x, τ) -> substitute τ x) (Internal <$ σ') replacements
+    pure (σ, κ)
 
 instance Instantiate p (Pattern p p) (Pattern Internal p) where
   instantiate = instantiateDefault
@@ -348,7 +351,7 @@ instance TypeCheck p (Type p) KindInternal where
     environment <- Core get
     case kindEnvironment environment !? x of
       Nothing -> quit $ UnknownIdentfier p x
-      Just (_, κ) -> pure κ
+      Just (_, κ, _) -> pure κ
   typeCheck (CoreType p (Macro σ τ)) = do
     checkType p =<< typeCheck σ
     checkType p =<< typeCheck τ

@@ -10,7 +10,7 @@ import Core.TypeCheck
 import Data.Bifunctor (bimap, first)
 import Data.Functor.Identity (Identity)
 import Data.List (find)
-import Data.Map (Map, (!))
+import Data.Map (Map, (!), (!?))
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import Data.Traversable (for)
@@ -48,6 +48,7 @@ data Global d p
   = Inline (Term d p)
   | Import p Path
   | Text (Term d p)
+  | Synonym (Type p)
   deriving (Functor)
 
 deriving instance (Show (d Identity), Show (d []), Show p, Show (d Erased)) => Show (Global d p)
@@ -64,6 +65,10 @@ text = Prism Text $ \case
   (Text e) -> Just e
   _ -> Nothing
 
+synonym = Prism Synonym $ \case
+  (Synonym σ) -> Just σ
+  _ -> Nothing
+
 resolve :: Base p m => p -> Module d p -> Path -> m (Global d p)
 resolve p (CoreModule code) path = go code path
   where
@@ -77,8 +82,9 @@ resolve p (CoreModule code) path = go code path
       Just (Module (CoreModule code')) -> go code' (Path remainder name)
 
 depend :: forall p d. Semigroup p => Global d p -> Path -> [(Path, p)]
-depend (Inline e) (Path location _) = first (Path location) <$> (Variables.toList $ freeVariables @(Term d p) e)
-depend (Text e) (Path location _) = first (Path location) <$> (Variables.toList $ freeVariables @(Term d p) e)
+depend (Inline e) (Path location _) = first (Path location) <$> (Variables.toList $ freeVariables @(Term d p) e <> freeVariables @(Type p) e)
+depend (Text e) (Path location _) = first (Path location) <$> (Variables.toList $ freeVariables @(Term d p) e <> freeVariables @(Type p) e)
+depend (Synonym σ) (Path location _) = first (Path location) <$> (Variables.toList $ freeVariables @(Type p) σ)
 depend (Import p path) _ = [(path, p)]
 
 data ModuleOrder d p = Ordering [(Path, Global d p)] deriving (Functor)
@@ -150,20 +156,29 @@ typeCheckModule (Ordering code) = execStateT (go code) mempty
       go require
       this <- get
       let environment = Map.findWithDefault emptyState heading this
-      σ <- lift $ f environment this
-      let environment' = environment {typeEnvironment = Map.insert name (p, Unrestricted, σ) $ typeEnvironment environment}
+      bound <- lift $ f environment this
+      let environment' = case bound of
+            Right σ -> environment {typeEnvironment = Map.insert name (p, Unrestricted, σ) $ typeEnvironment environment}
+            Left (σ, κ) -> environment {kindEnvironment = Map.insert name (p, κ, Just σ) $ kindEnvironment environment}
+
       modify $ Map.insert heading environment'
     go [] = pure ()
     go ((Path heading name, Inline e@(CoreTerm p _)) : require) = goCommon heading name p require $ \environment _ -> do
       σ <- runCore (typeCheck e) environment
-      pure σ
+      pure (Right σ)
     go ((Path heading name, Text e@(CoreTerm p _)) : require) = goCommon heading name p require $ \environment _ -> do
       σ' <- runCore (typeCheck e) environment
       runCore (checkText p =<< checkType p =<< typeCheckInternal σ') environment
-      pure $ convert σ'
+      pure $ Right $ convert σ'
     go ((Path heading name, Import p (Path targetHeading targetName)) : require) = goCommon heading name p require $ \_ this -> do
-      let (_, _, σ) = typeEnvironment (this ! targetHeading) ! targetName
-      pure σ
+      case typeEnvironment (this ! targetHeading) !? targetName of
+        Just (_, _, σ) -> pure (Right σ)
+        Nothing -> case kindEnvironment (this ! targetHeading) !? targetName of
+          Just (_, κ, Just σ) -> pure (Left (σ, κ))
+          _ -> error "import error"
+    go ((Path heading name, Synonym σ'@(CoreType p _)) : require) = goCommon heading name p require $ \environment _ -> do
+      (σ, κ) <- runCore (typeCheckInstantiate σ') environment
+      pure (Left (σ, κ))
     convert (CoreType p (FunctionLiteralType σ τs)) = CoreType p $ FunctionPointer σ τs
     convert (CoreType p σ) = CoreType p $ mapType convert bound bound σ
       where
@@ -186,16 +201,21 @@ reduceModule environment (Ordering code) = Ordering $ evalState (go code) Map.em
       pure $ (Path heading name, global') : completed
     go [] = pure []
     go ((Path heading name, Inline e) : require) = goCommon heading name require $ \replacements _ ->
-      let e' = reduce $ foldr (\(x, e') -> substitute e' x) e replacements
-       in (e', Inline e')
+      let e' = reduce $ foldr substituteGlobal e replacements
+       in (Right e', Inline e')
     go ((path@(Path heading name), Text e) : require) = goCommon heading name require $ \replacements _ ->
-      let e' = reduce $ foldr (\(x, e') -> substitute e' x) e replacements
+      let e' = reduce $ foldr substituteGlobal e replacements
           (p, _, σ) = typeEnvironment (environment ! heading) ! name
           ref = convert p (mangle path) σ
-       in (ref, Text e')
+       in (Right ref, Text e')
     go ((Path heading name, Import _ (Path targetHeading targetName)) : require) = goCommon heading name require $ \_ this ->
       let e' = fromJust $ lookup targetName (this ! targetHeading)
-       in (e', Inline e')
+       in (e', either Synonym Inline e')
+    go ((Path heading name, Synonym σ) : require) = goCommon heading name require $ \replacements _ ->
+      let σ' = reduce $ foldr substituteGlobal σ replacements
+       in (Left σ', Synonym σ')
+    substituteGlobal (x, Right e) = substitute e x
+    substituteGlobal (x, Left σ) = substitute σ x
     convert p name (CoreType _ (FunctionPointer σ τs)) = CoreTerm p $ Extern Silent Silent name (p <$ σ) (fmap (p <$) τs)
     convert p name (CoreType _ (Forall (Bound pm σ))) = CoreTerm p $ TypeAbstraction Silent $ Bound (bimap (const p) (const p) pm) (convert p name σ)
     convert p name (CoreType _ (ErasedQualified τ σ)) = CoreTerm p $ ErasedQualifiedAssume Silent (p <$ τ) (convert p name σ)

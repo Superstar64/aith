@@ -118,3 +118,4 @@ compileItem path name (Module items) = compileModule (path ++ [name]) items
 compileItem path name (Global (Text e)) = compileFunctionLiteral path name e
 compileItem _ _ (Global (Inline _)) = []
 compileItem _ _ (Global (Import _ _)) = []
+compileItem _ _ (Global (Synonym _)) = []

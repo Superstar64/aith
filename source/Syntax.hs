@@ -241,7 +241,8 @@ item itemCore lambda =
     [ itemCore "module" (Module.modulex ⊣ lambda modulex),
       itemCore "inline" (Module.global . Module.inline ⊣ term),
       itemCore "import" (Module.global . Module.importx ⊣ position ⊗ path),
-      itemCore "function" (Module.global . Module.text ⊣ functionLiteral)
+      itemCore "function" (Module.global . Module.text ⊣ functionLiteral),
+      itemCore "type" (Module.global . Module.synonym ⊣ typex)
     ]
 
 itemSingleton = item itemCore id

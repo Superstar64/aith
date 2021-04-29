@@ -1,14 +1,16 @@
 module:
 
+type bool = ``\/ s : %stage => `\/ a : %type s => !a -> !a -> a;
+
 inline true = ``\s : %stage => `\a : %type s => \!(x : a) => \!(y : a) => x;
 
 inline false = ``\s : %stage => `\a : %type s => \!(x : a) => \!(y : a) => y;
 
-inline not = \ x : (``\/s : %stage => `\/ a:%type s => !a -> !a -> a) {
+inline not = \ x : bool {
 	x``(%meta)`(``\/s : %stage => `\/ a:%type s => !a -> !a -> a)(!false)(!true)
 };
 
-inline boolToFunction = \x : (``\/s : %stage => `\/a:%type s => !a -> !a -> a) {
+inline boolToFunction = \x : bool {
 	`\b => %when %copy b {
 		%function (left : b, right : b){
 			x``(%runtime %pointer)`(b)(!left)(!right)
