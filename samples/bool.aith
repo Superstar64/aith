@@ -1,19 +1,19 @@
 module:
 
-type bool = ``\/ s : %stage => `\/ a : %type s => !a -> !a -> a;
+type bool = ``\/ s : _stage => `\/ a : _type s => !a -> !a -> a;
 
-inline true = ``\s : %stage => `\a : %type s => \!(x : a) => \!(y : a) => x;
+inline true = ``\s : _stage => `\a : _type s => \!(x : a) => \!(y : a) => x;
 
-inline false = ``\s : %stage => `\a : %type s => \!(x : a) => \!(y : a) => y;
+inline false = ``\s : _stage => `\a : _type s => \!(x : a) => \!(y : a) => y;
 
 inline not = \ x : bool {
-	x``(%meta)`(``\/s : %stage => `\/ a:%type s => !a -> !a -> a)(!false)(!true)
+	x``(_meta)`(``\/s : _stage => `\/ a:_type s => !a -> !a -> a)(!false)(!true)
 };
 
 inline boolToFunction = \x : bool {
-	`\b => %when %copy b {
-		%function (left : b, right : b){
-			x``(%runtime %pointer)`(b)(!left)(!right)
+	`\b => _when _copy b {
+		_function (left : b, right : b){
+			x``(_runtime _pointer)`(b)(!left)(!right)
 		}
 	}
 };

@@ -1,6 +1,7 @@
 module Misc.Isomorph where
 
 import Control.Category (Category, id, (.))
+import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Prelude hiding (id, (.))
@@ -67,6 +68,19 @@ distribute = Isomorph f g
     f (a, Right b) = Right (a, b)
     g (Left (a, b)) = (a, Left b)
     g (Right (a, b)) = (a, Right b)
+
+nonEmpty :: Isomorph (a, [a]) (NonEmpty a)
+nonEmpty = Isomorph f g
+  where
+    f (a, b) = a :| b
+    g (a :| b) = (a, b)
+
+assumeNonEmpty :: Isomorph (NonEmpty a) [a]
+assumeNonEmpty = Isomorph f g
+  where
+    f (a :| b) = a : b
+    g [] = error "unexpected empty"
+    g (a : b) = a :| b
 
 -- swap between non empty list variants
 swapNonEmpty :: Isomorph (a, [a]) ([a], a)

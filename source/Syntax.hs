@@ -51,7 +51,7 @@ class Position δ p where
 
 token = string
 
-keyword word = string ('%' : word)
+keyword word = string ('_' : word)
 
 moduleKeyword = string
 
@@ -74,6 +74,8 @@ lambdaInline e = space ≫ betweenBraces e ∥ lambdaCore e
 lambdaMajor e = space ≫ betweenBraces (indent ≫ line ≫ e ≪ dedent ≪ line) ∥ lambdaCore e
 
 commaMany e = many (token "," ≫ space ≫ e)
+
+commaSome e = some (token "," ≫ space ≫ e)
 
 commaSeperatedMany e = seperatedMany e (token "," ≫ space)
 
@@ -121,11 +123,7 @@ typePattern = Core.coreTypePattern ⊣ position ⊗ core
     core = Core.typePatternVariable ⊣ identifer ⊗ (pointer ∥# token ":" ≫ kind ∥ pointer)
     pointer = Core.coreKind ⊣ position ⊗ (Core.typex ⊣ Core.coreKind ⊣ position ⊗ (Core.runtime ⊣ Core.coreKind ⊣ position ⊗ (Core.pointerRep ⊣ always)))
 
-typeParensImpl = foldlP runtimePair ⊣ typex ⊗ commaMany typex
-  where
-    runtimePair = withInnerPosition Core.coreType Core.runtimePair
-
-typeParens = betweenParens typeParensImpl
+typeParens = betweenParens typex
 
 typex = typeBottom
   where
@@ -148,7 +146,7 @@ typex = typeBottom
         typeConstruction = withInnerPosition Core.coreType Core.typeConstruction
         functionLiteralType = withInnerPosition Core.coreType Core.functionLiteralType
         functionPointer = withInnerPosition Core.coreType Core.functionPointer
-    typeCore = Core.coreType ⊣ position ⊗ typeLambda lambdaInline ∥ Core.coreType ⊣ position ⊗ core ∥ typeParens
+    typeCore = Core.coreType ⊣ position ⊗ typeLambda lambdaInline ∥ Core.coreType ⊣ position ⊗ core ∥ runtimeTuple ∥ typeParens
       where
         core =
           choice
@@ -156,6 +154,9 @@ typex = typeBottom
               Core.ofCourse ⊣ token "!" ≫ typeCore,
               Core.copy ⊣ keyword "copy" ≫ space ≫ typeCore
             ]
+        runtimeTuple = foldlNonEmptyP runtimePair ⊣ token "#" ≫ betweenParens (typex ⊗ commaSome typex)
+          where
+            runtimePair = withInnerPosition Core.coreType Core.runtimePair
 
 pattern = patternBottom
   where
@@ -178,9 +179,7 @@ runtimePattern = patternBottom
       where
         variable = Core.runtimePatternVariable ⊣ identifer ⊗ token ":" ≫ typex
 
-termParens = foldlP runtimePairIntrouction ⊣ betweenParens (term ⊗ commaMany term)
-  where
-    runtimePairIntrouction = withInnerPosition Core.coreTerm Core.runtimePairIntrouction
+termParens = betweenParens term
 
 term = termBottom
   where
@@ -206,7 +205,7 @@ term = termBottom
         typeApplication = withInnerPosition Core.coreTerm Core.typeApplication
         kindApplication = withInnerPosition Core.coreTerm Core.kindApplication
         erasedQualifiedCheck = withInnerPosition Core.coreTerm (Core.erasedQualifiedCheck . toPrism unit')
-    termCore = keyword "function" ≫ functionCore ∥ Core.coreTerm ⊣ position ⊗ core ∥ Core.coreTerm ⊣ position ⊗ termLambda lambdaInline ∥ termParens
+    termCore = keyword "function" ≫ functionCore ∥ Core.coreTerm ⊣ position ⊗ core ∥ Core.coreTerm ⊣ position ⊗ termLambda lambdaInline ∥ runtimeTupleIntroduction ∥ termParens
       where
         core =
           choice
@@ -217,6 +216,9 @@ term = termBottom
               Core.unpack ⊣ keyword "unpack" ≫ space ≫ termCore,
               Core.ofCourseIntroduction ⊣ token "!" ≫ termCore
             ]
+        runtimeTupleIntroduction = foldlNonEmptyP runtimePairIntrouction ⊣ token "#" ≫ betweenParens (term ⊗ commaSome term)
+          where
+            runtimePairIntrouction = withInnerPosition Core.coreTerm Core.runtimePairIntrouction
 
 functionCore = Core.coreTerm ⊣ position ⊗ core
   where
@@ -227,7 +229,7 @@ functionLiteral = templateParameters ∥ concepts ∥ functionCore ∥ token "~"
     templateParameters = Core.coreTerm ⊣ position ⊗ (Core.typeAbstraction ⊣ Core.bound ⊣ token "`\\" ≫ typePattern ≪ space ⊗ functionLiteral)
     concepts = Core.coreTerm ⊣ position ⊗ (Core.erasedQualifiedAssume ⊣ moduleKeyword "when" ≫ typeParens ≪ space ⊗ functionLiteral)
 
-modulex = Module.coreModule ⊣ orderless ⊣ some (item itemCore lambdaMajor)
+modulex = Module.coreModule ⊣ orderless ⊣ assumeNonEmpty ⊣ some (item itemCore lambdaMajor)
   where
     itemCore brand inner = moduleKeyword brand ≫ space ≫ identifer ≪ space ≪ token "=" ≪ space ⊗ inner ≪ token ";" ≪ line
 

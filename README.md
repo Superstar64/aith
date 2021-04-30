@@ -39,8 +39,8 @@ See ``/documentation`` for typing rules.
 |-|-|
 | Variable | ``x`` |
 | Of Course Introduction | ``!e`` |
-| Binding | ``%let pm = e1 ; e2 ``|
-| Runtime Binding | ``%alias pme = e1; e2`` |
+| Binding | ``_let pm = e1 ; e2 ``|
+| Runtime Binding | ``_alias pme = e1; e2`` |
 | Macro Abstraction | ``\pm { e }``|
 | Macro Abstraction | ``\pm => e ``|
 | Macro Application | ``e e'``|
@@ -50,28 +50,28 @@ See ``/documentation`` for typing rules.
 | Kind Abstraction | ``` ``\x : μ => e``` |
 | Kind Abstraction | ``` ``\x : μ { e }``` |
 | Kind Application | ``` e``(κ) ``` |
-| Extern | ``%extern "x" (σ)(τ, τ', ...)`` |
-| Function Application | ``e(*) %multiarg (e1,e2, ...) ``|
+| Extern | ``_extern "x" (σ)(τ, τ', ...)`` |
+| Function Application | ``e(*) _multiarg (e1,e2, ...) ``|
 | Function Application | ``e(*) e' ``|
-| Function Literal | ``%function %multiarg (pme, pme', ...) => e`` |
-| Function Literal | ``%function %multiarg (pme, pme', ...) { e }`` |
-| Function Literal | ``%function pme => e`` |
-| Function Literal | ``%function pme { e }`` |
-| Erased Qualified Assumption | ``%when σ => e `` |
-| Erased Qualified Assumption | ``%when σ { e } `` |
+| Function Literal | ``_function _multiarg (pme, pme', ...) => e`` |
+| Function Literal | ``_function _multiarg (pme, pme', ...) { e }`` |
+| Function Literal | ``_function pme => e`` |
+| Function Literal | ``_function pme { e }`` |
+| Erased Qualified Assumption | ``_when σ => e `` |
+| Erased Qualified Assumption | ``_when σ { e } `` |
 | Erased Qualified Check | ``e?`` |
-| Pair Constructor (Left Associative) | ``(e,e',...)`` |
-| Recursive Type Introduction | ``%pack pmσ => σ e `` |
-| Recursive Type Introduction| ``%pack pmσ { σ } e `` |
-| Recursive Type Elimination | ``%unpack e`` |
+| Pair Constructor (Left Associative) | ``#(e,e',...)`` |
+| Recursive Type Introduction | ``_pack pmσ => σ e `` |
+| Recursive Type Introduction| ``_pack pmσ { σ } e `` |
+| Recursive Type Elimination | ``_unpack e`` |
 
 # Function Sugar Term (ef)
 |Description | Syntax |
 |-|-|
 | Type Abstraction | `` `\pmσ ef `` |
 | Erased Qualified Assumption | `` when σ ef `` |
-| Function Literal | ``%multiarg (pme, pme', ...) => e `` |
-| Function Literal | ``%multiarg (pme, pme', ...) { e } `` |
+| Function Literal | ``_multiarg (pme, pme', ...) => e `` |
+| Function Literal | ``_multiarg (pme, pme', ...) { e } `` |
 | Function Literal | ``pme { e } `` |
 | Function Literal | ``pme =>  e `` |
 | Explict | ``~e`` |
@@ -101,15 +101,15 @@ See ``/documentation`` for typing rules.
 | Type Operator | `` \x : κ { σ }``|
 | Type Operator | `` \x : κ => σ ``|
 | Type Construction | `` σ τ `` |
-| Function Pointer | `` σ(*) %multiarg (τ, τ', ...) `` |
+| Function Pointer | `` σ(*) _multiarg (τ, τ', ...) `` |
 | Function Pointer | `` σ(*) τ `` |
-| Function Literal Type | `` σ %function %multiarg(τ, τ', ...) `` |
-| Function Literal Type | `` σ %function τ `` |
+| Function Literal Type | `` σ _function _multiarg(τ, τ', ...) `` |
+| Function Literal Type | `` σ _function τ `` |
 | Erased Qualified Type | `` π =>? σ `` |
-| Copy Predicate | ``%copy σ`` |
-| Pair (Left Associative) | ``(σ, σ', ...)`` |
-| Recursive Type | `` %recursive pmσ => σ`` |
-| Recursive Type | `` %recursive pmσ { σ }`` |
+| Copy Predicate | ``_copy σ`` |
+| Pair (Left Associative) | ``#(σ, σ', ...)`` |
+| Recursive Type | `` _recursive pmσ => σ`` |
+| Recursive Type | `` _recursive pmσ { σ }`` |
 
 ## Type Pattern(pmσ)
 |Description | Syntax |
@@ -121,21 +121,21 @@ See ``/documentation`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Type | `` %type s `` |
+| Type | `` _type s `` |
 | Higher | `` κ -> κ' `` |
-| Constraint | `` %constraint `` |
-| Runtime | ``%runtime ρ`` |
-| Meta | ``%meta`` |
-| Text | ``%text`` |
-| Pointer Representation | ``%pointer``|
-| Struct Representation | ``%struct (ρ, ρ', ...)`` |
+| Constraint | `` _constraint `` |
+| Runtime | ``_runtime ρ`` |
+| Meta | ``_meta`` |
+| Text | ``_text`` |
+| Pointer Representation | ``_pointer``|
+| Struct Representation | ``_struct (ρ, ρ', ...)`` |
 
 ## Sorts(μ)
 | Description | Syntax |
 |-|-|
-| Kind | ``%kind`` |
-| Stage | ``%stage`` |
-| Representation | ``%representation`` |
+| Kind | ``_kind`` |
+| Stage | ``_stage`` |
+| Representation | ``_representation`` |
 
 # C Compiler Requirements
 * All pointers must have the same representation

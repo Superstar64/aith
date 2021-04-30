@@ -4,6 +4,7 @@ import Control.Applicative (Alternative, empty, (<|>))
 import Control.Monad (MonadPlus, liftM2)
 import Control.Monad.Trans.State (State, runState)
 import Control.Monad.Trans.Writer (WriterT, runWriterT)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Maybe (fromJust)
 import Data.Void (Void)
 import Misc.Isomorph
@@ -48,14 +49,14 @@ choice = foldl (∥) never
 many :: SyntaxBase δ => δ a -> δ [a]
 many p = cons ⊣ p ⊗ (many p) ∥ nil ⊣ always
 
-some :: SyntaxBase δ => δ a -> δ [a]
-some p = cons ⊣ p ⊗ (many p)
+some :: SyntaxBase δ => δ a -> δ (NonEmpty a)
+some p = nonEmpty ⊣ p ⊗ (many p)
 
 seperatedMany :: SyntaxBase δ => δ a -> δ () -> δ [a]
-seperatedMany p c = seperatedSome p c ∥ nil ⊣ always
+seperatedMany p c = cons ⊣ inverse nonEmpty ⊣ seperatedSome p c ∥ nil ⊣ always
 
-seperatedSome :: SyntaxBase δ => δ a -> δ () -> δ [a]
-seperatedSome p c = cons ⊣ p ⊗ (c ≫ seperatedSome p c ∥ nil ⊣ always)
+seperatedSome :: SyntaxBase δ => δ a -> δ () -> δ (NonEmpty a)
+seperatedSome p c = nonEmpty ⊣ p ⊗ (c ≫ (cons ⊣ inverse nonEmpty ⊣ seperatedSome p c) ∥ nil ⊣ always)
 
 between :: SyntaxBase p => p () -> p () -> p a -> p a
 between a b p = a ≫ p ≪ b

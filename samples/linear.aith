@@ -1,14 +1,14 @@
 module:
 
-inline dup = `\b : %type %meta {
+inline dup = `\b : _type _meta {
 	\!(x : b) =>
-	`\r : %type %meta =>
+	`\r : _type _meta =>
 	\(f : !b -> !b -> r) =>
 	f(!x)(!x)
 };
 
-inline main = `\a : %type %meta {
-	`\b : %type %meta =>
+inline main = `\a : _type _meta {
+	`\b : _type _meta =>
 
 	\(f : a -> !b) =>
 	\(x : a) =>
@@ -17,7 +17,7 @@ inline main = `\a : %type %meta {
 };
 
 
-function wasteful = `\a when(%copy a) (x : a, y : a){
+function wasteful = `\a when(_copy a) (x : a, y : a){
 	x
 };
 
@@ -26,5 +26,5 @@ function ignoreFPtr = `\a (x : a, f : a(*)(a)){
 };
 
 function useWasteful = `\a (xf : a(*)(a), yf: a(*)(a)) {
-	wasteful`(a(*)(a))?(*)(xf, yf)
+	wasteful`(a(*)(a))?(*) #(xf, yf)
 };

@@ -1,8 +1,8 @@
 module:
-function makeTripletMultiArg = `\a when(%copy a) %multiarg(x : a, y : a, z : a){
-	(x,y,z)	
+function makeTripletMultiArg = `\a when(_copy a) _multiarg(x : a, y : a, z : a){
+	#(x,y,z)	
 };
 
-function makeTripletSingleArg = `\a when(%copy a) (x : a, y : a, z : a){
-	(x,y,z)	
+function makeTripletSingleArg = `\a when(_copy a) (x : a, y : a, z : a){
+	#(x,y,z)	
 };

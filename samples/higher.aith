@@ -1,12 +1,12 @@
 module:
 
-inline fmap = ``\r : %stage {
-	`\m : %type r -> %type r =>
-	`\a : %type r =>
-	`\b : %type r =>
+inline fmap = ``\r : _stage {
+	`\m : _type r -> _type r =>
+	`\a : _type r =>
+	`\b : _type r =>
 	
-	\!(pure : `\/a : %type r => a -> m(a)) => 
-	\!(bind : `\/a : %type r => `\/b : %type r => m(a) -> (a -> m(b)) -> m(b)) =>
+	\!(pure : `\/a : _type r => a -> m(a)) => 
+	\!(bind : `\/a : _type r => `\/b : _type r => m(a) -> (a -> m(b)) -> m(b)) =>
 
 	\f : a -> b =>
 	\a : m(a) =>
@@ -24,5 +24,5 @@ inline bindIdentityPtr = `\a => `\b => \x : a => \f : a -> b {
 };
 
 function usefmap = `\a (x : a) {
-	fmap``(%runtime %pointer)`(\x => x)`(a)`(a)(!pureIdentityPtr)(!bindIdentityPtr)(\x : a => x)(x) 
+	fmap``(_runtime _pointer)`(\x => x)`(a)`(a)(!pureIdentityPtr)(!bindIdentityPtr)(\x : a => x)(x) 
 };

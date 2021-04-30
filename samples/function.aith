@@ -1,7 +1,7 @@
 module:
 
 function id = `\a (x : a){
-	%alias y : a = x;
+	_alias y : a = x;
 	y
 };
 
