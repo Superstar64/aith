@@ -32,10 +32,10 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & \xi \pi. e \tag*{[Qualified Assumption]} \\
 & e? \tag*{[Qualified Check]} \\
 & \text{alias} \, x = e; e' \tag*{[Runtime Let]} \\
-& (e, e') \tag*{[Runtime Pair Introduction]} \\
+& \#(e, e') \tag*{[Runtime Pair Introduction]} \\
 & \text{alias} (x, x') = e; e' \tag*{[Runtime Pair Elimination]} \\
 & \text{pack}  \alpha : \kappa. \sigma \, e \tag*{[Recursive Pack]}\\
-& \text{unpack} \, e \tag*{[Recursive Unpack]}\\
+& \text{unpack} \, e \tag*{[Recursive Unpack]} \\
 \\
 \sigma, \tau, \pi \Coloneqq & \alpha \tag* {[Type Variable]}\\
 & \sigma \to \tau \tag*{[Macro]}\\
@@ -48,7 +48,7 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & \sigma \, \text{function}(\tau) \tag*{[Function Literal Type]} \\
 & \pi \Rightarrow \sigma \tag*{[Erased Qualified Type]} \\
 & \text{Copy} \, \sigma \tag*{[Runtime Copyable Constraint]} \\
-& (\sigma, \tau) \tag*{[Runtime Pair]} \\
+& \#(\sigma, \tau) \tag*{[Runtime Pair]} \\
 & \text{Recursive} \alpha : \kappa. \sigma \tag*{[Recursive Type]} \\
 \\
 \kappa, s, \rho \Coloneqq &  \kappa \alpha \tag*{[Kind Variable]} \\
@@ -187,7 +187,7 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \frac
 {\splitfrac{\Phi | \Gamma \vdash e : \sigma \quad \Phi | \Gamma' \vdash e' : \tau}
 {\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho)) \quad \Phi \vdash \tau : \text{Type}(\text{Runtime}(\rho')) }}
-{\Phi | \Gamma, \Gamma' \vdash (e, e') : (\sigma, \tau) } \\
+{\Phi | \Gamma, \Gamma' \vdash \#(e, e') : (\sigma, \tau) } \\
 \\
 \frac
 {\Phi | \Gamma \vdash e : (\tau, \tau') \quad \Phi | \Gamma , \langle x : \tau \rangle, \langle x' : \tau' \rangle,  \vdash e : \sigma  }
@@ -249,7 +249,7 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \\
 \frac
 {\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\kappa)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime}(\kappa')) }
-{\Phi \vdash (\sigma, \tau) : \text{Type} (\text{Runtime} (\text{Structure} \{ \kappa,\kappa'\} ))} \\
+{\Phi \vdash \#(\sigma, \tau) : \text{Type} (\text{Runtime} (\text{Structure} \{ \kappa,\kappa'\} ))} \\
 \\
 \frac
 {\Phi, \alpha : \text{Type} (\text{Runtime} (\rho)) \vdash \text{Type} (\text{Runtime} (\rho)) }
