@@ -44,6 +44,8 @@ e \Coloneqq & x \tag*{[Variable]}\\
 & \forall \kappa \alpha : \mu. \sigma \tag*{[Kind Forall]}\\
 & \lambda \alpha : \kappa. \sigma \tag*{[Type Operator]} \\
 & \sigma (\tau) \tag*{[Type Construction]} \\
+& \Lambda \kappa \alpha : \mu. \sigma \tag*{[Poly Operator]} \\
+& \sigma (\kappa) \tag*{[Poly Construction]} \\
 & \sigma (*) (\tau) \tag*{[Function Pointer]}\\
 & \sigma \, \text{function}(\tau) \tag*{[Function Literal Type]} \\
 & \pi \Rightarrow \sigma \tag*{[Erased Qualified Type]} \\
@@ -53,7 +55,8 @@ e \Coloneqq & x \tag*{[Variable]}\\
 \\
 \kappa, s, \rho \Coloneqq &  \kappa \alpha \tag*{[Kind Variable]} \\
 & \text{Type} (s) \tag*{[Type]} \\
-& \kappa \to \kappa' \tag*{[Higher Kinded Type]} \\
+& \kappa \to \kappa' \tag*{[Higher Kinded]} \\
+& \forall \kappa \alpha : \mu. \kappa \tag*{[Poly Kinded]}\\
 & \text{Constraint} \tag*{[Constraint]} \\
 & \text{Meta} \tag*{[Meta Stage]}\\
 & \text{Text} \tag*{[Symbol Stage]} \\
@@ -232,6 +235,14 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 {\Phi \vdash \sigma (\tau) : \kappa' } \\
 \\
 \frac
+{\Phi, \kappa \alpha : \mu \vdash \sigma : \kappa \quad \Phi \vdash \mu}
+{\Phi \vdash \Lambda \kappa \alpha : \mu. \sigma : \forall \kappa \alpha : \mu. \kappa} \\
+\\
+\frac
+{\Phi \vdash \sigma : \forall \kappa \alpha : \mu. \kappa' \quad \kappa \vdash \mu}
+{\Phi \vdash \sigma \kappa : \kappa'[\kappa / \kappa \alpha]} \\
+\\
+\frac
 {\Phi \vdash \sigma : \text{Type} (\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime} (\rho'))}
 {\Phi \vdash \sigma (*) (\tau) : \text{Type} (\text{Runtime} (\text{pointer}))} \\
 \\
@@ -258,12 +269,20 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \Phi \vdash \kappa : \mu \tag*{[Kind Validation]} \\
 \\
 \frac
+{(\kappa \alpha : \mu) \in \Phi}
+{\Phi \vdash \kappa \alpha : \mu } \\
+\\
+\frac
 {\Phi \vdash s : \text{Stage}}
 {\Phi \vdash \text {Type} (s) : \text{Kind}} \\
 \\
 \frac
 {\Phi \vdash \kappa : \text{Kind} \quad \Phi \vdash \kappa' : \text{Kind}}
 {\Phi \vdash \kappa \to \kappa : \text{Kind} } \\
+\\
+\frac
+{\Phi, \kappa \alpha : \mu \vdash \text{Kind} \quad \Phi \vdash \mu }
+{\Phi \vdash \forall \kappa \alpha : \mu. \kappa : \text{Kind}  } \\
 \\
 \frac
 {}
@@ -301,7 +320,7 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \\
 \frac
 {\Phi \models \text {Copy} \, \sigma \quad \Phi \models \text{Copy} \, \tau}
-{\Phi \models \text{Copy} (\sigma, \tau) } \\
+{\Phi \models \text{Copy} \#(\sigma, \tau) } \\
 \\
 \frac
 {\Phi, \text{Copy}(a)  \models \text{Copy} \sigma }

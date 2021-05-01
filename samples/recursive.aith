@@ -1,8 +1,0 @@
-module:
-function selfApp = (x : _recursive a { a(*)(a) }){
-	(_unpack x)(*)(x)
-};
-
-function omega = _multiarg() {
-	selfApp(*)(_pack a { a(*)(a) } selfApp)
-};

@@ -20,6 +20,8 @@ data TypeF p
   | OfCourse (Type p)
   | TypeConstruction (Type p) (Type p)
   | TypeOperator (Bound (TypePattern p p) (Type p))
+  | PolyOperator (Bound (KindPattern p) (Type p))
+  | PolyConstruction (Type p) (Kind p)
   | FunctionPointer (Type p) [Type p]
   | FunctionLiteralType (Type p) [Type p]
   | ErasedQualified (Type p) (Type p)
@@ -28,7 +30,7 @@ data TypeF p
   | Recursive (Bound (TypePattern p p) (Type p))
   deriving (Show)
 
-traverseType typex typeBound kindBound = go
+traverseType typex kind typeBound kindBound = go
   where
     go (TypeVariable x) = pure TypeVariable <*> pure x
     go (Macro σ τ) = pure Macro <*> typex σ <*> typex τ
@@ -37,6 +39,8 @@ traverseType typex typeBound kindBound = go
     go (OfCourse σ) = pure OfCourse <*> typex σ
     go (TypeConstruction σ τ) = pure TypeConstruction <*> typex σ <*> typex τ
     go (TypeOperator λ) = pure TypeOperator <*> typeBound λ
+    go (PolyOperator λ) = pure PolyOperator <*> kindBound λ
+    go (PolyConstruction σ κ) = pure PolyConstruction <*> typex σ <*> kind κ
     go (FunctionPointer σ τs) = pure FunctionPointer <*> typex σ <*> traverse typex τs
     go (FunctionLiteralType σ τs) = pure FunctionLiteralType <*> typex σ <*> traverse typex τs
     go (ErasedQualified π σ) = pure ErasedQualified <*> typex π <*> typex σ
@@ -44,9 +48,9 @@ traverseType typex typeBound kindBound = go
     go (RuntimePair σ τ) = pure RuntimePair <*> typex σ <*> typex τ
     go (Recursive λ) = pure Recursive <*> typeBound λ
 
-foldType typex typeBound kindBound σ = getConst $ traverseType (Const . typex) (Const . typeBound) (Const . kindBound) σ
+foldType typex kind typeBound kindBound σ = getConst $ traverseType (Const . typex) (Const . kind) (Const . typeBound) (Const . kindBound) σ
 
-mapType typex typeBound kindBound σ = runIdentity $ traverseType (Identity . typex) (Identity . typeBound) (Identity . kindBound) σ
+mapType typex kind typeBound kindBound σ = runIdentity $ traverseType (Identity . typex) (Identity . kind) (Identity . typeBound) (Identity . kindBound) σ
 
 typeVariable = Prism TypeVariable $ \case
   (TypeVariable x) -> Just x
@@ -76,6 +80,14 @@ typeOperator = Prism TypeOperator $ \case
   (TypeOperator λ) -> Just λ
   _ -> Nothing
 
+polyOperator = Prism PolyOperator $ \case
+  (PolyOperator λ) -> Just λ
+  _ -> Nothing
+
+polyConstruction = Prism (uncurry PolyConstruction) $ \case
+  (PolyConstruction σ κ) -> Just (σ, κ)
+  _ -> Nothing
+
 functionPointer = Prism (uncurry FunctionPointer) $ \case
   (FunctionPointer σ τs) -> Just (σ, τs)
   _ -> Nothing
@@ -101,7 +113,7 @@ recursive = Prism Recursive $ \case
   _ -> Nothing
 
 instance Functor TypeF where
-  fmap f σ = runIdentity $ traverseType (Identity . fmap f) (Identity . bimap (bimap f f) (fmap f)) (Identity . bimap (fmap f) (fmap f)) σ
+  fmap f σ = mapType (fmap f) (fmap f) (bimap (bimap f f) (fmap f)) (bimap (fmap f) (fmap f)) σ
 
 type TypeInternal = Type Internal
 
@@ -127,15 +139,15 @@ avoidCaptureTypeConvert = avoidCaptureGeneral internalVariable (convert @(Type p
 
 instance Semigroup p => Algebra (Type p) p (Type p) where
   freeVariables (CoreType p (TypeVariable x)) = Variables.singleton x p
-  freeVariables (CoreType _ σ) = foldType go go go σ
+  freeVariables (CoreType _ σ) = foldType go go go go σ
     where
       go = freeVariables @(Type p)
   convert ix x (CoreType p (TypeVariable x')) | x == x' = (CoreType p (TypeVariable ix))
-  convert ix x (CoreType p σ) = CoreType p $ mapType go go go σ
+  convert ix x (CoreType p σ) = CoreType p $ mapType go go go go σ
     where
       go = convert @(Type p) ix x
   substitute ux x (CoreType _ (TypeVariable x')) | x == x' = ux
-  substitute ux x (CoreType p σ) = CoreType p $ mapType go go go σ
+  substitute ux x (CoreType p σ) = CoreType p $ mapType go go go go σ
     where
       go = substitute ux x
 
@@ -150,13 +162,13 @@ instance (Algebra (Type p) p u, Algebra (Kind p) p u) => Algebra (Type p) p (Bou
   substitute = substituteLower substitute avoidCaptureKind
 
 instance Semigroup p => Algebra (Kind p) p (Type p) where
-  freeVariables (CoreType _ σ) = foldType go go go σ
+  freeVariables (CoreType _ σ) = foldType go go go go σ
     where
       go = freeVariables @(Kind p)
-  convert ix x (CoreType p σ) = CoreType p $ mapType go go go σ
+  convert ix x (CoreType p σ) = CoreType p $ mapType go go go go σ
     where
       go = convert @(Kind p) ix x
-  substitute ux x (CoreType p σ) = CoreType p $ mapType go go go σ
+  substitute ux x (CoreType p σ) = CoreType p $ mapType go go go go σ
     where
       go = substitute ux x
 
@@ -166,7 +178,8 @@ instance Semigroup p => Algebra (Type p) p (Kind p) where
   substitute _ _ = id
 
 reduceTypeImpl (TypeConstruction σ τ) | (CoreType _ (TypeOperator λ)) <- reduce σ = let (CoreType _ σ') = apply λ (reduce τ) in σ'
-reduceTypeImpl σ = runIdentity $ traverseType go go go σ
+reduceTypeImpl (PolyConstruction σ κ) | (CoreType _ (PolyOperator λ)) <- reduce σ = let (CoreType _ σ') = apply λ (reduce κ) in σ'
+reduceTypeImpl σ = runIdentity $ traverseType go go go go σ
   where
     go = Identity . reduce
 

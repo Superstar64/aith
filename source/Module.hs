@@ -180,7 +180,7 @@ typeCheckModule (Ordering code) = execStateT (go code) mempty
       (σ, κ) <- runCore (typeCheckInstantiate σ') environment
       pure (Left (σ, κ))
     convert (CoreType p (FunctionLiteralType σ τs)) = CoreType p $ FunctionPointer σ τs
-    convert (CoreType p σ) = CoreType p $ mapType convert bound bound σ
+    convert (CoreType p σ) = CoreType p $ mapType convert id bound bound σ
       where
         bound (Bound pm σ) = Bound pm $ convert σ
 

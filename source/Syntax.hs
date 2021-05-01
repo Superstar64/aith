@@ -101,10 +101,11 @@ kindPattern = Core.coreKindPattern ⊣ position ⊗ core
 
 kind = kindBottom
   where
-    kindBottom = higher `branchDistribute` unit' ⊣ kindCore ⊗ (space ≫ token "->" ≫ space ≫ kind ⊕ always)
+    kindLambda lambda = Core.poly ⊣ Core.bound ⊣ token "`\\/" ≫ kindPattern ⊗ lambda kind
+    kindBottom = Core.coreKind ⊣ position ⊗ kindLambda lambdaCore ∥# higher `branchDistribute` unit' ⊣ kindCore ⊗ (space ≫ token "->" ≫ space ≫ kind ⊕ always)
       where
         higher = withInnerPosition Core.coreKind Core.higher
-    kindCore = Core.coreKind ⊣ position ⊗ core ∥ betweenParens kind
+    kindCore = Core.coreKind ⊣ position ⊗ kindLambda lambdaInline ∥ Core.coreKind ⊣ position ⊗ core ∥ betweenParens kind
       where
         core =
           choice
@@ -132,6 +133,7 @@ typex = typeBottom
         [ Core.forallx ⊣ Core.bound ⊣ token "`\\/" ≫ typePattern ⊗ lambda typex,
           Core.kindForall ⊣ Core.bound ⊣ token "``\\/" ≫ kindPattern ⊗ lambda typex,
           Core.typeOperator ⊣ Core.bound ⊣ token "\\" ≫ typePattern ⊗ lambda typex,
+          Core.polyOperator ⊣ Core.bound ⊣ token "`\\" ≫ kindPattern ⊗ lambda typex,
           Core.recursive ⊣ Core.bound ⊣ keyword "recursive" ≫ space ≫ typePattern ⊗ lambda typex
         ]
     typeBottom = Core.coreType ⊣ position ⊗ typeLambda lambdaCore ∥# applyBinary ⊣ typePostfix ⊗ binary
@@ -140,12 +142,14 @@ typex = typeBottom
         applyBinary = macro `branchDistribute` erasedQualified `branchDistribute` unit'
         macro = withInnerPosition Core.coreType Core.macro
         erasedQualified = withInnerPosition Core.coreType Core.erasedQualified
-    typePostfix = foldlP (functionLiteralType `branchDistribute` functionPointer `branchDistribute` typeConstruction) ⊣ typeCore ⊗ many postfix
+    typePostfix = foldlP applyPostfix ⊣ typeCore ⊗ many postfix
       where
-        postfix = keyword "function" ≫ multiarg typeCore ⊕ token "(*)" ≫ multiarg typeCore ⊕ space ≫ typeCore
+        applyPostfix = functionLiteralType `branchDistribute` functionPointer `branchDistribute` polyConstruction `branchDistribute` typeConstruction
+        postfix = keyword "function" ≫ multiarg typeCore ⊕ token "(*)" ≫ multiarg typeCore ⊕ betweenTypeParens kind ⊕ space ≫ typeCore
         typeConstruction = withInnerPosition Core.coreType Core.typeConstruction
         functionLiteralType = withInnerPosition Core.coreType Core.functionLiteralType
         functionPointer = withInnerPosition Core.coreType Core.functionPointer
+        polyConstruction = withInnerPosition Core.coreType Core.polyConstruction
     typeCore = Core.coreType ⊣ position ⊗ typeLambda lambdaInline ∥ Core.coreType ⊣ position ⊗ core ∥ runtimeTuple ∥ typeParens
       where
         core =
@@ -211,8 +215,8 @@ term = termBottom
           choice
             [ Core.variable ⊣ identifer,
               Core.macroAbstraction ⊣ Core.bound ⊣ token "\\" ≫ pattern ⊗ lambdaMajor term,
-              Core.extern ⊣ keyword "extern" ≫ space ≫ symbol ≪ space ⊗ typeParens ⊗ multiarg typex,
-              Core.pack ⊣ keyword "pack" ≫ space ≫ (Core.bound ⊣ typePattern ⊗ lambdaInline typex) ⊗ space ≫ termCore,
+              Core.extern ⊣ keyword "extern" ≫ space ≫ symbol ≪ space ⊗ typeParens ⊗ multiarg typeParens,
+              Core.pack ⊣ keyword "pack" ≫ space ≫ betweenParens (Core.bound ⊣ typePattern ⊗ lambdaInline typex) ⊗ space ≫ termCore,
               Core.unpack ⊣ keyword "unpack" ≫ space ≫ termCore,
               Core.ofCourseIntroduction ⊣ token "!" ≫ termCore
             ]

@@ -50,7 +50,8 @@ See ``/documentation`` for typing rules.
 | Kind Abstraction | ``` ``\x : μ => e``` |
 | Kind Abstraction | ``` ``\x : μ { e }``` |
 | Kind Application | ``` e``(κ) ``` |
-| Extern | ``_extern "x" (σ)(τ, τ', ...)`` |
+| Extern | ``_extern "x" (σ) _multiarg ((τ), (τ'), ...)`` |
+| Extern | ``_extern "x" (σ) (τ) `` |
 | Function Application | ``e(*) _multiarg (e1,e2, ...) ``|
 | Function Application | ``e(*) e' ``|
 | Function Literal | ``_function _multiarg (pme, pme', ...) => e`` |
@@ -61,8 +62,8 @@ See ``/documentation`` for typing rules.
 | Erased Qualified Assumption | ``_when σ { e } `` |
 | Erased Qualified Check | ``e?`` |
 | Pair Constructor (Left Associative) | ``#(e,e',...)`` |
-| Recursive Type Introduction | ``_pack pmσ => σ e `` |
-| Recursive Type Introduction| ``_pack pmσ { σ } e `` |
+| Recursive Type Introduction | ``_pack (pmσ => σ) e `` |
+| Recursive Type Introduction| ``_pack (pmσ { σ }) e `` |
 | Recursive Type Elimination | ``_unpack e`` |
 
 # Function Sugar Term (ef)
@@ -100,6 +101,9 @@ See ``/documentation`` for typing rules.
 | Of Course | ``!σ``|
 | Type Operator | `` \x : κ { σ }``|
 | Type Operator | `` \x : κ => σ ``|
+| Poly Operator | `` `\x : μ => κ`` |
+| Poly Operator | `` `\x : μ { κ }`` |
+| Poly Construction | `` σ`(κ) ``
 | Type Construction | `` σ τ `` |
 | Function Pointer | `` σ(*) _multiarg (τ, τ', ...) `` |
 | Function Pointer | `` σ(*) τ `` |
@@ -123,6 +127,8 @@ See ``/documentation`` for typing rules.
 | Variable | ``x`` |
 | Type | `` _type s `` |
 | Higher | `` κ -> κ' `` |
+| Poly | `` `\/ x : μ => κ `` |
+| Poly | `` `\/ x : μ { κ } `` |
 | Constraint | `` _constraint `` |
 | Runtime | ``_runtime ρ`` |
 | Meta | ``_meta`` |

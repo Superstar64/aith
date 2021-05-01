@@ -46,6 +46,16 @@ instance Base p m => Base p (Core p m) where
 class Match p e where
   match :: Base p m => p -> e -> e -> m ()
 
+instance (Match p e, Algebra TypeInternal Internal e) => Match p (Bound TypePatternInternal e) where
+  match p (Bound (CoreTypePattern Internal (TypePatternVariable x κ)) e) (Bound (CoreTypePattern Internal (TypePatternVariable x' κ')) e') = do
+    match p κ κ'
+    match p e (convert @TypeInternal x x' e')
+
+instance (Match p e, Algebra KindInternal Internal e) => Match p (Bound KindPatternInternal e) where
+  match p (Bound (CoreKindPattern Internal (KindPatternVariable x μ)) e) (Bound (CoreKindPattern Internal (KindPatternVariable x' μ')) e') = do
+    match p μ μ'
+    match p e (convert @KindInternal x x' e')
+
 instance Match p Sort where
   match _ Kind Kind = pure ()
   match _ Stage Stage = pure ()
@@ -59,6 +69,7 @@ instance Match p (KindF Internal) where
   match p (Higher κ1 κ2) (Higher κ1' κ2') = do
     match p κ1 κ1'
     match p κ2 κ2'
+  match p (Poly λ) (Poly λ') = match p λ λ'
   match _ Constraint Constraint = pure ()
   match p (Runtime ρ) (Runtime ρ') = match p ρ ρ'
   match _ Meta Meta = pure ()
@@ -71,22 +82,14 @@ instance Match p KindInternal where
 instance Match p (TypeF Internal) where
   match _ (TypeVariable x) (TypeVariable x') | x == x' = pure ()
   match p (Macro σ τ) (Macro σ' τ') = zipWithM (match p) [σ, τ] [σ', τ'] >> pure ()
-  match p (Forall (Bound (CoreTypePattern Internal (TypePatternVariable x κ)) σ)) (Forall (Bound (CoreTypePattern Internal (TypePatternVariable x' κ')) σ')) = do
-    match p κ κ'
-    match p σ (convert @TypeInternal x x' σ')
-    pure ()
-  match p (KindForall (Bound (CoreKindPattern Internal (KindPatternVariable x μ)) σ)) (KindForall (Bound (CoreKindPattern Internal (KindPatternVariable x' μ')) σ')) = do
-    match p μ μ'
-    match p σ (convert @KindInternal x x' σ')
-    pure ()
+  match p (Forall λ) (Forall λ') = match p λ λ'
+  match p (KindForall λ) (KindForall λ') = match p λ λ'
   match p (OfCourse σ) (OfCourse σ') = do
     match p σ σ'
   match p (TypeConstruction σ τ) (TypeConstruction σ' τ') = do
     match p σ σ'
     match p τ τ'
-  match p (TypeOperator (Bound (CoreTypePattern Internal (TypePatternVariable x κ)) σ)) (TypeOperator (Bound (CoreTypePattern Internal (TypePatternVariable x' κ')) σ')) = do
-    match p κ κ'
-    match p σ (convert @TypeInternal x x' σ')
+  match p (TypeOperator λ) (TypeOperator λ') = match p λ λ'
   match p (FunctionPointer σ τs) (FunctionPointer σ' τs') = do
     match p σ σ'
     sequence $ zipWith (match p) τs τs'
@@ -98,9 +101,7 @@ instance Match p (TypeF Internal) where
   match p (RuntimePair σ τ) (RuntimePair σ' τ') = do
     match p σ σ'
     match p τ τ'
-  match p (Recursive (Bound (CoreTypePattern Internal (TypePatternVariable x κ)) σ)) (Recursive (Bound (CoreTypePattern Internal (TypePatternVariable x' κ')) σ')) = do
-    match p κ κ'
-    match p σ (convert @TypeInternal x x' σ')
+  match p (Recursive λ) (Recursive λ') = match p λ λ'
   match p σ σ' = quit $ IncompatibleType p (CoreType Internal σ) (CoreType Internal σ')
 
 instance Match p TypeInternal where
@@ -120,6 +121,9 @@ checkType p κ = quit $ ExpectedType p κ
 
 checkHigher _ (CoreKind Internal (Higher κ κ')) = pure (κ, κ')
 checkHigher p κ = quit $ ExpectedHigher p κ
+
+checkPoly _ (CoreKind Internal (Poly λ)) = pure λ
+checkPoly p κ = quit $ ExpectedPoly p κ
 
 checkConstraint _ (CoreKind Internal Constraint) = pure ()
 checkConstraint p κ = quit $ ExpectedConstraint p κ
@@ -331,6 +335,10 @@ instance TypeCheck p (Kind p) Sort where
     checkKind p =<< typeCheck κ
     checkKind p =<< typeCheck κ'
     pure $ Kind
+  typeCheck (CoreKind p (Poly (Bound pm' κ))) = do
+    pm <- instantiate pm'
+    checkKind p =<< augment pm (typeCheck κ)
+    pure $ Kind
   typeCheck (CoreKind _ Constraint) = do
     pure $ Kind
   typeCheck (CoreKind _ Meta) = do
@@ -376,6 +384,16 @@ instance TypeCheck p (Type p) KindInternal where
     (pm, κ') <- typeCheckInstantiate pm'
     κ <- augment pm (typeCheck σ)
     pure (CoreKind Internal (Higher κ' κ))
+  typeCheck (CoreType _ (PolyOperator (Bound pm' σ))) = do
+    pm <- instantiate pm'
+    κ <- augment pm (typeCheck σ)
+    pure $ CoreKind Internal (Poly (Bound (Internal <$ pm) κ))
+  typeCheck (CoreType p (PolyConstruction σ κ')) = do
+    λ@(Bound pm _) <- checkPoly p =<< typeCheck σ
+    μ <- typeCheckInternal pm
+    (κ, μ') <- typeCheckInstantiate κ'
+    match p μ μ'
+    pure $ apply λ κ
   typeCheck (CoreType p (FunctionPointer σ τs)) = do
     checkRuntime p =<< checkType p =<< typeCheck σ
     traverse (checkRuntime p <=< checkType p <=< typeCheck) τs

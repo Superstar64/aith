@@ -27,6 +27,7 @@ data Error p
   | ExpectedRecursive p TypeInternal
   | ExpectedType p KindInternal
   | ExpectedHigher p KindInternal
+  | ExpectedPoly p KindInternal
   | ExpectedConstraint p KindInternal
   | ExpectedText p KindInternal
   | ExpectedRuntime p KindInternal

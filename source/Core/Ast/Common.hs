@@ -53,8 +53,8 @@ class Semigroup p => Binder p pm | pm -> p where
   bindings :: pm -> Variables p
   rename :: Identifier -> Identifier -> pm -> pm
 
-class Apply pm σ e where
-  apply :: pm -> σ -> e
+class Apply λ σ e where
+  apply :: λ -> σ -> e
 
 internalVariable x = Variables.singleton x Internal
 

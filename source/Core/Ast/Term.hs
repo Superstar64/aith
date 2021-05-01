@@ -255,7 +255,7 @@ instance Semigroup p => Reduce (Term Silent p) where
 instance Semigroup p => Apply (Bound (Pattern p p) (Term Silent p)) (Term Silent p) (Term Silent p) where
   apply (Bound (CorePattern _ (PatternVariable x _)) e) ux = reduce $ substitute ux x e
   apply (Bound (CorePattern _ (PatternOfCourse pm)) e) (CoreTerm _ (OfCourseIntroduction _ ux)) = apply (Bound pm e) ux
-  -- to find better position here
+  -- todo find better position here
   apply λ ux@(CoreTerm p _) = CoreTerm p $ Bind Silent ux λ
 
 instance Semigroup p => Apply (Bound (TypePattern p p) (Term Silent p)) (Type p) (Term Silent p) where
