@@ -17,8 +17,14 @@ See ``/documentation`` for typing rules.
 * [x] Levity Polymorphism
 * [x] Stage Polymorphism
 * [x] Modules
-* [ ] Runtime Lambda Calculus
 * [ ] Runtime Primitives
+  * [ ] Booleans
+  * [ ] Integers
+  * [ ] Pointers
+  * [ ] Arrays
+  * [x] Function Pointers
+  * [x] Tuples
+  * [ ] Choice (Sums) 
 * [ ] Hindley Milner Subset
 * [x] C Code Generation
 * [ ] Javascript Code Generation
