@@ -1,5 +1,7 @@
 module Error where
 
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State (StateT)
 import Core.Ast.Common
 import Core.Ast.Kind
 import Core.Ast.Sort
@@ -49,6 +51,10 @@ class (Monad m, Semigroup p) => Base p m where
 instance (Semigroup p, Show p) => Base p IO where
   quit error = die $ "Error:" ++ show error
   moduleQuit error = die $ "Module Error:" ++ show error
+
+instance Base p m => Base p (StateT s m) where
+  quit error = lift (quit error)
+  moduleQuit error = lift (moduleQuit error)
 
 instance Base Internal Identity where
   quit e = error $ "" ++ show e

@@ -28,4 +28,6 @@ toList (Variables variables) = Map.toList variables
 
 fromList xs = Variables $ Map.fromList xs
 
+toMap (Variables variables) = variables
+
 fresh disallow (Identifier canditate) = fromJust $ find (flip notMember disallow) $ map Identifier (temporaries canditate)

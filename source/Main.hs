@@ -8,7 +8,6 @@ import qualified Data.Map as Map
 import Data.Traversable (for)
 import Misc.Identifier
 import Misc.Path hiding (path)
-import Misc.Silent
 import Misc.Syntax
 import Module hiding (modulex)
 import Syntax
@@ -124,7 +123,7 @@ main = do
     [] -> printHelp
     _ -> pure ()
   command <- parseArguments arguments
-  code <- (fmap (: [])) <$> addAll (loadItem command) :: IO (Module Silent [SourcePos])
+  code <- (fmap (: [])) <$> addAll (loadItem command) :: IO (Module [SourcePos])
   prettyAll (prettyItem command) (Internal <$ code)
   ordering <- order code
   environment <- typeCheckModule ordering

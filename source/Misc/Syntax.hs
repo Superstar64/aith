@@ -12,6 +12,8 @@ import Misc.Prism
 import Text.Megaparsec (Parsec)
 import qualified Text.Megaparsec as Megaparsec
 
+-- https://www.mathematik.uni-marburg.de/~rendel/rendel10invertible.pdf
+
 infixr 4 ⊣
 
 infixl 7 ≫

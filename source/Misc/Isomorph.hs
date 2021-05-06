@@ -75,12 +75,13 @@ nonEmpty = Isomorph f g
     f (a, b) = a :| b
     g (a :| b) = (a, b)
 
-assumeNonEmpty :: Isomorph (NonEmpty a) [a]
-assumeNonEmpty = Isomorph f g
+list :: Isomorph (Either (NonEmpty a) ()) [a]
+list = Isomorph f g
   where
-    f (a :| b) = a : b
-    g [] = error "unexpected empty"
-    g (a : b) = a :| b
+    f (Left (x :| xs)) = x : xs
+    f (Right ()) = []
+    g ([]) = Right ()
+    g (x : xs) = Left (x :| xs)
 
 -- swap between non empty list variants
 swapNonEmpty :: Isomorph (a, [a]) ([a], a)

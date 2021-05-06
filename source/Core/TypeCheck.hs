@@ -263,12 +263,13 @@ instance TypeCheckInstantiate p (Kind p) KindInternal Sort where
     pure (Internal <$ κ, μ)
 
 instance TypeCheckInstantiate p (Type p) TypeInternal KindInternal where
-  typeCheckInstantiate σ' = do
-    κ <- typeCheck σ'
+  typeCheckInstantiate σ'' = do
+    κ <- typeCheck σ''
     environment <- Core get
-    let replacements = catMaybes $ map (\(x, τ) -> liftM2 (,) (pure x) τ) $ Map.toList $ (\(_, _, τ) -> τ) <$> (kindEnvironment environment)
-    let σ = reduce $ foldr (\(x, τ) -> substitute τ x) (Internal <$ σ') replacements
-    pure (σ, κ)
+    let replacements1 = catMaybes $ map (\(x, τ) -> liftM2 (,) (pure x) τ) $ Map.toList $ (\(_, _, τ) -> τ) <$> (kindEnvironment environment)
+    let σ' = Internal <$ σ''
+    let σ = foldr (\(x, τ) -> substitute τ x) σ' replacements1
+    pure (reduce σ, κ)
 
 instance Instantiate p (Pattern p p) (Pattern Internal p) where
   instantiate = instantiateDefault

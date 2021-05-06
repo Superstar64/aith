@@ -19,7 +19,6 @@ import Misc.Identifier
 import Misc.Isomorph
 import qualified Misc.Path as Path
 import Misc.Prism
-import Misc.Silent
 import qualified Misc.Symbol as Symbol
 import Misc.Syntax
 import qualified Module as Module
@@ -233,16 +232,14 @@ functionLiteral = templateParameters ∥ concepts ∥ functionCore ∥ token "~"
     templateParameters = Core.coreTerm ⊣ position ⊗ (Core.typeAbstraction ⊣ Core.bound ⊣ token "`\\" ≫ typePattern ≪ space ⊗ functionLiteral)
     concepts = Core.coreTerm ⊣ position ⊗ (Core.erasedQualifiedAssume ⊣ moduleKeyword "when" ≫ typeParens ≪ space ⊗ functionLiteral)
 
-modulex = Module.coreModule ⊣ orderless ⊣ assumeNonEmpty ⊣ some (item itemCore lambdaMajor)
-  where
-    itemCore brand inner = moduleKeyword brand ≫ space ≫ identifer ≪ space ≪ token "=" ≪ space ⊗ inner ≪ token ";" ≪ line
-
-item ::
+modulex ::
   (Syntax δ, Position δ p) =>
-  (String -> δ (Module.Item Silent p) -> δ a) ->
-  (δ (Module.Module Silent p) -> δ (Module.Module Silent p)) ->
-  δ a
-item itemCore lambda =
+  δ (Module.Module p)
+modulex = Module.coreModule ⊣ orderless ⊣ list ⊣ some (item declare (token ";" ≫ line) lambdaMajor) ⊕ never
+  where
+    declare = space ≫ identifer ≪ space ≪ token "=" ≪ space
+
+item header footer lambda =
   choice
     [ itemCore "module" (Module.modulex ⊣ lambda modulex),
       itemCore "inline" (Module.global . Module.inline ⊣ term),
@@ -250,10 +247,12 @@ item itemCore lambda =
       itemCore "function" (Module.global . Module.text ⊣ functionLiteral),
       itemCore "type" (Module.global . Module.synonym ⊣ typex)
     ]
-
-itemSingleton = item itemCore id
   where
-    itemCore brand inner = moduleKeyword brand ≫ token ":" ≫ line ≫ inner
+    itemCore brand inner = moduleKeyword brand ≫ header ⊗ inner ≪ footer
+
+itemSingleton ::
+  (Syntax δ, Position δ p) => δ (Module.Item p)
+itemSingleton = unit ⊣ item (token ":" ≫ line) always id
 
 withSourcePos :: g (f SourcePos) -> g (f SourcePos)
 withSourcePos = id

@@ -7,8 +7,8 @@ import Core.Ast.Multiplicity
 import Core.Ast.Term
 import Core.Ast.Type
 import Core.TypeCheck
-import Data.Bifunctor (bimap, first)
-import Data.Functor.Identity (Identity)
+import Data.Bifunctor (bimap)
+import Data.Foldable (foldrM)
 import Data.List (find)
 import Data.Map (Map, (!), (!?))
 import qualified Data.Map as Map
@@ -23,18 +23,14 @@ import Misc.Silent
 import Misc.Symbol
 import qualified Misc.Variables as Variables
 
-newtype Module d p = CoreModule (Map Identifier (Item d p)) deriving (Functor)
-
-deriving instance (Show (d Identity), Show (d []), Show p, Show (d Erased)) => Show (Module d p)
+newtype Module p = CoreModule (Map Identifier (Item p)) deriving (Functor, Show)
 
 coreModule = Isomorph CoreModule $ \(CoreModule code) -> code
 
-data Item d p
-  = Module (Module d p)
-  | Global (Global d p)
-  deriving (Functor)
-
-deriving instance (Show (d Identity), Show (d []), Show p, Show (d Erased)) => Show (Item d p)
+data Item p
+  = Module (Module p)
+  | Global (Global p)
+  deriving (Functor, Show)
 
 modulex = Prism Module $ \case
   (Module code) -> Just code
@@ -44,17 +40,15 @@ global = Prism Global $ \case
   (Global global) -> Just global
   _ -> Nothing
 
-data Global d p
-  = Inline (Term d p)
+data Global p
+  = Inline (Term Silent p)
   | Import p Path
-  | Text (Term d p)
+  | Text (Term Silent p)
   | Synonym (Type p)
-  deriving (Functor)
-
-deriving instance (Show (d Identity), Show (d []), Show p, Show (d Erased)) => Show (Global d p)
+  deriving (Functor, Show)
 
 inline = Prism Inline $ \case
-  (Inline e) -> Just e
+  (Inline e) -> Just (e)
   _ -> Nothing
 
 importx = Prism (uncurry Import) $ \case
@@ -69,7 +63,7 @@ synonym = Prism Synonym $ \case
   (Synonym σ) -> Just σ
   _ -> Nothing
 
-resolve :: Base p m => p -> Module d p -> Path -> m (Global d p)
+resolve :: Base p m => p -> Module p -> Path -> m (Global p)
 resolve p (CoreModule code) path = go code path
   where
     go code (Path [] name) = case Map.lookup name code of
@@ -81,17 +75,16 @@ resolve p (CoreModule code) path = go code path
       Just (Global _) -> moduleQuit $ IndexingGlobal p path
       Just (Module (CoreModule code')) -> go code' (Path remainder name)
 
-depend :: forall p d. Semigroup p => Global d p -> Path -> [(Path, p)]
-depend (Inline e) (Path location _) = first (Path location) <$> (Variables.toList $ freeVariables @(Term d p) e <> freeVariables @(Type p) e)
-depend (Text e) (Path location _) = first (Path location) <$> (Variables.toList $ freeVariables @(Term d p) e <> freeVariables @(Type p) e)
-depend (Synonym σ) (Path location _) = first (Path location) <$> (Variables.toList $ freeVariables @(Type p) σ)
-depend (Import p path) _ = [(path, p)]
+depend :: forall p. Semigroup p => Global p -> Path -> Map Path p
+depend (Inline e) (Path location _) = Map.mapKeysMonotonic (Path location) (Variables.toMap $ freeVariables @(Term Silent p) e <> freeVariables @(Type p) e)
+depend (Text e) (Path location _) = Map.mapKeysMonotonic (Path location) (Variables.toMap $ freeVariables @(Term Silent p) e <> freeVariables @(Type p) e)
+depend (Synonym σ) (Path location _) = Map.mapKeysMonotonic (Path location) (Variables.toMap $ freeVariables @(Type p) σ)
+depend (Import p path) _ = Map.singleton path p
 
-data ModuleOrder d p = Ordering [(Path, Global d p)] deriving (Functor)
+-- nodes without dependencies are at the end of the list
+data ModuleOrder p = Ordering [(Path, Global p)] deriving (Functor)
 
-deriving instance (Show (d Identity), Show (d []), Show p, Show (d Erased)) => Show (ModuleOrder d p)
-
-items :: [Identifier] -> Module d p -> [(Path, Global d p)]
+items :: [Identifier] -> Module p -> [(Path, Global p)]
 items heading (CoreModule code) = do
   (name, item) <- Map.toList code
   case item of
@@ -104,27 +97,27 @@ data Mark = Unmarked | Temporary | Permanent deriving (Eq)
 
 visit ::
   Base p m =>
-  Module d p ->
-  (Maybe p, Path, Global d p) ->
-  StateT (Map Path Mark) (StateT [(Path, Global d p)] m) ()
+  Module p ->
+  (Maybe p, Path, Global p) ->
+  StateT (Map Path Mark) (StateT [(Path, Global p)] m) ()
 visit code (p, path, global) = do
   marks <- get
   case marks ! path of
     Permanent -> pure ()
     Temporary -> case p of
-      Just p -> lift $ lift $ moduleQuit $ Cycle p path
+      Just p -> moduleQuit $ Cycle p path
       Nothing -> error "temporary mark on top level"
     Unmarked -> do
       modify $ Map.insert path Temporary
       let dependencies = depend global path
-      children <- for dependencies $ \(path, p) -> do
-        global <- lift $ lift $ resolve p code path
+      children <- for (Map.toList dependencies) $ \(path, p) -> do
+        global <- resolve p code path
         pure (Just p, path, global)
       for children (visit code)
       modify $ Map.insert path Permanent
       lift $ modify $ ((path, global) :)
 
-order :: Base p m => Module d p -> m (ModuleOrder d p)
+order :: Base p m => Module p -> m (ModuleOrder p)
 order code = Ordering <$> execStateT (evalStateT go (const Unmarked <$> globals)) []
   where
     globals = Map.fromList $ (\(path, global) -> (path, global)) <$> items [] code
@@ -138,7 +131,7 @@ order code = Ordering <$> execStateT (evalStateT go (const Unmarked <$> globals)
           visit code (mempty, path, global)
           go
 
-unorder :: ModuleOrder d p -> Module d p
+unorder :: ModuleOrder p -> Module p
 unorder (Ordering []) = CoreModule Map.empty
 unorder (Ordering (item : remaining)) = insert item (unorder $ Ordering remaining)
   where
@@ -149,71 +142,89 @@ unorder (Ordering (item : remaining)) = insert item (unorder $ Ordering remainin
           innerCode' = Module $ insert (Path remainder name, global) innerCode
       _ -> error "unorder error"
 
-typeCheckModule :: Base p m => ModuleOrder d p -> m (Map [Identifier] (CoreState p))
-typeCheckModule (Ordering code) = execStateT (go code) mempty
+typeCheckModule :: Base p m => ModuleOrder p -> m (Map [Identifier] (CoreState p))
+typeCheckModule (Ordering code) = foldrM (execStateT . uncurry typeCheckItem) Map.empty code
   where
-    goCommon heading name p require f = do
-      go require
-      this <- get
-      let environment = Map.findWithDefault emptyState heading this
-      bound <- lift $ f environment this
-      let environment' = case bound of
-            Right σ -> environment {typeEnvironment = Map.insert name (p, Unrestricted, σ) $ typeEnvironment environment}
-            Left (σ, κ) -> environment {kindEnvironment = Map.insert name (p, κ, Just σ) $ kindEnvironment environment}
+    getModuleEnviroments = get
+    modifyModuleEnvironments = modify
 
-      modify $ Map.insert heading environment'
-    go [] = pure ()
-    go ((Path heading name, Inline e@(CoreTerm p _)) : require) = goCommon heading name p require $ \environment _ -> do
+    getEnvironment (Path heading _) = do
+      environments <- getModuleEnviroments
+      pure $ Map.findWithDefault emptyState heading environments
+
+    insertGlobalTerm path@(Path heading name) p σ = do
+      environment <- getEnvironment path
+      modifyModuleEnvironments $ Map.insert heading environment {typeEnvironment = Map.insert name (p, Unrestricted, σ) $ typeEnvironment environment}
+
+    insertGlobalSynonym path@(Path heading name) p κ σ = do
+      environment <- getEnvironment path
+      modifyModuleEnvironments $ Map.insert heading environment {kindEnvironment = Map.insert name (p, κ, Just σ) $ kindEnvironment environment}
+
+    typeCheckItem path (Inline e@(CoreTerm p _)) = do
+      environment <- getEnvironment path
       σ <- runCore (typeCheck e) environment
-      pure (Right σ)
-    go ((Path heading name, Text e@(CoreTerm p _)) : require) = goCommon heading name p require $ \environment _ -> do
+      insertGlobalTerm path p σ
+    typeCheckItem path (Text e@(CoreTerm p _)) = do
+      environment <- getEnvironment path
       σ' <- runCore (typeCheck e) environment
       runCore (checkText p =<< checkType p =<< typeCheckInternal σ') environment
-      pure $ Right $ convert σ'
-    go ((Path heading name, Import p (Path targetHeading targetName)) : require) = goCommon heading name p require $ \_ this -> do
-      case typeEnvironment (this ! targetHeading) !? targetName of
-        Just (_, _, σ) -> pure (Right σ)
-        Nothing -> case kindEnvironment (this ! targetHeading) !? targetName of
-          Just (_, κ, Just σ) -> pure (Left (σ, κ))
-          _ -> error "import error"
-    go ((Path heading name, Synonym σ'@(CoreType p _)) : require) = goCommon heading name p require $ \environment _ -> do
-      (σ, κ) <- runCore (typeCheckInstantiate σ') environment
-      pure (Left (σ, κ))
-    convert (CoreType p (FunctionLiteralType σ τs)) = CoreType p $ FunctionPointer σ τs
-    convert (CoreType p σ) = CoreType p $ mapType convert id bound bound σ
+      insertGlobalTerm path p $ convert σ'
       where
-        bound (Bound pm σ) = Bound pm $ convert σ
+        convert (CoreType p (FunctionLiteralType σ τs)) = CoreType p $ FunctionPointer σ τs
+        convert (CoreType p σ) = CoreType p $ mapType convert id bound bound σ
+          where
+            bound (Bound pm σ) = Bound pm $ convert σ
+    typeCheckItem path (Import p (Path heading name)) = do
+      environments <- getModuleEnviroments
+      case typeEnvironment (environments ! heading) !? name of
+        Just (_, _, σ) -> insertGlobalTerm path p σ
+        Nothing -> case kindEnvironment (environments ! heading) !? name of
+          Just (_, κ, Just σ) -> insertGlobalSynonym path p κ σ
+          _ -> error "import error"
+    typeCheckItem path (Synonym σ'@(CoreType p _)) = do
+      environment <- getEnvironment path
+      (σ, κ) <- runCore (typeCheckInstantiate σ') environment
+      insertGlobalSynonym path p κ σ
 
 mangle :: Path -> Symbol
 mangle (Path path (Identifier name)) = Symbol $ (concat $ map (++ "_") $ extract <$> path) ++ name
   where
     extract (Identifier x) = x
 
-reduceModule :: Semigroup p => Map [Identifier] (CoreState p) -> ModuleOrder Silent p -> ModuleOrder Silent p
-reduceModule environment (Ordering code) = Ordering $ evalState (go code) Map.empty
+reduceModule :: Semigroup p => Map [Identifier] (CoreState p) -> ModuleOrder p -> ModuleOrder p
+reduceModule environment (Ordering code) = Ordering $ evalState (foldrM go' [] code) Map.empty
   where
-    goCommon heading name require f = do
-      completed <- go require
+    getReplacements (Path heading _) = do
       this <- get
-      let replacements = Map.findWithDefault [] heading this
-      let (e', global') = f replacements this
-      modify $ Map.insert heading ((name, e') : replacements)
-      pure $ (Path heading name, global') : completed
-    go [] = pure []
-    go ((Path heading name, Inline e) : require) = goCommon heading name require $ \replacements _ ->
+      pure $ Map.findWithDefault [] heading this
+    insertGlobal path@(Path heading name) e = do
+      replacements <- getReplacements path
+      modify $ Map.insert heading ((name, e) : replacements)
+    go' item@(path, _) completed = do
+      x <- go item
+      pure ((path, x) : completed)
+    go (path, Inline e) = do
+      replacements <- getReplacements path
       let e' = reduce $ foldr substituteGlobal e replacements
-       in (Right e', Inline e')
-    go ((path@(Path heading name), Text e) : require) = goCommon heading name require $ \replacements _ ->
+      insertGlobal path (Right e)
+      pure (Inline e')
+    go (path@(Path heading name), Text e) = do
+      replacements <- getReplacements path
       let e' = reduce $ foldr substituteGlobal e replacements
-          (p, _, σ) = typeEnvironment (environment ! heading) ! name
-          ref = convert p (mangle path) σ
-       in (Right ref, Text e')
-    go ((Path heading name, Import _ (Path targetHeading targetName)) : require) = goCommon heading name require $ \_ this ->
-      let e' = fromJust $ lookup targetName (this ! targetHeading)
-       in (e', either Synonym Inline e')
-    go ((Path heading name, Synonym σ) : require) = goCommon heading name require $ \replacements _ ->
+      let (p, _, σ) = typeEnvironment (environment ! heading) ! name
+      let ref = convert p (mangle path) σ
+      insertGlobal path (Right ref)
+      pure (Text e')
+    go (path, Import _ (Path heading name)) = do
+      this <- get
+      let e = fromJust $ lookup name (this ! heading)
+      insertGlobal path e
+      pure (either Synonym Inline e)
+    go (path, Synonym σ) = do
+      replacements <- getReplacements path
       let σ' = reduce $ foldr substituteGlobal σ replacements
-       in (Left σ', Synonym σ')
+      insertGlobal path (Left σ')
+      pure (Synonym σ')
     substituteGlobal (x, Right e) = substitute e x
     substituteGlobal (x, Left σ) = substitute σ x
     convert p name (CoreType _ (FunctionPointer σ τs)) = CoreTerm p $ Extern Silent Silent name (p <$ σ) (fmap (p <$) τs)
