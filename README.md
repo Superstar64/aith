@@ -35,9 +35,11 @@ See ``/documentation`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Module | ``module x = { code };`` |
-| Inline Symbol | ``inline x =  e; ``|
+| Inline Term | ``inline x =  e; ``|
+| Annotated Inline Term | ``inline _ :: σ; inline x =e; ``|
 | Import | ``import x = /x'/x''/...;``|
 | Function | ``function x = ef;`` |
+| ANnotated Function | ``function _ :: σ; function x = ef;``| 
 | Type Synonym | ``type x = σ;`` |
 
 ## Terms(e)

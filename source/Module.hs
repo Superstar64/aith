@@ -41,22 +41,22 @@ global = Prism Global $ \case
   _ -> Nothing
 
 data Global p
-  = Inline (Term Silent p)
+  = Inline (Maybe (Type p)) (Term Silent p)
   | Import p Path
-  | Text (Term Silent p)
+  | Text (Maybe (Type p)) (Term Silent p)
   | Synonym (Type p)
   deriving (Functor, Show)
 
-inline = Prism Inline $ \case
-  (Inline e) -> Just (e)
+inline = Prism (uncurry Inline) $ \case
+  (Inline σ e) -> Just (σ, e)
   _ -> Nothing
 
 importx = Prism (uncurry Import) $ \case
   (Import p path) -> Just (p, path)
   _ -> Nothing
 
-text = Prism Text $ \case
-  (Text e) -> Just e
+text = Prism (uncurry Text) $ \case
+  (Text σ e) -> Just (σ, e)
   _ -> Nothing
 
 synonym = Prism Synonym $ \case
@@ -76,8 +76,16 @@ resolve p (CoreModule code) path = go code path
       Just (Module (CoreModule code')) -> go code' (Path remainder name)
 
 depend :: forall p. Semigroup p => Global p -> Path -> Map Path p
-depend (Inline e) (Path location _) = Map.mapKeysMonotonic (Path location) (Variables.toMap $ freeVariables @(Term Silent p) e <> freeVariables @(Type p) e)
-depend (Text e) (Path location _) = Map.mapKeysMonotonic (Path location) (Variables.toMap $ freeVariables @(Term Silent p) e <> freeVariables @(Type p) e)
+depend (Inline σ e) (Path location _) = Map.mapKeysMonotonic (Path location) (Variables.toMap $ annotation <> freeVariables @(Term Silent p) e <> freeVariables @(Type p) e)
+  where
+    annotation = case σ of
+      Nothing -> mempty
+      Just σ -> freeVariables @(Type p) σ
+depend (Text σ e) (Path location _) = Map.mapKeysMonotonic (Path location) (Variables.toMap $ annotation <> freeVariables @(Term Silent p) e <> freeVariables @(Type p) e)
+  where
+    annotation = case σ of
+      Nothing -> mempty
+      Just σ -> freeVariables @(Type p) σ
 depend (Synonym σ) (Path location _) = Map.mapKeysMonotonic (Path location) (Variables.toMap $ freeVariables @(Type p) σ)
 depend (Import p path) _ = Map.singleton path p
 
@@ -160,15 +168,22 @@ typeCheckModule (Ordering code) = foldrM (execStateT . uncurry typeCheckItem) Ma
       environment <- getEnvironment path
       modifyModuleEnvironments $ Map.insert heading environment {kindEnvironment = Map.insert name (p, κ, Just σ) $ kindEnvironment environment}
 
-    typeCheckItem path (Inline e@(CoreTerm p _)) = do
+    validateAnnotation _ _ _ Nothing = pure ()
+    validateAnnotation environment p σ1 (Just σ2') = do
+      σ2 <- runCore (instantiate σ2') environment
+      match p σ1 σ2
+
+    typeCheckItem path (Inline σ' e@(CoreTerm p _)) = do
       environment <- getEnvironment path
       σ <- runCore (typeCheck e) environment
+      validateAnnotation environment p σ σ'
       insertGlobalTerm path p σ
-    typeCheckItem path (Text e@(CoreTerm p _)) = do
+    typeCheckItem path (Text σ' e@(CoreTerm p _)) = do
       environment <- getEnvironment path
-      σ' <- runCore (typeCheck e) environment
-      runCore (checkText p =<< checkType p =<< typeCheckInternal σ') environment
-      insertGlobalTerm path p $ convert σ'
+      σ <- runCore (typeCheck e) environment
+      runCore (checkText p =<< checkType p =<< typeCheckInternal σ) environment
+      validateAnnotation environment p (convert σ) σ'
+      insertGlobalTerm path p $ convert σ
       where
         convert (CoreType p (FunctionLiteralType σ τs)) = CoreType p $ FunctionPointer σ τs
         convert (CoreType p σ) = CoreType p $ mapType convert id bound bound σ
@@ -200,26 +215,39 @@ reduceModule environment (Ordering code) = Ordering $ evalState (foldrM go' [] c
     insertGlobal path@(Path heading name) e = do
       replacements <- getReplacements path
       modify $ Map.insert heading ((name, e) : replacements)
+    annotate (Path heading name) Nothing = do
+      let (p, _, σ) = typeEnvironment (environment ! heading) ! name
+      pure $ Just $ p <$ σ
+    annotate path (Just σ) = do
+      replacements <- getReplacements path
+      pure $ Just $ reduce $ foldr substituteGlobal σ replacements
+
     go' item@(path, _) completed = do
       x <- go item
       pure ((path, x) : completed)
-    go (path, Inline e) = do
+    go (path, Inline σ e) = do
       replacements <- getReplacements path
       let e' = reduce $ foldr substituteGlobal e replacements
-      insertGlobal path (Right e)
-      pure (Inline e')
-    go (path@(Path heading name), Text e) = do
+      insertGlobal path (Right e')
+      σ' <- annotate path σ
+      pure (Inline σ' e')
+    go (path@(Path heading name), Text τ e) = do
       replacements <- getReplacements path
       let e' = reduce $ foldr substituteGlobal e replacements
       let (p, _, σ) = typeEnvironment (environment ! heading) ! name
       let ref = convert p (mangle path) σ
       insertGlobal path (Right ref)
-      pure (Text e')
+      τ' <- annotate path τ
+      pure (Text τ' e')
     go (path, Import _ (Path heading name)) = do
       this <- get
       let e = fromJust $ lookup name (this ! heading)
       insertGlobal path e
-      pure (either Synonym Inline e)
+      case e of
+        Left σ -> pure $ Synonym σ
+        Right e -> do
+          σ <- annotate path Nothing
+          pure $ Inline σ e
     go (path, Synonym σ) = do
       replacements <- getReplacements path
       let σ' = reduce $ foldr substituteGlobal σ replacements

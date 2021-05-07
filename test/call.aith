@@ -7,12 +7,15 @@ inline call = ``\returnRep : _representation => ``\ argumentRep : _representatio
 	}
 };
 
+function _ :: `\/a => a (*) a;
 function idImpl = `\a (x : a){
 	x
 };
 
+inline _ :: `\/a => a -> a;
 inline id = `\a => call``(_pointer)``(_pointer)`(a)`(a)(idImpl`(a)); 
 
+function _ :: `\/a => a (*) a;
 function useId = `\a (x : a){
 	id`(a)(x)
 };

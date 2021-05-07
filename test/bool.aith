@@ -2,14 +2,18 @@ module:
 
 type bool = ``\/ s : _stage => `\/ a : _type s => !a -> !a -> a;
 
+inline _ :: bool;
 inline true = ``\s : _stage => `\a : _type s => \!(x : a) => \!(y : a) => x;
 
+inline _ :: bool;
 inline false = ``\s : _stage => `\a : _type s => \!(x : a) => \!(y : a) => y;
 
+inline _ :: bool -> bool;
 inline not = \ x : bool {
 	x``(_meta)`(``\/s : _stage => `\/ a:_type s => !a -> !a -> a)(!false)(!true)
 };
 
+inline _ :: bool -> `\/a => (_copy a) =>? a _function #(a,a); 
 inline boolToFunction = \x : bool {
 	`\b => _when _copy b {
 		_function (left : b, right : b){
@@ -18,5 +22,8 @@ inline boolToFunction = \x : bool {
 	}
 };
 
+function _ :: `\/a => (_copy a) =>? a (*) #(a,a);
 function runtimeTrue = ~boolToFunction(true);
+
+function _ :: `\/a => (_copy a) =>? a (*) #(a,a);
 function runtimeNotTrue = ~boolToFunction(not(true));

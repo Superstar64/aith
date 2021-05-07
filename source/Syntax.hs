@@ -144,7 +144,7 @@ typex = typeBottom
     typePostfix = foldlP applyPostfix ⊣ typeCore ⊗ many postfix
       where
         applyPostfix = functionLiteralType `branchDistribute` functionPointer `branchDistribute` polyConstruction `branchDistribute` typeConstruction
-        postfix = keyword "function" ≫ multiarg typeCore ⊕ token "(*)" ≫ multiarg typeCore ⊕ betweenTypeParens kind ⊕ space ≫ typeCore
+        postfix = space ≫ keyword "function" ≫ multiarg typeCore ⊕ token "(*)" ≫ multiarg typeCore ⊕ betweenTypeParens kind ⊕ space ≫ typeCore
         typeConstruction = withInnerPosition Core.coreType Core.typeConstruction
         functionLiteralType = withInnerPosition Core.coreType Core.functionLiteralType
         functionPointer = withInnerPosition Core.coreType Core.functionPointer
@@ -208,7 +208,7 @@ term = termBottom
         typeApplication = withInnerPosition Core.coreTerm Core.typeApplication
         kindApplication = withInnerPosition Core.coreTerm Core.kindApplication
         erasedQualifiedCheck = withInnerPosition Core.coreTerm (Core.erasedQualifiedCheck . toPrism unit')
-    termCore = keyword "function" ≫ functionCore ∥ Core.coreTerm ⊣ position ⊗ core ∥ Core.coreTerm ⊣ position ⊗ termLambda lambdaInline ∥ runtimeTupleIntroduction ∥ termParens
+    termCore = space ≫ keyword "function" ≫ functionCore ∥ Core.coreTerm ⊣ position ⊗ core ∥ Core.coreTerm ⊣ position ⊗ termLambda lambdaInline ∥ runtimeTupleIntroduction ∥ termParens
       where
         core =
           choice
@@ -242,13 +242,18 @@ modulex = Module.coreModule ⊣ orderless ⊣ list ⊣ some (item declare (token
 item header footer lambda =
   choice
     [ itemCore "module" (Module.modulex ⊣ lambda modulex),
-      itemCore "inline" (Module.global . Module.inline ⊣ term),
+      itemAnnotate "inline" (Module.global . Module.inline) term,
       itemCore "import" (Module.global . Module.importx ⊣ position ⊗ path),
-      itemCore "function" (Module.global . Module.text ⊣ functionLiteral),
+      itemAnnotate "function" (Module.global . Module.text) functionLiteral,
       itemCore "type" (Module.global . Module.synonym ⊣ typex)
     ]
   where
     itemCore brand inner = moduleKeyword brand ≫ header ⊗ inner ≪ footer
+    itemAnnotate brand f inner = moduleKeyword brand ≫ (secondP f ⊣ correct ⊣ (annotated ∥ (nothing ⊣ always) ⊗ implicit))
+      where
+        correct = associate . firstI swap . inverse associate
+        implicit = header ⊗ inner ≪ footer
+        annotated = space ≫ moduleKeyword "_" ≫ space ≫ token "::" ≫ space ≫ (just ⊣ typex) ≪ token ";" ≪ line ≪ moduleKeyword brand ⊗ implicit
 
 itemSingleton ::
   (Syntax δ, Position δ p) => δ (Module.Item p)

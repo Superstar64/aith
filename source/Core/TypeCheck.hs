@@ -94,6 +94,10 @@ instance Match p (TypeF Internal) where
     match p σ σ'
     sequence $ zipWith (match p) τs τs'
     pure ()
+  match p (FunctionLiteralType σ τs) (FunctionLiteralType σ' τs') = do
+    match p σ σ'
+    sequence $ zipWith (match p) τs τs'
+    pure ()
   match p (ErasedQualified π σ) (ErasedQualified π' σ') = do
     match p π π'
     match p σ σ'
