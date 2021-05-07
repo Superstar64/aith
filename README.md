@@ -36,7 +36,7 @@ See ``/documentation`` for typing rules.
 |-|-|
 | Module | ``module x = { code };`` |
 | Inline Term | ``inline x =  e; ``|
-| Annotated Inline Term | ``inline _ :: σ; inline x =e; ``|
+| Annotated Inline Term | ``inline _ :: σ; inline x = e; ``|
 | Import | ``import x = /x'/x''/...;``|
 | Function | ``function x = ef;`` |
 | ANnotated Function | ``function _ :: σ; function x = ef;``| 
