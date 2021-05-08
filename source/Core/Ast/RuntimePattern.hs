@@ -5,13 +5,14 @@ import Core.Ast.Kind
 import Core.Ast.Type
 import Data.Bifunctor (Bifunctor, bimap)
 import Data.Functor.Identity (Identity)
+import qualified Data.Kind
 import Misc.Identifier
 import Misc.Isomorph
 import Misc.Prism
 import Misc.Silent
 import qualified Misc.Variables as Variables
 
-data RuntimePatternF (d :: (* -> *) -> *) p' p
+data RuntimePatternF (d :: (Data.Kind.Type -> Data.Kind.Type) -> Data.Kind.Type) p' p
   = RuntimePatternVariable Identifier (Type p')
   | RuntimePatternPair (RuntimePattern d p' p) (RuntimePattern d p' p)
 

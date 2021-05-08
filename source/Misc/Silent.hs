@@ -1,8 +1,10 @@
 module Misc.Silent where
 
-data Silent (a :: * -> *) = Silent deriving (Show)
+import Data.Kind (Type)
 
-data Erased (a :: *)
+data Silent (a :: Type -> Type) = Silent deriving (Show)
+
+data Erased (a :: Type)
 
 instance Show (Erased a) where
   show = absurd
