@@ -68,7 +68,7 @@ See ``/documentation`` for typing rules.
 | Recursive Type Introduction | ``_pack (pmσ => σ) e `` |
 | Recursive Type Introduction| ``_pack (pmσ { σ }) e `` |
 | Recursive Type Elimination | ``_unpack e`` |
-| Meta Term | #e | 
+| Meta Term | `` #e `` | 
 
 ## Meta Terms(em)
 | Description | Syntax |
@@ -88,7 +88,7 @@ See ``/documentation`` for typing rules.
 | Erased Qualified Assumption | ``_when σ => em `` |
 | Erased Qualified Assumption | ``_when σ { em } `` |
 | Erased Qualified Check | ``em?`` |
-| Runtime Term | ~e | 
+| Runtime Term |`` ~e `` | 
 
 
 ## Patterns(pm)
@@ -126,7 +126,7 @@ See ``/documentation`` for typing rules.
 | Pair (Left Associative) | ``#(σ, σ', ...)`` |
 | Recursive Type | `` _recursive pmσ => σ`` |
 | Recursive Type | `` _recursive pmσ { σ }`` |
-| Meta Type | ~σm |
+| Meta Type | `` ~σm `` |
 
 ## Meta Types(σm, τm, πm)
 | Description | Syntax |
@@ -145,7 +145,7 @@ See ``/documentation`` for typing rules.
 | Poly Operator | `` `\pmκ { σm }`` |
 | Erased Qualified Type | `` πm =>? σm `` |
 | Copy Predicate | ``_copy σm`` |
-| Runtime Type | #σ |
+| Runtime Type | `` #σ `` |
 
 
 
