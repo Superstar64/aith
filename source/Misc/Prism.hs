@@ -30,6 +30,9 @@ nil = Prism (const []) $ \case
   [] -> Just ()
   _ -> Nothing
 
+singleton :: Prism a [a]
+singleton = cons . secondP nil . toPrism (inverse unit')
+
 just :: Prism a (Maybe a)
 just = Prism Just $ \case
   Just x -> Just x

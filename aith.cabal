@@ -6,8 +6,7 @@ license-file:  LICENSE
 maintainer:    Hexagonalstar64@gmail.com
 author:        Superstar64
 
-executable aith
-    main-is:            Main.hs
+common aith-base
     hs-source-dirs:     source
     other-modules:
         Misc.Identifier
@@ -38,6 +37,7 @@ executable aith
         Decorate
         Core.Ast.RuntimePattern
         Misc.Silent
+        BaseMain
 
     default-language:   Haskell2010
     default-extensions:
@@ -56,3 +56,12 @@ executable aith
         parser-combinators ^>=1.2.1,
         directory ^>=1.3.6.0,
         filepath ^>=1.4.2.1
+
+
+executable aith
+    import: aith-base
+    main-is:            Main.hs
+test-suite idempotency
+    import: aith-base
+    type:               exitcode-stdio-1.0
+    main-is:            Test.hs

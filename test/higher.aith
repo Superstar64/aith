@@ -1,6 +1,6 @@
 module:
 
-inline fmap = ``\r : _stage {
+inline fmap = ~``\r : _stage {
 	`\m : _type r -> _type r =>
 	`\a : _type r =>
 	`\b : _type r =>
@@ -15,14 +15,14 @@ inline fmap = ``\r : _stage {
 	})
 };
 
-inline pureIdentityPtr = `\a => \x : a {
+inline pureIdentityPtr = ~`\a : _type _runtime _pointer => \x : a {
 	x
 };
 
-inline bindIdentityPtr = `\a => `\b => \x : a => \f : a -> b {
+inline bindIdentityPtr = ~`\a : _type _runtime _pointer => `\b : _type _runtime _pointer => \x : a => \f : a -> b {
 	f(x)
 };
 
-function usefmap = `\a (x : a) {
-	fmap``(_runtime _pointer)`(\x => x)`(a)`(a)(!pureIdentityPtr)(!bindIdentityPtr)(\x : a => x)(x) 
+function usefmap = `\a : _type _runtime _pointer => \(x : a) {
+	~fmap``(_runtime _pointer)`(\x : _type _runtime _pointer => x)`(a)`(a)(!pureIdentityPtr)(!bindIdentityPtr)(\x : a => x)(x) 
 };

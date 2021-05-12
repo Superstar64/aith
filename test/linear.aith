@@ -1,13 +1,13 @@
 module:
 
-inline dup = `\b : _type _meta {
+inline dup = ~`\b : _type _meta {
 	\!(x : b) =>
 	`\r : _type _meta =>
 	\(f : !b -> !b -> r) =>
 	f(!x)(!x)
 };
 
-inline main = `\a : _type _meta {
+inline main = ~`\a : _type _meta {
 	`\b : _type _meta =>
 
 	\(f : a -> !b) =>
@@ -17,14 +17,14 @@ inline main = `\a : _type _meta {
 };
 
 
-function wasteful = `\a when(_copy a) (x : a, y : a){
+function wasteful = `\a : _type _runtime _pointer => _when(_copy a) => \(x : a, y : a){
 	x
 };
 
-function ignoreFPtr = `\a (x : a, f : a(*)(a)){
+function ignoreFPtr = `\a : _type _runtime _pointer => \(x : a, f : a -> a){
 	x
 };
 
-function useWasteful = `\a (xf : a(*)(a), yf: a(*)(a)) {
-	wasteful`(a(*)(a))?(*) #(xf, yf)
+function useWasteful = `\a : _type _runtime _pointer => \(xf : a -> a, yf: a -> a) {
+	wasteful`(a -> a)? (xf, yf)
 };

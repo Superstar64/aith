@@ -4,21 +4,21 @@ type fix = `\r : _representation => \f : _type _runtime r -> _type _runtime r {
 	_recursive x : _type _runtime r => f(x)
 };
 
-inline makeFix = ``\ r: _representation => `\ f : _type _runtime r -> _type _runtime r => \x : f(fix `(r) f) {
-	_pack ( a : _type _runtime r { f(a) } ) x
+inline makeFix = ~``\ r: _representation => `\ f : _type _runtime r -> _type _runtime r => \x : f(fix `(r) f) {
+	# _pack ( a : _type _runtime r { f(a) } ) x
 };
 
-inline breakFix = ``\ r: _representation => `\ f: _type _runtime r -> _type _runtime r => \x : fix `(r) f {
-	_unpack x
+inline breakFix = ~``\ r: _representation => `\ f: _type _runtime r -> _type _runtime r => \x : fix `(r) f {
+	# _unpack x
 };
 
-type endo = `\r : _representation => \a : _type _runtime r => a (*) (a);
+type endo = `\r : _representation => \a : _type _runtime r => a -> a;
 
 
-function selfApp = (x : fix `(_pointer) (endo `(_pointer)) ){
-	(breakFix ``(_pointer) `(endo `(_pointer)) x)(*)(x)
+function selfApp = \(x : fix `(_pointer) (endo `(_pointer)) ){
+	(~ breakFix ``(_pointer) `(endo `(_pointer)) x) (x)
 };
 
-function omega = _multiarg() {
-	selfApp(*)(makeFix``(_pointer)`(endo`(_pointer)) selfApp)
+function omega = \_multiarg() {
+	selfApp (~ makeFix ``(_pointer)`(endo`(_pointer)) selfApp)
 };

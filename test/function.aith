@@ -1,10 +1,10 @@
 module:
 
-function id = `\a (x : a){
-	_alias y : a = x;
+function id = `\a : _type _runtime _pointer => \(x : a){
+	_let y : a = x;
 	y
 };
 
-function callId = `\a (x : a){
-	id`(a(*)(a))(*)(id`(a))(*)(x)
+function callId = `\a : _type _runtime _pointer => \(x : a){
+	id`(a -> a)(id`(a))(x)
 };

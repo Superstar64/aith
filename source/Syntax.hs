@@ -37,8 +37,9 @@ class SyntaxBase δ => Syntax δ where
   string :: String -> δ ()
   identifer :: δ Identifier
   stringLiteral :: δ String
-
+  pick :: (a -> Bool) -> δ a -> δ a -> δ a -- normal ∥ for parser, left when function is true for printer
   -- pretty printer only methods
+
   (∥#) :: δ a -> δ a -> δ a -- pretty printer only ∥, parser ignores first argument
   space :: δ ()
   line :: δ ()
@@ -50,7 +51,11 @@ class Position δ p where
 
 token = string
 
+binaryToken op = space ≫ token op ≫ space
+
 keyword word = string ('_' : word)
+
+prefixKeyword word = keyword word ≫ space
 
 moduleKeyword = string
 
@@ -66,21 +71,25 @@ betweenBraces = between (token "{") (token "}")
 
 symbol = Symbol.symbol ⊣ stringLiteral
 
-lambdaCore e = space ≫ token "=>" ≫ space ≫ e
+lambdaCore e = binaryToken "=>" ≫ e
 
 lambdaInline e = space ≫ betweenBraces e ∥ lambdaCore e
 
 lambdaMajor e = space ≫ betweenBraces (indent ≫ line ≫ e ≪ dedent ≪ line) ∥ lambdaCore e
 
-commaMany e = many (token "," ≫ space ≫ e)
-
 commaSome e = some (token "," ≫ space ≫ e)
 
 commaSeperatedMany e = seperatedMany e (token "," ≫ space)
 
-multiarg core = singleton ∥# keyword "multiarg" ≫ betweenParens (commaSeperatedMany core) ∥ singleton
+commaSeperatedSome e = seperatedSome e (token "," ≫ space)
+
+multiarg core = multiargExclusionary core ∥ singleton ⊣ core
+
+-- excludes single argument multiargs
+multiargExclusionary :: Syntax p => p a -> p [a]
+multiargExclusionary core = apply ⊣ keyword "multiarg" ≫ betweenParens (core ⊗ token "," ≫ space ≫ commaSeperatedSome core ⊕ always)
   where
-    singleton = cons ⊣ core ⊗ (nil ⊣ always)
+    apply = branch (cons . secondP (cons . toPrism (inverse nonEmpty))) nil
 
 withInnerPosition core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst)
 
@@ -100,77 +109,139 @@ kindPattern = Core.coreKindPattern ⊣ position ⊗ core
 
 kind = kindBottom
   where
-    kindLambda lambda = Core.poly ⊣ Core.bound ⊣ token "`\\/" ≫ kindPattern ⊗ lambda kind
-    kindBottom = Core.coreKind ⊣ position ⊗ kindLambda lambdaCore ∥# higher `branchDistribute` unit' ⊣ kindCore ⊗ (space ≫ token "->" ≫ space ≫ kind ⊕ always)
+    kindLambda lambda = Core.coreKind ⊣ position ⊗ core
+      where
+        core = Core.poly ⊣ Core.bound ⊣ token "`\\/" ≫ kindPattern ⊗ lambda kind
+    kindBottom = kindLambda lambdaCore ∥# higher `branchDistribute` unit' ⊣ kindCore ⊗ (binaryToken "->" ≫ kind ⊕ always)
       where
         higher = withInnerPosition Core.coreKind Core.higher
-    kindCore = Core.coreKind ⊣ position ⊗ kindLambda lambdaInline ∥ Core.coreKind ⊣ position ⊗ core ∥ betweenParens kind
+    kindCore = kindLambda lambdaInline ∥ core ∥ betweenParens kind
       where
         core =
-          choice
-            [ Core.kindVariable ⊣ identifer,
-              Core.typex ⊣ keyword "type" ≫ space ≫ kindCore,
-              Core.runtime ⊣ keyword "runtime" ≫ space ≫ kindCore,
-              Core.constraint ⊣ keyword "constraint",
-              Core.meta ⊣ keyword "meta",
-              Core.text ⊣ keyword "text",
-              Core.pointerRep ⊣ keyword "pointer",
-              Core.structRep ⊣ keyword "struct" ≫ betweenParens (commaSeperatedMany kind)
-            ]
+          Core.coreKind ⊣ position
+            ⊗ choice
+              [ Core.kindVariable ⊣ identifer,
+                Core.typex ⊣ prefixKeyword "type" ≫ kindCore,
+                Core.runtime ⊣ prefixKeyword "runtime" ≫ kindCore,
+                Core.constraint ⊣ keyword "constraint",
+                Core.meta ⊣ keyword "meta",
+                Core.text ⊣ keyword "text",
+                Core.pointerRep ⊣ keyword "pointer",
+                Core.structRep ⊣ prefixKeyword "struct" ≫ betweenParens (commaSeperatedMany kind)
+              ]
 
 typePattern = Core.coreTypePattern ⊣ position ⊗ core
   where
-    core = Core.typePatternVariable ⊣ identifer ⊗ (pointer ∥# token ":" ≫ kind ∥ pointer)
-    pointer = Core.coreKind ⊣ position ⊗ (Core.typex ⊣ Core.coreKind ⊣ position ⊗ (Core.runtime ⊣ Core.coreKind ⊣ position ⊗ (Core.pointerRep ⊣ always)))
+    core = Core.typePatternVariable ⊣ identifer ⊗ (token ":" ≫ kind)
 
-typeParens = betweenParens typex
+data Mode = Runtime | Meta deriving (Eq)
 
-typex = typeBottom
+{-
+
+class Categorize a where
+  categorize :: Mode -> a -> Mode
+
+instance Categorize (Core.TypeF p) where
+
+instance Categorize (Core.Type p) where
+
+-}
+
+-- typeArrowPrism Meta =
+-- typeArrowPrism Runtime =
+
+typex mode = typeBottom
   where
-    typeLambda lambda =
-      choice
-        [ Core.forallx ⊣ Core.bound ⊣ token "`\\/" ≫ typePattern ⊗ lambda typex,
-          Core.kindForall ⊣ Core.bound ⊣ token "``\\/" ≫ kindPattern ⊗ lambda typex,
-          Core.typeOperator ⊣ Core.bound ⊣ token "\\" ≫ typePattern ⊗ lambda typex,
-          Core.polyOperator ⊣ Core.bound ⊣ token "`\\" ≫ kindPattern ⊗ lambda typex,
-          Core.recursive ⊣ Core.bound ⊣ keyword "recursive" ≫ space ≫ typePattern ⊗ lambda typex
-        ]
-    typeBottom = Core.coreType ⊣ position ⊗ typeLambda lambdaCore ∥# applyBinary ⊣ typePostfix ⊗ binary
+    typeParens = case mode of
+      Runtime -> foldlP runtimePair ⊣ betweenParens (inverse nonEmpty ⊣ commaSeperatedSome typeBottom)
+        where
+          runtimePair = withInnerPosition Core.coreType Core.runtimePair
+      Meta -> betweenParens typeBottom
+    typeLambda lambda = Core.coreType ⊣ position ⊗ choice options
       where
-        binary = space ≫ token "->" ≫ space ≫ typex ⊕ space ≫ token "=>?" ≫ space ≫ typex ⊕ always
-        applyBinary = macro `branchDistribute` erasedQualified `branchDistribute` unit'
-        macro = withInnerPosition Core.coreType Core.macro
+        options =
+          [ Core.forallx ⊣ Core.bound ⊣ token "`\\/" ≫ typePattern ⊗ lambda typeBottom,
+            Core.kindForall ⊣ Core.bound ⊣ token "``\\/" ≫ kindPattern ⊗ lambda typeBottom,
+            Core.typeOperator ⊣ Core.bound ⊣ token "\\" ≫ typePattern ⊗ lambda typeBottom,
+            Core.polyOperator ⊣ Core.bound ⊣ token "`\\" ≫ kindPattern ⊗ lambda typeBottom,
+            recursive
+          ]
+        recursive = case mode of
+          Runtime -> Core.recursive ⊣ Core.bound ⊣ prefixKeyword "recursive" ≫ typePattern ⊗ lambda typeBottom
+          Meta -> never
+    typeBottom = case mode of
+      Runtime -> pick ((== Runtime) . categorize) typeBase (token "~" ≫ typex Meta)
+      Meta -> pick ((== Meta) . categorize) typeBase (token "#" ≫ typex Runtime)
+    typeBase =
+      typeLambda lambdaCore ∥# case mode of
+        Meta -> applyBinary ⊣ typePostfix ⊗ binary
+          where
+            applyBinary = applyBinaryCommon `branchDistribute` unit'
+            binary = binaryCommon ⊕ always
+        Runtime -> applyBinaryMulti ⊣ multiargExclusionary typePostfix ⊗ binaryMulti ∥ applyBinary ⊣ typePostfix ⊗ binary
+          where
+            applyBinary = applyBinaryCommon `branchDistribute` functionLiteralTypeSingle `branchDistribute` unit'
+            binary = binaryCommon ⊕ (prefixKeyword "function" ≫ space ≫ typeBottom) ⊕ always
+            functionLiteralTypeSingle = withInnerPosition Core.coreType (Core.functionLiteralType . toPrism swap . firstP singleton)
+            binaryMulti = prefixKeyword "function" ≫ space ≫ typeBottom ⊕ binaryToken "->" ≫ typeBottom
+            applyBinaryMulti = functionLiteralType `branchDistribute` functionPointer
+            functionLiteralType = withInnerPosition Core.coreType Core.functionLiteralType . toPrism swap -- todo incorrect position data
+            functionPointer = withInnerPosition Core.coreType Core.functionPointer . toPrism swap
+      where
+        binaryCommon = binaryToken "->" ≫ typeBottom ⊕ binaryToken "=>?" ≫ typeBottom
+        applyBinaryCommon = arrow `branchDistribute` erasedQualified
+        arrow = withInnerPosition Core.coreType prism
+          where
+            prism = case mode of
+              Meta -> Core.macro
+              Runtime -> Core.functionPointer . toPrism swap . firstP singleton
         erasedQualified = withInnerPosition Core.coreType Core.erasedQualified
     typePostfix = foldlP applyPostfix ⊣ typeCore ⊗ many postfix
       where
-        applyPostfix = functionLiteralType `branchDistribute` functionPointer `branchDistribute` polyConstruction `branchDistribute` typeConstruction
-        postfix = space ≫ keyword "function" ≫ multiarg typeCore ⊕ token "(*)" ≫ multiarg typeCore ⊕ betweenTypeParens kind ⊕ space ≫ typeCore
+        applyPostfix = polyConstruction `branchDistribute` typeConstruction
+        postfix = space ≫ betweenTypeParens kind ⊕ space ≫ typeCore
         typeConstruction = withInnerPosition Core.coreType Core.typeConstruction
-        functionLiteralType = withInnerPosition Core.coreType Core.functionLiteralType
-        functionPointer = withInnerPosition Core.coreType Core.functionPointer
         polyConstruction = withInnerPosition Core.coreType Core.polyConstruction
-    typeCore = Core.coreType ⊣ position ⊗ typeLambda lambdaInline ∥ Core.coreType ⊣ position ⊗ core ∥ runtimeTuple ∥ typeParens
+    typeCore = typeLambda lambdaInline ∥ core ∥ typeParens
       where
-        core =
-          choice
-            [ Core.typeVariable ⊣ identifer,
-              Core.ofCourse ⊣ token "!" ≫ typeCore,
-              Core.copy ⊣ keyword "copy" ≫ space ≫ typeCore
-            ]
-        runtimeTuple = foldlNonEmptyP runtimePair ⊣ token "#" ≫ betweenParens (typex ⊗ commaSome typex)
+        core = Core.coreType ⊣ position ⊗ choice options
+        options =
+          [ Core.typeVariable ⊣ identifer,
+            ofCourse,
+            Core.copy ⊣ prefixKeyword "copy" ≫ typeCore
+          ]
           where
-            runtimePair = withInnerPosition Core.coreType Core.runtimePair
+            ofCourse = case mode of
+              Runtime -> never
+              Meta -> Core.ofCourse ⊣ token "!" ≫ typeCore
+    categorize (Core.CoreType _ σ) = go σ
+      where
+        go (Core.TypeVariable _) = mode
+        go (Core.Macro _ _) = Meta
+        go (Core.Forall _) = mode
+        go (Core.KindForall _) = mode
+        go (Core.OfCourse _) = Meta
+        go (Core.TypeConstruction _ _) = mode
+        go (Core.TypeOperator _) = mode
+        go (Core.PolyConstruction _ _) = mode
+        go (Core.PolyOperator _) = mode
+        go (Core.FunctionPointer _ _) = Runtime
+        go (Core.FunctionLiteralType _ _) = Runtime
+        go (Core.ErasedQualified _ _) = mode
+        go (Core.Copy _) = mode
+        go (Core.RuntimePair _ _) = Runtime
+        go (Core.Recursive _) = Runtime
 
 pattern = patternBottom
   where
     patternBottom = Core.corePattern ⊣ position ⊗ variable ∥ patternCore
       where
-        variable = Core.patternVariable ⊣ identifer ⊗ token ":" ≫ typex
+        variable = Core.patternVariable ⊣ identifer ⊗ token ":" ≫ typex Meta
     patternCore = Core.corePattern ⊣ position ⊗ patternOfCourse ∥ betweenParens pattern
       where
         patternOfCourse = Core.patternOfCourse ⊣ token "!" ≫ patternCore
 
-runtimePatternParens = foldlP runtimePatternPair ⊣ betweenParens (runtimePattern ⊗ commaMany runtimePattern)
+runtimePatternParens = foldlP runtimePatternPair ⊣ betweenParens (inverse nonEmpty ⊣ commaSeperatedSome runtimePattern)
   where
     runtimePatternPair = withInnerPosition Core.coreRuntimePattern Core.runtimePatternPair
 
@@ -180,72 +251,100 @@ runtimePattern = patternBottom
   where
     patternBottom = Core.coreRuntimePattern ⊣ position ⊗ variable ∥ runtimePatternParens
       where
-        variable = Core.runtimePatternVariable ⊣ identifer ⊗ token ":" ≫ typex
+        variable = Core.runtimePatternVariable ⊣ identifer ⊗ token ":" ≫ typex Runtime
 
-termParens = betweenParens term
-
-term = termBottom
+term mode = termBottom
   where
-    base =
-      choice
-        [ Core.bind ⊣ rotateBind ⊣ keyword "let" ≫ space ≫ pattern ≪ space ≪ token "=" ≪ space ⊗ term ≪ token ";" ⊗ line ≫ term,
-          Core.alias ⊣ rotateBind ⊣ keyword "alias" ≫ space ≫ runtimePattern ≪ space ≪ token "=" ≪ space ⊗ term ≪ token ";" ⊗ line ≫ term
-        ]
-      where
-        rotateBind = secondI Core.bound . associate . firstI swap
+    typexx = typex mode
+    termParens = case mode of
+      Runtime -> foldlP runtimePairIntrouction ⊣ betweenParens (inverse nonEmpty ⊣ commaSeperatedSome termBottom)
+        where
+          runtimePairIntrouction = withInnerPosition Core.coreTerm Core.runtimePairIntrouction
+      Meta -> betweenParens termBottom
     termLambda lambda =
-      choice
-        [ Core.typeAbstraction ⊣ Core.bound ⊣ token "`\\" ≫ typePattern ⊗ lambda term,
-          Core.kindAbstraction ⊣ Core.bound ⊣ token "``\\" ≫ kindPattern ⊗ lambda term,
-          Core.erasedQualifiedAssume ⊣ keyword "when" ≫ space ≫ typex ⊗ lambda term
-        ]
-    termBottom = Core.coreTerm ⊣ position ⊗ termLambda lambdaCore ∥# Core.coreTerm ⊣ position ⊗ base ∥ foldlP applyPostfix ⊣ termCore ⊗ many postfix
+      Core.coreTerm ⊣ position
+        ⊗ choice
+          [ Core.typeAbstraction ⊣ Core.bound ⊣ token "`\\" ≫ typePattern ⊗ lambda termBottom,
+            Core.kindAbstraction ⊣ Core.bound ⊣ token "``\\" ≫ kindPattern ⊗ lambda termBottom,
+            Core.erasedQualifiedAssume ⊣ prefixKeyword "when" ≫ typexx ⊗ lambda termBottom
+          ]
+    termBottom = case mode of
+      Meta -> pick ((== Meta) . categorize) termBase (token "#" ≫ term Runtime)
+      Runtime -> pick ((== Runtime) . categorize) termBase (token "~" ≫ term Meta)
+    termBase =
+      termLambda lambdaCore ∥# binding ∥ case mode of
+        Meta -> foldlP applyPostfix ⊣ termCore ⊗ many (space ≫ postfix)
+          where
+            applyPostfix = applyPostfixCommon `branchDistribute` macroApplication
+            postfix = postfixCommon ⊕ termCore
+            macroApplication = withInnerPosition Core.coreTerm Core.macroApplication
+        Runtime -> foldlP applyPostfix ⊣ termCore ⊗ many (space ≫ postfix)
+          where
+            applyPostfix = applyPostfixCommon `branchDistribute` functionApplication
+            postfix = postfixCommon ⊕ multiarg termCore
+            functionApplication = withInnerPosition Core.coreTerm Core.functionApplication
       where
-        applyPostfix = functionApplication `branchDistribute` macroApplication `branchDistribute` typeApplication `branchDistribute` kindApplication `branchDistribute` erasedQualifiedCheck
-        postfix = space ≫ token "(*)" ≫ multiarg termCore ⊕ space ≫ termCore ⊕ space ≫ betweenTypeParens typex ⊕ space ≫ betweenKindParens kind ⊕ space ≫ token "?"
-        functionApplication = withInnerPosition Core.coreTerm Core.functionApplication
-        macroApplication = withInnerPosition Core.coreTerm Core.macroApplication
+        binding =
+          let rotateBind = secondI Core.bound . associate . firstI swap
+           in Core.coreTerm ⊣ position ⊗ case mode of
+                Meta -> Core.bind ⊣ rotateBind ⊣ prefixKeyword "let" ≫ pattern ≪ binaryToken "=" ⊗ termBottom ≪ token ";" ⊗ line ≫ termBottom
+                Runtime -> Core.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ runtimePattern ≪ binaryToken "=" ⊗ termBottom ≪ token ";" ⊗ line ≫ termBottom
+
+        applyPostfixCommon = typeApplication `branchDistribute` kindApplication `branchDistribute` erasedQualifiedCheck
+        postfixCommon = betweenTypeParens typexx ⊕ betweenKindParens kind ⊕ token "?"
+
         typeApplication = withInnerPosition Core.coreTerm Core.typeApplication
         kindApplication = withInnerPosition Core.coreTerm Core.kindApplication
         erasedQualifiedCheck = withInnerPosition Core.coreTerm (Core.erasedQualifiedCheck . toPrism unit')
-    termCore = space ≫ keyword "function" ≫ functionCore ∥ Core.coreTerm ⊣ position ⊗ core ∥ Core.coreTerm ⊣ position ⊗ termLambda lambdaInline ∥ runtimeTupleIntroduction ∥ termParens
+    termCore = core ∥ termLambda lambdaInline ∥ termParens
       where
-        core =
-          choice
-            [ Core.variable ⊣ identifer,
-              Core.macroAbstraction ⊣ Core.bound ⊣ token "\\" ≫ pattern ⊗ lambdaMajor term,
-              Core.extern ⊣ keyword "extern" ≫ space ≫ symbol ≪ space ⊗ typeParens ⊗ multiarg typeParens,
-              Core.pack ⊣ keyword "pack" ≫ space ≫ betweenParens (Core.bound ⊣ typePattern ⊗ lambdaInline typex) ⊗ space ≫ termCore,
-              Core.unpack ⊣ keyword "unpack" ≫ space ≫ termCore,
-              Core.ofCourseIntroduction ⊣ token "!" ≫ termCore
-            ]
-        runtimeTupleIntroduction = foldlNonEmptyP runtimePairIntrouction ⊣ token "#" ≫ betweenParens (term ⊗ commaSome term)
-          where
-            runtimePairIntrouction = withInnerPosition Core.coreTerm Core.runtimePairIntrouction
-
-functionCore = Core.coreTerm ⊣ position ⊗ core
-  where
-    core = Core.functionLiteral ⊣ Core.bound ⊣ multiarg runtimePattern ⊗ lambdaMajor term
-
-functionLiteral = templateParameters ∥ concepts ∥ functionCore ∥ token "~" ≫ term
-  where
-    templateParameters = Core.coreTerm ⊣ position ⊗ (Core.typeAbstraction ⊣ Core.bound ⊣ token "`\\" ≫ typePattern ≪ space ⊗ functionLiteral)
-    concepts = Core.coreTerm ⊣ position ⊗ (Core.erasedQualifiedAssume ⊣ moduleKeyword "when" ≫ typeParens ≪ space ⊗ functionLiteral)
+        core = Core.coreTerm ⊣ position ⊗ choice options
+        options =
+          [Core.variable ⊣ identifer, abstract] ++ case mode of
+            Meta -> [Core.ofCourseIntroduction ⊣ token "!" ≫ termCore]
+            Runtime ->
+              [ Core.extern ⊣ prefixKeyword "extern" ≫ symbol ≪ space ⊗ betweenParens typexx ⊗ betweenParens (multiarg typexx),
+                Core.pack ⊣ prefixKeyword "pack" ≫ betweenParens (Core.bound ⊣ typePattern ⊗ lambdaInline typexx) ⊗ space ≫ termCore,
+                Core.unpack ⊣ prefixKeyword "unpack" ≫ termCore
+              ]
+        abstract = case mode of
+          Meta -> Core.macroAbstraction ⊣ Core.bound ⊣ token "\\" ≫ pattern ⊗ lambdaMajor termBottom
+          Runtime -> Core.functionLiteral ⊣ Core.bound ⊣ token "\\" ≫ multiarg runtimePattern ⊗ lambdaMajor termBottom
+    categorize (Core.CoreTerm _ e) = go e
+      where
+        go (Core.Variable _ _) = mode
+        go (Core.MacroAbstraction _ _) = Meta
+        go (Core.MacroApplication _ _ _) = Meta
+        go (Core.TypeAbstraction _ _) = mode
+        go (Core.TypeApplication _ _ _) = mode
+        go (Core.KindAbstraction _ _) = mode
+        go (Core.KindApplication _ _ _) = mode
+        go (Core.OfCourseIntroduction _ _) = Meta
+        go (Core.Bind _ _ _) = Meta
+        go (Core.Alias _ _) = Runtime
+        go (Core.FunctionApplication _ _ _ _) = Runtime
+        go (Core.Extern _ _ _ _ _) = Runtime
+        go (Core.FunctionLiteral _ _) = Runtime
+        go (Core.ErasedQualifiedAssume _ _ _) = mode
+        go (Core.ErasedQualifiedCheck _ _) = mode
+        go (Core.RuntimePairIntroduction _ _ _) = Runtime
+        go (Core.Pack _ _ _) = Runtime
+        go (Core.Unpack _ _) = Runtime
 
 modulex ::
   (Syntax δ, Position δ p) =>
   δ (Module.Module p)
 modulex = Module.coreModule ⊣ orderless ⊣ list ⊣ some (item declare (token ";" ≫ line) lambdaMajor) ⊕ never
   where
-    declare = space ≫ identifer ≪ space ≪ token "=" ≪ space
+    declare = space ≫ identifer ≪ binaryToken "="
 
 item header footer lambda =
   choice
     [ itemCore "module" (Module.modulex ⊣ lambda modulex),
-      itemAnnotate "inline" (Module.global . Module.inline) term,
+      itemAnnotate "inline" (Module.global . Module.inline) (term Runtime),
       itemCore "import" (Module.global . Module.importx ⊣ position ⊗ path),
-      itemAnnotate "function" (Module.global . Module.text) functionLiteral,
-      itemCore "type" (Module.global . Module.synonym ⊣ typex)
+      itemAnnotate "function" (Module.global . Module.text) (term Runtime),
+      itemCore "type" (Module.global . Module.synonym ⊣ typex Runtime)
     ]
   where
     itemCore brand inner = moduleKeyword brand ≫ header ⊗ inner ≪ footer
@@ -253,7 +352,7 @@ item header footer lambda =
       where
         correct = associate . firstI swap . inverse associate
         implicit = header ⊗ inner ≪ footer
-        annotated = space ≫ moduleKeyword "_" ≫ space ≫ token "::" ≫ space ≫ (just ⊣ typex) ≪ token ";" ≪ line ≪ moduleKeyword brand ⊗ implicit
+        annotated = space ≫ moduleKeyword "_" ≫ binaryToken "::" ≫ (just ⊣ typex Runtime) ≪ token ";" ≪ line ≪ moduleKeyword brand ⊗ implicit
 
 itemSingleton ::
   (Syntax δ, Position δ p) => δ (Module.Item p)
@@ -274,6 +373,7 @@ instance Syntax Parser where
     Megaparsec.string "\""
     Combinators.manyTill (Megaparsec.satisfy (const True)) (Megaparsec.string "\"") <* Megaparsec.space
   _ ∥# q = q
+  pick = const (∥)
   space = Parser $ pure ()
   line = Parser $ pure ()
   indent = Parser $ pure ()
@@ -293,6 +393,9 @@ instance Syntax Printer where
     tell str
     tell "\""
   (∥#) = (∥)
+  pick f (Printer left) (Printer right) = Printer $ \x -> case f x of
+    True -> left x
+    False -> right x
   space = Printer $ \() -> Just $ tell " "
   line = Printer $ \() -> Just $ do
     indention <- lift get

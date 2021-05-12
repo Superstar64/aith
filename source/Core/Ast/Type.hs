@@ -22,7 +22,7 @@ data TypeF p
   | TypeOperator (Bound (TypePattern p p) (Type p))
   | PolyOperator (Bound (KindPattern p) (Type p))
   | PolyConstruction (Type p) (Kind p)
-  | FunctionPointer (Type p) [Type p]
+  | FunctionPointer (Type p) [Type p] -- todo reverse order of these
   | FunctionLiteralType (Type p) [Type p]
   | ErasedQualified (Type p) (Type p)
   | Copy (Type p)
@@ -179,9 +179,9 @@ instance Semigroup p => Algebra (Type p) p (Kind p) where
 
 reduceTypeImpl (TypeConstruction σ τ) | (CoreType _ (TypeOperator λ)) <- reduce σ = let (CoreType _ σ') = apply λ (reduce τ) in σ'
 reduceTypeImpl (PolyConstruction σ κ) | (CoreType _ (PolyOperator λ)) <- reduce σ = let (CoreType _ σ') = apply λ (reduce κ) in σ'
-reduceTypeImpl σ = runIdentity $ traverseType go go go go σ
+reduceTypeImpl σ = mapType go go go go σ
   where
-    go = Identity . reduce
+    go = reduce
 
 instance Semigroup p => Reduce (Type p) where
   reduce (CoreType p σ) = CoreType p $ reduceTypeImpl σ

@@ -35,55 +35,61 @@ See ``/documentation`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Module | ``module x = { code };`` |
-| Inline Term | ``inline x =  e; ``|
+| Inline Term | ``inline x = e; ``|
 | Annotated Inline Term | ``inline _ :: σ; inline x = e; ``|
 | Import | ``import x = /x'/x''/...;``|
-| Function | ``function x = ef;`` |
-| ANnotated Function | ``function _ :: σ; function x = ef;``| 
+| Function | ``function x = e;`` |
+| Annotated Function | ``function _ :: σ; function x = e;``| 
 | Type Synonym | ``type x = σ;`` |
 
-## Terms(e)
+## Runtime Terms(e)
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Of Course Introduction | ``!e`` |
-| Binding | ``_let pm = e1 ; e2 ``|
-| Runtime Binding | ``_alias pme = e1; e2`` |
-| Macro Abstraction | ``\pm { e }``|
-| Macro Abstraction | ``\pm => e ``|
-| Macro Application | ``e e'``|
+| Runtime Binding | ``_let pm = e; e' ``|
 | Type Abstraction | `` `\pmσ { e }`` |
 | Type Abstraction | `` `pmσ => e`` |
 | Type Application | ``e`(σ)`` |
-| Kind Abstraction | ``` ``\x : μ => e``` |
-| Kind Abstraction | ``` ``\x : μ { e }``` |
+| Kind Abstraction | ``` ``\pmκ => e``` |
+| Kind Abstraction | ``` ``\pmκ { e }``` |
 | Kind Application | ``` e``(κ) ``` |
-| Extern | ``_extern "x" (σ) _multiarg ((τ), (τ'), ...)`` |
+| Extern | ``_extern "x" (σ) _multiarg (τ, τ', ...)`` |
 | Extern | ``_extern "x" (σ) (τ) `` |
-| Function Application | ``e(*) _multiarg (e1,e2, ...) ``|
-| Function Application | ``e(*) e' ``|
-| Function Literal | ``_function _multiarg (pme, pme', ...) => e`` |
-| Function Literal | ``_function _multiarg (pme, pme', ...) { e }`` |
-| Function Literal | ``_function pme => e`` |
-| Function Literal | ``_function pme { e }`` |
+| Function Application | ``e _multiarg (e',e'', ...) ``|
+| Function Application | ``e e' ``|
+| Function Literal | ``\_multiarg (pme, pme', ...) => e`` |
+| Function Literal | ``\_multiarg (pme, pme', ...) { e }`` |
+| Function Literal | ``\pme => e`` |
+| Function Literal | ``\pme { e }`` |
 | Erased Qualified Assumption | ``_when σ => e `` |
 | Erased Qualified Assumption | ``_when σ { e } `` |
 | Erased Qualified Check | ``e?`` |
-| Pair Constructor (Left Associative) | ``#(e,e',...)`` |
+| Pair Constructor (Left Associative) | ``(e,e',...)`` |
 | Recursive Type Introduction | ``_pack (pmσ => σ) e `` |
 | Recursive Type Introduction| ``_pack (pmσ { σ }) e `` |
 | Recursive Type Elimination | ``_unpack e`` |
+| Meta Term | #e | 
 
-# Function Sugar Term (ef)
-|Description | Syntax |
+## Meta Terms(em)
+| Description | Syntax |
 |-|-|
-| Type Abstraction | `` `\pmσ ef `` |
-| Erased Qualified Assumption | `` when σ ef `` |
-| Function Literal | ``_multiarg (pme, pme', ...) => e `` |
-| Function Literal | ``_multiarg (pme, pme', ...) { e } `` |
-| Function Literal | ``pme { e } `` |
-| Function Literal | ``pme =>  e `` |
-| Explict | ``~e`` |
+| Variable | ``x`` |
+| Of Course Introduction | ``!em`` |
+| Binding | ``_let pm = em; em' ``|
+| Macro Abstraction | ``\pm { em }``|
+| Macro Abstraction | ``\pm => em ``|
+| Macro Application | ``em em'``|
+| Type Abstraction | `` `\pmσ { em }`` |
+| Type Abstraction | `` `pmσ => em`` |
+| Type Application | ``em`(σ)`` |
+| Kind Abstraction | ``` ``\pmκ => em``` |
+| Kind Abstraction | ``` ``\pmκ { em }``` |
+| Kind Application | ``` em``(κ) ``` |
+| Erased Qualified Assumption | ``_when σ => em `` |
+| Erased Qualified Assumption | ``_when σ { em } `` |
+| Erased Qualified Check | ``em?`` |
+| Runtime Term | ~e | 
+
 
 ## Patterns(pm)
 | Description | Syntax |
@@ -97,7 +103,7 @@ See ``/documentation`` for typing rules.
 | Variable | ``(x : σ)``|
 | Pair Destruction (Left Associative) | ``(pm, pm', ...)`` |
 
-## Types(σ, τ, π)
+## Runtime Types(σ, τ, π)
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
@@ -105,29 +111,49 @@ See ``/documentation`` for typing rules.
 | Forall | `` `\/pmσ => σ`` |
 | KindForall | ``` ``\/s : μ => σ``` |
 | KindForall | ``` ``\/s : μ { σ }``` |
-| Macro | ``σ -> σ'``|
-| Of Course | ``!σ``|
 | Type Operator | `` \x : κ { σ }``|
 | Type Operator | `` \x : κ => σ ``|
-| Poly Operator | `` `\x : μ => κ`` |
-| Poly Operator | `` `\x : μ { κ }`` |
-| Poly Construction | `` σ`(κ) ``
 | Type Construction | `` σ τ `` |
-| Function Pointer | `` σ(*) _multiarg (τ, τ', ...) `` |
-| Function Pointer | `` σ(*) τ `` |
-| Function Literal Type | `` σ _function _multiarg(τ, τ', ...) `` |
-| Function Literal Type | `` σ _function τ `` |
+| Poly Operator | `` `\pmκ => σ`` |
+| Poly Operator | `` `\pmκ { σ }`` |
+| Poly Construction | `` σ`(κ) ``
+| Function Pointer | `` _multiarg (τ, τ', ...) -> σ`` |
+| Function Pointer | `` τ -> σ `` |
+| Function Literal Type | `` _multiarg(τ, τ', ...) _function σ `` |
+| Function Literal Type | `` τ _function σ `` |
 | Erased Qualified Type | `` π =>? σ `` |
 | Copy Predicate | ``_copy σ`` |
 | Pair (Left Associative) | ``#(σ, σ', ...)`` |
 | Recursive Type | `` _recursive pmσ => σ`` |
 | Recursive Type | `` _recursive pmσ { σ }`` |
+| Meta Type | ~σm |
+
+## Meta Types(σm, τm, πm)
+| Description | Syntax |
+|-|-|
+| Variable | ``x`` |
+| Macro | ``σm -> σm'``|
+| Of Course | ``!σm``|
+| Forall | `` `\/pmσ { σm }`` |
+| Forall | `` `\/pmσ => σm`` |
+| KindForall | ``` ``\/s : μ => σm``` |
+| KindForall | ``` ``\/s : μ { σm }``` |
+| Type Operator | `` \x : κ { σm }``|
+| Type Operator | `` \x : κ => σm ``|
+| Type Construction | `` σm τm `` |
+| Poly Operator | `` `\pmκ => σm`` |
+| Poly Operator | `` `\pmκ { σm }`` |
+| Erased Qualified Type | `` πm =>? σm `` |
+| Copy Predicate | ``_copy σm`` |
+| Runtime Type | #σ |
+
+
 
 ## Type Pattern(pmσ)
 |Description | Syntax |
 |-|-|
 | Variable | ``x : κ`` |
-| Runtime Pointer Variable | ``x`` |
+
 
 ## Kinds(κ,s,ρ)
 | Description | Syntax |
@@ -143,6 +169,11 @@ See ``/documentation`` for typing rules.
 | Text | ``_text`` |
 | Pointer Representation | ``_pointer``|
 | Struct Representation | ``_struct (ρ, ρ', ...)`` |
+
+# Kind Pattern (pmκ)
+|Description | Syntax |
+|-|-|
+| Variable | ``x : μ`` |
 
 ## Sorts(μ)
 | Description | Syntax |

@@ -1,21 +1,21 @@
 module:
-inline call = ``\returnRep : _representation => ``\ argumentRep : _representation {
-	`\returnType : _type _runtime returnRep => `\argumentType : _type _runtime argumentRep {
-		\f : returnType(*)(argumentType) => \x : argumentType {
-			f(*)(x)
+inline call = ~``\r : _representation => ``\ a : _representation {
+	`\r : _type _runtime r => `\a : _type _runtime a {
+		\f : #a -> r => \x : a {
+			#f(x)
 		}
 	}
 };
 
-function _ :: `\/a => a (*) a;
-function idImpl = `\a (x : a){
+function _ :: `\/a : _type _runtime _pointer => a -> a;
+function idImpl = `\a : _type _runtime _pointer => \(x : a){
 	x
 };
 
-inline _ :: `\/a => a -> a;
-inline id = `\a => call``(_pointer)``(_pointer)`(a)`(a)(idImpl`(a)); 
+inline _ :: ~ `\/a : _type _runtime _pointer => a -> a;
+inline id = ~ `\a : _type _runtime _pointer => call``(_pointer)``(_pointer)`(a)`(a)(idImpl`(a)); 
 
-function _ :: `\/a => a (*) a;
-function useId = `\a (x : a){
-	id`(a)(x)
+function _ :: `\/a : _type _runtime _pointer => a -> a;
+function useId = `\a : _type _runtime _pointer => \(x : a){
+	~id`(a)(x)
 };
