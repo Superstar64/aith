@@ -68,7 +68,7 @@ See ``/documentation`` for typing rules.
 | Recursive Type Introduction | ``_pack (pmσ => σ) e `` |
 | Recursive Type Introduction| ``_pack (pmσ { σ }) e `` |
 | Recursive Type Elimination | ``_unpack e`` |
-| Meta Term | `` #e `` | 
+| Meta Term | `` ~e `` | 
 
 ## Meta Terms(em)
 | Description | Syntax |
@@ -88,7 +88,7 @@ See ``/documentation`` for typing rules.
 | Erased Qualified Assumption | ``_when σ => em `` |
 | Erased Qualified Assumption | ``_when σ { em } `` |
 | Erased Qualified Check | ``em?`` |
-| Runtime Term |`` ~e `` | 
+| Runtime Term |`` #e `` | 
 
 
 ## Patterns(pm)
