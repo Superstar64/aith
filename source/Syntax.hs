@@ -136,20 +136,6 @@ typePattern = Core.coreTypePattern ⊣ position ⊗ core
 
 data Mode = Runtime | Meta deriving (Eq)
 
-{-
-
-class Categorize a where
-  categorize :: Mode -> a -> Mode
-
-instance Categorize (Core.TypeF p) where
-
-instance Categorize (Core.Type p) where
-
--}
-
--- typeArrowPrism Meta =
--- typeArrowPrism Runtime =
-
 typex mode = typeBottom
   where
     typeParens = case mode of
