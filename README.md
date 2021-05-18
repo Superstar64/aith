@@ -188,20 +188,38 @@ See ``/documentation`` for typing rules.
 # Papers
 Useful / Inspirational papers:
 
-## Linear Types
+## Implemented
+
+### Linear Types
 * [A taste of linear logic](https://homepages.inf.ed.ac.uk/wadler/papers/lineartaste/lineartaste-revised.pdf)
+  * Faithfully implemented
 * [The Best of Both Worlds: Linear Functional Programming without Compromise](https://jgbm.github.io/pubs/morris-icfp2016-linearity-extended.pdf)
+  * Bare bones implementation of qualified linear types.
+### Levity polymorphism
+* [Levity Polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/11/levity-pldi17.pdf)
+  * Implemented with more restrictive representation lambda.
+### Compiler Design
+* [Invertible Syntax Descriptions: Unifying Parsing and Pretty Printing](https://www.mathematik.uni-marburg.de/~rendel/rendel10invertible.pdf)
+  * Implemented with prisms instead of partial isomorphisms.
+### Algorithms
+* [Demonstrating Lambda Calculus Reduction](https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf)
+  * Applicative order reduction used for reduction.
+
+## Related / Unused
+
+### Linear Types
 * [Linear Haskell](https://arxiv.org/pdf/1710.09756.pdf)
 * [Making Uniqueness Typing Less Unique](http://edsko.net/pubs/thesis.pdf)
 * [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
-## Levity polymorphism
-* [Levity Polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/11/levity-pldi17.pdf)
-## Misc
+
+### Compiler Design
+* [Typed Tagless Final Interpreters](http://okmij.org/ftp/tagless-final/index.html)
+
+### General Type Systems
 * [Type Systems](http://lucacardelli.name/Papers/TypeSystems.pdf)
 * [System F with Type Equality Coercions](https://www.microsoft.com/en-us/research/wp-content/uploads/2007/01/tldi22-sulzmann-with-appendix.pdf)
-* [Typed Tagless Final Interpreters](http://okmij.org/ftp/tagless-final/index.html)
-* [Demonstrating Lambda Calculus Reduction](https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf)
-* [Invertible Syntax Descriptions: Unifying Parsing and Pretty Printing](https://www.mathematik.uni-marburg.de/~rendel/rendel10invertible.pdf)
+
+
 
 # Copyright
 Copyright © Freddy A Cubas, "Superstar64"
