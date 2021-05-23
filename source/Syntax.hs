@@ -1,10 +1,12 @@
 module Syntax where
 
+import Control.Applicative (Alternative, empty, (<|>))
 import Control.Category (id, (.))
+import Control.Monad (MonadPlus, liftM2)
 import qualified Control.Monad.Combinators as Combinators
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State (get, put)
-import Control.Monad.Trans.Writer (tell)
+import Control.Monad.Trans.State (State, get, put, runState)
+import Control.Monad.Trans.Writer (WriterT, runWriterT, tell)
 import Core.Ast.Common as Core
 import qualified Core.Ast.Kind as Core
 import qualified Core.Ast.KindPattern as Core
@@ -15,6 +17,8 @@ import qualified Core.Ast.Term as Core
 import qualified Core.Ast.Type as Core
 import qualified Core.Ast.TypePattern as Core
 import Data.Char (isAlphaNum)
+import Data.Maybe (fromJust)
+import Data.Void (Void)
 import Misc.Identifier
 import Misc.Isomorph
 import qualified Misc.Path as Path
@@ -22,7 +26,7 @@ import Misc.Prism
 import qualified Misc.Symbol as Symbol
 import Misc.Syntax
 import qualified Module as Module
-import Text.Megaparsec (SourcePos)
+import Text.Megaparsec (Parsec, SourcePos)
 import qualified Text.Megaparsec as Megaparsec
 import qualified Text.Megaparsec.Char as Megaparsec
 import Prelude hiding (id, (.))
@@ -37,9 +41,9 @@ class SyntaxBase δ => Syntax δ where
   string :: String -> δ ()
   identifer :: δ Identifier
   stringLiteral :: δ String
-  pick :: (a -> Bool) -> δ a -> δ a -> δ a -- normal ∥ for parser, left when function is true for printer
-  -- pretty printer only methods
 
+  -- pretty printer only methods
+  pick :: (a -> Bool) -> δ a -> δ a -> δ a -- normal ∥ for parser, left when function is true for printer
   (∥#) :: δ a -> δ a -> δ a -- pretty printer only ∥, parser ignores first argument
   space :: δ ()
   line :: δ ()
@@ -350,6 +354,21 @@ withSourcePos = id
 withInternal :: g (f Internal) -> g (f Internal)
 withInternal = id
 
+newtype Parser a = Parser (Parsec Void String a) deriving (Functor, Applicative, Monad, Alternative, MonadPlus)
+
+parseTest (Parser p) = Megaparsec.parseTest p
+
+parse (Parser p) = Megaparsec.parse p
+
+parseMaybe (Parser p) = Megaparsec.parseMaybe p
+
+instance SyntaxBase Parser where
+  syntaxmap (Prism f _) p = f <$> p
+  (⊗) = liftM2 (,)
+  (∥) = (<|>)
+  never = empty
+  always = pure ()
+
 instance Syntax Parser where
   string op = Parser $ Megaparsec.string op >> Megaparsec.space
   identifer = Parser $ Identifier <$> Combinators.some (Megaparsec.satisfy legalChar Megaparsec.<?> "letter") <* Megaparsec.space
@@ -364,6 +383,20 @@ instance Syntax Parser where
   line = Parser $ pure ()
   indent = Parser $ pure ()
   dedent = Parser $ pure ()
+
+newtype Printer a = Printer (a -> Maybe (WriterT String (State Int) ()))
+
+pretty (Printer p) a = snd $ fst $ (runState $ runWriterT $ fromJust $ p a) 0
+
+prettyPrint :: Printer a -> a -> IO ()
+prettyPrint p a = putStrLn $ pretty p a
+
+instance SyntaxBase Printer where
+  syntaxmap (Prism _ f) (Printer p) = Printer $ \b -> f b >>= p
+  Printer p ⊗ Printer q = Printer $ \(x, y) -> liftM2 (>>) (p x) (q y)
+  Printer p ∥ Printer q = Printer $ \x -> (p x) <|> (q x)
+  never = Printer $ const Nothing
+  always = Printer $ \() -> Just $ pure ()
 
 instance Position Parser SourcePos where
   position = Parser $ Megaparsec.getSourcePos

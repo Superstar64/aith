@@ -1,19 +1,31 @@
 module C.Print where
 
 import qualified C.Ast as C
+import Control.Applicative ((<|>))
 import Control.Category ((.))
-import Control.Monad.Trans.Writer (tell)
+import Control.Monad (liftM2)
+import Data.Maybe (fromJust)
 import Misc.Isomorph
 import Misc.Prism
 import Misc.Syntax
 import Prelude hiding (id, (.))
 
-string op = Printer $ \() -> Just $ do
-  tell op >> tell " "
+newtype Printer a = Printer (a -> Maybe String)
 
-line = Printer $ \() -> Just $ tell "\n"
+emit (Printer p) a = fromJust $ p a
 
-identifer = Printer $ \name -> Just $ tell name >> tell " "
+instance SyntaxBase Printer where
+  syntaxmap (Prism _ f) (Printer p) = Printer $ \b -> f b >>= p
+  Printer p ⊗ Printer q = Printer $ \(x, y) -> liftM2 (++) (p x) (q y)
+  Printer p ∥ Printer q = Printer $ \x -> (p x) <|> (q x)
+  never = Printer $ const Nothing
+  always = Printer $ \() -> Just $ ""
+
+string op = Printer $ \() -> Just $ op ++ " "
+
+line = Printer $ \() -> Just $ "\n"
+
+identifer = Printer $ \name -> Just $ name ++ " "
 
 betweenParens = between (string "(") (string ")")
 

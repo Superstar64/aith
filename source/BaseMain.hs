@@ -8,7 +8,6 @@ import qualified Data.Map as Map
 import Data.Traversable (for)
 import Misc.Identifier
 import Misc.Path hiding (path)
-import Misc.Syntax
 import Module hiding (modulex)
 import Syntax
 import System.Directory
@@ -114,7 +113,7 @@ generateAll ((path@(Path heading name), file) : remainder) code = do
   generateAll remainder code
   item <- pickItem path code
   let (functions, structs) = C.escapeStructs $ compileItem heading name item
-  writeFile file (pretty C.globals $ structs ++ functions)
+  writeFile file (C.emit C.globals $ structs ++ functions)
 
 baseMain arguments = do
   case arguments of
