@@ -73,7 +73,9 @@ instance Match p (KindF Internal) where
   match _ Constraint Constraint = pure ()
   match p (Runtime ρ) (Runtime ρ') = match p ρ ρ'
   match _ Meta Meta = pure ()
+  match _ Text Text = pure ()
   match _ PointerRep PointerRep = pure ()
+  match p (StructRep κs) (StructRep κs') = sequence_ $ zipWith (match p) κs κs'
   match p κ κ' = quit $ IncompatibleKind p (CoreKind Internal κ) (CoreKind Internal κ')
 
 instance Match p KindInternal where
@@ -90,6 +92,10 @@ instance Match p (TypeF Internal) where
     match p σ σ'
     match p τ τ'
   match p (TypeOperator λ) (TypeOperator λ') = match p λ λ'
+  match p (PolyConstruction σ κ) (PolyConstruction σ' κ') = do
+    match p σ σ'
+    match p κ κ'
+  match p (PolyOperator λ) (PolyOperator λ') = match p λ λ'
   match p (FunctionPointer σ τs) (FunctionPointer σ' τs') = do
     match p σ σ'
     sequence $ zipWith (match p) τs τs'
