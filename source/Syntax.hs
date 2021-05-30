@@ -168,15 +168,11 @@ typex mode = typeBottom
           where
             applyBinary = applyBinaryCommon `branchDistribute` unit'
             binary = binaryCommon ⊕ always
-        Runtime -> applyBinaryMulti ⊣ multiargExclusionary typePostfix ⊗ binaryMulti ∥ applyBinary ⊣ typePostfix ⊗ binary
+        Runtime -> applyBinary ⊣ typePostfix ⊗ binary
           where
-            applyBinary = applyBinaryCommon `branchDistribute` functionLiteralTypeSingle `branchDistribute` unit'
-            binary = binaryCommon ⊕ (prefixKeyword "function" ≫ space ≫ typeBottom) ⊕ always
-            functionLiteralTypeSingle = withInnerPosition Core.coreType (Core.functionLiteralType . toPrism swap . firstP singleton)
-            binaryMulti = prefixKeyword "function" ≫ space ≫ typeBottom ⊕ binaryToken "->" ≫ typeBottom
-            applyBinaryMulti = functionLiteralType `branchDistribute` functionPointer
-            functionLiteralType = withInnerPosition Core.coreType Core.functionLiteralType . toPrism swap -- todo incorrect position data
-            functionPointer = withInnerPosition Core.coreType Core.functionPointer . toPrism swap
+            applyBinary = applyBinaryCommon `branchDistribute` functionLiteralType `branchDistribute` unit'
+            binary = binaryCommon ⊕ (space ≫ prefixKeyword "function" ≫ typeBottom) ⊕ always
+            functionLiteralType = withInnerPosition Core.coreType Core.functionLiteralType
       where
         binaryCommon = binaryToken "->" ≫ typeBottom ⊕ binaryToken "=>?" ≫ typeBottom
         applyBinaryCommon = arrow `branchDistribute` erasedQualified
@@ -184,7 +180,7 @@ typex mode = typeBottom
           where
             prism = case mode of
               Meta -> Core.macro
-              Runtime -> Core.functionPointer . toPrism swap . firstP singleton
+              Runtime -> Core.functionPointer
         erasedQualified = withInnerPosition Core.coreType Core.erasedQualified
     typePostfix = foldlP applyPostfix ⊣ typeCore ⊗ many postfix
       where
@@ -262,27 +258,18 @@ term mode = termBottom
       Meta -> pick ((== Meta) . categorize) termBase (token "#" ≫ term Runtime)
       Runtime -> pick ((== Runtime) . categorize) termBase (token "~" ≫ term Meta)
     termBase =
-      termLambda lambdaCore ∥# binding ∥ case mode of
-        Meta -> foldlP applyPostfix ⊣ termCore ⊗ many (space ≫ postfix)
-          where
-            applyPostfix = applyPostfixCommon `branchDistribute` macroApplication
-            postfix = postfixCommon ⊕ termCore
-            macroApplication = withInnerPosition Core.coreTerm Core.macroApplication
-        Runtime -> foldlP applyPostfix ⊣ termCore ⊗ many (space ≫ postfix)
-          where
-            applyPostfix = applyPostfixCommon `branchDistribute` functionApplication
-            postfix = postfixCommon ⊕ multiarg termCore
-            functionApplication = withInnerPosition Core.coreTerm Core.functionApplication
+      termLambda lambdaCore ∥# binding ∥ foldlP applyPostfix ⊣ termCore ⊗ many (space ≫ postfix)
       where
         binding =
           let rotateBind = secondI Core.bound . associate . firstI swap
            in Core.coreTerm ⊣ position ⊗ case mode of
                 Meta -> Core.bind ⊣ rotateBind ⊣ prefixKeyword "let" ≫ pattern ≪ binaryToken "=" ⊗ termBottom ≪ token ";" ⊗ line ≫ termBottom
                 Runtime -> Core.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ runtimePattern ≪ binaryToken "=" ⊗ termBottom ≪ token ";" ⊗ line ≫ termBottom
-
-        applyPostfixCommon = typeApplication `branchDistribute` kindApplication `branchDistribute` erasedQualifiedCheck
-        postfixCommon = betweenTypeParens typexx ⊕ betweenKindParens kind ⊕ token "?"
-
+        applyPostfix = typeApplication `branchDistribute` kindApplication `branchDistribute` erasedQualifiedCheck `branchDistribute` application
+        postfix = betweenTypeParens typexx ⊕ betweenKindParens kind ⊕ token "?" ⊕ termCore
+        application = withInnerPosition Core.coreTerm $ case mode of
+          Meta -> Core.macroApplication
+          Runtime -> Core.functionApplication
         typeApplication = withInnerPosition Core.coreTerm Core.typeApplication
         kindApplication = withInnerPosition Core.coreTerm Core.kindApplication
         erasedQualifiedCheck = withInnerPosition Core.coreTerm (Core.erasedQualifiedCheck . toPrism unit')
@@ -293,33 +280,33 @@ term mode = termBottom
           [Core.variable ⊣ identifer, abstract] ++ case mode of
             Meta -> [Core.ofCourseIntroduction ⊣ token "!" ≫ termCore]
             Runtime ->
-              [ Core.extern ⊣ prefixKeyword "extern" ≫ symbol ≪ space ⊗ betweenParens typexx ⊗ betweenParens (multiarg typexx),
+              [ Core.extern ⊣ prefixKeyword "extern" ≫ symbol ≪ space ⊗ betweenParens typexx ⊗ betweenParens typexx,
                 Core.pack ⊣ prefixKeyword "pack" ≫ betweenParens (Core.bound ⊣ typePattern ⊗ lambdaInline typexx) ⊗ space ≫ termCore,
                 Core.unpack ⊣ prefixKeyword "unpack" ≫ termCore
               ]
         abstract = case mode of
           Meta -> Core.macroAbstraction ⊣ Core.bound ⊣ token "\\" ≫ pattern ⊗ lambdaMajor termBottom
-          Runtime -> Core.functionLiteral ⊣ Core.bound ⊣ token "\\" ≫ multiarg runtimePattern ⊗ lambdaMajor termBottom
+          Runtime -> Core.functionLiteral ⊣ Core.bound ⊣ token "\\" ≫ runtimePattern ⊗ lambdaMajor termBottom
     categorize (Core.CoreTerm _ e) = go e
       where
-        go (Core.Variable _ _) = mode
-        go (Core.MacroAbstraction _ _) = Meta
-        go (Core.MacroApplication _ _ _) = Meta
-        go (Core.TypeAbstraction _ _) = mode
-        go (Core.TypeApplication _ _ _) = mode
-        go (Core.KindAbstraction _ _) = mode
-        go (Core.KindApplication _ _ _) = mode
-        go (Core.OfCourseIntroduction _ _) = Meta
-        go (Core.Bind _ _ _) = Meta
-        go (Core.Alias _ _) = Runtime
-        go (Core.FunctionApplication _ _ _ _) = Runtime
-        go (Core.Extern _ _ _ _ _) = Runtime
-        go (Core.FunctionLiteral _ _) = Runtime
-        go (Core.ErasedQualifiedAssume _ _ _) = mode
-        go (Core.ErasedQualifiedCheck _ _) = mode
-        go (Core.RuntimePairIntroduction _ _ _) = Runtime
-        go (Core.Pack _ _ _) = Runtime
-        go (Core.Unpack _ _) = Runtime
+        go (Core.TermCommon (Core.Variable _)) = mode
+        go (Core.MacroAbstraction _) = Meta
+        go (Core.MacroApplication _ _) = Meta
+        go (Core.TypeAbstraction _) = mode
+        go (Core.TypeApplication _ _) = mode
+        go (Core.KindAbstraction _) = mode
+        go (Core.KindApplication _ _) = mode
+        go (Core.OfCourseIntroduction _) = Meta
+        go (Core.Bind _ _) = Meta
+        go (Core.TermCommon (Core.Alias _ _)) = Runtime
+        go (Core.TermCommon (Core.FunctionApplication _ _ _ _)) = Runtime
+        go (Core.TermCommon (Core.Extern _ _ _ _ _)) = Runtime
+        go (Core.TermCommon (Core.FunctionLiteral _ _)) = Runtime
+        go (Core.ErasedQualifiedAssume _ _) = mode
+        go (Core.ErasedQualifiedCheck _) = mode
+        go (Core.TermCommon (Core.RuntimePairIntroduction _ _ _)) = Runtime
+        go (Core.Pack _ _) = Runtime
+        go (Core.Unpack _) = Runtime
 
 modulex ::
   (Syntax δ, Position δ p) =>

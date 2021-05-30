@@ -36,7 +36,6 @@ common aith-base
         C.Print
         Decorate
         Core.Ast.RuntimePattern
-        Misc.Silent
         BaseMain
 
     default-language:   Haskell2010
@@ -44,8 +43,7 @@ common aith-base
         MultiParamTypeClasses FunctionalDependencies DeriveTraversable
         FlexibleInstances FlexibleContexts NoMonomorphismRestriction
         TypeApplications ScopedTypeVariables AllowAmbiguousTypes
-        GeneralizedNewtypeDeriving LambdaCase StandaloneDeriving
-        KindSignatures EmptyCase
+        GeneralizedNewtypeDeriving LambdaCase EmptyCase
 
     ghc-options:        -W -Worphans -Wcompat -Wincomplete-uni-patterns
     build-depends:

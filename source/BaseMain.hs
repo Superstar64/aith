@@ -6,6 +6,7 @@ import Codegen
 import Core.Ast.Common
 import qualified Data.Map as Map
 import Data.Traversable (for)
+import Error
 import Misc.Identifier
 import Misc.Path hiding (path)
 import Module hiding (modulex)
@@ -16,6 +17,57 @@ import System.FilePath
 import Text.Megaparsec (SourcePos, errorBundlePretty)
 import Prelude hiding (readFile, writeFile)
 import qualified Prelude
+
+newtype PrettyIO a = PrettyIO {runPrettyIO :: IO a} deriving (Functor, Applicative, Monad)
+
+quoted x = "\"" ++ x ++ "\""
+
+prettyIdentifier (Identifier x) = quoted x
+
+prettyType = quoted . pretty (typex Syntax.Runtime)
+
+prettyKind = quoted . pretty kind
+
+prettySort = quoted . pretty sort
+
+prettyPath = quoted . pretty path
+
+expected a b p = "Expected " ++ a ++ " but got " ++ b ++ positions p
+
+prettyError (UnknownIdentfier p x) = "Unknown Identifier: " ++ prettyIdentifier x ++ positions p
+prettyError (ExpectedMacro p σ) = expected "Macro" (prettyType σ) p
+prettyError (ExpectedFunctionPointer p σ) = expected "Function" (prettyType σ) p
+prettyError (ExpectedForall p σ) = expected "Forall" (prettyType σ) p
+prettyError (ExpectedKindForall p σ) = expected "Kind Forall" (prettyType σ) p
+prettyError (ExpectedErasedQualified p σ) = expected "Qualified" (prettyType σ) p
+prettyError (ExpectedOfCourse p σ) = expected "Of Course" (prettyType σ) p
+prettyError (ExpectedRecursive p σ) = expected "Recursive" (prettyType σ) p
+prettyError (ExpectedType p κ) = expected "Type" (prettyKind κ) p
+prettyError (ExpectedHigher p κ) = expected "Higher" (prettyKind κ) p
+prettyError (ExpectedPoly p κ) = expected "Poly" (prettyKind κ) p
+prettyError (ExpectedConstraint p κ) = expected "Constraint" (prettyKind κ) p
+prettyError (ExpectedText p κ) = expected "Text" (prettyKind κ) p
+prettyError (ExpectedRuntime p κ) = expected "Runtime" (prettyKind κ) p
+prettyError (ExpectedKind p μ) = expected "Kind" (prettySort μ) p
+prettyError (ExpectedStage p μ) = expected "Stage" (prettySort μ) p
+prettyError (ExpectedRepresentation p μ) = expected "Representation" (prettySort μ) p
+prettyError (IncompatibleType p σ τ) = "Type mismatch between " ++ prettyType σ ++ " and " ++ prettyType τ ++ positions p
+prettyError (IncompatibleKind p κ κ') = "Kind mismatch between " ++ prettyKind κ ++ " and " ++ prettyKind κ' ++ positions p
+prettyError (IncompatibleSort p μ μ') = "Sort mismatch between " ++ prettySort μ ++ " and " ++ prettySort μ' ++ positions p
+prettyError (CaptureLinear p x) = "Linear variable " ++ prettyIdentifier x ++ " captured" ++ positions p
+prettyError (InvalidUsage p x) = "Linear Variable " ++ prettyIdentifier x ++ " copied" ++ positions p
+prettyError (NoProof p σ) = "No proof for " ++ prettyType σ ++ positions p
+
+prettyModuleError (IllegalPath p path) = "Unknown path " ++ prettyPath path ++ positions p
+prettyModuleError (IncompletePath p path) = "Incomplete path " ++ prettyPath path ++ positions p
+prettyModuleError (IndexingGlobal p path) = "Indexing global declaration" ++ prettyPath path ++ positions p
+prettyModuleError (Cycle p path) = "Global cycle" ++ prettyPath path ++ positions p
+
+positions p = " in positions: " ++ show p
+
+instance Base [SourcePos] PrettyIO where
+  quit e = PrettyIO $ die $ prettyError e
+  moduleQuit e = PrettyIO $ die $ prettyModuleError e
 
 readFile "-" = getContents
 readFile name = do
@@ -122,8 +174,8 @@ baseMain arguments = do
   command <- parseArguments arguments
   code <- (fmap (: [])) <$> addAll (loadItem command) :: IO (Module [SourcePos])
   prettyAll (prettyItem command) (Internal <$ code)
-  ordering <- order code
-  environment <- typeCheckModule ordering
+  ordering <- runPrettyIO $ order code
+  environment <- runPrettyIO $ typeCheckModule ordering
   let code = unorder $ reduceModule environment ordering
   prettyAll (prettyItemReduced command) (Internal <$ code)
   generateAll (generateCItem command) (Internal <$ code)

@@ -60,10 +60,6 @@ instance Algebra (Kind p) p u => Algebra (Kind p) p (Bound (Pattern p p) u) wher
   substitute ux x (Bound pm σ) = Bound (substitute ux x pm) (substitute ux x σ)
   convert = substituteHigher (convert @(Kind p)) (convert @(Kind p))
 
-instance Algebra (Type p) p (e p) => AlgebraBound (Type p) p e (Pattern p p)
-
-instance Algebra (Kind p) p (e p) => AlgebraBound (Kind p) p e (Pattern p p)
-
 instance Semigroup p => Reduce (Pattern p p) where
   reduce (CorePattern p (PatternVariable x σ)) = CorePattern p $ (PatternVariable x (reduce σ))
   reduce (CorePattern p (PatternOfCourse pm)) = CorePattern p (PatternOfCourse (reduce pm))

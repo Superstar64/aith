@@ -53,12 +53,8 @@ See ``/documentation`` for typing rules.
 | Kind Abstraction | ``` ``\pmκ => e``` |
 | Kind Abstraction | ``` ``\pmκ { e }``` |
 | Kind Application | ``` e``(κ) ``` |
-| Extern | ``_extern "x" (σ) _multiarg (τ, τ', ...)`` |
 | Extern | ``_extern "x" (σ) (τ) `` |
-| Function Application | ``e _multiarg (e',e'', ...) ``|
 | Function Application | ``e e' ``|
-| Function Literal | ``\_multiarg (pme, pme', ...) => e`` |
-| Function Literal | ``\_multiarg (pme, pme', ...) { e }`` |
 | Function Literal | ``\pme => e`` |
 | Function Literal | ``\pme { e }`` |
 | Erased Qualified Assumption | ``_when σ => e `` |
@@ -117,9 +113,7 @@ See ``/documentation`` for typing rules.
 | Poly Operator | `` `\pmκ => σ`` |
 | Poly Operator | `` `\pmκ { σ }`` |
 | Poly Construction | `` σ`(κ) ``
-| Function Pointer | `` _multiarg (τ, τ', ...) -> σ`` |
 | Function Pointer | `` τ -> σ `` |
-| Function Literal Type | `` _multiarg(τ, τ', ...) _function σ `` |
 | Function Literal Type | `` τ _function σ `` |
 | Erased Qualified Type | `` π =>? σ `` |
 | Copy Predicate | ``_copy σ`` |

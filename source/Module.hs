@@ -19,7 +19,6 @@ import Misc.Identifier (Identifier (..))
 import Misc.Isomorph
 import Misc.Path
 import Misc.Prism
-import Misc.Silent
 import Misc.Symbol
 import qualified Misc.Variables as Variables
 
@@ -41,9 +40,9 @@ global = Prism Global $ \case
   _ -> Nothing
 
 data Global p
-  = Inline (Maybe (Type p)) (Term Silent p)
+  = Inline (Maybe (Type p)) (Term p)
   | Import p Path
-  | Text (Maybe (Type p)) (Term Silent p)
+  | Text (Maybe (Type p)) (Term p)
   | Synonym (Type p)
   deriving (Functor, Show)
 
@@ -76,12 +75,12 @@ resolve p (CoreModule code) path = go code path
       Just (Module (CoreModule code')) -> go code' (Path remainder name)
 
 depend :: forall p. Semigroup p => Global p -> Path -> Map Path p
-depend (Inline σ e) (Path location _) = Map.mapKeysMonotonic (Path location) (Variables.toMap $ annotation <> freeVariables @(Term Silent p) e <> freeVariables @(Type p) e)
+depend (Inline σ e) (Path location _) = Map.mapKeysMonotonic (Path location) (Variables.toMap $ annotation <> freeVariables @(Term p) e <> freeVariables @(Type p) e)
   where
     annotation = case σ of
       Nothing -> mempty
       Just σ -> freeVariables @(Type p) σ
-depend (Text σ e) (Path location _) = Map.mapKeysMonotonic (Path location) (Variables.toMap $ annotation <> freeVariables @(Term Silent p) e <> freeVariables @(Type p) e)
+depend (Text σ e) (Path location _) = Map.mapKeysMonotonic (Path location) (Variables.toMap $ annotation <> freeVariables @(Term p) e <> freeVariables @(Type p) e)
   where
     annotation = case σ of
       Nothing -> mempty
@@ -255,7 +254,7 @@ reduceModule environment (Ordering code) = Ordering $ evalState (foldrM go' [] c
       pure (Synonym σ')
     substituteGlobal (x, Right e) = substitute e x
     substituteGlobal (x, Left σ) = substitute σ x
-    convert p name (CoreType _ (FunctionPointer σ τs)) = CoreTerm p $ Extern Silent Silent name (p <$ σ) (fmap (p <$) τs)
-    convert p name (CoreType _ (Forall (Bound pm σ))) = CoreTerm p $ TypeAbstraction Silent $ Bound (bimap (const p) (const p) pm) (convert p name σ)
-    convert p name (CoreType _ (ErasedQualified τ σ)) = CoreTerm p $ ErasedQualifiedAssume Silent (p <$ τ) (convert p name σ)
+    convert p name (CoreType _ (FunctionPointer σ τs)) = CoreTerm p $ TermCommon $ Extern () () name (p <$ σ) (p <$ τs)
+    convert p name (CoreType _ (Forall (Bound pm σ))) = CoreTerm p $ TypeAbstraction $ Bound (bimap (const p) (const p) pm) (convert p name σ)
+    convert p name (CoreType _ (ErasedQualified τ σ)) = CoreTerm p $ ErasedQualifiedAssume (p <$ τ) (convert p name σ)
     convert _ _ _ = error "unable to convert type to extern"

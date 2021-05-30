@@ -9,7 +9,6 @@ import Core.Ast.Type
 import Data.Functor.Identity (Identity)
 import Misc.Identifier (Identifier)
 import Misc.Path
-import System.Exit (die)
 
 data LookupError p
   = IllegalPath p Path
@@ -21,7 +20,7 @@ data LookupError p
 data Error p
   = UnknownIdentfier p Identifier
   | ExpectedMacro p TypeInternal
-  | ExpectedFunctionPointer p Int TypeInternal
+  | ExpectedFunctionPointer p TypeInternal
   | ExpectedForall p TypeInternal
   | ExpectedKindForall p TypeInternal
   | ExpectedErasedQualified p TypeInternal
@@ -47,10 +46,6 @@ data Error p
 class (Monad m, Semigroup p) => Base p m where
   quit :: Error p -> m a
   moduleQuit :: LookupError p -> m a
-
-instance (Semigroup p, Show p) => Base p IO where
-  quit error = die $ "Error:" ++ show error
-  moduleQuit error = die $ "Module Error:" ++ show error
 
 instance Base p m => Base p (StateT s m) where
   quit error = lift (quit error)

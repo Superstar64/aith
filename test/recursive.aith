@@ -19,6 +19,3 @@ function selfApp = \(x : fix `(_pointer) (endo `(_pointer)) ){
 	(~ breakFix ``(_pointer) `(endo `(_pointer)) x) (x)
 };
 
-function omega = \_multiarg() {
-	selfApp (~ makeFix ``(_pointer)`(endo`(_pointer)) selfApp)
-};

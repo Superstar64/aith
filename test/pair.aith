@@ -1,0 +1,30 @@
+module:
+
+type pair = `\a : _representation => \a : _type _runtime a =>
+            `\b : _representation => \b : _type _runtime b =>
+            ``\/r : _representation => `\/r : _type _runtime r => ~ (a -> b -> r) -> r;
+
+
+inline _ ::       ``\/a : _representation => `\/a : _type _runtime a =>
+                  ``\/b : _representation => `\/b : _type _runtime b =>
+                  ~ (# (a,b)) -> pair `(a) a `(b) b;
+inline inject =  ``\a : _representation => `\a : _type _runtime a =>
+                 ``\b : _representation => `\b : _type _runtime b =>
+                 ~\x : #(a, b) =>
+                 ``\r : _representation => `\r : _type _runtime r =>
+                 \f : a -> b -> r =>
+                 # _let (a : a , b : b) = x;
+                 ~f a b;
+                 
+inline _ ::        ``\/a : _representation => `\/a : _type _runtime a =>
+                   ``\/b : _representation => `\/b : _type _runtime b =>
+                   ~ pair `(a) a `(b) b -> (# (a,b));
+inline project =   ``\a : _representation => `\a : _type _runtime a =>
+                   ``\b : _representation => `\b : _type _runtime b =>
+                   ~\f : pair `(a) a `(b) b => 
+                   f``(_struct (a,b) ) `( #(a,b) ) \a : a => \b : b => #(a,b);
+
+
+inline idTest1 = ~ ``\a : _representation => `\a : _type _runtime a =>
+                   ``\b : _representation => `\b : _type _runtime b =>
+                   \x : #(a,b) => project ``(a) `(a) ``(b) `(b) ( inject ``(a) `(a) ``(b) `(b) x );

@@ -23,20 +23,6 @@ class Semigroup p => Algebra u p e | e -> p where
   convert :: Identifier -> Identifier -> e -> e
   substitute :: u -> Identifier -> e -> e
 
-class Algebra u p (Bound pm (Bound [pm] (e p))) => AlgebraBound u p e pm
-
-instance (Algebra u p (e p), AlgebraBound u p e pm) => Algebra u p (Bound [pm] (e p)) where
-  freeVariables (Bound [] e) = freeVariables @u e
-  freeVariables (Bound (pm : pms) e) = freeVariables @u (Bound pm (Bound pms e))
-  convert ix x (Bound [] e) = Bound [] $ convert @u ix x e
-  convert ix x (Bound (pm : pms) e) = Bound (pm' : pms') e'
-    where
-      Bound pm' (Bound pms' e') = convert @u ix x (Bound pm (Bound pms e))
-  substitute ux x (Bound [] e) = Bound [] $ substitute ux x e
-  substitute ux x (Bound (pm : pms) e) = Bound (pm' : pms') e'
-    where
-      Bound pm' (Bound pms' e') = substitute ux x (Bound pm (Bound pms e))
-
 -- Applicative Order Reduction
 -- see https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf
 

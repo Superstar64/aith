@@ -1,8 +1,0 @@
-module:
-function makeTripletMultiArg = `\a : _type _runtime _pointer => _when(_copy a) => \_multiarg(x : a, y : a, z : a){
-	(x,y,z)	
-};
-
-function makeTripletSingleArg = `\a : _type _runtime _pointer => _when(_copy a) => \(x : a, y : a, z : a){
-	(x,y,z)	
-};

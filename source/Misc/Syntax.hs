@@ -47,10 +47,10 @@ some :: SyntaxBase δ => δ a -> δ (NonEmpty a)
 some p = nonEmpty ⊣ p ⊗ (many p)
 
 seperatedMany :: SyntaxBase δ => δ a -> δ () -> δ [a]
-seperatedMany p c = cons ⊣ inverse nonEmpty ⊣ seperatedSome p c ∥ nil ⊣ always
+seperatedMany p c = cons ⊣ p ⊗ many (c ≫ p) ∥ nil ⊣ always
 
 seperatedSome :: SyntaxBase δ => δ a -> δ () -> δ (NonEmpty a)
-seperatedSome p c = nonEmpty ⊣ p ⊗ (c ≫ (cons ⊣ inverse nonEmpty ⊣ seperatedSome p c) ∥ nil ⊣ always)
+seperatedSome p c = nonEmpty ⊣ p ⊗ many (c ≫ p)
 
 between :: SyntaxBase p => p () -> p () -> p a -> p a
 between a b p = a ≫ p ≪ b

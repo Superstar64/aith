@@ -22,8 +22,8 @@ data TypeF p
   | TypeOperator (Bound (TypePattern p p) (Type p))
   | PolyOperator (Bound (KindPattern p) (Type p))
   | PolyConstruction (Type p) (Kind p)
-  | FunctionPointer (Type p) [Type p] -- todo reverse order of these
-  | FunctionLiteralType (Type p) [Type p]
+  | FunctionPointer (Type p) (Type p)
+  | FunctionLiteralType (Type p) (Type p)
   | ErasedQualified (Type p) (Type p)
   | Copy (Type p)
   | RuntimePair (Type p) (Type p)
@@ -41,8 +41,8 @@ traverseType typex kind typeBound kindBound = go
     go (TypeOperator λ) = pure TypeOperator <*> typeBound λ
     go (PolyOperator λ) = pure PolyOperator <*> kindBound λ
     go (PolyConstruction σ κ) = pure PolyConstruction <*> typex σ <*> kind κ
-    go (FunctionPointer σ τs) = pure FunctionPointer <*> typex σ <*> traverse typex τs
-    go (FunctionLiteralType σ τs) = pure FunctionLiteralType <*> typex σ <*> traverse typex τs
+    go (FunctionPointer σ τs) = pure FunctionPointer <*> typex σ <*> typex τs
+    go (FunctionLiteralType σ τs) = pure FunctionLiteralType <*> typex σ <*> typex τs
     go (ErasedQualified π σ) = pure ErasedQualified <*> typex π <*> typex σ
     go (Copy σ) = pure Copy <*> typex σ
     go (RuntimePair σ τ) = pure RuntimePair <*> typex σ <*> typex τ
