@@ -17,38 +17,46 @@ x \tag* {[Variables]} \\
 \end{align*}
 
 \begin{align*}
-e \Coloneqq & x \tag*{[Variable]}\\
-& \lambda x : \sigma. e \tag*{[Macro Lambda]}\\
-& e(e') \tag*{[Macro Application]}\\
-& !e \tag*{[Bang Introduction]} \\
-& \text{let} \, !x = e; e' \tag*{[Bang Elimination]} \\ 
+e \Coloneqq & \\
+\text{Universal Terms} \\
+& x \tag*{[Variable]}\\
 & \Lambda \alpha : \kappa. e \tag*{[Type Lambda]} \\
 & e \sigma \tag*{[Type Application]} \\
 & \Lambda \kappa \alpha : \mu. e \tag*{[Kind Lambda]} \\
 & e \kappa \tag*{[Kind Application]} \\
+& \xi \pi. e \tag*{[Qualified Assumption]} \\
+& e? \tag*{[Qualified Check]} \\
+\text{Meta Terms} \\
+& \lambda x : \sigma. e \tag*{[Macro Lambda]}\\
+& e(e') \tag*{[Macro Application]}\\
+& !e \tag*{[Bang Introduction]} \\
+& \text{let} \, !x = e; e' \tag*{[Bang Elimination]} \\ 
+\text{Runtime Terms} \\
 & \text{extern} \, x (\sigma) (\tau) \tag*{[Extern Symbol]} \\
 & e(*)(e') \tag*{[Function Pointer Application]} \\
 & \text{function} (x : \sigma). e \tag*{[Function Literal]} \\
-& \xi \pi. e \tag*{[Qualified Assumption]} \\
-& e? \tag*{[Qualified Check]} \\
 & \text{alias} \, x = e; e' \tag*{[Runtime Let]} \\
 & \#(e, e') \tag*{[Runtime Pair Introduction]} \\
 & \text{alias} (x, x') = e; e' \tag*{[Runtime Pair Elimination]} \\
 & \text{pack}  \alpha : \kappa. \sigma \, e \tag*{[Recursive Pack]}\\
 & \text{unpack} \, e \tag*{[Recursive Unpack]} \\
 \\
-\sigma, \tau, \pi \Coloneqq & \alpha \tag* {[Type Variable]}\\
-& \sigma \to \tau \tag*{[Macro]}\\
-& !\sigma \tag*{[Bang]} \\
+\sigma, \tau, \pi \Coloneqq \\
+\text{Universal Types} \\
+& \alpha \tag* {[Type Variable]}\\
 & \forall \alpha : \kappa. \sigma \tag*{[Type Forall]}\\ 
 & \forall \kappa \alpha : \mu. \sigma \tag*{[Kind Forall]}\\
+& \pi \Rightarrow \sigma \tag*{[Erased Qualified Type]} \\
 & \lambda \alpha : \kappa. \sigma \tag*{[Type Operator]} \\
 & \sigma (\tau) \tag*{[Type Construction]} \\
 & \Lambda \kappa \alpha : \mu. \sigma \tag*{[Poly Operator]} \\
 & \sigma (\kappa) \tag*{[Poly Construction]} \\
+\text{Meta Types} \\
+& \sigma \to \tau \tag*{[Macro]}\\
+& !\sigma \tag*{[Bang]} \\
+\text{Runtime Types} \\
 & \sigma (*) (\tau) \tag*{[Function Pointer]}\\
 & \sigma \, \text{function}(\tau) \tag*{[Function Literal Type]} \\
-& \pi \Rightarrow \sigma \tag*{[Erased Qualified Type]} \\
 & \text{Copy} \, \sigma \tag*{[Runtime Copyable Constraint]} \\
 & \#(\sigma, \tau) \tag*{[Runtime Pair]} \\
 & \text{Recursive} \alpha : \kappa. \sigma \tag*{[Recursive Type]} \\
@@ -101,6 +109,8 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \begin{gather*}
 \Phi | \Gamma \vdash e : \sigma \tag* {[\text{Term Validation}]}  \\
 \\
+\text{Universal Terms}
+\\
 \Phi | [x : \sigma] \vdash x : \sigma \\
 \\
 \Phi | \langle x : \sigma \rangle \vdash x : \sigma \\
@@ -118,6 +128,32 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 {\Phi | \Gamma, [x : \tau] \vdash e : \sigma } \\
 \\
 \frac
+{\Phi, \alpha : \kappa | \Gamma \vdash e : \sigma \quad \Phi \vdash \kappa : \text{Kind}}
+{\Phi | \Gamma \vdash \Lambda \alpha : \kappa. e : \forall \alpha : \kappa. \sigma } \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : \forall \alpha : \kappa. \sigma \quad \Phi \vdash \tau : \kappa }
+{\Phi | \Gamma \vdash e \tau : \sigma [\tau/\alpha] } \\
+\\
+\frac
+{\Phi, \kappa \alpha : \mu | \Gamma \vdash e : \sigma \quad \Phi \vdash \mu}
+{\Phi | \Gamma \vdash \Lambda \kappa \alpha : \mu. e : \forall \kappa \alpha. \sigma} \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : \forall \kappa \alpha : \mu. \sigma \quad \Phi \vdash \kappa : \mu}
+{\Phi | \Gamma \vdash e \kappa : \sigma [\kappa/\kappa \alpha]} \\
+\\
+\frac
+{\Phi, \pi | \Gamma \vdash e : \sigma \quad \Phi \vdash \pi : \text{Constraint}}
+{\Phi | \Gamma \vdash \xi \pi. e : \pi \Rightarrow \sigma} \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : \pi \Rightarrow \sigma \quad \Phi \models \pi }
+{\Phi | \Gamma \vdash e? : \sigma} \\
+\\
+\text{Meta Terms} \\
+\\
+\frac
 {\Phi | \Gamma, \langle x : \sigma \rangle \vdash e : \tau \quad \Phi \vdash \sigma : \text{Type} (\kappa)}
 {\Phi | \Gamma \vdash \lambda x:\sigma. e : \sigma \to \tau } \\
 \\
@@ -133,21 +169,7 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 {\Phi | \Gamma \vdash e : !\tau \quad \Phi | \Gamma', [x : \tau] \vdash e' : \sigma }
 {\Phi | \Gamma, \Gamma' \vdash \text{let} \, !x = e; e' : \sigma}  \\
 \\
-\frac
-{\Phi, \alpha : \kappa | \Gamma \vdash e : \sigma \quad \Phi \vdash \kappa : \text{Kind}}
-{\Phi | \Gamma \vdash \Lambda \alpha : \kappa. e : \forall \alpha : \kappa. \sigma } \\
-\\
-\frac
-{\Phi | \Gamma \vdash e : \forall \alpha : \kappa. \sigma \quad \Phi \vdash \tau : \kappa }
-{\Phi | \Gamma \vdash e \tau : \sigma [\tau/\alpha] } \\
-\\
-\frac
-{\Phi, \kappa \alpha : \mu | \Gamma \vdash e : \sigma \quad \Phi \vdash \mu}
-{\Phi | \Gamma \vdash \Lambda \kappa \alpha : \mu. e : \forall \kappa \alpha. \sigma} \\
-\\
-\frac
-{\Phi | \Gamma \vdash e : \forall \kappa \alpha : \mu. \sigma \quad \Phi \vdash \kappa : \mu}
-{\Phi | \Gamma \vdash e \kappa : \sigma [\kappa/\kappa \alpha]} \\
+\text{Runtime Terms}
 \\
 \frac
 {\Phi \vdash \sigma : \text{Type}(\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type}(\text{Runtime} (\rho'))}
@@ -168,14 +190,6 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 {\Phi | \Gamma, \langle x : \sigma \rangle \vdash e : \tau \quad \Phi \vdash \tau : \text{Type}(\text{Runtime}(\rho))}
 {\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho')) \quad \Phi \models \text{Copy}}}
 {\Phi | \Gamma \vdash (\text{function}(x : \sigma). e) : \tau \text{function}(\sigma)  } \tag*{[Unrestricted Variant]}\\
-\\
-\frac
-{\Phi, \pi | \Gamma \vdash e : \sigma \quad \Phi \vdash \pi : \text{Constraint}}
-{\Phi | \Gamma \vdash \xi \pi. e : \pi \Rightarrow \sigma} \\
-\\
-\frac
-{\Phi | \Gamma \vdash e : \pi \Rightarrow \sigma \quad \Phi \models \pi }
-{\Phi | \Gamma \vdash e? : \sigma} \\
 \\
 \frac
 {\splitfrac{ \Phi | \Gamma \vdash e : \tau \quad \Phi | \Gamma', \langle x : \tau \rangle \vdash \sigma}
@@ -205,19 +219,15 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 {\Phi | \Gamma \vdash e : \text{Recursive} x : \alpha. \sigma }
 {\Phi | \Gamma \vdash \text{unpack} \, e : \sigma [(\text{Recursive} \alpha : \kappa. \sigma ) /\alpha]} \\
 \\
+\\
+\\
 \Phi \vdash \sigma : \kappa \tag* {[\text{Type Validation}]} \\
+\\
+\text{Universal Types}
 \\
 \frac
 {(\alpha : \kappa) \in \Phi}
 {\Phi \vdash \alpha : \kappa} \\
-\\
-\frac
-{\Phi \vdash \sigma : \text{Type} (s) \quad \Phi \vdash \tau : \text{Type} (s')}
-{\Phi \vdash \sigma \to \tau : \text{Type} (\text{Meta})} \\
-\\
-\frac
-{\Phi \vdash \sigma : \text{Type} (s)}
-{\Phi \vdash !\sigma : \text{Type} (\text{Meta})} \\
 \\
 \frac
 {\Phi, \alpha : \kappa \vdash \sigma : \text{Type}(s) \quad \Phi \vdash \kappa : \text{Kind}}
@@ -226,6 +236,10 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \frac
 {\Phi, \kappa \alpha : \mu \vdash \sigma : \text{Type} (s) \quad \Phi \vdash \mu  }
 {\Phi \vdash \forall \kappa \alpha : \mu. \sigma : \text{Type} (\text{Meta}) } \\
+\\
+\frac
+{\Phi \vdash \pi : \text{Constraint} \quad \Phi \vdash \sigma : \text{Type}(s)}
+{\Phi \vdash \pi \Rightarrow \sigma : \text{Type}(s)} \\
 \\
 \frac
 {\Phi, \alpha : \kappa \vdash \sigma : \kappa' \quad \Phi \vdash \kappa : \text{Kind}} 
@@ -243,6 +257,18 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 {\Phi \vdash \sigma : \forall \kappa \alpha : \mu. \kappa' \quad \kappa \vdash \mu}
 {\Phi \vdash \sigma \kappa : \kappa'[\kappa / \kappa \alpha]} \\
 \\
+\text{Meta Types}
+\\
+\frac
+{\Phi \vdash \sigma : \text{Type} (s) \quad \Phi \vdash \tau : \text{Type} (s')}
+{\Phi \vdash \sigma \to \tau : \text{Type} (\text{Meta})} \\
+\\
+\frac
+{\Phi \vdash \sigma : \text{Type} (s)}
+{\Phi \vdash !\sigma : \text{Type} (\text{Meta})} \\
+\\
+\text{Runtime Types}
+\\
 \frac
 {\Phi \vdash \sigma : \text{Type} (\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime} (\rho'))}
 {\Phi \vdash \sigma (*) (\tau) : \text{Type} (\text{Runtime} (\text{pointer}))} \\
@@ -250,10 +276,6 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \frac
 {\Phi \vdash \sigma : \text{Type} (\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime} (\rho'))}
 {\Phi \vdash \sigma \, \text{function} (\tau) : \text{Type} (\text{Text})} \\
-\\
-\frac
-{\Phi \vdash \pi : \text{Constraint} \quad \Phi \vdash \sigma : \text{Type}(s)}
-{\Phi \vdash \pi \Rightarrow \sigma : \text{Type}(s)} \\
 \\
 \frac
 {\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho))}
@@ -266,6 +288,8 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \frac
 {\Phi, \alpha : \text{Type} (\text{Runtime} (\rho)) \vdash \text{Type} (\text{Runtime} (\rho)) }
 {\Phi \vdash \text{Recursive} \alpha : \text{Type} (\text{Runtime} (\rho)) : \text{Type} (\text{Runtime} (\rho))  } \\
+\\
+\\
 \\
 \Phi \vdash \kappa : \mu \tag*{[Kind Validation]} \\
 \\
@@ -308,6 +332,8 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \frac
 {\Phi \vdash \rho : \text{Representation} \quad \Phi \vdash \rho' : \text{Representation} \quad \dots}
 {\Phi \vdash \text{Structure} \{ \rho, \rho', \dots \} : \text{Representation} } \\
+\\
+\\
 \\
 \Phi \models \pi \tag*{[Qualified Validation]} \\
 \\

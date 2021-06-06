@@ -13,12 +13,14 @@ import Misc.Prism
 import qualified Misc.Variables as Variables
 import Prelude hiding (id, (.))
 
-data PatternCommon pm σ
+data PatternCommon σ pm
   = RuntimePatternVariable Identifier σ
   | RuntimePatternPair pm pm
   deriving (Show)
 
-data RuntimePatternF p' p = PatternCommon (PatternCommon (RuntimePattern p' p) (Type p')) deriving (Show)
+data RuntimePatternF p' p
+  = PatternCommon (PatternCommon (Type p') (RuntimePattern p' p))
+  deriving (Show)
 
 traverseRuntimePattern pattern typex = go
   where

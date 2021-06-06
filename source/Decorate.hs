@@ -1,7 +1,6 @@
 module Decorate where
 
 import qualified C.Ast as C
-import Control.Monad.Trans.State (get, put)
 import Core.Ast.Common
 import Core.Ast.Kind
 import Core.Ast.Multiplicity
@@ -11,7 +10,7 @@ import Core.TypeCheck
 import Data.Functor.Identity
 import qualified Data.Map as Map
 
-data PatternDecorated p = PatternDecorated (C.Representation C.RepresentationFix) p (PatternCommon (PatternDecorated p) ())
+data PatternDecorated p = PatternDecorated (C.Representation C.RepresentationFix) p (PatternCommon () (PatternDecorated p))
 
 data TermDecerated p = TermDecerated p (TermCommon (C.Representation C.RepresentationFix) () (PatternDecorated p) (TermDecerated p))
 
@@ -22,13 +21,7 @@ decorateImpl _ = error "unable to decorate kind"
 decoration (CoreKind _ (Type (CoreKind _ (Runtime κ)))) = decorateImpl κ
 decoration _ = error "unable to decorate kind"
 
-augmentVariable p x σ e = do
-  env <- Core get
-  let σΓ = typeEnvironment env
-  Core $ put env {typeEnvironment = Map.insert x (p, Unrestricted, σ) σΓ}
-  e' <- e
-  Core $ put env
-  pure e'
+augmentVariable p x σ e = modifyTypeEnvironment (Map.insert x (p, Unrestricted, σ)) e
 
 augmentPattern (CoreRuntimePattern p (PatternCommon (RuntimePatternVariable x σ))) e = augmentVariable p x σ e
 augmentPattern (CoreRuntimePattern _ (PatternCommon (RuntimePatternPair pm pm'))) e = augmentPattern pm (augmentPattern pm' e)

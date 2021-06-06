@@ -187,10 +187,10 @@ Useful / Inspirational papers:
 ### Linear Types
 * [A taste of linear logic](https://homepages.inf.ed.ac.uk/wadler/papers/lineartaste/lineartaste-revised.pdf)
   * Faithfully implemented
-* [The Best of Both Worlds: Linear Functional Programming without Compromise](https://jgbm.github.io/pubs/morris-icfp2016-linearity-extended.pdf)
+* [The Best of Both Worlds: Linear Functional Programming without Compromise](https://jgbm.github.io/pubs/morris-icfp2016-linearity-extended.pdf) [(video)](https://youtu.be/ij9DbNTr-B8)
   * Bare bones implementation of qualified linear types.
 ### Levity polymorphism
-* [Levity Polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/11/levity-pldi17.pdf)
+* [Levity Polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/11/levity-pldi17.pdf) [(video)](https://youtu.be/lSJwXZ7vWBw)
   * Implemented with more restrictive representation lambda.
 ### Compiler Design
 * [Invertible Syntax Descriptions: Unifying Parsing and Pretty Printing](https://www.mathematik.uni-marburg.de/~rendel/rendel10invertible.pdf)
@@ -202,7 +202,7 @@ Useful / Inspirational papers:
 ## Related / Unused
 
 ### Linear Types
-* [Linear Haskell](https://arxiv.org/pdf/1710.09756.pdf)
+* [Linear Haskell](https://arxiv.org/pdf/1710.09756.pdf) [(video)](https://youtu.be/t0mhvd3-60Y)
 * [Making Uniqueness Typing Less Unique](http://edsko.net/pubs/thesis.pdf)
 * [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
 

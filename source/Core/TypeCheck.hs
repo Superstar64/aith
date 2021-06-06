@@ -2,7 +2,7 @@ module Core.TypeCheck where
 
 import Control.Monad (liftM2, (<=<))
 import Control.Monad.Trans.Class (MonadTrans, lift)
-import Control.Monad.Trans.State (StateT, evalStateT, get, put)
+import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT, withReaderT)
 import Core.Ast.Common
 import Core.Ast.Kind
 import Core.Ast.KindPattern
@@ -35,9 +35,20 @@ data CoreState p = CoreState
 
 emptyState = CoreState Map.empty Map.empty Map.empty []
 
-newtype Core p m a = Core {runCore' :: StateT (CoreState p) m a} deriving (Functor, Applicative, Monad, MonadTrans)
+newtype Core p m a = Core {runCore' :: ReaderT (CoreState p) m a} deriving (Functor, Applicative, Monad, MonadTrans)
 
-runCore c = evalStateT (runCore' c)
+runCore c = runReaderT (runCore' c)
+
+modifyState :: (CoreState p -> CoreState p) -> Core p m a -> Core p m a
+modifyState f (Core r) = Core $ withReaderT f r
+
+modifyTypeEnvironment f (Core r) = Core $ withReaderT (\env -> env {typeEnvironment = f (typeEnvironment env)}) r
+
+modifyKindEnvironment f (Core r) = Core $ withReaderT (\env -> env {kindEnvironment = f (kindEnvironment env)}) r
+
+modifySortEnvironment f (Core r) = Core $ withReaderT (\env -> env {sortEnvironment = f (sortEnvironment env)}) r
+
+modifyAssumptions f (Core r) = Core $ withReaderT (\env -> env {assumptions = f (assumptions env)}) r
 
 instance Base p m => Base p (Core p m) where
   quit error = Core (lift $ quit error)
@@ -185,29 +196,13 @@ class (TypeCheck p e σ, Instantiate p e e') => TypeCheckInstantiate p e e' σ |
 class TypeCheck p e σ => TypeCheckLinear p e σ | e -> σ, e -> p where
   typeCheckLinear :: Base p m => e -> Core p m (σ, Use)
 
-augmentKindVariable p x μ κ = do
-  env <- Core get
-  let μΓ = sortEnvironment env
-  Core $ put env {sortEnvironment = Map.insert x (p, μ) μΓ}
-  μ' <- κ
-  Core $ put env
-  pure μ'
+augmentKindVariable p x μ e = modifySortEnvironment (Map.insert x (p, μ)) e
 
-augmentTypeVariable p x κ σ = do
-  env <- Core get
-  let κΓ = kindEnvironment env
-  let shadowedassumptions = filter (\σ -> x `Variables.member` freeVariables @TypeInternal σ) (assumptions env)
-  Core $ put env {kindEnvironment = Map.insert x (p, κ, Nothing) κΓ, assumptions = shadowedassumptions}
-  κ' <- σ
-  Core $ put env
-  pure κ'
+augmentTypeVariable p x κ e =
+  modifyKindEnvironment (Map.insert x (p, κ, Nothing)) $ modifyAssumptions (filter $ \σ -> x `Variables.notMember` freeVariables @TypeInternal σ) e
 
 augmentVariableLinear p x l σ e = do
-  env <- Core get
-  let σΓ = typeEnvironment env
-  Core $ put env {typeEnvironment = Map.insert x (p, l, σ) σΓ}
-  (σ', lΓ) <- e
-  Core $ put env
+  (σ', lΓ) <- modifyTypeEnvironment (Map.insert x (p, l, σ)) e
   case (count x lΓ, l) of
     (Single, _) -> pure ()
     (_, Unrestricted) -> pure ()
@@ -215,17 +210,11 @@ augmentVariableLinear p x l σ e = do
     (_, _) -> quit $ InvalidUsage p x
   pure (σ', Remove x lΓ)
 
-augmentAssumption π e = do
-  env <- Core get
-  let πΓ = assumptions env
-  Core $ put env {assumptions = π : πΓ}
-  σ <- e
-  Core $ put env
-  pure σ
+augmentAssumption π e = modifyAssumptions (π :) e
 
 matchFailable :: Monad m => Type p -> Type p -> Core p' m Bool
 matchFailable σ τ = do
-  env <- Core get
+  env <- Core ask
   pure $ isJust $ runCore (match Internal (Internal <$ σ) (Internal <$ τ)) (Internal <$ env)
 
 checkAssumptionImpl p π (π' : πs) = do
@@ -240,7 +229,7 @@ checkAssumptionImpl p (CoreType _ (Copy (CoreType _ (Recursive (Bound (CoreTypeP
 checkAssumptionImpl p π [] = quit $ NoProof p π
 
 checkAssumption p π = do
-  env <- Core get
+  env <- Core ask
   checkAssumptionImpl p π (assumptions env)
 
 instance Augment p (KindPattern p) where
@@ -273,7 +262,7 @@ instance TypeCheckInstantiate p (Kind p) KindInternal Sort where
 instance TypeCheckInstantiate p (Type p) TypeInternal KindInternal where
   typeCheckInstantiate σ'' = do
     κ <- typeCheck σ''
-    environment <- Core get
+    environment <- Core ask
     let replacements1 = catMaybes $ map (\(x, τ) -> liftM2 (,) (pure x) τ) $ Map.toList $ (\(_, _, τ) -> τ) <$> (kindEnvironment environment)
     let σ' = Internal <$ σ''
     let σ = foldr (\(x, τ) -> substitute τ x) σ' replacements1
@@ -333,7 +322,7 @@ instance TypeCheckInstantiate p (KindPattern p) (KindPattern p) Sort where
 
 instance TypeCheck p (Kind p) Sort where
   typeCheck (CoreKind p (KindVariable x)) = do
-    environment <- Core get
+    environment <- Core ask
     case sortEnvironment environment !? x of
       Nothing -> quit $ UnknownIdentfier p x
       Just (_, μ) -> pure μ
@@ -365,7 +354,7 @@ instance TypeCheck p (Kind p) Sort where
 
 instance TypeCheck p (Type p) KindInternal where
   typeCheck (CoreType p (TypeVariable x)) = do
-    environment <- Core get
+    environment <- Core ask
     case kindEnvironment environment !? x of
       Nothing -> quit $ UnknownIdentfier p x
       Just (_, κ, _) -> pure κ
@@ -434,7 +423,7 @@ instance TypeCheck p (Term p) TypeInternal where
 
 capture p lΓ = do
   let captures = variablesUsed lΓ
-  env <- Core get
+  env <- Core ask
   let lΓ = typeEnvironment env
   for (Set.toList captures) $ \x' -> do
     let (_, l, σ) = lΓ ! x'
@@ -446,7 +435,7 @@ capture p lΓ = do
 
 instance TypeCheckLinear p (Term p) TypeInternal where
   typeCheckLinear (CoreTerm p (TermCommon (Variable x))) = do
-    environment <- Core get
+    environment <- Core ask
     case typeEnvironment environment !? x of
       Nothing -> quit $ UnknownIdentfier p x
       Just (_, _, σ) -> pure (σ, Use x)
@@ -543,5 +532,5 @@ instance TypeCheckLinear p (Term p) TypeInternal where
 
 typeCheckInternal :: (Monad m, TypeCheck Internal e σ) => e -> Core p m σ
 typeCheckInternal σ = do
-  env <- Core get
+  env <- Core ask
   pure $ runIdentity $ runCore (typeCheck σ) (Internal <$ env)
