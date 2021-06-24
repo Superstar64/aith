@@ -32,14 +32,21 @@ e \Coloneqq & \\
 & !e \tag*{[Bang Introduction]} \\
 & \text{let} \, !x = e; e' \tag*{[Bang Elimination]} \\ 
 \text{Runtime Terms} \\
-& \text{extern} \, x (\sigma) (\tau) \tag*{[Extern Symbol]} \\
-& e(*)(e') \tag*{[Function Pointer Application]} \\
+& \text{extern} \, x \tau \xrightarrow{\#} \sigma \tag*{[Extern Symbol]} \\
+& e\#(e') \tag*{[Function Pointer Application]} \\
 & \text{function} (x : \sigma). e \tag*{[Function Literal]} \\
-& \text{alias} \, x = e; e' \tag*{[Runtime Let]} \\
+& \text{let}^\# \, x = e; e' \tag*{[Runtime Let]} \\
 & \#(e, e') \tag*{[Runtime Pair Introduction]} \\
-& \text{alias} (x, x') = e; e' \tag*{[Runtime Pair Elimination]} \\
-& \text{pack}  \alpha : \kappa. \sigma \, e \tag*{[Recursive Pack]}\\
+& \text{let}^\# (x, x') = e; e' \tag*{[Runtime Pair Elimination]} \\
+& \text{pack} \, (e : \text{letrec} \, \alpha : \kappa = \sigma \, \text{in} \, \alpha) \tag*{[Recursive Pack]}\\
 & \text{unpack} \, e \tag*{[Recursive Unpack]} \\
+& \text{pure} \, \pi e \tag*{[Pure Region Transformer]}\\
+& \text{do} \, x = e; e' \tag*{[Bind Region Transformer]} \\
+& \text{letRGN} \, (\Lambda \alpha. e_\pi) \tag*{[Create Region]} \\
+& \text{envRGN} \, \pi \, e \tag*{[Subtype Region]} \\
+& \text{runRGN} (\Lambda \alpha. e) \tag*{[Evaluate Region]} \\
+& \text{readRGNLoc} \, e \tag*{[Dereference Pointer]} \\
+& \text{localRGN} (\Lambda \alpha. \text{let}^* x = e; e'_\pi ) \tag*{[Allocate Stack Pointer]}
 \\
 \sigma, \tau, \pi \Coloneqq \\
 \text{Universal Types} \\
@@ -55,25 +62,35 @@ e \Coloneqq & \\
 & \sigma \to \tau \tag*{[Macro]}\\
 & !\sigma \tag*{[Bang]} \\
 \text{Runtime Types} \\
-& \sigma (*) (\tau) \tag*{[Function Pointer]}\\
-& \sigma \, \text{function}(\tau) \tag*{[Function Literal Type]} \\
+& \tau \xrightarrow{\#} \sigma \tag*{[Function Pointer]}\\
+& \tau \xrightarrow{\text{text}} \sigma  \tag*{[Function Literal Type]} \\
 & \text{Copy} \, \sigma \tag*{[Runtime Copyable Constraint]} \\
 & \#(\sigma, \tau) \tag*{[Runtime Pair]} \\
-& \text{Recursive} \alpha : \kappa. \sigma \tag*{[Recursive Type]} \\
+& \text{letrec} \, \alpha : \kappa = \sigma \, \text{in} \, \alpha \tag*{[Recursive Type]} \\
+& \text{RGN} \pi \sigma \tag*{[Region Transformer]} \\
+& \text{RGNLoc} \pi \sigma \tag*{[Reference]}\\
+& \pi \preceq \pi' \tag*{[Region Scoping Constraint]} \\
 \\
 \kappa, s, \rho \Coloneqq &  \kappa \alpha \tag*{[Kind Variable]} \\
 & \text{Type} (s) \tag*{[Type]} \\
 & \kappa \to \kappa' \tag*{[Higher Kinded]} \\
 & \forall \kappa \alpha : \mu. \kappa \tag*{[Poly Kinded]}\\
 & \text{Constraint} \tag*{[Constraint]} \\
+& \text{Region} \tag*{[Region]} \\
 & \text{Meta} \tag*{[Meta Stage]}\\
 & \text{Text} \tag*{[Symbol Stage]} \\
-& \text{Runtime} (\rho) \tag*{[Runtime Stage]}\\
+& \text{Runtime} (\rho, \rho') \tag*{[Runtime Stage]}\\
+& \text{Code} \tag*{[Code Impact]}\\
+& \text{Data} \tag*{[Data Impact]}\\
+& \text{Real} (\rho) \tag*{[Real Existance]} \\
+& \text{Imaginary} \tag*{[Imaginary Existance]} \\
 & \text{Pointer} \tag*{[Pointer Representation]}\\
 & \text{Structure} \{ \rho, \rho', \dots \} \tag*{[Structure Representation]} \\
 \\
 \mu \Coloneqq & \text{Kind} \\
 & \text{Stage} \\
+& \text{Impact} \\
+& \text{Existance} \\
 & \text{Representation} \\
 \\
 \Gamma \Coloneqq & \Gamma, [x : \sigma] | \Gamma, \langle x : \sigma \rangle | \emptyset \\
@@ -101,11 +118,13 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 !\sigma & !e \\
 \forall \alpha : \kappa. \sigma & \Lambda \alpha : \kappa. e  \\
 \forall \kappa \alpha : \mu. \sigma & \Lambda \kappa \alpha : \mu. e \\
-\tau \, \text{function} (\sigma) & \text{function}(x : \sigma). e \\
+\sigma \xrightarrow{\text{text}} \tau & \text{function}(x : \sigma). e \\
 \pi \Rightarrow \sigma & \xi \sigma. e
 \end{array}
+\\
 \end{gather*}
-
+$ RT (\sigma) $ and is shorthand for $ \Phi \vdash \sigma : \text{Type} (\text{Runtime} (\text{Data}, \text{Real} ((\kappa))) $ with a unique $ \kappa $ \\
+Introduction of type variables into $ \Phi $ ($\Phi , \alpha : \kappa $) removes all qualifications ($\Phi , \pi$) that contain said variable. 
 \begin{gather*}
 \Phi | \Gamma \vdash e : \sigma \tag* {[\text{Term Validation}]}  \\
 \\
@@ -172,52 +191,73 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \text{Runtime Terms}
 \\
 \frac
-{\Phi \vdash \sigma : \text{Type}(\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type}(\text{Runtime} (\rho'))}
-{\Phi | \Gamma \vdash \text{extern} \, x ( \sigma )(\tau) : \sigma (*)(\tau)} \\
+{RT(\tau) \quad \Phi \vdash \sigma : \text{Type}(\text{Runtime} (\rho))}
+{\Phi | \Gamma \vdash \text{extern} \, x \tau \xrightarrow{\#} \sigma : \tau \xrightarrow{\#} \sigma} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \tau(*)(\sigma) \quad \Phi | \Gamma' \vdash e' : \sigma}
-{\Phi | \Gamma, \Gamma' \vdash e(*)(e') : \tau} \\
+{\Phi | \Gamma \vdash e : \sigma \xrightarrow{\#} \tau \quad \Phi | \Gamma' \vdash e' : \sigma}
+{\Phi | \Gamma, \Gamma' \vdash e\#(e') : \tau} \\
 \\
 \frac
-{\splitfrac
-{\Phi | \Gamma, \langle x : \sigma \rangle \vdash e : \tau \quad \Phi \vdash \tau : \text{Type}(\text{Runtime}(\rho))}
-{\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho'))}}
-{\Phi | \Gamma \vdash (\text{function}(x : \sigma). e) : \tau \text{function}(\sigma)  } \tag*{[Linear Variant]}\\
+{\Phi | \Gamma, \langle x : \sigma \rangle \vdash e : \tau \quad \Phi \vdash \tau : \text{Type}(\text{Runtime}(\rho)) \quad \text{RT}(\sigma)}
+{\Phi | \Gamma \vdash (\text{function}(x : \sigma). e) : \sigma \xrightarrow{\text{text}} \tau} \\
 \\
 \frac
-{\splitfrac
-{\Phi | \Gamma, \langle x : \sigma \rangle \vdash e : \tau \quad \Phi \vdash \tau : \text{Type}(\text{Runtime}(\rho))}
-{\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho')) \quad \Phi \models \text{Copy}}}
-{\Phi | \Gamma \vdash (\text{function}(x : \sigma). e) : \tau \text{function}(\sigma)  } \tag*{[Unrestricted Variant]}\\
-\\
-\frac
-{\splitfrac{ \Phi | \Gamma \vdash e : \tau \quad \Phi | \Gamma', \langle x : \tau \rangle \vdash \sigma}
-{\Phi \vdash \tau : \text{Type}(\text{Runtime}(\rho)) \quad \Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho') }}
+{\splitfrac{ \Phi | \Gamma \vdash e : \tau \quad \Phi | \Gamma', \langle x : \tau \rangle \vdash e' : \sigma}
+{\text{RT}(\tau) \quad \Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho') }}
 {\Phi | \Gamma, \Gamma' \vdash \text{alias} \, x = e; e' : \sigma} \tag*{[Linear Variant]} \\
 \\
 \frac
-{\splitfrac{ \Phi | \Gamma \vdash e : \tau \quad \Phi | \Gamma', [x : \tau] \vdash \sigma}
-{\splitfrac{\Phi \vdash \tau : \text{Type}(\text{Runtime}(\rho)) \quad \Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho')}
-{ \Phi \models \text{Copy}(\tau)}}}
+{\splitfrac{ \Phi | \Gamma \vdash e : \tau \quad \Phi | \Gamma', [x : \tau] \vdash e' : \sigma}
+{\text{RT}(\tau) \quad \Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho')} \quad \Phi \models \text{Copy}(\tau)}
 {\Phi | \Gamma, \Gamma' \vdash \text{alias} \, x = e; e' : \sigma} \tag*{[Unrestricted Variant]}\\
 \\
 \frac
-{\splitfrac{\Phi | \Gamma \vdash e : \sigma \quad \Phi | \Gamma' \vdash e' : \tau}
-{\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho)) \quad \Phi \vdash \tau : \text{Type}(\text{Runtime}(\rho')) }}
+{\Phi | \Gamma \vdash e : \sigma \quad \Phi | \Gamma' \vdash e' : \tau \quad \text{RT}(\sigma) \quad \text{RT}(\tau) }
 {\Phi | \Gamma, \Gamma' \vdash \#(e, e') : (\sigma, \tau) } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\tau, \tau') \quad \Phi | \Gamma , \langle x : \tau \rangle, \langle x' : \tau' \rangle,  \vdash e : \sigma  }
+{\splitfrac{\Phi | \Gamma \vdash e : (\tau, \tau') \quad \Phi | \Gamma , \langle x : \tau \rangle, \langle x' : \tau' \rangle,  \vdash e : \sigma  }
+{\Phi \vdash \sigma : \text{Type} (\text{Runtime} (\rho)) }}
 {\Phi | \Gamma, \Gamma' \vdash \text{alias} (x, x') = e; e' : \sigma} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e :  \sigma [(\text{Recursive} \alpha : \kappa. \sigma ) /x] }
-{\Phi | \Gamma \vdash \text{pack} \alpha : \kappa. \sigma  \, e : \text{Recursive} \alpha : \kappa. \sigma} \\
+{\splitfrac{\Phi | \Gamma \vdash e :  \sigma [(\text{letrec} \, \alpha : \kappa = \sigma \, \text{in} \, \alpha) / \alpha]}
+{\text{RT}(\sigma) \quad \Phi, \alpha : \kappa \vdash \sigma : \kappa}}
+{\Phi | \Gamma \vdash \text{pack} (e : \text{letrec} \, \alpha : \kappa = \sigma \, \text{in} \, \alpha) : \text{letrec} \, \alpha : \kappa = \sigma \, \text{in} \, \alpha} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \text{Recursive} x : \alpha. \sigma }
-{\Phi | \Gamma \vdash \text{unpack} \, e : \sigma [(\text{Recursive} \alpha : \kappa. \sigma ) /\alpha]} \\
+{\Phi | \Gamma \vdash e : \text{letrec} \, \alpha : \kappa = \sigma \, \text{in} \, \alpha }
+{\Phi | \Gamma \vdash \text{unpack} \, e : \sigma [(\text{letrec} \, \alpha : \kappa = \sigma \, \text{in} \, \alpha) /\alpha]} \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : \sigma \quad \text{RT}(\sigma) \quad \Phi \vdash \pi : \text{Region} }
+{\Phi | \Gamma \vdash \text{pure} \, \pi \, e : \text{RGN} \pi \sigma } \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : \text{RGN} \pi \sigma \quad \Phi | \Gamma', \langle x : \sigma \rangle \vdash e' : \text{RGN} \pi \tau \quad \text{RT}(\sigma) }
+{\Phi | \Gamma, \Gamma' \vdash \text{do} \, x = e; e' : \text{RGN} \pi \tau} \\
+\\
+\frac
+{\Phi , \alpha : \text{Region}, \,  \pi \preceq \alpha | \Gamma \vdash e : \text{RGN} \alpha \sigma \quad \alpha \notin \text{Free}(\sigma, \pi) \quad \Phi \vdash \pi : \text{Region}}
+{\Phi | \Gamma \vdash \text{letRGN} \, (\Lambda \alpha. e_\pi) : \text{RGN} \pi \sigma} \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : \text{RGN} \pi \sigma \quad \Phi \vdash \pi' : \text{Region} \quad \Phi \models \pi \preceq \pi'}
+{\Phi | \Gamma \vdash \text{envRGN} \, \pi' \, e : \text{RGN} \pi' \sigma } \\
+\\
+\frac
+{\Phi, \alpha : \text{Region}| \Gamma \vdash e : \text{RGN} \alpha \sigma \quad \alpha \notin \text{Free}(\sigma)}
+{\Phi | \Gamma \vdash \text{runRGN} (\Lambda \alpha. e) : \sigma}\\
+\\
+\frac
+{\Phi | \Gamma \vdash e : \text{RGNLoc} \pi \sigma \quad \Phi \vdash \text{Copy} (\sigma) }
+{\Phi | \Gamma \vdash \text{readRGNLoc} e : \text{RGN} \pi \sigma} \\
+\\
+\frac
+{\splitfrac{\Phi | \Gamma \vdash e : \tau \quad \text{RT} (\tau) \quad \Phi \models \text{Copy} (\tau) \quad \Phi \vdash \pi : \text{Region} \quad \alpha \notin \text{Free}(\sigma, \tau, \pi)}
+{\Phi, \alpha : \text{Region} , \pi \preceq \alpha | \Gamma', x : \text{RGNLoc} \, \alpha \, \tau \vdash e' : \text{RGN} \alpha \sigma}}
+{\Phi | \Gamma, \Gamma' \vdash \text{localRGN} (\Lambda \alpha. \text{let}^* x = e; e'_\pi ) : \text{RGN} \pi \sigma}
 \\
 \\
 \\
@@ -270,24 +310,37 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \text{Runtime Types}
 \\
 \frac
-{\Phi \vdash \sigma : \text{Type} (\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime} (\rho'))}
-{\Phi \vdash \sigma (*) (\tau) : \text{Type} (\text{Runtime} (\text{pointer}))} \\
+{\Phi \vdash \sigma : \text{Type} (\text{Runtime} (\text{Data}, \text{Real} (\rho''))) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime} (\rho, \rho'))}
+{\Phi \vdash \sigma \xrightarrow{\#} \tau : \text{Type} (\text{Runtime} (\text{Data}, \text{Real} ( \text{Pointer})))} \\
 \\
 \frac
-{\Phi \vdash \sigma : \text{Type} (\text{Runtime} (\rho)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime} (\rho'))}
-{\Phi \vdash \sigma \, \text{function} (\tau) : \text{Type} (\text{Text})} \\
+{\Phi \vdash \sigma : \text{Type} (\text{Runtime} (\text{Data}, \text{Real}( \rho' ))) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime} (\rho, \rho'))}
+{\Phi \vdash \sigma \xrightarrow{\text{text}} \tau : \text{Type} (\text{Text})} \\
 \\
 \frac
-{\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\rho))}
+{\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\text{Data}, \text{Real}(\rho)))}
 {\Phi \vdash \text{Copy} \, \sigma : \text{Constraint}} \\
 \\
 \frac
-{\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\kappa)) \quad \Phi \vdash \tau : \text{Type} (\text{Runtime}(\kappa')) }
-{\Phi \vdash \#(\sigma, \tau) : \text{Type} (\text{Runtime} (\text{Structure} \{ \kappa,\kappa'\} ))} \\
+{\splitfrac{\Phi \vdash \sigma : \text{Type}(\text{Runtime}(\text{Data}, \text{Real}(\kappa)))}
+{\Phi \vdash \tau : \text{Type} (\text{Runtime}(\text{Data}, \text{Real} (\kappa'))) }}
+{\Phi \vdash \#(\sigma, \tau) : \text{Type} (\text{Runtime} (\text{Data}, \text{Real} (\text{Structure} \{ \kappa,\kappa'\} )))} \\
 \\
 \frac
-{\Phi, \alpha : \text{Type} (\text{Runtime} (\rho)) \vdash \text{Type} (\text{Runtime} (\rho)) }
-{\Phi \vdash \text{Recursive} \alpha : \text{Type} (\text{Runtime} (\rho)) : \text{Type} (\text{Runtime} (\rho))  } \\
+{\Phi, \alpha : \kappa \vdash \sigma : \kappa \quad \Phi \vdash \kappa \quad \Phi \vdash \sigma : \text{Type}(\text{Runtime}(\text{Data}, \text{Real}(\rho)))  }
+{\Phi \vdash \text{letrec} \, \alpha : \kappa = \sigma \, \text{in} \, \alpha : \kappa } \\
+\\
+\frac
+{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \sigma : \text{Type}(\text{Runtime}(\text{Data}, \rho))}
+{\Phi \vdash \text{RGN} \pi \sigma : \text{Type}(\text{Runtime}(\text{Code}, \rho))} \\
+\\
+\frac
+{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \sigma : \text{Type}(\text{Runtime}(\text{Data}, \text{Real}(\rho))}
+{\Phi \vdash \text{RGNLoc} \pi \sigma : \text{Type}(\text{Runtime} (\text{Data}, \text{Real}(\rho)))} \\
+\\
+\frac
+{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \pi' : \text{Region}}
+{\Phi \vdash \pi \preceq \pi' : \text{Constraint}}
 \\
 \\
 \\
@@ -315,6 +368,10 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \\
 \frac
 {}
+{\Phi \vdash \text{Region} : \text{Kind}} \\
+\\
+\frac
+{}
 {\Phi \vdash \text{Meta} : \text{Stage}} \\
 \\
 \frac
@@ -322,8 +379,24 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 {\Phi \vdash \text{Text} : \text{Stage}} \\
 \\
 \frac
+{\Phi \vdash \rho : \text{Impact} \quad \Phi \vdash \rho' : \text{Existance}}
+{\Phi \vdash \text{Runtime} (\rho, \rho') : \text{Stage}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Code} : \text{Impact}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Data} : \text{Impact}} \\
+\\
+\frac
 {\Phi \vdash \rho : \text{Representation}}
-{\Phi \vdash \text{Runtime} (\rho) : \text{Stage}} \\
+{\Phi \vdash \text{Real} (\rho) : \text{Existance}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Imaginary} : \text{Existance}} \\
 \\
 \frac
 {}
@@ -351,7 +424,11 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \\
 \frac
 {\Phi, \text{Copy}(a)  \models \text{Copy} \sigma }
-{\Phi \models \text{Copy} (\text{Recursive} \alpha : \kappa. (\sigma)) }
+{\Phi \models \text{Copy} (\text{Recursive} \alpha : \kappa. (\sigma)) } \\
+\\
+\frac
+{}
+{\Phi \models \text{Copy} (\text{RGNLoc} \pi \sigma)} \\
 \end{gather*}
 
 \end{document}

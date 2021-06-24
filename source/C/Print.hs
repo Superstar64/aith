@@ -67,7 +67,7 @@ statement =
       C.variableDeclation ⊣ representation ⊗ identifer ≪ string "=" ⊗ expression ≪ string ";"
     ]
 
-expression = variable ∥ call ∥ compoundLiteral ∥ member
+expression = variable ∥ call ∥ compoundLiteral ∥ member ∥ dereference ∥ address
   where
     variable = C.variable ⊣ identifer
     call = C.call ⊣ betweenParens (betweenParens castFunctionPointer ⊗ expression) ⊗ argumentList expression
@@ -75,3 +75,5 @@ expression = variable ∥ call ∥ compoundLiteral ∥ member
         castFunctionPointer = representation ≪ string "(*)" ⊗ argumentList representation
     compoundLiteral = C.compoundLiteral ⊣ betweenParens representation ⊗ betweenBraces (seperatedMany expression (string ","))
     member = C.member ⊣ betweenParens expression ≪ string "." ⊗ identifer
+    dereference = C.dereference ⊣ betweenParens (string "*" ≫ betweenParens (representation ≪ string "*") ⊗ expression)
+    address = C.address ⊣ betweenParens (betweenParens (string "pointer") ≫ string "&" ≫ expression)

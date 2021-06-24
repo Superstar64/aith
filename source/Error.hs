@@ -23,18 +23,26 @@ data Error p
   | ExpectedFunctionPointer p TypeInternal
   | ExpectedForall p TypeInternal
   | ExpectedKindForall p TypeInternal
-  | ExpectedErasedQualified p TypeInternal
+  | ExpectedQualified p TypeInternal
   | ExpectedOfCourse p TypeInternal
   | ExpectedRecursive p TypeInternal
+  | ExpectedRegionTransformer p TypeInternal
+  | ExpectedRegionReference p TypeInternal
   | ExpectedType p KindInternal
   | ExpectedHigher p KindInternal
   | ExpectedPoly p KindInternal
   | ExpectedConstraint p KindInternal
+  | ExpectedRegion p KindInternal
   | ExpectedText p KindInternal
   | ExpectedRuntime p KindInternal
+  | ExpectedData p KindInternal
+  | ExpectedReal p KindInternal
   | ExpectedKind p Sort
   | ExpectedStage p Sort
+  | ExpectedImpact p Sort
+  | ExpectedExistance p Sort
   | ExpectedRepresentation p Sort
+  | EscapingTypeVariable p Identifier TypeInternal
   | IncompatibleType p TypeInternal TypeInternal
   | IncompatibleKind p KindInternal KindInternal
   | IncompatibleSort p Sort Sort

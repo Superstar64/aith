@@ -17,14 +17,14 @@ inline main = ~`\a : _type _meta {
 };
 
 
-function wasteful = `\a : _type _runtime _pointer => _when(_copy a) => \(x : a, y : a){
+function wasteful = `\a : _type _runtime _data _real _pointer => _when(_copy a) => \(x : a, y : a){
 	x
 };
 
-function ignoreFPtr = `\a : _type _runtime _pointer => \(x : a, f : a -> a){
+function ignoreFPtr = `\a : _type _runtime _data _real _pointer => \(x : a, f : a -> a){
 	x
 };
 
-function useWasteful = `\a : _type _runtime _pointer => \(xf : a -> a, yf: a -> a) {
+function useWasteful = `\a : _type _runtime _data _real _pointer => \(xf : a -> a, yf: a -> a) {
 	wasteful`(a -> a)? (xf, yf)
 };

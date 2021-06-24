@@ -42,11 +42,11 @@ instance Semigroup p => Binder p (Pattern p p) where
   rename _ _ x@(CorePattern _ (PatternVariable _ _)) = x
   rename ux x (CorePattern p (PatternOfCourse pm)) = CorePattern p (PatternOfCourse $ rename ux x pm)
 
-instance Algebra u p (Type p) => Algebra u p (Pattern p p) where
-  freeVariables (CorePattern _ (PatternVariable _ σ)) = freeVariables @u σ
-  freeVariables (CorePattern _ (PatternOfCourse pm)) = freeVariables @u pm
-  convert ix x (CorePattern p (PatternVariable x' σ)) = CorePattern p $ PatternVariable x' (convert @u ix x σ)
-  convert ix x (CorePattern p (PatternOfCourse pm)) = CorePattern p $ PatternOfCourse $ convert @u ix x pm
+instance Algebra (u p) p (Type p) => Algebra (u p) p (Pattern p p) where
+  freeVariables (CorePattern _ (PatternVariable _ σ)) = freeVariables @(u p) σ
+  freeVariables (CorePattern _ (PatternOfCourse pm)) = freeVariables @(u p) pm
+  convert ix x (CorePattern p (PatternVariable x' σ)) = CorePattern p $ PatternVariable x' (convert @(u p) ix x σ)
+  convert ix x (CorePattern p (PatternOfCourse pm)) = CorePattern p $ PatternOfCourse $ convert @(u p) ix x pm
   substitute ux x (CorePattern p (PatternVariable x' σ)) = CorePattern p $ PatternVariable x' (substitute ux x σ)
   substitute ux x (CorePattern p (PatternOfCourse pm)) = CorePattern p $ PatternOfCourse $ substitute ux x pm
 

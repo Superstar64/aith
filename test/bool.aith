@@ -13,17 +13,17 @@ inline not = ~\x : bool {
 	x``(_meta)`(bool)(!false)(!true)
 };
 
-inline _ :: ~bool -> `\/a : _type _runtime _pointer => (_copy a) =>? #( (a,a) _function a); 
+inline _ :: ~bool -> `\/a : _type _runtime _data _real _pointer => # _when _copy a => ( (a,a) _function a); 
 inline boolToFunction = ~\x : bool {
-	`\b : _type _runtime _pointer => _when _copy b {
-		#\(left : b, right : b){
-			~x``(_runtime _pointer)`(b)(!left)(!right)
+	`\b : _type _runtime _data _real _pointer => # _when _copy b {
+		\(left : b, right : b){
+			~x``(_runtime _data _real _pointer)`(b)(!left)(!right)
 		}
 	}
 };
 
-function _ :: `\/a : _type _runtime _pointer => (_copy a) =>? (a,a) -> a;
+function _ :: `\/a : _type _runtime _data _real _pointer => _when _copy a => (a,a) -> a;
 function runtimeTrue = ~boolToFunction(true);
 
-function _ :: `\/a : _type _runtime _pointer => (_copy a) =>? (a,a) -> a;
+function _ :: `\/a : _type _runtime _data _real _pointer => _when _copy a => (a,a) -> a;
 function runtimeNotTrue = ~boolToFunction(not(true));

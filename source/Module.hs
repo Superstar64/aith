@@ -149,6 +149,11 @@ unorder (Ordering (item : remaining)) = insert item (unorder $ Ordering remainin
           innerCode' = Module $ insert (Path remainder name, global) innerCode
       _ -> error "unorder error"
 
+convertFunctionLiteral (CoreType p (FunctionLiteralType σ τs)) = CoreType p $ FunctionPointer σ τs
+convertFunctionLiteral (CoreType p (Forall (Bound pm σ))) = CoreType p $ Forall (Bound pm (convertFunctionLiteral σ))
+convertFunctionLiteral (CoreType p (Qualified π σ)) = CoreType p $ Qualified π (convertFunctionLiteral σ)
+convertFunctionLiteral _ = error "unable to convert function literal"
+
 typeCheckModule :: Base p m => ModuleOrder p -> m (Map [Identifier] (CoreState p))
 typeCheckModule (Ordering code) = foldrM (execStateT . uncurry typeCheckItem) Map.empty code
   where
@@ -181,13 +186,8 @@ typeCheckModule (Ordering code) = foldrM (execStateT . uncurry typeCheckItem) Ma
       environment <- getEnvironment path
       σ <- runCore (typeCheck e) environment
       runCore (checkText p =<< checkType p =<< typeCheckInternal σ) environment
-      validateAnnotation environment p (convert σ) σ'
-      insertGlobalTerm path p $ convert σ
-      where
-        convert (CoreType p (FunctionLiteralType σ τs)) = CoreType p $ FunctionPointer σ τs
-        convert (CoreType p σ) = CoreType p $ mapType convert id bound bound σ
-          where
-            bound (Bound pm σ) = Bound pm $ convert σ
+      validateAnnotation environment p (convertFunctionLiteral σ) σ'
+      insertGlobalTerm path p $ convertFunctionLiteral σ
     typeCheckItem path (Import p (Path heading name)) = do
       environments <- getModuleEnviroments
       case typeEnvironment (environments ! heading) !? name of
@@ -204,6 +204,11 @@ mangle :: Path -> Symbol
 mangle (Path path (Identifier name)) = Symbol $ (concat $ map (++ "_") $ extract <$> path) ++ name
   where
     extract (Identifier x) = x
+
+convertExtern p name (CoreType _ (FunctionPointer σ τs)) = CoreTerm p $ TermCommon $ Extern () () name (p <$ σ) (p <$ τs)
+convertExtern p name (CoreType _ (Forall (Bound pm σ))) = CoreTerm p $ TypeAbstraction $ Bound (bimap (const p) (const p) pm) (convertExtern p name σ)
+convertExtern p name (CoreType _ (Qualified τ σ)) = CoreTerm p $ QualifiedAssume (p <$ τ) (convertExtern p name σ)
+convertExtern _ _ _ = error "unable to convert type to extern"
 
 reduceModule :: Semigroup p => Map [Identifier] (CoreState p) -> ModuleOrder p -> ModuleOrder p
 reduceModule environment (Ordering code) = Ordering $ evalState (foldrM go' [] code) Map.empty
@@ -234,7 +239,7 @@ reduceModule environment (Ordering code) = Ordering $ evalState (foldrM go' [] c
       replacements <- getReplacements path
       let e' = reduce $ foldr substituteGlobal e replacements
       let (p, _, σ) = typeEnvironment (environment ! heading) ! name
-      let ref = convert p (mangle path) σ
+      let ref = convertExtern p (mangle path) σ
       insertGlobal path (Right ref)
       τ' <- annotate path τ
       pure (Text τ' e')
@@ -254,7 +259,3 @@ reduceModule environment (Ordering code) = Ordering $ evalState (foldrM go' [] c
       pure (Synonym σ')
     substituteGlobal (x, Right e) = substitute e x
     substituteGlobal (x, Left σ) = substitute σ x
-    convert p name (CoreType _ (FunctionPointer σ τs)) = CoreTerm p $ TermCommon $ Extern () () name (p <$ σ) (p <$ τs)
-    convert p name (CoreType _ (Forall (Bound pm σ))) = CoreTerm p $ TypeAbstraction $ Bound (bimap (const p) (const p) pm) (convert p name σ)
-    convert p name (CoreType _ (ErasedQualified τ σ)) = CoreTerm p $ ErasedQualifiedAssume (p <$ τ) (convert p name σ)
-    convert _ _ _ = error "unable to convert type to extern"

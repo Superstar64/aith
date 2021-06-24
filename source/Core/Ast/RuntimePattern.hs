@@ -22,10 +22,15 @@ data RuntimePatternF p' p
   = PatternCommon (PatternCommon (Type p') (RuntimePattern p' p))
   deriving (Show)
 
-traverseRuntimePattern pattern typex = go
+instance Bifunctor RuntimePatternF where
+  bimap f g pm = runIdentity $ traverseRuntimePatternF (Identity . bimap f g) (Identity . fmap f) pm
+
+traverseRuntimePatternF pattern typex = go
   where
     go (PatternCommon (RuntimePatternVariable x σ)) = PatternCommon <$> (pure RuntimePatternVariable <*> pure x <*> typex σ)
     go (PatternCommon (RuntimePatternPair pm pm')) = PatternCommon <$> (pure RuntimePatternPair <*> pattern pm <*> pattern pm')
+
+traverseRuntimePattern pattern typex (CoreRuntimePattern p pm) = pure CoreRuntimePattern <*> pure p <*> traverseRuntimePatternF pattern typex pm
 
 mapRuntimePattern pattern typex = runIdentity . traverseRuntimePattern (Identity . pattern) (Identity . typex)
 
@@ -48,22 +53,25 @@ data RuntimePattern p' p = CoreRuntimePattern p (RuntimePatternF p' p) deriving 
 
 coreRuntimePattern = Isomorph (uncurry $ CoreRuntimePattern) $ \(CoreRuntimePattern p pm) -> (p, pm)
 
-instance Bifunctor RuntimePatternF where
-  bimap f g pm = mapRuntimePattern (bimap f g) (fmap f) pm
-
 instance Bifunctor RuntimePattern where
   bimap f g (CoreRuntimePattern p pm) = CoreRuntimePattern (g p) (bimap f g pm)
 
 instance Semigroup p => Binder p (RuntimePattern p p) where
   bindings (CoreRuntimePattern p (PatternCommon (RuntimePatternVariable x _))) = Variables.singleton x p
-  bindings (CoreRuntimePattern _ pm) = foldRuntimePattern bindings mempty pm
+  bindings pm = foldRuntimePattern bindings mempty pm
   rename ux x (CoreRuntimePattern p (PatternCommon (RuntimePatternVariable x' σ))) | x == x' = CoreRuntimePattern p (PatternCommon (RuntimePatternVariable ux σ))
-  rename ux x (CoreRuntimePattern p pm) = CoreRuntimePattern p $ mapRuntimePattern (rename ux x) id pm
+  rename ux x pm = mapRuntimePattern (rename ux x) id pm
 
-instance Algebra u p (Type p) => Algebra u p (RuntimePattern p p) where
-  freeVariables (CoreRuntimePattern _ pm) = foldRuntimePattern (freeVariables @u) (freeVariables @u) pm
-  convert ix x (CoreRuntimePattern p pm) = CoreRuntimePattern p (mapRuntimePattern (convert @u ix x) (convert @u ix x) pm)
-  substitute ux x (CoreRuntimePattern p pm) = CoreRuntimePattern p (mapRuntimePattern (substitute ux x) (substitute ux x) pm)
+instance Algebra (u p) p (Type p) => Algebra (u p) p (RuntimePattern p p) where
+  freeVariables = foldRuntimePattern go go
+    where
+      go = freeVariables @(u p)
+  convert ix x = mapRuntimePattern go go
+    where
+      go = convert @(u p) ix x
+  substitute ux x = mapRuntimePattern go go
+    where
+      go = substitute ux x
 
 instance Algebra (Type p) p u => Algebra (Type p) p (Bound (RuntimePattern p p) u) where
   freeVariables (Bound pm e) = freeVariables @(Type p) pm <> freeVariables @(Type p) e
@@ -76,7 +84,7 @@ instance Algebra (Kind p) p u => Algebra (Kind p) p (Bound (RuntimePattern p p) 
   convert = substituteHigher (convert @(Kind p)) (convert @(Kind p))
 
 instance Semigroup p => Reduce (RuntimePattern p p) where
-  reduce (CoreRuntimePattern p pm) = CoreRuntimePattern p (mapRuntimePattern reduce reduce pm)
+  reduce = mapRuntimePattern reduce reduce
 
 instance Location (RuntimePattern p') where
   location (CoreRuntimePattern p _) = p

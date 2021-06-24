@@ -43,7 +43,7 @@ common aith-base
         MultiParamTypeClasses FunctionalDependencies DeriveTraversable
         FlexibleInstances FlexibleContexts NoMonomorphismRestriction
         TypeApplications ScopedTypeVariables AllowAmbiguousTypes
-        GeneralizedNewtypeDeriving LambdaCase EmptyCase
+        GeneralizedNewtypeDeriving LambdaCase TypeOperators 
 
     ghc-options:        -W -Worphans -Wcompat -Wincomplete-uni-patterns
     build-depends:

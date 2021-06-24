@@ -25,6 +25,7 @@ See ``/documentation`` for typing rules.
   * [x] Function Pointers
   * [x] Tuples
   * [ ] Choice (Sums) 
+* [x] Monadic Regions
 * [ ] Hindley Milner Subset
 * [x] C Code Generation
 * [ ] Javascript Code Generation
@@ -57,13 +58,18 @@ See ``/documentation`` for typing rules.
 | Function Application | ``e e' ``|
 | Function Literal | ``\pme => e`` |
 | Function Literal | ``\pme { e }`` |
-| Erased Qualified Assumption | ``_when σ => e `` |
-| Erased Qualified Assumption | ``_when σ { e } `` |
-| Erased Qualified Check | ``e?`` |
+| Qualified Assumption | ``_when σ => e `` |
+| Qualified Assumption | ``_when σ { e } `` |
+| Qualified Check | ``e?`` |
 | Pair Constructor (Left Associative) | ``(e,e',...)`` |
 | Recursive Type Introduction | ``_pack (pmσ => σ) e `` |
 | Recursive Type Introduction| ``_pack (pmσ { σ }) e `` |
 | Recursive Type Elimination | ``_unpack e`` |
+| Pure Region Transformer | ``_pure (π) e |
+| Bind Region Transformer | `` _do pm = e; e' `` |
+| Subtype Region Transformer | `` _cast (π) e `` |
+| Read Reference | `` _read e ``
+| Stack Variable Region | `` _stack (pmσ; _local pm = e) -> π { e' } `` |
 | Meta Term | `` ~e `` | 
 
 ## Meta Terms(em)
@@ -81,9 +87,9 @@ See ``/documentation`` for typing rules.
 | Kind Abstraction | ``` ``\pmκ => em``` |
 | Kind Abstraction | ``` ``\pmκ { em }``` |
 | Kind Application | ``` em``(κ) ``` |
-| Erased Qualified Assumption | ``_when σ => em `` |
-| Erased Qualified Assumption | ``_when σ { em } `` |
-| Erased Qualified Check | ``em?`` |
+| Qualified Assumption | ``_when σ => em `` |
+| Qualified Assumption | ``_when σ { em } `` |
+| Qualified Check | ``em?`` |
 | Runtime Term |`` #e `` | 
 
 
@@ -115,11 +121,14 @@ See ``/documentation`` for typing rules.
 | Poly Construction | `` σ`(κ) ``
 | Function Pointer | `` τ -> σ `` |
 | Function Literal Type | `` τ _function σ `` |
-| Erased Qualified Type | `` π =>? σ `` |
+| Qualified Type | `` _when π => σ `` |
 | Copy Predicate | ``_copy σ`` |
 | Pair (Left Associative) | ``#(σ, σ', ...)`` |
 | Recursive Type | `` _recursive pmσ => σ`` |
 | Recursive Type | `` _recursive pmσ { σ }`` |
+| Region Transformer | `` _state π σ `` |
+| Region Reference | `` _reference π σ `` |
+| Region Subtype | `` _outlive π π' `` |
 | Meta Type | `` ~σm `` |
 
 ## Meta Types(σm, τm, πm)
@@ -137,8 +146,7 @@ See ``/documentation`` for typing rules.
 | Type Construction | `` σm τm `` |
 | Poly Operator | `` `\pmκ => σm`` |
 | Poly Operator | `` `\pmκ { σm }`` |
-| Erased Qualified Type | `` πm =>? σm `` |
-| Copy Predicate | ``_copy σm`` |
+| Qualified Type | `` _when πm => σm `` |
 | Runtime Type | `` #σ `` |
 
 
@@ -158,7 +166,12 @@ See ``/documentation`` for typing rules.
 | Poly | `` `\/ x : μ => κ `` |
 | Poly | `` `\/ x : μ { κ } `` |
 | Constraint | `` _constraint `` |
-| Runtime | ``_runtime ρ`` |
+| Region | `` _region `` |
+| Runtime | ``_runtime ρ ρ'`` |
+| Code | `` _code `` |
+| Data | `` _data `` |
+| Real | `` _real ρ ``|
+| Imaginary (currently unused) | `` _imaginary `` |
 | Meta | ``_meta`` |
 | Text | ``_text`` |
 | Pointer Representation | ``_pointer``|
@@ -174,6 +187,8 @@ See ``/documentation`` for typing rules.
 |-|-|
 | Kind | ``_kind`` |
 | Stage | ``_stage`` |
+| Impact | ``_impact`` |
+| Existance | ``_existance`` |
 | Representation | ``_representation`` |
 
 # C Compiler Requirements
@@ -192,6 +207,9 @@ Useful / Inspirational papers:
 ### Levity polymorphism
 * [Levity Polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/11/levity-pldi17.pdf) [(video)](https://youtu.be/lSJwXZ7vWBw)
   * Implemented with more restrictive representation lambda.
+### Regions
+* [Monadic Regions](https://www.cs.cornell.edu/people/fluet/research/rgn-monad/JFP06/jfp06.pdf)
+  * Partially implemented, with more limited ways to create new region references 
 ### Compiler Design
 * [Invertible Syntax Descriptions: Unifying Parsing and Pretty Printing](https://www.mathematik.uni-marburg.de/~rendel/rendel10invertible.pdf)
   * Implemented with prisms instead of partial isomorphisms.

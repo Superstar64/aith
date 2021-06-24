@@ -1,0 +1,20 @@
+module:
+
+function _ :: `\/r : _region => `\/a : _type _runtime _data _real _struct (_pointer, _pointer) => _when _copy a => _reference r a -> _state r a;
+function deref = `\r : _region => `\a : _type _runtime _data _real _struct (_pointer, _pointer) => _when _copy a => \x : _reference r a {
+  _read x
+};
+
+function derefBoth =
+`\r1 : _region => `\r2 : _region => `\r3 : _region => _when _outlive r1 r3 => _when _outlive r2 r3 =>
+`\a : _type _runtime _data _real _pointer => _when _copy a => \(x : _reference r1 a, y : _reference r2 a) {
+  _do x1 : a = _cast (r3) _read x;
+  _do y1 : a = _cast (r3) _read y;
+  _pure (r3) (x1, y1)
+};
+
+function stackVariable = `\r : _region => `\a : _type _runtime _data _real _struct (_pointer, _pointer) => _when _copy a => \(x : a) {
+  _stack (r2 : _region; _local xptr : _reference r2 a = x) -> r {
+    deref `(r2) `(a) ? (xptr)
+  } 
+};

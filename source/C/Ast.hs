@@ -74,6 +74,8 @@ data Expression x
   | Call x [x] (Expression x) [Expression x]
   | CompoundLiteral x [Expression x]
   | Member (Expression x) String
+  | Dereference x (Expression x)
+  | Address (Expression x)
   deriving (Show, Functor, Foldable, Traversable)
 
 variable = Prism Variable $ \case
@@ -90,4 +92,12 @@ compoundLiteral = Prism (uncurry $ CompoundLiteral) $ \case
 
 member = Prism (uncurry $ Member) $ \case
   (Member value name) -> Just (value, name)
+  _ -> Nothing
+
+dereference = Prism (uncurry $ Dereference) $ \case
+  (Dereference pointer value) -> Just (pointer, value)
+  _ -> Nothing
+
+address = Prism Address $ \case
+  (Address value) -> Just value
   _ -> Nothing

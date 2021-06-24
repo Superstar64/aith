@@ -22,6 +22,11 @@ instance ToPrism Prism where
 instance ToPrism Isomorph where
   toPrism (Isomorph f g) = Prism f (Just . g)
 
+assumeIsomorph :: Prism a b -> Isomorph a b
+assumeIsomorph (Prism a b) = Isomorph a $ \x -> case b x of
+  Just b -> b
+  Nothing -> error "not isomorph"
+
 cons :: Prism (a, [a]) [a]
 cons = Prism (uncurry (:)) uncons
 

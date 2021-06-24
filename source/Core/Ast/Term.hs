@@ -9,7 +9,6 @@ import Core.Ast.RuntimePattern
 import Core.Ast.Type
 import Core.Ast.TypePattern
 import Data.Bifunctor (bimap)
-import Data.Functor.Const (Const (..), getConst)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import Misc.Identifier (Identifier)
 import Misc.Isomorph
@@ -18,17 +17,19 @@ import Misc.Symbol
 import qualified Misc.Variables as Variables
 import Prelude hiding (id, (.))
 
-data TermCommon d σ pm e
+data TermCommon d pmσ σ pm e
   = Variable Identifier
   | Alias e (Bound pm e)
   | Extern d d Symbol σ σ
   | FunctionApplication d d e e
   | RuntimePairIntroduction d e e
   | FunctionLiteral d (Bound pm e)
+  | ReadReference d e
+  | LocalRegion d (Bound pmσ (σ, (e, Bound pm e)))
   deriving (Show)
 
 data TermF p
-  = TermCommon (TermCommon () (Type p) (RuntimePattern p p) (Term p))
+  = TermCommon (TermCommon () (TypePattern p p) (Type p) (RuntimePattern p p) (Term p))
   | MacroAbstraction (Bound (Pattern p p) (Term p))
   | MacroApplication (Term p) (Term p)
   | TypeAbstraction (Bound (TypePattern p p) (Term p))
@@ -37,36 +38,85 @@ data TermF p
   | KindApplication (Term p) (Kind p)
   | OfCourseIntroduction (Term p)
   | Bind (Term p) (Bound (Pattern p p) (Term p))
-  | ErasedQualifiedAssume (Type p) (Term p)
-  | ErasedQualifiedCheck (Term p)
+  | QualifiedAssume (Type p) (Term p)
+  | QualifiedCheck (Term p)
   | Pack (Bound (TypePattern p p) (Type p)) (Term p)
   | Unpack (Term p)
+  | PureRegionTransformer (Type p) (Term p)
+  | DoRegionTransformer (Term p) (Bound (RuntimePattern p p) (Term p))
+  | CastRegionTransformer (Type p) (Term p)
   deriving (Show)
 
-traverseTerm term typex kind bound runtimeBound typeBound kindBound typeBoundType = go
+termf =
+  assumeIsomorph $
+    variable
+      `branch` alias
+      `branch` extern
+      `branch` functionApplication
+      `branch` runtimePairIntrouction
+      `branch` functionLiteral
+      `branch` readReference
+      `branch` localRegion
+      `branch` macroAbstraction
+      `branch` macroApplication
+      `branch` typeAbstraction
+      `branch` typeApplication
+      `branch` kindAbstraction
+      `branch` kindApplication
+      `branch` ofCourseIntroduction
+      `branch` bind
+      `branch` qualifiedAssume
+      `branch` qualifiedCheck
+      `branch` pack
+      `branch` unpack
+      `branch` pureRegionTransformer
+      `branch` doRegionTransformer
+      `branch` castRegionTransformer
+
+instance Functor TermF where
+  fmap f e = runIdentity $ traverseTermF term typex kind bound runtimeBound typeBound kindBound typeBound localRegion e
+    where
+      term = Identity . fmap f
+      typex = Identity . fmap f
+      kind = Identity . fmap f
+      bound = Identity . bimap (bimap f f) (fmap f)
+      runtimeBound = Identity . bimap (bimap f f) (fmap f)
+      typeBound = Identity . bimap (bimap f f) (fmap f)
+      kindBound = Identity . bimap (fmap f) (fmap f)
+      localRegion = Identity . bimap (bimap f f) (bimap (fmap f) (bimap (fmap f) (bimap (bimap f f) (fmap f))))
+      traverseTermF term typex kind bound runtimeBound typeBound kindBound typeBoundType localRegion = go
+        where
+          go (TermCommon (Variable x)) = TermCommon <$> (pure Variable <*> pure x)
+          go (MacroAbstraction λ) = pure MacroAbstraction <*> bound λ
+          go (MacroApplication e1 e2) = pure MacroApplication <*> term e1 <*> term e2
+          go (TypeAbstraction λ) = pure TypeAbstraction <*> typeBound λ
+          go (TypeApplication e σ) = pure TypeApplication <*> term e <*> typex σ
+          go (KindAbstraction λ) = pure KindAbstraction <*> kindBound λ
+          go (KindApplication e κ) = pure KindApplication <*> term e <*> kind κ
+          go (OfCourseIntroduction e) = pure OfCourseIntroduction <*> term e
+          go (Bind e λ) = pure Bind <*> term e <*> bound λ
+          go (TermCommon (Alias e λ)) = TermCommon <$> (pure Alias <*> term e <*> runtimeBound λ)
+          go (TermCommon (Extern dσ dτs sm σ τs)) = TermCommon <$> (pure Extern <*> pure dσ <*> pure dτs <*> pure sm <*> typex σ <*> typex τs)
+          go (TermCommon (FunctionApplication de1 de2s e1 e2s)) = TermCommon <$> (pure FunctionApplication <*> pure de1 <*> pure de2s <*> term e1 <*> term e2s)
+          go (TermCommon (FunctionLiteral dσ λ)) = TermCommon <$> (pure FunctionLiteral <*> pure dσ <*> runtimeBound λ)
+          go (QualifiedAssume π e) = pure QualifiedAssume <*> typex π <*> term e
+          go (QualifiedCheck e) = pure QualifiedCheck <*> term e
+          go (TermCommon (RuntimePairIntroduction dσ e e')) = TermCommon <$> (pure RuntimePairIntroduction <*> pure dσ <*> term e <*> term e')
+          go (Pack λ e) = pure Pack <*> typeBoundType λ <*> term e
+          go (Unpack e) = pure Unpack <*> term e
+          go (PureRegionTransformer π e) = pure PureRegionTransformer <*> typex π <*> term e
+          go (DoRegionTransformer e λ) = pure DoRegionTransformer <*> term e <*> runtimeBound λ
+          go (TermCommon (ReadReference dσ e)) = TermCommon <$> (pure ReadReference <*> pure dσ <*> term e)
+          go (CastRegionTransformer π e) = pure CastRegionTransformer <*> typex π <*> term e
+          go (TermCommon (LocalRegion dσ λ)) = TermCommon <$> (pure LocalRegion <*> pure dσ <*> localRegion λ)
+
+foldTerm f (CoreTerm _ e) = f $ from e
   where
-    go (TermCommon (Variable x)) = TermCommon <$> (pure Variable <*> pure x)
-    go (MacroAbstraction λ) = pure MacroAbstraction <*> bound λ
-    go (MacroApplication e1 e2) = pure MacroApplication <*> term e1 <*> term e2
-    go (TypeAbstraction λ) = pure TypeAbstraction <*> typeBound λ
-    go (TypeApplication e σ) = pure TypeApplication <*> term e <*> typex σ
-    go (KindAbstraction λ) = pure KindAbstraction <*> kindBound λ
-    go (KindApplication e κ) = pure KindApplication <*> term e <*> kind κ
-    go (OfCourseIntroduction e) = pure OfCourseIntroduction <*> term e
-    go (Bind e λ) = pure Bind <*> term e <*> bound λ
-    go (TermCommon (Alias e λ)) = TermCommon <$> (pure Alias <*> term e <*> runtimeBound λ)
-    go (TermCommon (Extern dσ dτs sm σ τs)) = TermCommon <$> (pure Extern <*> pure dσ <*> pure dτs <*> pure sm <*> typex σ <*> typex τs)
-    go (TermCommon (FunctionApplication de1 de2s e1 e2s)) = TermCommon <$> (pure FunctionApplication <*> pure de1 <*> pure de2s <*> term e1 <*> term e2s)
-    go (TermCommon (FunctionLiteral dσ λ)) = TermCommon <$> (pure FunctionLiteral <*> pure dσ <*> runtimeBound λ)
-    go (ErasedQualifiedAssume π e) = pure ErasedQualifiedAssume <*> typex π <*> term e
-    go (ErasedQualifiedCheck e) = pure ErasedQualifiedCheck <*> term e
-    go (TermCommon (RuntimePairIntroduction dσ e e')) = TermCommon <$> (pure RuntimePairIntroduction <*> pure dσ <*> term e <*> term e')
-    go (Pack λ e) = pure Pack <*> typeBoundType λ <*> term e
-    go (Unpack e) = pure Unpack <*> term e
+    (Isomorph _ from) = termf
 
-foldTerm term typex kind bound runtimeBound typeBound kindBound typeBoundType e = getConst $ traverseTerm (Const . term) (Const . typex) (Const . kind) (Const . bound) (Const . runtimeBound) (Const . typeBound) (Const . kindBound) (Const . typeBoundType) e
-
-mapTerm term typex kind bound runtimeBound typeBound kindBound typeBoundType e = runIdentity $ traverseTerm (Identity . term) (Identity . typex) (Identity . kind) (Identity . bound) (Identity . runtimeBound) (Identity . typeBound) (Identity . kindBound) (Identity . typeBoundType) e
+mapTerm f (CoreTerm p e) = CoreTerm p $ to $ f $ from e
+  where
+    (Isomorph to from) = termf
 
 termCommon = Prism TermCommon $ \case
   (TermCommon e) -> Just e
@@ -129,12 +179,17 @@ functionLiteral = (termCommon .) $
     (FunctionLiteral () λ) -> Just λ
     _ -> Nothing
 
-erasedQualifiedAssume = Prism (uncurry $ ErasedQualifiedAssume) $ \case
-  (ErasedQualifiedAssume π e) -> Just (π, e)
+localRegion = (termCommon .) $
+  Prism (LocalRegion ()) $ \case
+    (LocalRegion () λ) -> Just λ
+    _ -> Nothing
+
+qualifiedAssume = Prism (uncurry $ QualifiedAssume) $ \case
+  (QualifiedAssume π e) -> Just (π, e)
   _ -> Nothing
 
-erasedQualifiedCheck = Prism (ErasedQualifiedCheck) $ \case
-  (ErasedQualifiedCheck e) -> Just e
+qualifiedCheck = Prism (QualifiedCheck) $ \case
+  (QualifiedCheck e) -> Just e
   _ -> Nothing
 
 runtimePairIntrouction = (termCommon .) $
@@ -150,16 +205,22 @@ unpack = Prism (Unpack) $ \case
   (Unpack e) -> Just e
   _ -> Nothing
 
-instance Functor TermF where
-  fmap f e = mapTerm term typex kind bound runtimeBound typeBound kindBound typeBound e
-    where
-      term = fmap f
-      typex = fmap f
-      kind = fmap f
-      bound = bimap (bimap f f) (fmap f)
-      runtimeBound = bimap (bimap f f) (fmap f)
-      typeBound = bimap (bimap f f) (fmap f)
-      kindBound = bimap (fmap f) (fmap f)
+pureRegionTransformer = Prism (uncurry PureRegionTransformer) $ \case
+  (PureRegionTransformer π e) -> Just (π, e)
+  _ -> Nothing
+
+doRegionTransformer = Prism (uncurry DoRegionTransformer) $ \case
+  (DoRegionTransformer e λ) -> Just (e, λ)
+  _ -> Nothing
+
+readReference = (termCommon .) $
+  Prism (ReadReference ()) $ \case
+    (ReadReference () e) -> Just e
+    _ -> Nothing
+
+castRegionTransformer = Prism (uncurry CastRegionTransformer) $ \case
+  (CastRegionTransformer π e) -> Just (π, e)
+  _ -> Nothing
 
 data Term p = CoreTerm p (TermF p) deriving (Functor, Show)
 
@@ -183,39 +244,21 @@ avoidCaptureTermConvert = avoidCaptureGeneral internalVariable (convert @(Term p
 
 instance Semigroup p => Algebra (Term p) p (Term p) where
   freeVariables (CoreTerm p (TermCommon (Variable x))) = Variables.singleton x p
-  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go go e
-    where
-      go = freeVariables @(Term p)
+  freeVariables e = foldTerm (freeVariables @(Term p)) e
   convert ix x (CoreTerm p (TermCommon (Variable x'))) | x == x' = CoreTerm p $ TermCommon $ Variable ix
-  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
-    where
-      go = convert @(Term p) ix x
+  convert ix x e = mapTerm (convert @(Term p) ix x) e
   substitute ux x (CoreTerm _ (TermCommon (Variable x'))) | x == x' = ux
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
-    where
-      go = substitute ux x
+  substitute ux x e = mapTerm (substitute ux x) e
 
 instance Semigroup p => Algebra (Type p) p (Term p) where
-  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go go e
-    where
-      go = freeVariables @(Type p)
-  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
-    where
-      go = convert @(Type p) ix x
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
-    where
-      go = substitute ux x
+  freeVariables = foldTerm (freeVariables @(Type p))
+  convert ix x = mapTerm (convert @(Type p) ix x)
+  substitute ux x = mapTerm (substitute ux x)
 
 instance Semigroup p => Algebra (Kind p) p (Term p) where
-  freeVariables (CoreTerm _ e) = foldTerm go go go go go go go go e
-    where
-      go = freeVariables @(Kind p)
-  convert ix x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
-    where
-      go = convert @(Kind p) ix x
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTerm go go go go go go go go e
-    where
-      go = substitute ux x
+  freeVariables = foldTerm (freeVariables @(Kind p))
+  convert ix x = mapTerm (convert @(Kind p) ix x)
+  substitute ux x = mapTerm (substitute ux x)
 
 instance Semigroup p => Algebra (Term p) p (Type p) where
   freeVariables _ = mempty
@@ -247,17 +290,13 @@ instance (Algebra (Term p) p u, Algebra (Kind p) p u) => Algebra (Term p) p (Bou
   convert = substituteLower (convert @(Term p)) (flip const)
   substitute = substituteLower substitute avoidCaptureKind
 
-reduceTermImpl (Bind e λ) = let CoreTerm _ e' = apply λ (reduce e) in e'
-reduceTermImpl (MacroApplication e1 e2) | (CoreTerm _ (MacroAbstraction λ)) <- reduce e1 = let CoreTerm _ e' = apply λ (reduce e2) in e'
-reduceTermImpl (TypeApplication e σ) | (CoreTerm _ (TypeAbstraction λ)) <- reduce e = let CoreTerm _ e' = apply λ (reduce σ) in e'
-reduceTermImpl (KindApplication e κ) | (CoreTerm _ (KindAbstraction λ)) <- reduce e = let CoreTerm _ e' = apply λ (reduce κ) in e'
-reduceTermImpl (ErasedQualifiedCheck e) | (CoreTerm _ (ErasedQualifiedAssume _ e')) <- reduce e = let CoreTerm _ e'' = e' in e''
-reduceTermImpl e = mapTerm go go go go go go go go e
-  where
-    go = reduce
-
 instance Semigroup p => Reduce (Term p) where
-  reduce (CoreTerm p e) = CoreTerm p (reduceTermImpl e)
+  reduce (CoreTerm _ (Bind e λ)) = apply (reduce λ) (reduce e) -- todo is (reduce λ) necessary here?
+  reduce (CoreTerm _ (MacroApplication e1 e2)) | (CoreTerm _ (MacroAbstraction λ)) <- reduce e1 = apply λ (reduce e2)
+  reduce (CoreTerm _ (TypeApplication e σ)) | (CoreTerm _ (TypeAbstraction λ)) <- reduce e = apply λ (reduce σ)
+  reduce (CoreTerm _ (KindApplication e κ)) | (CoreTerm _ (KindAbstraction λ)) <- reduce e = apply λ (reduce κ)
+  reduce (CoreTerm _ (QualifiedCheck e)) | (CoreTerm _ (QualifiedAssume _ e')) <- reduce e = e'
+  reduce e = mapTerm reduce e
 
 instance Semigroup p => Apply (Bound (Pattern p p) (Term p)) (Term p) (Term p) where
   apply (Bound (CorePattern _ (PatternVariable x _)) e) ux = reduce $ substitute ux x e

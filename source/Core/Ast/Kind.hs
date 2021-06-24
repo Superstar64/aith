@@ -3,7 +3,6 @@ module Core.Ast.Kind where
 import Core.Ast.Common
 import Core.Ast.KindPattern
 import Data.Bifunctor (bimap)
-import Data.Functor.Const (Const (..), getConst)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import Misc.Identifier (Identifier)
 import Misc.Isomorph
@@ -16,32 +15,64 @@ data KindF p
   | Higher (Kind p) (Kind p)
   | Poly (Bound (KindPattern p) (Kind p))
   | Constraint
-  | Runtime (Kind p)
+  | Region
+  | Runtime (Kind p) (Kind p)
+  | Code
+  | Data
+  | Imaginary
+  | Real (Kind p)
   | Meta
   | Text
   | PointerRep
   | StructRep [Kind p]
   deriving (Show)
 
-traverseKind kind bound = go
-  where
-    go (KindVariable x) = pure KindVariable <*> pure x
-    go (Type κ) = pure Type <*> kind κ
-    go (Higher κ κ') = pure Higher <*> kind κ <*> kind κ'
-    go (Poly λ) = pure Poly <*> bound λ
-    go Constraint = pure Constraint
-    go (Runtime κ) = pure Runtime <*> kind κ
-    go Meta = pure Meta
-    go Text = pure Text
-    go PointerRep = pure PointerRep
-    go (StructRep ρs) = pure StructRep <*> traverse kind ρs
-
-mapKind kind bound κ = runIdentity $ traverseKind (Identity . kind) (Identity . bound) κ
-
-foldKind kind bound κ = getConst $ traverseKind (Const . kind) (Const . bound) κ
+kindp =
+  assumeIsomorph $
+    kindVariable
+      `branch` typex
+      `branch` higher
+      `branch` poly
+      `branch` constraint
+      `branch` region
+      `branch` runtime
+      `branch` code
+      `branch` datax
+      `branch` imaginary
+      `branch` real
+      `branch` meta
+      `branch` text
+      `branch` pointerRep
+      `branch` structRep
 
 instance Functor KindF where
-  fmap f κ = mapKind (fmap f) (bimap (fmap f) (fmap f)) κ
+  fmap f = runIdentity . traverseKindF (Identity . fmap f) (Identity . bimap (fmap f) (fmap f))
+    where
+      traverseKindF kind bound = go
+        where
+          go (KindVariable x) = pure KindVariable <*> pure x
+          go (Type κ) = pure Type <*> kind κ
+          go (Higher κ κ') = pure Higher <*> kind κ <*> kind κ'
+          go (Poly λ) = pure Poly <*> bound λ
+          go Constraint = pure Constraint
+          go Region = pure Region
+          go (Runtime κ κ') = pure Runtime <*> kind κ <*> kind κ'
+          go Code = pure Code
+          go Data = pure Data
+          go Imaginary = pure Imaginary
+          go (Real κ) = pure Real <*> kind κ
+          go Meta = pure Meta
+          go Text = pure Text
+          go PointerRep = pure PointerRep
+          go (StructRep ρs) = pure StructRep <*> traverse kind ρs
+
+mapKind f (CoreKind p κ) = CoreKind p (to $ f $ from κ)
+  where
+    (Isomorph to from) = kindp
+
+foldKind f (CoreKind _ κ) = f $ from κ
+  where
+    (Isomorph _ from) = kindp
 
 kindVariable = Prism KindVariable $ \case
   (KindVariable x) -> Just x
@@ -63,8 +94,28 @@ constraint = Prism (const Constraint) $ \case
   Constraint -> Just ()
   _ -> Nothing
 
-runtime = Prism Runtime $ \case
-  (Runtime κ) -> Just κ
+region = Prism (const Region) $ \case
+  Region -> Just ()
+  _ -> Nothing
+
+runtime = Prism (uncurry Runtime) $ \case
+  (Runtime κ κ') -> Just (κ, κ')
+  _ -> Nothing
+
+code = Prism (const Code) $ \case
+  Code -> Just ()
+  _ -> Nothing
+
+datax = Prism (const Data) $ \case
+  Data -> Just ()
+  _ -> Nothing
+
+imaginary = Prism (const Imaginary) $ \case
+  Imaginary -> Just ()
+  _ -> Nothing
+
+real = Prism Real $ \case
+  (Real κ) -> Just κ
   _ -> Nothing
 
 meta = Prism (const Meta) $ \case
@@ -107,17 +158,11 @@ avoidCaptureKindConvert = avoidCaptureGeneral internalVariable (convert @(Kind p
 
 instance Semigroup p => Algebra (Kind p) p (Kind p) where
   freeVariables (CoreKind p (KindVariable x)) = Variables.singleton x p
-  freeVariables (CoreKind _ κ) = foldKind go go κ
-    where
-      go = freeVariables @(Kind p)
+  freeVariables κ = foldKind (freeVariables @(Kind p)) κ
   substitute ux x (CoreKind _ (KindVariable x')) | x == x' = ux
-  substitute ux x (CoreKind p κ) = CoreKind p $ mapKind go go κ
-    where
-      go = substitute ux x
+  substitute ux x κ = mapKind (substitute ux x) κ
   convert ix x (CoreKind p (KindVariable x')) | x == x' = CoreKind p (KindVariable ix)
-  convert ix x (CoreKind p κ) = CoreKind p $ mapKind go go κ
-    where
-      go = convert @(Kind p) ix x
+  convert ix x κ = mapKind (convert @(Kind p) ix x) κ
 
 instance Algebra (Kind p) p u => Algebra (Kind p) p (Bound (KindPattern p) u) where
   freeVariables (Bound pm σ) = removeBinds (freeVariables @(Kind p) σ) (bindings pm)

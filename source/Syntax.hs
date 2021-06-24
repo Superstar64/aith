@@ -105,7 +105,14 @@ semiPath = token "/" ≫ pathTail ∥ nil ⊣ always
   where
     pathTail = cons ⊣ identifer ⊗ (token "/" ≫ pathTail ∥ nil ⊣ always)
 
-sort = Core.kind ⊣ keyword "kind" ∥ Core.stage ⊣ keyword "stage" ∥ Core.representation ⊣ keyword "representation"
+sort =
+  choice
+    [ Core.kind ⊣ keyword "kind",
+      Core.stage ⊣ keyword "stage",
+      Core.impact ⊣ keyword "impact",
+      Core.existance ⊣ keyword "existance",
+      Core.representation ⊣ keyword "representation"
+    ]
 
 kindPattern = Core.coreKindPattern ⊣ position ⊗ core
   where
@@ -126,8 +133,13 @@ kind = kindBottom
             ⊗ choice
               [ Core.kindVariable ⊣ identifer,
                 Core.typex ⊣ prefixKeyword "type" ≫ kindCore,
-                Core.runtime ⊣ prefixKeyword "runtime" ≫ kindCore,
+                Core.runtime ⊣ prefixKeyword "runtime" ≫ kindCore ⊗ space ≫ kindCore,
+                Core.code ⊣ keyword "code",
+                Core.datax ⊣ keyword "data",
+                Core.imaginary ⊣ keyword "imaginary",
+                Core.real ⊣ prefixKeyword "real" ≫ kindCore,
                 Core.constraint ⊣ keyword "constraint",
+                Core.region ⊣ prefixKeyword "region",
                 Core.meta ⊣ keyword "meta",
                 Core.text ⊣ keyword "text",
                 Core.pointerRep ⊣ keyword "pointer",
@@ -154,7 +166,8 @@ typex mode = typeBottom
             Core.kindForall ⊣ Core.bound ⊣ token "``\\/" ≫ kindPattern ⊗ lambda typeBottom,
             Core.typeOperator ⊣ Core.bound ⊣ token "\\" ≫ typePattern ⊗ lambda typeBottom,
             Core.polyOperator ⊣ Core.bound ⊣ token "`\\" ≫ kindPattern ⊗ lambda typeBottom,
-            recursive
+            recursive,
+            Core.qualifiedx ⊣ prefixKeyword "when" ≫ typeBottom ⊗ lambda typeBottom
           ]
         recursive = case mode of
           Runtime -> Core.recursive ⊣ Core.bound ⊣ prefixKeyword "recursive" ≫ typePattern ⊗ lambda typeBottom
@@ -174,14 +187,14 @@ typex mode = typeBottom
             binary = binaryCommon ⊕ (space ≫ prefixKeyword "function" ≫ typeBottom) ⊕ always
             functionLiteralType = withInnerPosition Core.coreType Core.functionLiteralType
       where
-        binaryCommon = binaryToken "->" ≫ typeBottom ⊕ binaryToken "=>?" ≫ typeBottom
-        applyBinaryCommon = arrow `branchDistribute` erasedQualified
+        binaryCommon = binaryToken "->" ≫ typeBottom
+        applyBinaryCommon = arrow
         arrow = withInnerPosition Core.coreType prism
           where
             prism = case mode of
               Meta -> Core.macro
               Runtime -> Core.functionPointer
-        erasedQualified = withInnerPosition Core.coreType Core.erasedQualified
+
     typePostfix = foldlP applyPostfix ⊣ typeCore ⊗ many postfix
       where
         applyPostfix = polyConstruction `branchDistribute` typeConstruction
@@ -192,14 +205,14 @@ typex mode = typeBottom
       where
         core = Core.coreType ⊣ position ⊗ choice options
         options =
-          [ Core.typeVariable ⊣ identifer,
-            ofCourse,
-            Core.copy ⊣ prefixKeyword "copy" ≫ typeCore
-          ]
-          where
-            ofCourse = case mode of
-              Runtime -> never
-              Meta -> Core.ofCourse ⊣ token "!" ≫ typeCore
+          [Core.typeVariable ⊣ identifer] ++ case mode of
+            Meta -> [Core.ofCourse ⊣ token "!" ≫ typeCore]
+            Runtime ->
+              [ Core.regionTransformer ⊣ prefixKeyword "state" ≫ typeCore ⊗ space ≫ typeCore,
+                Core.regionReference ⊣ prefixKeyword "reference" ≫ typeCore ⊗ space ≫ typeCore,
+                Core.regionSubtype ⊣ prefixKeyword "outlive" ≫ typeCore ⊗ space ≫ typeCore,
+                Core.copy ⊣ prefixKeyword "copy" ≫ typeCore
+              ]
     categorize (Core.CoreType _ σ) = go σ
       where
         go (Core.TypeVariable _) = mode
@@ -213,10 +226,13 @@ typex mode = typeBottom
         go (Core.PolyOperator _) = mode
         go (Core.FunctionPointer _ _) = Runtime
         go (Core.FunctionLiteralType _ _) = Runtime
-        go (Core.ErasedQualified _ _) = mode
-        go (Core.Copy _) = mode
+        go (Core.Qualified _ _) = mode
+        go (Core.Copy _) = Runtime
         go (Core.RuntimePair _ _) = Runtime
         go (Core.Recursive _) = Runtime
+        go (Core.RegionTransformer _ _) = Runtime
+        go (Core.RegionReference _ _) = Runtime
+        go (Core.RegionSubtype _ _) = Runtime
 
 pattern = patternBottom
   where
@@ -242,6 +258,9 @@ runtimePattern = patternBottom
 term mode = termBottom
   where
     typexx = typex mode
+    binderPattern name = prefixKeyword name ≫ pattern ≪ binaryToken "=" ⊗ termBottom ≪ token ";" ⊗ line ≫ termBottom
+    binderRuntimeCore name = prefixKeyword name ≫ runtimePattern ≪ binaryToken "=" ⊗ termBottom
+    binderRuntime name = binderRuntimeCore name ≪ token ";" ⊗ line ≫ termBottom
     termParens = case mode of
       Runtime -> foldlP runtimePairIntrouction ⊣ betweenParens (inverse nonEmpty ⊣ commaSeperatedSome termBottom)
         where
@@ -252,7 +271,7 @@ term mode = termBottom
         ⊗ choice
           [ Core.typeAbstraction ⊣ Core.bound ⊣ token "`\\" ≫ typePattern ⊗ lambda termBottom,
             Core.kindAbstraction ⊣ Core.bound ⊣ token "``\\" ≫ kindPattern ⊗ lambda termBottom,
-            Core.erasedQualifiedAssume ⊣ prefixKeyword "when" ≫ typexx ⊗ lambda termBottom
+            Core.qualifiedAssume ⊣ prefixKeyword "when" ≫ typexx ⊗ lambda termBottom
           ]
     termBottom = case mode of
       Meta -> pick ((== Meta) . categorize) termBase (token "#" ≫ term Runtime)
@@ -263,16 +282,19 @@ term mode = termBottom
         binding =
           let rotateBind = secondI Core.bound . associate . firstI swap
            in Core.coreTerm ⊣ position ⊗ case mode of
-                Meta -> Core.bind ⊣ rotateBind ⊣ prefixKeyword "let" ≫ pattern ≪ binaryToken "=" ⊗ termBottom ≪ token ";" ⊗ line ≫ termBottom
-                Runtime -> Core.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ runtimePattern ≪ binaryToken "=" ⊗ termBottom ≪ token ";" ⊗ line ≫ termBottom
-        applyPostfix = typeApplication `branchDistribute` kindApplication `branchDistribute` erasedQualifiedCheck `branchDistribute` application
+                Meta -> Core.bind ⊣ rotateBind ⊣ binderPattern "let"
+                Runtime -> letx ∥ doRegionTransformer
+                  where
+                    letx = Core.alias ⊣ rotateBind ⊣ binderRuntime "let"
+                    doRegionTransformer = Core.doRegionTransformer ⊣ rotateBind ⊣ binderRuntime "do"
+        applyPostfix = typeApplication `branchDistribute` kindApplication `branchDistribute` qualifiedCheck `branchDistribute` application
         postfix = betweenTypeParens typexx ⊕ betweenKindParens kind ⊕ token "?" ⊕ termCore
         application = withInnerPosition Core.coreTerm $ case mode of
           Meta -> Core.macroApplication
           Runtime -> Core.functionApplication
         typeApplication = withInnerPosition Core.coreTerm Core.typeApplication
         kindApplication = withInnerPosition Core.coreTerm Core.kindApplication
-        erasedQualifiedCheck = withInnerPosition Core.coreTerm (Core.erasedQualifiedCheck . toPrism unit')
+        qualifiedCheck = withInnerPosition Core.coreTerm (Core.qualifiedCheck . toPrism unit')
     termCore = core ∥ termLambda lambdaInline ∥ termParens
       where
         core = Core.coreTerm ⊣ position ⊗ choice options
@@ -282,8 +304,14 @@ term mode = termBottom
             Runtime ->
               [ Core.extern ⊣ prefixKeyword "extern" ≫ symbol ≪ space ⊗ betweenParens typexx ⊗ betweenParens typexx,
                 Core.pack ⊣ prefixKeyword "pack" ≫ betweenParens (Core.bound ⊣ typePattern ⊗ lambdaInline typexx) ⊗ space ≫ termCore,
-                Core.unpack ⊣ prefixKeyword "unpack" ≫ termCore
+                Core.unpack ⊣ prefixKeyword "unpack" ≫ termCore,
+                Core.pureRegionTransformer ⊣ prefixKeyword "pure" ≫ betweenParens typexx ⊗ space ≫ termCore,
+                Core.readReference ⊣ prefixKeyword "read" ≫ termCore,
+                Core.castRegionTransformer ⊣ prefixKeyword "cast" ≫ betweenParens typexx ⊗ space ≫ termCore,
+                Core.localRegion ⊣ Core.bound ⊣ fixRegion ⊣ localRegion
               ]
+        fixRegion = secondI (secondI (secondI bound . associate . firstI swap) . associate . firstI swap) . associate . firstI associate
+        localRegion = prefixKeyword "stack" ≫ betweenParens (typePattern ⊗ token ";" ≫ binderRuntimeCore "local") ⊗ binaryToken "->" ≫ typexx ⊗ lambdaMajor termBottom
         abstract = case mode of
           Meta -> Core.macroAbstraction ⊣ Core.bound ⊣ token "\\" ≫ pattern ⊗ lambdaMajor termBottom
           Runtime -> Core.functionLiteral ⊣ Core.bound ⊣ token "\\" ≫ runtimePattern ⊗ lambdaMajor termBottom
@@ -302,11 +330,16 @@ term mode = termBottom
         go (Core.TermCommon (Core.FunctionApplication _ _ _ _)) = Runtime
         go (Core.TermCommon (Core.Extern _ _ _ _ _)) = Runtime
         go (Core.TermCommon (Core.FunctionLiteral _ _)) = Runtime
-        go (Core.ErasedQualifiedAssume _ _) = mode
-        go (Core.ErasedQualifiedCheck _) = mode
+        go (Core.QualifiedAssume _ _) = mode
+        go (Core.QualifiedCheck _) = mode
         go (Core.TermCommon (Core.RuntimePairIntroduction _ _ _)) = Runtime
         go (Core.Pack _ _) = Runtime
         go (Core.Unpack _) = Runtime
+        go (Core.PureRegionTransformer _ _) = Runtime
+        go (Core.DoRegionTransformer _ _) = Runtime
+        go (Core.TermCommon (Core.ReadReference _ _)) = Runtime
+        go (Core.CastRegionTransformer _ _) = Runtime
+        go (Core.TermCommon (Core.LocalRegion _ _)) = Runtime
 
 modulex ::
   (Syntax δ, Position δ p) =>

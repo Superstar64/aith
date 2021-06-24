@@ -12,13 +12,13 @@ import qualified Data.Map as Map
 
 data PatternDecorated p = PatternDecorated (C.Representation C.RepresentationFix) p (PatternCommon () (PatternDecorated p))
 
-data TermDecerated p = TermDecerated p (TermCommon (C.Representation C.RepresentationFix) () (PatternDecorated p) (TermDecerated p))
+data TermDecerated p = TermDecerated p (TermCommon (C.Representation C.RepresentationFix) () () (PatternDecorated p) (TermDecerated p))
 
 decorateImpl (CoreKind _ PointerRep) = C.Pointer
 decorateImpl (CoreKind _ (StructRep ρs)) = C.Struct $ C.RepresentationFix $ decorateImpl <$> ρs
 decorateImpl _ = error "unable to decorate kind"
 
-decoration (CoreKind _ (Type (CoreKind _ (Runtime κ)))) = decorateImpl κ
+decoration (CoreKind _ (Type (CoreKind _ (Runtime _ (CoreKind _ (Real κ)))))) = decorateImpl κ
 decoration _ = error "unable to decorate kind"
 
 augmentVariable p x σ e = modifyTypeEnvironment (Map.insert x (p, Unrestricted, σ)) e
@@ -52,8 +52,8 @@ decorateTerm (CoreTerm p (TermCommon (FunctionLiteral () (Bound pm e)))) = do
   e' <- augmentPattern pm (decorateTerm e)
   dτ <- decoration <$> augmentPattern pm (typeCheck =<< typeCheck e)
   pure $ TermDecerated p $ FunctionLiteral dτ (Bound dpm e')
-decorateTerm (CoreTerm _ (ErasedQualifiedAssume _ e)) = decorateTerm e
-decorateTerm (CoreTerm _ (ErasedQualifiedCheck e)) = decorateTerm e
+decorateTerm (CoreTerm _ (QualifiedAssume _ e)) = decorateTerm e
+decorateTerm (CoreTerm _ (QualifiedCheck e)) = decorateTerm e
 decorateTerm (CoreTerm p (TermCommon (Alias e1 (Bound pm e2)))) = do
   pm' <- decoratePattern pm
   e1' <- decorateTerm e1
@@ -68,6 +68,19 @@ decorateTerm (CoreTerm p (TermCommon (RuntimePairIntroduction () e1 e2))) = do
   pure (TermDecerated p (RuntimePairIntroduction dσ e1' e2'))
 decorateTerm (CoreTerm _ (Pack _ e)) = decorateTerm e
 decorateTerm (CoreTerm _ (Unpack e)) = decorateTerm e
+decorateTerm (CoreTerm _ (PureRegionTransformer _ e)) = decorateTerm e
+decorateTerm (CoreTerm p (DoRegionTransformer e λ)) = decorateTerm (CoreTerm p (TermCommon (Alias e λ)))
+decorateTerm e2@(CoreTerm p (TermCommon (ReadReference () e))) = do
+  e' <- decorateTerm e
+  dσ <- decoration <$> (typeCheck =<< typeCheck e2)
+  pure (TermDecerated p (ReadReference dσ e'))
+decorateTerm (CoreTerm _ (CastRegionTransformer _ e)) = decorateTerm e
+decorateTerm (CoreTerm p (TermCommon (LocalRegion () (Bound pmσ (_, (e1, (Bound pm e2))))))) = do
+  e1' <- augment pmσ $ decorateTerm e1
+  pm' <- augment pmσ $ decoratePattern pm
+  dσ <- decoration <$> (typeCheck =<< augment pmσ (typeCheck e1))
+  e2' <- augment pmσ (augmentPattern pm (decorateTerm e2))
+  pure $ TermDecerated p (LocalRegion dσ (Bound () ((), (e1', Bound pm' e2'))))
 decorateTerm _ = error "unable to decorate term"
 
 runDecorate :: Core.TypeCheck.Core Internal Identity a -> a

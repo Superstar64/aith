@@ -28,10 +28,10 @@ instance Semigroup p => Binder p (TypePattern p p) where
   rename ux x (CoreTypePattern p (TypePatternVariable x' κ)) | x == x' = (CoreTypePattern p (TypePatternVariable ux κ))
   rename _ _ pm = pm
 
-instance Algebra u p (Kind p) => Algebra u p (TypePattern p p) where
-  freeVariables (CoreTypePattern _ (TypePatternVariable _ κ)) = freeVariables @u κ
+instance Algebra (u p) p (Kind p) => Algebra (u p) p (TypePattern p p) where
+  freeVariables (CoreTypePattern _ (TypePatternVariable _ κ)) = freeVariables @(u p) κ
   substitute ux x (CoreTypePattern p (TypePatternVariable x' κ)) = CoreTypePattern p $ (TypePatternVariable x' (substitute ux x κ))
-  convert ix x (CoreTypePattern p (TypePatternVariable x' κ)) = CoreTypePattern p $ (TypePatternVariable x' (convert @u ix x κ))
+  convert ix x (CoreTypePattern p (TypePatternVariable x' κ)) = CoreTypePattern p $ (TypePatternVariable x' (convert @(u p) ix x κ))
 
 instance Algebra (Kind p) p u => Algebra (Kind p) p (Bound (TypePattern p p) u) where
   freeVariables (Bound pm σ) = freeVariables @(Kind p) pm <> freeVariables @(Kind p) σ

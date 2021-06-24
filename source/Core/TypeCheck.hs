@@ -70,6 +70,8 @@ instance (Match p e, Algebra KindInternal Internal e) => Match p (Bound KindPatt
 instance Match p Sort where
   match _ Kind Kind = pure ()
   match _ Stage Stage = pure ()
+  match _ Impact Impact = pure ()
+  match _ Existance Existance = pure ()
   match _ Representation Representation = pure ()
   match p μ μ' = quit $ IncompatibleSort p μ μ'
 
@@ -82,11 +84,18 @@ instance Match p (KindF Internal) where
     match p κ2 κ2'
   match p (Poly λ) (Poly λ') = match p λ λ'
   match _ Constraint Constraint = pure ()
-  match p (Runtime ρ) (Runtime ρ') = match p ρ ρ'
+  match p (Runtime ρ ρ2) (Runtime ρ' ρ2') = do
+    match p ρ ρ'
+    match p ρ2 ρ2'
+  match _ Code Code = pure ()
+  match _ Data Data = pure ()
+  match _ Imaginary Imaginary = pure ()
+  match p (Real ρ) (Real ρ') = match p ρ ρ'
   match _ Meta Meta = pure ()
   match _ Text Text = pure ()
   match _ PointerRep PointerRep = pure ()
   match p (StructRep κs) (StructRep κs') = sequence_ $ zipWith (match p) κs κs'
+  match _ Region Region = pure ()
   match p κ κ' = quit $ IncompatibleKind p (CoreKind Internal κ) (CoreKind Internal κ')
 
 instance Match p KindInternal where
@@ -113,7 +122,7 @@ instance Match p (TypeF Internal) where
   match p (FunctionLiteralType σ τ) (FunctionLiteralType σ' τ') = do
     match p σ σ'
     match p τ τ'
-  match p (ErasedQualified π σ) (ErasedQualified π' σ') = do
+  match p (Qualified π σ) (Qualified π' σ') = do
     match p π π'
     match p σ σ'
   match p (Copy σ) (Copy σ') = match p σ σ'
@@ -121,6 +130,15 @@ instance Match p (TypeF Internal) where
     match p σ σ'
     match p τ τ'
   match p (Recursive λ) (Recursive λ') = match p λ λ'
+  match p (RegionTransformer π σ) (RegionTransformer π' σ') = do
+    match p π π'
+    match p σ σ'
+  match p (RegionReference π σ) (RegionReference π' σ') = do
+    match p π π'
+    match p σ σ'
+  match p (RegionSubtype π1 π2) (RegionSubtype π1' π2') = do
+    match p π1 π1'
+    match p π2 π2'
   match p σ σ' = quit $ IncompatibleType p (CoreType Internal σ) (CoreType Internal σ')
 
 instance Match p TypeInternal where
@@ -131,6 +149,12 @@ checkKind p μ = quit $ ExpectedKind p μ
 
 checkStage _ Stage = pure ()
 checkStage p μ = quit $ ExpectedStage p μ
+
+checkImpact _ Impact = pure ()
+checkImpact p μ = quit $ ExpectedImpact p μ
+
+checkExistance _ Existance = pure ()
+checkExistance p μ = quit $ ExpectedExistance p μ
 
 checkRepresentation _ Representation = pure ()
 checkRepresentation p μ = quit $ ExpectedRepresentation p μ
@@ -147,11 +171,20 @@ checkPoly p κ = quit $ ExpectedPoly p κ
 checkConstraint _ (CoreKind Internal Constraint) = pure ()
 checkConstraint p κ = quit $ ExpectedConstraint p κ
 
-checkRuntime _ (CoreKind Internal (Runtime κ)) = pure κ
+checkRegion _ (CoreKind Internal Region) = pure ()
+checkRegion p κ = quit $ ExpectedRegion p κ
+
+checkRuntime _ (CoreKind Internal (Runtime κ κ')) = pure (κ, κ')
 checkRuntime p κ = quit $ ExpectedRuntime p κ
 
 checkText _ (CoreKind Internal Text) = pure ()
 checkText p κ = quit $ ExpectedText p κ
+
+checkData _ (CoreKind Internal Data) = pure ()
+checkData p κ = quit $ ExpectedData p κ
+
+checkReal _ (CoreKind Internal (Real κ)) = pure κ
+checkReal p κ = quit $ ExpectedReal p κ
 
 checkMacro _ (CoreType Internal (Macro σ τ)) = pure (σ, τ)
 checkMacro p σ = quit $ ExpectedMacro p σ
@@ -168,11 +201,17 @@ checkOfCourse p σ = quit $ ExpectedOfCourse p σ
 checkFunctionPointer _ (CoreType Internal (FunctionPointer σ τ)) = pure (σ, τ)
 checkFunctionPointer p σ = quit $ ExpectedFunctionPointer p σ
 
-checkErasedQualified _ (CoreType Internal (ErasedQualified π σ)) = pure (π, σ)
-checkErasedQualified p σ = quit $ ExpectedErasedQualified p σ
+checkQualified _ (CoreType Internal (Qualified π σ)) = pure (π, σ)
+checkQualified p σ = quit $ ExpectedQualified p σ
 
 checkRecursive _ (CoreType Internal (Recursive λ)) = pure λ
 checkRecursive p σ = quit $ ExpectedRecursive p σ
+
+checkRegionTransformer _ (CoreType Internal (RegionTransformer π σ)) = pure (π, σ)
+checkRegionTransformer p σ = quit $ ExpectedRegionTransformer p σ
+
+checkRegionReference _ (CoreType Internal (RegionReference π σ)) = pure (π, σ)
+checkRegionReference p σ = quit $ ExpectedRegionReference p σ
 
 class Augment p pm | pm -> p where
   augment :: Base p m => pm -> Core p m a -> Core p m a
@@ -226,6 +265,7 @@ checkAssumptionImpl p (CoreType _ (Copy (CoreType Internal (RuntimePair σ τ)))
   checkAssumption p (CoreType Internal (Copy τ))
 checkAssumptionImpl p (CoreType _ (Copy (CoreType _ (Recursive (Bound (CoreTypePattern _ (TypePatternVariable x _)) σ))))) [] = do
   augmentAssumption (CoreType Internal $ Copy $ CoreType Internal $ TypeVariable x) $ checkAssumption p (CoreType Internal (Copy σ))
+checkAssumptionImpl _ (CoreType _ (Copy (CoreType Internal (RegionReference _ _)))) [] = pure ()
 checkAssumptionImpl p π [] = quit $ NoProof p π
 
 checkAssumption p π = do
@@ -292,7 +332,7 @@ instance TypeCheck p (RuntimePattern p p) TypeInternal where
 instance TypeCheckInstantiate p (RuntimePattern p p) (RuntimePattern Internal p) TypeInternal where
   typeCheckInstantiate (CoreRuntimePattern p (PatternCommon (RuntimePatternVariable x σ'))) = do
     (σ, κ) <- typeCheckInstantiate σ'
-    checkRuntime p =<< checkType p κ
+    checkRT p κ
     pure (CoreRuntimePattern p (PatternCommon (RuntimePatternVariable x σ)), σ)
   typeCheckInstantiate (CoreRuntimePattern p (PatternCommon (RuntimePatternPair pm1' pm2'))) = do
     (pm1, σ) <- typeCheckInstantiate pm1'
@@ -339,13 +379,22 @@ instance TypeCheck p (Kind p) Sort where
     pure $ Kind
   typeCheck (CoreKind _ Constraint) = do
     pure $ Kind
+  typeCheck (CoreKind _ Region) = do
+    pure $ Kind
   typeCheck (CoreKind _ Meta) = do
     pure $ Stage
   typeCheck (CoreKind _ Text) = do
     pure $ Stage
-  typeCheck (CoreKind p (Runtime κ)) = do
-    checkRepresentation p =<< typeCheck κ
+  typeCheck (CoreKind p (Runtime κ κ')) = do
+    checkImpact p =<< typeCheck κ
+    checkExistance p =<< typeCheck κ'
     pure $ Stage
+  typeCheck (CoreKind _ Code) = pure Impact
+  typeCheck (CoreKind _ Data) = pure Impact
+  typeCheck (CoreKind _ Imaginary) = pure Existance
+  typeCheck (CoreKind p (Real κ)) = do
+    checkRepresentation p =<< typeCheck κ
+    pure $ Existance
   typeCheck (CoreKind _ PointerRep) = do
     pure $ Representation
   typeCheck (CoreKind p (StructRep ρs)) = do
@@ -393,30 +442,42 @@ instance TypeCheck p (Type p) KindInternal where
     match p μ μ'
     pure $ apply λ κ
   typeCheck (CoreType p (FunctionPointer σ τ)) = do
-    checkRuntime p =<< checkType p =<< typeCheck σ
+    checkRT p =<< typeCheck σ
     checkRuntime p =<< checkType p =<< typeCheck τ
-    pure $ CoreKind Internal (Type (CoreKind Internal (Runtime (CoreKind Internal PointerRep))))
+    pure $ makeRT (CoreKind Internal PointerRep)
   typeCheck (CoreType p (FunctionLiteralType σ τ)) = do
-    checkRuntime p =<< checkType p =<< typeCheck σ
+    checkRT p =<< typeCheck σ
     checkRuntime p =<< checkType p =<< typeCheck τ
     pure $ CoreKind Internal (Type (CoreKind Internal Text))
-  typeCheck (CoreType p (ErasedQualified π σ)) = do
+  typeCheck (CoreType p (Qualified π σ)) = do
     checkConstraint p =<< typeCheck π
     κ <- checkType p =<< typeCheck σ
     pure $ CoreKind Internal (Type κ)
   typeCheck (CoreType p (Copy σ)) = do
-    checkRuntime p =<< checkType p =<< typeCheck σ
+    checkRT p =<< typeCheck σ
     pure $ CoreKind Internal Constraint
   typeCheck (CoreType p (RuntimePair σ τ)) = do
-    ρ <- checkRuntime p =<< checkType p =<< typeCheck σ
-    ρ' <- checkRuntime p =<< checkType p =<< typeCheck τ
-    pure $ CoreKind Internal $ Type $ CoreKind Internal $ Runtime $ CoreKind Internal $ StructRep [ρ, ρ']
+    ρ <- checkRT p =<< typeCheck σ
+    ρ' <- checkRT p =<< typeCheck τ
+    pure $ makeRT $ CoreKind Internal $ StructRep [ρ, ρ']
   typeCheck (CoreType p (Recursive (Bound pm' σ))) = do
     (pm, κ) <- typeCheckInstantiate pm'
-    checkRuntime p =<< checkType p κ
+    checkRT p κ
     κ' <- augment pm (typeCheck σ)
     match p κ κ'
     pure κ
+  typeCheck (CoreType p (RegionTransformer π σ)) = do
+    checkRegion p =<< typeCheck π
+    ((), κ) <- firstM (checkData p) =<< checkRuntime p =<< checkType p =<< typeCheck σ
+    pure $ CoreKind Internal $ Type $ CoreKind Internal $ Runtime (CoreKind Internal Code) κ
+  typeCheck (CoreType p (RegionReference π σ)) = do
+    checkRegion p =<< typeCheck π
+    checkRT p =<< typeCheck σ
+    pure $ makeRT (CoreKind Internal $ PointerRep)
+  typeCheck (CoreType p (RegionSubtype π π')) = do
+    checkRegion p =<< typeCheck π
+    checkRegion p =<< typeCheck π'
+    pure $ CoreKind Internal $ Constraint
 
 instance TypeCheck p (Term p) TypeInternal where
   typeCheck = fmap fst . typeCheckLinear
@@ -432,6 +493,15 @@ capture p lΓ = do
       LinearRuntime -> checkAssumption p (CoreType Internal (Copy σ))
       LinearMeta -> quit $ CaptureLinear p x'
   pure ()
+
+checkRT p κ = do
+  ((), κ) <- secondM (checkReal p) =<< firstM (checkData p) =<< checkRuntime p =<< checkType p κ
+  pure κ
+
+makeRT ρ = CoreKind Internal $ Type $ CoreKind Internal $ Runtime (CoreKind Internal $ Data) (CoreKind Internal $ Real ρ)
+
+notInFree p α σ | α `Variables.member` freeVariables @TypeInternal σ = quit $ EscapingTypeVariable p α σ
+notInFree _ _ _ = pure ()
 
 instance TypeCheckLinear p (Term p) TypeInternal where
   typeCheckLinear (CoreTerm p (TermCommon (Variable x))) = do
@@ -485,10 +555,10 @@ instance TypeCheckLinear p (Term p) TypeInternal where
     (σ, lΓ2) <- augmentLinear pm (typeCheckLinear e2)
     checkRuntime p =<< checkType p =<< typeCheckInternal σ
     pure (σ, lΓ1 `combine` lΓ2)
-  typeCheckLinear (CoreTerm p (TermCommon (Extern _ _ _ σ' τs'))) = do
+  typeCheckLinear (CoreTerm p (TermCommon (Extern _ _ _ σ' τ'))) = do
     (σ, κ) <- typeCheckInstantiate σ'
-    checkRuntime p =<< checkType p κ
-    (τ, κ2) <- typeCheckInstantiate τs'
+    checkRT p κ
+    (τ, κ2) <- typeCheckInstantiate τ'
     checkRuntime p =<< checkType p κ2
     pure (CoreType Internal (FunctionPointer σ τ), useNothing)
   typeCheckLinear (CoreTerm p (TermCommon (FunctionApplication _ _ e1 e2))) = do
@@ -501,25 +571,26 @@ instance TypeCheckLinear p (Term p) TypeInternal where
     (τ, lΓ) <- augmentLinear pm (typeCheckLinear e)
     checkRuntime p =<< checkType p =<< typeCheckInternal τ
     pure (CoreType Internal $ FunctionLiteralType σ τ, lΓ)
-  typeCheckLinear (CoreTerm p (ErasedQualifiedAssume π' e)) = do
+  typeCheckLinear (CoreTerm p (QualifiedAssume π' e)) = do
     (π, ()) <- secondM (checkConstraint p) =<< typeCheckInstantiate π'
     (σ, lΓ) <- augmentAssumption π (typeCheckLinear e)
-    pure (CoreType Internal $ ErasedQualified π σ, lΓ)
-  typeCheckLinear (CoreTerm p (ErasedQualifiedCheck e)) = do
-    ((π, σ), lΓ) <- firstM (checkErasedQualified p) =<< typeCheckLinear e
+    pure (CoreType Internal $ Qualified π σ, lΓ)
+  typeCheckLinear (CoreTerm p (QualifiedCheck e)) = do
+    ((π, σ), lΓ) <- firstM (checkQualified p) =<< typeCheckLinear e
     checkAssumption p π
     pure (σ, lΓ)
   typeCheckLinear (CoreTerm p (TermCommon (RuntimePairIntroduction _ e1 e2))) = do
     (σ, lΓ1) <- typeCheckLinear e1
     (τ, lΓ2) <- typeCheckLinear e2
     κ <- typeCheckInternal σ
-    checkRuntime p =<< checkType p κ
+    checkRT p κ
     κ' <- typeCheckInternal τ
-    checkRuntime p =<< checkType p κ'
+    checkRT p κ'
     pure (CoreType Internal (RuntimePair σ τ), lΓ1 `combine` lΓ2)
   typeCheckLinear (CoreTerm p (Pack (Bound pm'' σ') e)) = do
     pm' <- instantiate pm''
-    σ <- augment pm' (instantiate σ')
+    (σ, κ) <- augment pm' (typeCheckInstantiate σ')
+    checkRT p κ
     let pm = Internal <$ pm'
     let recursive = CoreType Internal (Recursive (Bound pm σ))
     (τ, lΓ) <- typeCheckLinear e
@@ -529,6 +600,44 @@ instance TypeCheckLinear p (Term p) TypeInternal where
     (τ, lΓ) <- typeCheckLinear e
     λ <- checkRecursive p τ
     pure (apply λ τ, lΓ)
+  typeCheckLinear (CoreTerm p (PureRegionTransformer π' e)) = do
+    (π, πκ) <- typeCheckInstantiate π'
+    checkRegion p πκ
+    (σ, lΓ) <- typeCheckLinear e
+    checkRT p =<< typeCheckInternal σ
+    pure $ (CoreType Internal $ RegionTransformer π σ, lΓ)
+  typeCheckLinear (CoreTerm p (DoRegionTransformer e1 (Bound pm' e2))) = do
+    ((π, σ), lΓ1) <- firstM (checkRegionTransformer p) =<< typeCheckLinear e1
+    (pm, σ') <- typeCheckInstantiate pm'
+    checkRT p =<< typeCheckInternal σ
+    match p σ σ'
+    ((π', τ), lΓ2) <- firstM (checkRegionTransformer p) =<< augmentLinear pm (typeCheckLinear e2)
+    match p π π'
+    pure (CoreType Internal $ RegionTransformer π τ, combine lΓ1 lΓ2)
+  typeCheckLinear (CoreTerm p (TermCommon (ReadReference () e))) = do
+    ((π, σ), lΓ) <- firstM (checkRegionReference p) =<< typeCheckLinear e
+    checkAssumption p (CoreType Internal $ Copy σ)
+    pure (CoreType Internal $ RegionTransformer π σ, lΓ)
+  typeCheckLinear (CoreTerm p (CastRegionTransformer π2' e)) = do
+    ((π, σ), lΓ) <- firstM (checkRegionTransformer p) =<< typeCheckLinear e
+    (π2, ()) <- secondM (checkRegion p) =<< typeCheckInstantiate π2'
+    checkAssumption p (CoreType Internal (RegionSubtype π π2))
+    pure (CoreType Internal (RegionTransformer π2 σ), lΓ)
+  typeCheckLinear (CoreTerm p (TermCommon (LocalRegion () (Bound pmσ' (π', (e1, Bound pm' e2)))))) = do
+    pmσ@(CoreTypePattern _ (TypePatternVariable α κ)) <- instantiate pmσ'
+    match p κ (CoreKind Internal Region)
+    (pm, (απ, τ')) <- secondM (checkRegionReference p) =<< augment pmσ (typeCheckInstantiate pm')
+    match p απ (CoreType Internal (TypeVariable α))
+    (τ, lΓ1) <- typeCheckLinear e1
+    match p τ τ'
+    (π, ()) <- secondM (checkRegion p) =<< typeCheckInstantiate π'
+    let assumption = CoreType Internal $ RegionSubtype π (CoreType Internal (TypeVariable α))
+    ((απ', σ), lΓ2) <- firstM (checkRegionTransformer p) =<< augment pmσ (augmentAssumption assumption $ augmentLinear pm $ typeCheckLinear e2)
+    match p απ' (CoreType Internal (TypeVariable α))
+    notInFree p α σ
+    notInFree p α τ
+    notInFree p α π
+    pure (CoreType Internal (RegionTransformer π σ), combine lΓ1 lΓ2)
 
 typeCheckInternal :: (Monad m, TypeCheck Internal e σ) => e -> Core p m σ
 typeCheckInternal σ = do
