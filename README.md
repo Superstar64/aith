@@ -65,7 +65,7 @@ See ``/documentation`` for typing rules.
 | Recursive Type Introduction | ``_pack (pmσ => σ) e `` |
 | Recursive Type Introduction| ``_pack (pmσ { σ }) e `` |
 | Recursive Type Elimination | ``_unpack e`` |
-| Pure Region Transformer | ``_pure (π) e |
+| Pure Region Transformer | ``_pure (π) e`` |
 | Bind Region Transformer | `` _do pm = e; e' `` |
 | Subtype Region Transformer | `` _cast (π) e `` |
 | Read Reference | `` _read e ``
