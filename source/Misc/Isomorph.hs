@@ -2,8 +2,8 @@ module Misc.Isomorph where
 
 import Control.Category (Category, id, (.))
 import Data.List.NonEmpty (NonEmpty (..))
-import Data.Map (Map)
-import qualified Data.Map as Map
+import Misc.MonoidMap (Map)
+import qualified Misc.MonoidMap as Map
 import Prelude hiding (id, (.))
 
 data Isomorph a b = Isomorph (a -> b) (b -> a)
@@ -14,6 +14,16 @@ instance Category Isomorph where
 
 inverse :: Isomorph a b -> Isomorph b a
 inverse (Isomorph f g) = Isomorph g f
+
+evalInto :: Isomorph a a' -> (a -> b) -> a' -> b
+evalInto i f e = f $ from e
+  where
+    (Isomorph _ from) = i
+
+mapWith :: Isomorph a b -> (a -> a) -> b -> b
+mapWith i f e = to $ f $ from e
+  where
+    (Isomorph to from) = i
 
 unit :: Isomorph ((), a) a
 unit = Isomorph f g
@@ -38,6 +48,8 @@ associate = Isomorph f g
   where
     f ((a, b), c) = (a, (b, c))
     g (a, (b, c)) = ((a, b), c)
+
+associate' = inverse associate
 
 firstI :: Isomorph a b -> Isomorph (a, c) (b, c)
 firstI (Isomorph f g) = Isomorph f' g'

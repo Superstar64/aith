@@ -1,35 +1,61 @@
 module Module where
 
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State (StateT, evalState, evalStateT, execStateT, get, modify)
-import Core.Ast.Common
-import Core.Ast.Multiplicity
-import Core.Ast.Term
-import Core.Ast.Type
-import Core.TypeCheck
-import Data.Bifunctor (bimap)
-import Data.Foldable (foldrM)
+import Control.Monad.State (StateT, evalStateT, execStateT, get, modify)
+import Control.Monad.Trans (lift)
+import Data.Bifunctor (second)
+import Data.Functor.Identity
 import Data.List (find)
-import Data.Map (Map, (!), (!?))
-import qualified Data.Map as Map
-import Data.Maybe (fromJust)
 import Data.Traversable (for)
-import Error
-import Misc.Identifier (Identifier (..))
+import Data.Void
+import Language.Ast.Common
+import Language.Ast.Kind (mapKind)
+import Language.Ast.Multiplicity
+import Language.Ast.Term
+import Language.Ast.Type
+import Language.TypeCheck
+import Language.TypeCheck.Core
 import Misc.Isomorph
+import Misc.MonoidMap (Map, (!))
+import qualified Misc.MonoidMap as Map
 import Misc.Path
 import Misc.Prism
 import Misc.Symbol
-import qualified Misc.Variables as Variables
 
-newtype Module p = CoreModule (Map Identifier (Item p)) deriving (Functor, Show)
+data ModuleError p
+  = IllegalPath p Path
+  | IncompletePath p Path
+  | IndexingGlobal p Path
+  | Cycle p Path
+  deriving (Show)
+
+class (TypeErrorQuit p m, Semigroup p) => ModuleErrorQuit p m where
+  moduleQuit :: ModuleError p -> m a
+
+instance ModuleErrorQuit Internal Identity where
+  moduleQuit e = error $ "internal module error:" ++ show e
+
+instance ModuleErrorQuit p m => ModuleErrorQuit p (StateT s m) where
+  moduleQuit = lift . moduleQuit
+
+newtype Module ς θ σ p = CoreModule (Map String (Item ς θ σ p)) deriving (Show)
+
+type ModuleAuto p = Module (TypeSchemeAuto p) () (TypeAuto p) p
+
+mapModuleAuto :: (p -> p') -> ModuleAuto p -> ModuleAuto p'
+mapModuleAuto f (CoreModule m) = CoreModule $ fmap (mapItemAuto f) m
 
 coreModule = Isomorph CoreModule $ \(CoreModule code) -> code
 
-data Item p
-  = Module (Module p)
-  | Global (Global p)
-  deriving (Functor, Show)
+data Item ς θ σ p
+  = Module (Module ς θ σ p)
+  | Global (Global ς θ σ p)
+  deriving (Show)
+
+mapItemAuto :: (p -> p') -> ItemAuto p -> ItemAuto p'
+mapItemAuto f (Module m) = Module $ mapModuleAuto f m
+mapItemAuto f (Global g) = Global $ mapGlobal (fmap $ mapTypeScheme (fmap $ mapKind absurd f) absurd f f) id (fmap $ mapType (fmap $ mapKind absurd f) absurd f) f g
+
+type ItemAuto p = Item (TypeSchemeAuto p) () (TypeAuto p) p
 
 modulex = Prism Module $ \case
   (Module code) -> Just code
@@ -39,12 +65,25 @@ global = Prism Global $ \case
   (Global global) -> Just global
   _ -> Nothing
 
-data Global p
-  = Inline (Maybe (Type p)) (Term p)
+data Global ς θ σ p
+  = Inline ς (Term θ σ p)
   | Import p Path
-  | Text (Maybe (Type p)) (Term p)
-  | Synonym (Type p)
-  deriving (Functor, Show)
+  | Text ς (Term θ σ p)
+  deriving (Show)
+
+type GlobalAuto p = Global (TypeSchemeAuto p) () (TypeAuto p) p
+
+mapGlobal ::
+  (ς -> ς') ->
+  (θ -> θ') ->
+  (σ -> σ') ->
+  (p -> p') ->
+  Global ς θ σ p ->
+  Global ς' θ' σ' p'
+mapGlobal f g h i global = case global of
+  Inline ς e -> Inline (f ς) (mapTerm g h i e)
+  Text ς e -> Text (f ς) (mapTerm g h i e)
+  Import p path -> Import (i p) path
 
 inline = Prism (uncurry Inline) $ \case
   (Inline σ e) -> Just (σ, e)
@@ -58,11 +97,7 @@ text = Prism (uncurry Text) $ \case
   (Text σ e) -> Just (σ, e)
   _ -> Nothing
 
-synonym = Prism Synonym $ \case
-  (Synonym σ) -> Just σ
-  _ -> Nothing
-
-resolve :: Base p m => p -> Module p -> Path -> m (Global p)
+resolve :: ModuleErrorQuit p m => p -> ModuleAuto p -> Path -> m (GlobalAuto p)
 resolve p (CoreModule code) path = go code path
   where
     go code (Path [] name) = case Map.lookup name code of
@@ -74,24 +109,48 @@ resolve p (CoreModule code) path = go code path
       Just (Global _) -> moduleQuit $ IndexingGlobal p path
       Just (Module (CoreModule code')) -> go code' (Path remainder name)
 
-depend :: forall p. Semigroup p => Global p -> Path -> Map Path p
-depend (Inline σ e) (Path location _) = Map.mapKeysMonotonic (Path location) (Variables.toMap $ annotation <> freeVariables @(Term p) e <> freeVariables @(Type p) e)
+extractTerm (TermIdentifier x) = x
+
+extractType (TypeIdentifier x) = x
+
+depend :: forall p. Semigroup p => GlobalAuto p -> Path -> Map Path p
+depend (Inline σ e) (Path location _) = Map.mapKeysMonotonic (Path location) (annotation <> freeTerm)
   where
-    annotation = case σ of
+    annotation = Map.mapKeysMonotonic extractType $ case σ of
       Nothing -> mempty
-      Just σ -> freeVariables @(Type p) σ
-depend (Text σ e) (Path location _) = Map.mapKeysMonotonic (Path location) (Variables.toMap $ annotation <> freeVariables @(Term p) e <> freeVariables @(Type p) e)
+      Just σ -> freeVariables @TypeIdentifier σ
+    freeTerm = Map.mapKeysMonotonic extractTerm $ freeVariables @TermIdentifier e
+depend (Text σ e) (Path location _) = Map.mapKeysMonotonic (Path location) (annotation <> freeTerm)
   where
-    annotation = case σ of
+    annotation = Map.mapKeysMonotonic extractType $ case σ of
       Nothing -> mempty
-      Just σ -> freeVariables @(Type p) σ
-depend (Synonym σ) (Path location _) = Map.mapKeysMonotonic (Path location) (Variables.toMap $ freeVariables @(Type p) σ)
+      Just σ -> freeVariables @TypeIdentifier σ
+    freeTerm = Map.mapKeysMonotonic extractTerm $ freeVariables @TermIdentifier e
 depend (Import p path) _ = Map.singleton path p
 
 -- nodes without dependencies are at the end of the list
-data ModuleOrder p = Ordering [(Path, Global p)] deriving (Functor)
+data ModuleOrder ς θ σ p = Ordering [(Path, Global ς θ σ p)] deriving (Show)
 
-items :: [Identifier] -> Module p -> [(Path, Global p)]
+type ModuleOrderAuto p = ModuleOrder (TypeSchemeAuto p) () (TypeAuto p) p
+
+instance
+  ( UnInfer σ (TypeAuto Internal),
+    UnInfer ς (TypeSchemeAuto Internal)
+  ) =>
+  UnInfer (ModuleOrder ς θ σ p) (ModuleOrderAuto Internal)
+  where
+  unInfer = mapOrder unInfer (const ()) unInfer (const Internal)
+
+mapOrder ::
+  (ς -> ς') ->
+  (θ -> θ') ->
+  (σ -> σ') ->
+  (p -> p') ->
+  ModuleOrder ς θ σ p ->
+  ModuleOrder ς' θ' σ' p'
+mapOrder f g h i (Ordering nodes) = Ordering $ map (second (mapGlobal f g h i)) nodes
+
+items :: [String] -> ModuleAuto p -> [(Path, GlobalAuto p)]
 items heading (CoreModule code) = do
   (name, item) <- Map.toList code
   case item of
@@ -103,10 +162,10 @@ data Mark = Unmarked | Temporary | Permanent deriving (Eq)
 -- https://en.wikipedia.org/wiki/Topological_sorting#Depth-first_search
 
 visit ::
-  Base p m =>
-  Module p ->
-  (Maybe p, Path, Global p) ->
-  StateT (Map Path Mark) (StateT [(Path, Global p)] m) ()
+  ModuleErrorQuit p m =>
+  ModuleAuto p ->
+  (Maybe p, Path, GlobalAuto p) ->
+  StateT (Map Path Mark) (StateT [(Path, GlobalAuto p)] m) ()
 visit code (p, path, global) = do
   marks <- get
   case marks ! path of
@@ -124,7 +183,6 @@ visit code (p, path, global) = do
       modify $ Map.insert path Permanent
       lift $ modify $ ((path, global) :)
 
-order :: Base p m => Module p -> m (ModuleOrder p)
 order code = Ordering <$> execStateT (evalStateT go (const Unmarked <$> globals)) []
   where
     globals = Map.fromList $ (\(path, global) -> (path, global)) <$> items [] code
@@ -138,7 +196,6 @@ order code = Ordering <$> execStateT (evalStateT go (const Unmarked <$> globals)
           visit code (mempty, path, global)
           go
 
-unorder :: ModuleOrder p -> Module p
 unorder (Ordering []) = CoreModule Map.empty
 unorder (Ordering (item : remaining)) = insert item (unorder $ Ordering remaining)
   where
@@ -149,113 +206,87 @@ unorder (Ordering (item : remaining)) = insert item (unorder $ Ordering remainin
           innerCode' = Module $ insert (Path remainder name, global) innerCode
       _ -> error "unorder error"
 
-convertFunctionLiteral (CoreType p (FunctionLiteralType σ τs)) = CoreType p $ FunctionPointer σ τs
-convertFunctionLiteral (CoreType p (Forall (Bound pm σ))) = CoreType p $ Forall (Bound pm (convertFunctionLiteral σ))
-convertFunctionLiteral (CoreType p (Qualified π σ)) = CoreType p $ Qualified π (convertFunctionLiteral σ)
-convertFunctionLiteral _ = error "unable to convert function literal"
-
-typeCheckModule :: Base p m => ModuleOrder p -> m (Map [Identifier] (CoreState p))
-typeCheckModule (Ordering code) = foldrM (execStateT . uncurry typeCheckItem) Map.empty code
-  where
-    getModuleEnviroments = get
-    modifyModuleEnvironments = modify
-
-    getEnvironment (Path heading _) = do
-      environments <- getModuleEnviroments
-      pure $ Map.findWithDefault emptyState heading environments
-
-    insertGlobalTerm path@(Path heading name) p σ = do
-      environment <- getEnvironment path
-      modifyModuleEnvironments $ Map.insert heading environment {typeEnvironment = Map.insert name (p, Unrestricted, σ) $ typeEnvironment environment}
-
-    insertGlobalSynonym path@(Path heading name) p κ σ = do
-      environment <- getEnvironment path
-      modifyModuleEnvironments $ Map.insert heading environment {kindEnvironment = Map.insert name (p, κ, Just σ) $ kindEnvironment environment}
-
-    validateAnnotation _ _ _ Nothing = pure ()
-    validateAnnotation environment p σ1 (Just σ2') = do
-      σ2 <- runCore (instantiate σ2') environment
-      match p σ1 σ2
-
-    typeCheckItem path (Inline σ' e@(CoreTerm p _)) = do
-      environment <- getEnvironment path
-      σ <- runCore (typeCheck e) environment
-      validateAnnotation environment p σ σ'
-      insertGlobalTerm path p σ
-    typeCheckItem path (Text σ' e@(CoreTerm p _)) = do
-      environment <- getEnvironment path
-      σ <- runCore (typeCheck e) environment
-      runCore (checkText p =<< checkType p =<< typeCheckInternal σ) environment
-      validateAnnotation environment p (convertFunctionLiteral σ) σ'
-      insertGlobalTerm path p $ convertFunctionLiteral σ
-    typeCheckItem path (Import p (Path heading name)) = do
-      environments <- getModuleEnviroments
-      case typeEnvironment (environments ! heading) !? name of
-        Just (_, _, σ) -> insertGlobalTerm path p σ
-        Nothing -> case kindEnvironment (environments ! heading) !? name of
-          Just (_, κ, Just σ) -> insertGlobalSynonym path p κ σ
-          _ -> error "import error"
-    typeCheckItem path (Synonym σ'@(CoreType p _)) = do
-      environment <- getEnvironment path
-      (σ, κ) <- runCore (typeCheckInstantiate σ') environment
-      insertGlobalSynonym path p κ σ
-
 mangle :: Path -> Symbol
-mangle (Path path (Identifier name)) = Symbol $ (concat $ map (++ "_") $ extract <$> path) ++ name
+mangle (Path path name) = Symbol $ (concat $ map (++ "_") $ extract <$> path) ++ name
   where
-    extract (Identifier x) = x
+    extract x = x
 
-convertExtern p name (CoreType _ (FunctionPointer σ τs)) = CoreTerm p $ TermCommon $ Extern () () name (p <$ σ) (p <$ τs)
-convertExtern p name (CoreType _ (Forall (Bound pm σ))) = CoreTerm p $ TypeAbstraction $ Bound (bimap (const p) (const p) pm) (convertExtern p name σ)
-convertExtern p name (CoreType _ (Qualified τ σ)) = CoreTerm p $ QualifiedAssume (p <$ τ) (convertExtern p name σ)
-convertExtern _ _ _ = error "unable to convert type to extern"
+searchUnsafe ::
+  ModuleOrder TypeSchemeInfer InstantiationInfer TypeInfer p ->
+  Path ->
+  Global TypeSchemeInfer InstantiationInfer TypeInfer p
+searchUnsafe (Ordering []) _ = error "bad search"
+searchUnsafe (Ordering ((path, e) : _)) path' | path == path' = e
+searchUnsafe (Ordering (_ : items)) path' = searchUnsafe (Ordering items) path'
 
-reduceModule :: Semigroup p => Map [Identifier] (CoreState p) -> ModuleOrder p -> ModuleOrder p
-reduceModule environment (Ordering code) = Ordering $ evalState (foldrM go' [] code) Map.empty
+typeCheckModule :: ModuleErrorQuit p m => ModuleOrderAuto p -> m (ModuleOrder TypeSchemeInfer InstantiationInfer TypeInfer p)
+typeCheckModule (Ordering []) = pure $ Ordering []
+typeCheckModule (Ordering ((path@(Path heading _), item) : nodes)) = do
+  Ordering nodes' <- typeCheckModule $ Ordering nodes
+  let env = foldr (inject $ searchUnsafe $ Ordering nodes') emptyEnvironment nodes'
+  case item of
+    Inline Nothing e -> do
+      ((e, σ), _) <- runCore (generalize e) env emptyState
+      pure $ Ordering ((path, Inline σ e) : nodes')
+    Inline (Just σ) e -> do
+      ((e, σ), _) <- runCore (generalizeAnnotate e σ) env emptyState
+      pure $ Ordering ((path, Inline σ e) : nodes')
+    Text Nothing e -> do
+      ((e, σ), _) <- runCore (generalizeText e) env emptyState
+      pure $ Ordering ((path, Text σ e) : nodes')
+    Text (Just σ) e -> do
+      ((e, σ), _) <- runCore (generalizeAnnotateText e σ) env emptyState
+      pure $ Ordering ((path, Text σ e) : nodes')
+    Import p sym -> pure $ Ordering ((path, Import p sym) : nodes')
   where
-    getReplacements (Path heading _) = do
-      this <- get
-      pure $ Map.findWithDefault [] heading this
-    insertGlobal path@(Path heading name) e = do
-      replacements <- getReplacements path
-      modify $ Map.insert heading ((name, e) : replacements)
-    annotate (Path heading name) Nothing = do
-      let (p, _, σ) = typeEnvironment (environment ! heading) ! name
-      pure $ Just $ p <$ σ
-    annotate path (Just σ) = do
-      replacements <- getReplacements path
-      pure $ Just $ reduce $ foldr substituteGlobal σ replacements
+    inject ::
+      (Path -> Global TypeSchemeInfer InstantiationInfer TypeInfer p) ->
+      (Path, Global TypeSchemeInfer InstantiationInfer TypeInfer p) ->
+      CoreEnvironment p ->
+      CoreEnvironment p
+    inject _ (Path heading' name, Inline σ (CoreTerm p _)) env
+      | heading == heading' =
+        env {typeEnvironment = Map.insert (TermIdentifier name) (p, Unrestricted, mapTypeScheme (mapKind absurd id) absurd id id σ) $ typeEnvironment env}
+    inject _ (_, Inline _ _) e = e
+    inject _ (Path heading' name, Text σ (CoreTerm p _)) env
+      | heading == heading' =
+        env {typeEnvironment = Map.insert (TermIdentifier name) (p, Unrestricted, mapTypeScheme (mapKind absurd id) absurd id id σ) $ typeEnvironment env}
+    inject _ (_, Text _ _) e = e
+    inject search (path@(Path heading' _), Import _ path') e
+      | heading == heading' = inject search (path, search path') e
+    inject _ (_, Import _ _) e = e
 
-    go' item@(path, _) completed = do
-      x <- go item
-      pure ((path, x) : completed)
-    go (path, Inline σ e) = do
-      replacements <- getReplacements path
-      let e' = reduce $ foldr substituteGlobal e replacements
-      insertGlobal path (Right e')
-      σ' <- annotate path σ
-      pure (Inline σ' e')
-    go (path@(Path heading name), Text τ e) = do
-      replacements <- getReplacements path
-      let e' = reduce $ foldr substituteGlobal e replacements
-      let (p, _, σ) = typeEnvironment (environment ! heading) ! name
-      let ref = convertExtern p (mangle path) σ
-      insertGlobal path (Right ref)
-      τ' <- annotate path τ
-      pure (Text τ' e')
-    go (path, Import _ (Path heading name)) = do
-      this <- get
-      let e = fromJust $ lookup name (this ! heading)
-      insertGlobal path e
-      case e of
-        Left σ -> pure $ Synonym σ
-        Right e -> do
-          σ <- annotate path Nothing
-          pure $ Inline σ e
-    go (path, Synonym σ) = do
-      replacements <- getReplacements path
-      let σ' = reduce $ foldr substituteGlobal σ replacements
-      insertGlobal path (Left σ')
-      pure (Synonym σ')
-    substituteGlobal (x, Right e) = substitute e x
-    substituteGlobal (x, Left σ) = substitute σ x
+makeExtern ::
+  Path ->
+  p ->
+  TypeSchemeInfer ->
+  Term InstantiationInfer TypeInfer p
+makeExtern path p (CoreTypeScheme _ (MonoType σ)) = go σ
+  where
+    go (CoreType _ (FunctionPointer σ τ)) = CoreTerm p (TermRuntime $ Extern (mangle path) σ τ)
+    go (CoreType _ (Implied σ τ)) = CoreTerm p (ImplicationAbstraction (Bound (CoreTermPattern p (PatternCommon $ PatternVariable (TermIdentifier $ "x") σ)) $ go τ))
+    go _ = error "extern of non function pointer"
+makeExtern _ _ (CoreTypeScheme _ (KindForall _)) = error "extern of kind forall"
+makeExtern path p (CoreTypeScheme _ (Forall (Bound _ σ))) = makeExtern path p σ
+
+reduceModule ::
+  ModuleOrder TypeSchemeInfer InstantiationInfer TypeInfer p ->
+  ModuleOrder TypeSchemeInfer InstantiationInfer TypeInfer p
+reduceModule (Ordering []) = Ordering []
+reduceModule (Ordering ((path@(Path heading _), item) : nodes)) = case item of
+  Inline σ e ->
+    let e' = reduce $ foldr inject e nodes'
+     in Ordering ((path, Inline σ e') : nodes')
+  Text σ e ->
+    let e' = reduce $ foldr inject e nodes'
+     in Ordering ((path, Text σ e') : nodes')
+  Import _ path' -> Ordering ((path, searchUnsafe (Ordering nodes') path') : nodes')
+  where
+    Ordering nodes' = reduceModule $ Ordering nodes
+    inject (Path heading' x, Inline _ ex) e
+      | heading == heading' = substitute ex (TermIdentifier x) e
+    inject (_, Inline _ _) e = e
+    inject (path@(Path heading' x), Text σ (CoreTerm p _)) e
+      | heading == heading' = substitute (makeExtern path p σ) (TermIdentifier x) e
+    inject (_, Text _ _) e = e
+    inject (_, Import _ _) _ = error "import in reduction results"

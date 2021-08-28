@@ -21,10 +21,14 @@ diff one two = do
 main :: IO ()
 main = do
   createDirectoryIfMissing True "build"
-  execute $ "--load" : "test" : "/test" : "--format" : "/test" : "build/test-format.aith" : []
+  execute $ "--load" : "test.aith" : "/test" : "--format" : "/test" : "build/test-format.aith" : []
   execute $ "--load" : "build/test-format.aith" : "/test" : "--format" : "/test" : "build/test-format2.aith" : []
   diff "build/test-format.aith" "build/test-format2.aith"
 
-  execute $ "--load" : "test" : "/test" : "--reduce" : "/test" : "build/test-reduce.aith" : []
+  execute $ "--load" : "test.aith" : "/test" : "--annotate" : "/test" : "build/test-annotate.aith" : []
+  execute $ "--load" : "build/test-annotate.aith" : "/test" : "--annotate" : "/test" : "build/test-annotate2.aith" : []
+  diff "build/test-annotate.aith" "build/test-annotate2.aith"
+
+  execute $ "--load" : "test.aith" : "/test" : "--reduce" : "/test" : "build/test-reduce.aith" : []
   execute $ "--load" : "build/test-reduce.aith" : "/test" : "--reduce" : "/test" : "build/test-reduce2.aith" : []
   diff "build/test-reduce.aith" "build/test-reduce2.aith"

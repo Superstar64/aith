@@ -1,15 +1,17 @@
 
-Aith is a low level functional programming language with linear types, kind based staging / macros, and levity polymorphism.
-As of now aith is very early stages and very little is implemented.
+Aith is a low level functional programming language with linear types, kind based staging / macros, levity polymorphism, and monadic regions.
+As of now aith is very early stages and very little is implemented. A hindley milner rework is also currently in progress.
 See ``/documentation`` for typing rules.
 
 # Road Map
 
 * [x] Macro Lambda Calculus
 * [x] Macro Beta Reduction
-* [x] System-F
-* [x] System-F ω
+* [ ] System-F
+* [ ] System-F ω
 * [ ] New Types
+* [ ] Builtin Typeclasses
+* [ ] User Defined Typeclasses
 * [x] Pattern Matching
 * [x] Basic Linear Types
 * [ ] Multiplicity Polymorphism
@@ -25,8 +27,9 @@ See ``/documentation`` for typing rules.
   * [x] Function Pointers
   * [x] Tuples
   * [ ] Choice (Sums) 
-* [x] Monadic Regions
-* [ ] Hindley Milner Subset
+  * [ ] Recursive Types
+* [ ] Monadic Regions
+* [x] Hindley Milner
 * [x] C Code Generation
 * [ ] Javascript Code Generation
 
@@ -37,141 +40,96 @@ See ``/documentation`` for typing rules.
 |-|-|
 | Module | ``module x = { code };`` |
 | Inline Term | ``inline x = e; ``|
-| Annotated Inline Term | ``inline _ :: σ; inline x = e; ``|
-| Import | ``import x = /x'/x''/...;``|
+| Inline Term Ascribe | ``inline _ :: ς; inline x = e; ``|
 | Function | ``function x = e;`` |
-| Annotated Function | ``function _ :: σ; function x = e;``| 
-| Type Synonym | ``type x = σ;`` |
+| Function Ascribe | ``function _ :: ς; function x = e;``|
+| Import | ``import x = /x'/x''/...;``|
 
-## Runtime Terms(e)
+## Terms(e)
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Runtime Binding | ``_let pm = e; e' ``|
-| Type Abstraction | `` `\pmσ { e }`` |
-| Type Abstraction | `` `pmσ => e`` |
-| Type Application | ``e`(σ)`` |
-| Kind Abstraction | ``` ``\pmκ => e``` |
-| Kind Abstraction | ``` ``\pmκ { e }``` |
-| Kind Application | ``` e``(κ) ``` |
-| Extern | ``_extern "x" (σ) (τ) `` |
-| Function Application | ``e e' ``|
-| Function Literal | ``\pme => e`` |
-| Function Literal | ``\pme { e }`` |
-| Qualified Assumption | ``_when σ => e `` |
-| Qualified Assumption | ``_when σ { e } `` |
-| Qualified Check | ``e?`` |
-| Pair Constructor (Left Associative) | ``(e,e',...)`` |
-| Recursive Type Introduction | ``_pack (pmσ => σ) e `` |
-| Recursive Type Introduction| ``_pack (pmσ { σ }) e `` |
-| Recursive Type Elimination | ``_unpack e`` |
-| Pure Region Transformer | ``_pure (π) e`` |
+| Macro Abstraction | ``\pm { e }`` |
+| Macro Abstraction | ``\pm => e`` |
+| Macro Application | ``e e'``|
+| Of Course Introduction | ``!e`` |
+| Macro Binding | ``_inline pm = e; e'``|
+| Extern | ``_extern "x" (σa) (σa')`` |
+| Function Application | ``e # e'``|
+| Function Application Ascribe | ``e # e' : σ``|
+| Function Literal | ``#\pme => e`` |
+| Function Literal | ``#\pme { e }`` |
+| Evidence Abstraction | ``^\pm => e``
+| Evidence Abstraction | ``^pm { e }``|
+| Evidence Application | ``e ^ e'`` |
+| Runtime Pair Construction | ``e #, e'`` |
+| Pure Region Transformer | ``_pure e`` |
 | Bind Region Transformer | `` _do pm = e; e' `` |
-| Subtype Region Transformer | `` _cast (π) e `` |
-| Read Reference | `` _read e ``
-| Stack Variable Region | `` _stack (pmσ; _local pm = e) -> π { e' } `` |
-| Meta Term | `` ~e `` | 
-
-## Meta Terms(em)
-| Description | Syntax |
-|-|-|
-| Variable | ``x`` |
-| Of Course Introduction | ``!em`` |
-| Binding | ``_let pm = em; em' ``|
-| Macro Abstraction | ``\pm { em }``|
-| Macro Abstraction | ``\pm => em ``|
-| Macro Application | ``em em'``|
-| Type Abstraction | `` `\pmσ { em }`` |
-| Type Abstraction | `` `pmσ => em`` |
-| Type Application | ``em`(σ)`` |
-| Kind Abstraction | ``` ``\pmκ => em``` |
-| Kind Abstraction | ``` ``\pmκ { em }``` |
-| Kind Application | ``` em``(κ) ``` |
-| Qualified Assumption | ``_when σ => em `` |
-| Qualified Assumption | ``_when σ { em } `` |
-| Qualified Check | ``em?`` |
-| Runtime Term |`` #e `` | 
-
+| Read Reference | `` _read e : (σ)`` |
+| Copy Function Proof | ``_copyFunction`` |
+| Copy Pair Proof | ``_copyPair e e'`` |
+| Copy Reference Proof | ``_copyReference``|
 
 ## Patterns(pm)
 | Description | Syntax |
 |-|-|
-| Variable | ``(x : σ)``|
+| Variable | ``x``|
+| Variable Abscribe | ``x : σ`` |
 | OfCourse | ``!pm`` |
+| Runtime Pair Destruction | ``pm #, pm'`` |
+| Copy Variable | ``#!(e) pm`` |
 
-## Runtime Patterns(pme)
-| Description | Syntax |
+## Auto Type (σa)
 |-|-|
-| Variable | ``(x : σ)``|
-| Pair Destruction (Left Associative) | ``(pm, pm', ...)`` |
+| Type | ``σ`` |
+| Hole | ``_`` |
 
-## Runtime Types(σ, τ, π)
+# Type Scheme(ς)
+|-|-|
+| MonoType | ``σ`` |
+| Forall | ``\/pmσ => ς`` |
+| Forall | ``\/pmσ { ς }`` |
+| Kind Forall | ``\/pmκ => ς`` |
+| Kind Forall | ``\/pmκ { ς }`` |
+
+## Types(σ, τ, π)
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Forall | `` `\/pmσ { σ }`` |
-| Forall | `` `\/pmσ => σ`` |
-| KindForall | ``` ``\/s : μ => σ``` |
-| KindForall | ``` ``\/s : μ { σ }``` |
-| Type Operator | `` \x : κ { σ }``|
-| Type Operator | `` \x : κ => σ ``|
-| Type Construction | `` σ τ `` |
-| Poly Operator | `` `\pmκ => σ`` |
-| Poly Operator | `` `\pmκ { σ }`` |
-| Poly Construction | `` σ`(κ) ``
-| Function Pointer | `` τ -> σ `` |
+| Macro | ``σ -> τ``|
+| Of Course | ``!σ``|
+| Function Pointer | `` τ -#> σ `` |
 | Function Literal Type | `` τ _function σ `` |
-| Qualified Type | `` _when π => σ `` |
+| Implied | `` π -^> σ `` |
 | Copy Predicate | ``_copy σ`` |
-| Pair (Left Associative) | ``#(σ, σ', ...)`` |
-| Recursive Type | `` _recursive pmσ => σ`` |
-| Recursive Type | `` _recursive pmσ { σ }`` |
-| Region Transformer | `` _state π σ `` |
-| Region Reference | `` _reference π σ `` |
-| Region Subtype | `` _outlive π π' `` |
-| Meta Type | `` ~σm `` |
-
-## Meta Types(σm, τm, πm)
-| Description | Syntax |
-|-|-|
-| Variable | ``x`` |
-| Macro | ``σm -> σm'``|
-| Of Course | ``!σm``|
-| Forall | `` `\/pmσ { σm }`` |
-| Forall | `` `\/pmσ => σm`` |
-| KindForall | ``` ``\/s : μ => σm``` |
-| KindForall | ``` ``\/s : μ { σm }``` |
-| Type Operator | `` \x : κ { σm }``|
-| Type Operator | `` \x : κ => σm ``|
-| Type Construction | `` σm τm `` |
-| Poly Operator | `` `\pmκ => σm`` |
-| Poly Operator | `` `\pmκ { σm }`` |
-| Qualified Type | `` _when πm => σm `` |
-| Runtime Type | `` #σ `` |
-
+| Runtime Pair | ``σ #, σ'`` |
+| Region Transformer | ``_state π σ`` |
+| Region Reference | ``_reference π σ`` |
 
 
 ## Type Pattern(pmσ)
 |Description | Syntax |
 |-|-|
-| Variable | ``x : κ`` |
+| Variable | ``x`` |
+| Variable Abscribe | ``x : κ``|
 
+## Auto Kind (κa)
+|-|-|
+| Kind | ``κ`` |
+| Hole | ``_`` |
 
 ## Kinds(κ,s,ρ)
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Type | `` _type s `` |
-| Higher | `` κ -> κ' `` |
-| Poly | `` `\/ x : μ => κ `` |
-| Poly | `` `\/ x : μ { κ } `` |
-| Constraint | `` _constraint `` |
-| Region | `` _region `` |
+| Type | ``_type s`` |
+| Evidence | ``_evidence`` |
+| Region | ``_region`` |
 | Runtime | ``_runtime ρ ρ'`` |
-| Code | `` _code `` |
-| Data | `` _data `` |
-| Real | `` _real ρ ``|
-| Imaginary (currently unused) | `` _imaginary `` |
+| Code | ``_code`` |
+| Data | ``_data`` |
+| Real | ``_real ρ``|
+| Imaginary (currently unused) | ``_imaginary`` |
 | Meta | ``_meta`` |
 | Text | ``_text`` |
 | Pointer Representation | ``_pointer``|
@@ -180,7 +138,7 @@ See ``/documentation`` for typing rules.
 # Kind Pattern (pmκ)
 |Description | Syntax |
 |-|-|
-| Variable | ``x : μ`` |
+| Variable Ascribe | ``x : μ`` |
 
 ## Sorts(μ)
 | Description | Syntax |
@@ -202,20 +160,32 @@ Useful / Inspirational papers:
 ### Linear Types
 * [A taste of linear logic](https://homepages.inf.ed.ac.uk/wadler/papers/lineartaste/lineartaste-revised.pdf)
   * Faithfully implemented
-* [The Best of Both Worlds: Linear Functional Programming without Compromise](https://jgbm.github.io/pubs/morris-icfp2016-linearity-extended.pdf) [(video)](https://youtu.be/ij9DbNTr-B8)
-  * Bare bones implementation of qualified linear types.
 ### Levity polymorphism
 * [Levity Polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/11/levity-pldi17.pdf) [(video)](https://youtu.be/lSJwXZ7vWBw)
   * Implemented with more restrictive representation lambda.
-### Regions
-* [Monadic Regions](https://www.cs.cornell.edu/people/fluet/research/rgn-monad/JFP06/jfp06.pdf)
-  * Partially implemented, with more limited ways to create new region references 
 ### Compiler Design
 * [Invertible Syntax Descriptions: Unifying Parsing and Pretty Printing](https://www.mathematik.uni-marburg.de/~rendel/rendel10invertible.pdf)
   * Implemented with prisms instead of partial isomorphisms.
 ### Algorithms
 * [Demonstrating Lambda Calculus Reduction](https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf)
   * Applicative order reduction used for reduction.
+* [Unification Theory](https://www.cs.bu.edu/fac/snyder/publications/UnifChapter.pdf)
+  * Substitution composition algorithm taken from here
+
+## Planned
+
+### Linear Types
+* [The Best of Both Worlds: Linear Functional Programming without Compromise](https://jgbm.github.io/pubs/morris-icfp2016-linearity-extended.pdf) [(video)](https://youtu.be/ij9DbNTr-B8)
+  * Currently a manual version of evidence passing is implemented
+### Regions
+* [Monadic Regions](https://www.cs.cornell.edu/people/fluet/research/rgn-monad/JFP06/jfp06.pdf)
+  * Partially implemented, Rank 2 types are still missing
+### Compiler Design
+* [Generalizing Hindley-Milner Type Inference Algorithms](https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.18.9348&rep=rep1&type=pdf)
+  * Let generalization not implemented yet
+### Type Inference
+* [QML : Explicit First-Class Polymorphism for ML]
+
 
 ## Related / Unused
 
@@ -223,10 +193,10 @@ Useful / Inspirational papers:
 * [Linear Haskell](https://arxiv.org/pdf/1710.09756.pdf) [(video)](https://youtu.be/t0mhvd3-60Y)
 * [Making Uniqueness Typing Less Unique](http://edsko.net/pubs/thesis.pdf)
 * [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
-
 ### Compiler Design
 * [Typed Tagless Final Interpreters](http://okmij.org/ftp/tagless-final/index.html)
-
+### Type Inference
+* [FreezeML : Complete and Easy Type Inference for First-Class Polymorphism](https://export.arxiv.org/pdf/2004.00396)
 ### General Type Systems
 * [Type Systems](http://lucacardelli.name/Papers/TypeSystems.pdf)
 * [System F with Type Equality Coercions](https://www.microsoft.com/en-us/research/wp-content/uploads/2007/01/tldi22-sulzmann-with-appendix.pdf)

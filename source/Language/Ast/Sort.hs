@@ -1,4 +1,4 @@
-module Core.Ast.Sort where
+module Language.Ast.Sort where
 
 import Misc.Prism
 

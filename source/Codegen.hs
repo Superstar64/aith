@@ -1,58 +1,21 @@
 module Codegen where
 
 import qualified C.Ast as C
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State (State, evalState, get, put)
-import Control.Monad.Trans.Writer (WriterT (..), runWriterT, tell)
-import Core.Ast.Common
-import Core.Ast.Kind (Kind)
-import Core.Ast.RuntimePattern
-import Core.Ast.Term
-import Core.Ast.Type
-import Data.Map (Map, (!))
-import qualified Data.Map as Map
+import Control.Monad.State (State, evalState, get, put)
+import Control.Monad.Trans (lift)
+import Control.Monad.Writer (WriterT (..), runWriterT, tell)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Decorate
-import Misc.Identifier
-import Misc.Path
+import Language.Ast.Common hiding (fresh)
+import Language.Ast.Kind (KindRuntime (..))
+import Language.Ast.Term
+import Misc.MonoidMap (Map, (!))
+import qualified Misc.MonoidMap as Map
 import Misc.Symbol
 import Misc.Util
-import Module
 
-type CStatement = C.Statement (C.Representation C.RepresentationFix)
-
-type CExpression = C.Expression (C.Representation C.RepresentationFix)
-
-class External e where
-  external :: e -> Set String
-
-instance External (Term p) where
-  external = foldTerm external
-
-instance (External a, External b) => External (Either a b) where
-  external (Left a) = external a
-  external (Right b) = external b
-
-instance External b => External (Bound a b) where
-  external (Bound _ b) = external b
-
-instance (External a, External b) => External (a, b) where
-  external (a, b) = external a <> external b
-
-instance External (Type p) where
-  external = mempty
-
-instance External (Kind p) where
-  external = mempty
-
-instance External Identifier where
-  external = mempty
-
-instance External Symbol where
-  external (Symbol sm) = Set.singleton sm
-
-newtype Codegen a = Codegen (State (Set String, Map Identifier String) a) deriving (Functor, Applicative, Monad)
+newtype Codegen a = Codegen (State (Set String, Map TermIdentifier String) a) deriving (Functor, Applicative, Monad)
 
 runCodegen (Codegen x) symbols = evalState x (symbols, mempty)
 
@@ -66,71 +29,72 @@ temporary = do
   Codegen $ put (vars <> Set.singleton name, mapping)
   pure name
 
-compilePattern :: PatternDecorated p -> CExpression -> Codegen ([CStatement])
-compilePattern (PatternDecorated dσ _ (RuntimePatternVariable x@(Identifier base) _)) target = do
+ctype :: TypeDecorated -> C.Representation C.RepresentationFix
+ctype (TypeDecorated PointerRep) = C.Pointer
+ctype (TypeDecorated (StructRep σs)) = C.Struct $ C.RepresentationFix $ fmap ctype σs
+
+compilePattern :: PatternDecorated TypeDecorated -> C.Expression TypeDecorated -> Codegen ([C.Statement TypeDecorated])
+compilePattern (PatternDecorated σ (PatternVariable x@(TermIdentifier base) _)) target = do
   (vars, mapping) <- Codegen get
   let name = fresh vars base
   Codegen $ put (Set.insert name vars, Map.insert x name mapping)
-  pure [C.VariableDeclaration dσ name target]
-compilePattern (PatternDecorated dσ _ (RuntimePatternPair pm1 pm2)) target = do
+  pure [C.VariableDeclaration σ name target]
+compilePattern (PatternDecorated σ (RuntimePatternPair pm1 pm2)) target = do
   new <- temporary
-  let initial = C.VariableDeclaration dσ new target
+  let initial = C.VariableDeclaration σ new target
   pm1' <- compilePattern pm1 (C.Member (C.Variable new) "_0")
   pm2' <- compilePattern pm2 (C.Member (C.Variable new) "_1")
   pure $ initial : pm1' ++ pm2'
 
-compileTerm :: TermDecerated p -> WriterT [CStatement] Codegen CExpression
-compileTerm (TermDecerated _ (Variable x)) = do
+compileTerm :: TermDecerated TypeDecorated -> WriterT [C.Statement TypeDecorated] Codegen (C.Expression TypeDecorated)
+compileTerm (TermDecerated _ (Variable x ())) = do
   x' <- lift $ lookupVariable x
   pure $ C.Variable x'
-compileTerm (TermDecerated _ (Extern dσ dτ (Symbol name) _ _)) = do
-  tell [C.ForwardDeclare dτ name [dσ]]
+compileTerm (TermDecerated _ (Extern (Symbol name) σ τ)) = do
+  tell [C.ForwardDeclare τ name [σ]]
   pure $ C.Variable name
-compileTerm (TermDecerated _ (FunctionApplication dσ dτ e1 e2)) = do
+compileTerm (TermDecerated _ (FunctionApplication e1 e2@(TermDecerated τ _) σ)) = do
   e1' <- compileTerm e1
   e2' <- compileTerm e2
-  pure $ C.Call dσ [dτ] e1' [e2']
+  pure $ C.Call σ [τ] e1' [e2']
 compileTerm (TermDecerated _ (Alias e1 (Bound pm e2))) = do
   e1' <- compileTerm e1
   bindings <- lift $ compilePattern pm e1'
   tell $ bindings
   compileTerm e2
-compileTerm (TermDecerated _ (RuntimePairIntroduction dσ e1 e2)) = do
+compileTerm (TermDecerated σ (RuntimePairIntroduction e1 e2)) = do
   e1' <- compileTerm e1
   e2' <- compileTerm e2
-  pure $ C.CompoundLiteral dσ [e1', e2']
-compileTerm (TermDecerated _ (ReadReference dσ e)) = do
+  pure $ C.CompoundLiteral σ [e1', e2']
+compileTerm (TermDecerated _ (ReadReference () e σ)) = do
   e' <- compileTerm e
-  pure $ C.Dereference dσ e'
-compileTerm (TermDecerated _ (LocalRegion dσ (Bound () ((), (e1, (Bound pm e2)))))) = do
+  pure $ C.Dereference σ e'
+{-
+compileTerm (TermDecerated _ (LocalRegion (e1@(TermDecerated σ _), (Bound pm e2)))) = do
   e1' <- compileTerm e1
   stack <- lift temporary
-  tell $ [C.VariableDeclaration dσ stack e1']
+  tell $ [C.VariableDeclaration σ stack e1']
   binding <- lift $ compilePattern pm (C.Address $ C.Variable stack)
   tell $ binding
   compileTerm e2
-compileTerm (TermDecerated _ (FunctionLiteral _ _)) = error "function literal inside runtime"
+-}
+compileTerm (TermDecerated _ (FunctionLiteral _)) = error "function literal inside runtime"
 
-compileFunctionLiteralImpl :: Symbol -> TermDecerated p -> Codegen (C.Global (C.Representation C.RepresentationFix))
-compileFunctionLiteralImpl (Symbol name) (TermDecerated _ (FunctionLiteral dσ (Bound pm@(PatternDecorated argumentType _ _) e))) = do
+compileFunctionLiteralImpl :: Symbol -> TermDecerated TypeDecorated -> Codegen (C.Global TypeDecorated)
+compileFunctionLiteralImpl (Symbol name) (TermDecerated _ (FunctionLiteral (Bound pm@(PatternDecorated σ _) e@(TermDecerated τ _)))) = do
   argumentName <- temporary
   bindings <- compilePattern pm (C.Variable argumentName)
-  let arguments = [(argumentType, argumentName)]
+  let arguments = [(σ, argumentName)]
   (result, depend) <- runWriterT (compileTerm e)
   let body = bindings ++ depend ++ [C.Return result]
-  pure $ C.FunctionDefinition dσ name arguments body
+  pure $ C.FunctionDefinition τ name arguments body
 compileFunctionLiteralImpl _ _ = error "top level non function literal"
 
-compileFunctionLiteral path name e = [run $ compileFunctionLiteralImpl manging decorated]
+{-
+compileFunctionLiteral :: [Identifier] -> Identifier -> Term Internal -> [C.Global (C.Representation C.RepresentationFix)]
+compileFunctionLiteral path name e = [fmap ctype $ run $ compileFunctionLiteralImpl manging decorated]
   where
     manging = mangle $ Path path name
-    decorated = runDecorate $ decorateTerm e
+    decorated = fmap snd $ runReader (decorateTypeCheck (runDecorate $ decorateTerm e)) Map.empty
     run c = runCodegen c (external e)
-
-compileModule path (CoreModule code) = Map.toList code >>= (uncurry $ compileItem path)
-
-compileItem path name (Module items) = compileModule (path ++ [name]) items
-compileItem path name (Global (Text _ e)) = compileFunctionLiteral path name e
-compileItem _ _ (Global (Inline _ _)) = []
-compileItem _ _ (Global (Import _ _)) = []
-compileItem _ _ (Global (Synonym _)) = []
+-}

@@ -12,6 +12,12 @@ secondM g = bitraverse pure g
 
 zipWithM f a b = sequence $ zipWith f (toList a) (toList b)
 
-temporaries prefix = prefix : (map ((prefix ++) . show) [0 ..])
+temporaries' prefixes =
+  prefixes ++ do
+    i <- [0 ..]
+    prefix <- prefixes
+    pure $ prefix ++ show i
+
+temporaries prefix = temporaries' [prefix]
 
 fresh disallow canditate = fromJust $ find (flip Set.notMember disallow) $ temporaries canditate

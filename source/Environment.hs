@@ -2,43 +2,32 @@ module Environment where
 
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Misc.Identifier (Identifier)
 
-class Usage lΓ where
-  useEverything :: lΓ
-  branch :: lΓ -> lΓ -> lΓ
-  useNothing :: lΓ
-  combine :: lΓ -> lΓ -> lΓ
+data Use i = Use i | Everything | Branch (Use i) (Use i) | Empty | Combine (Use i) (Use i) | Remove i (Use i) deriving (Show)
 
-branchAll = foldl branch useEverything
+useEverything = Everything
+
+combine = Combine
+
+useNothing = Empty
+
+branch = Branch
+
+branchAll = foldl Branch useEverything
 
 combineAll = foldl combine useNothing
 
-instance Usage () where
-  useEverything = ()
-  branch () () = ()
-  useNothing = ()
-  combine () () = ()
-
-data Use = Use Identifier | Everything | Branch Use Use | Empty | Both Use Use | Remove Identifier Use deriving (Show)
-
-instance Usage Use where
-  useEverything = Everything
-  branch = Branch
-  useNothing = Empty
-  combine = Both
-
-variablesUsed :: Use -> Set Identifier
+variablesUsed :: Ord i => Use i -> Set i
 variablesUsed (Use x) = Set.singleton x
 variablesUsed Everything = mempty
 variablesUsed (Branch a b) = variablesUsed a <> variablesUsed b
 variablesUsed Empty = mempty
-variablesUsed (Both a b) = variablesUsed a <> variablesUsed b
+variablesUsed (Combine a b) = variablesUsed a <> variablesUsed b
 variablesUsed (Remove x a) = Set.delete x (variablesUsed a)
 
 data Count = None | Single | Multiple
 
-count :: Identifier -> Use -> Count
+count :: Ord i => i -> (Use i) -> Count
 count x (Use x') | x == x' = Single
 count _ (Use _) = None
 count _ Everything = Single
@@ -48,7 +37,7 @@ count x (Branch a b) = count x a `or` count x b
     or Single Single = Single
     or _ _ = Multiple
 count _ Empty = None
-count x (Both a b) = count x a `and` count x b
+count x (Combine a b) = count x a `and` count x b
   where
     and None c = c
     and c None = c

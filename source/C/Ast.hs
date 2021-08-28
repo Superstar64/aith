@@ -1,8 +1,7 @@
 module C.Ast where
 
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State (evalStateT, get, modify)
-import Control.Monad.Trans.Writer (runWriter, tell)
+import Control.Monad.State (evalStateT, get, modify)
+import Control.Monad.Writer (runWriter, tell)
 import qualified Data.Set as Set
 import Misc.Prism
 
@@ -31,7 +30,7 @@ escapeStruct (Struct (RepresentationFix items)) = do
     then do
       modify $ Set.insert items
       items' <- traverse escapeStruct items
-      lift $ tell [StructDefinition mangling (zip items' fields)]
+      tell [StructDefinition mangling (zip items' fields)]
     else pure ()
   pure $ Struct $ mangling
 

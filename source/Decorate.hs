@@ -1,87 +1,138 @@
 module Decorate where
 
-import qualified C.Ast as C
-import Core.Ast.Common
-import Core.Ast.Kind
-import Core.Ast.Multiplicity
-import Core.Ast.RuntimePattern
-import Core.Ast.Term
-import Core.TypeCheck
-import Data.Functor.Identity
-import qualified Data.Map as Map
+import Control.Monad.Reader (ReaderT, ask, withReaderT)
+import Data.Set (Set, singleton)
+import Data.Void (Void)
+import Language.Ast.Common
+import Language.Ast.Kind
+import Language.Ast.Term
+import Language.Ast.Type
+import Language.TypeCheck
+import Misc.MonoidMap (Map, (!))
+import qualified Misc.MonoidMap as Map
+import Misc.Symbol
 
-data PatternDecorated p = PatternDecorated (C.Representation C.RepresentationFix) p (PatternCommon () (PatternDecorated p))
+data TypeDecorated = TypeDecorated (KindRuntime TypeDecorated)
 
-data TermDecerated p = TermDecerated p (TermCommon (C.Representation C.RepresentationFix) () () (PatternDecorated p) (TermDecerated p))
+data PatternDecorated p = PatternDecorated p (PatternCommon TypeDecorated (PatternDecorated p))
 
-decorateImpl (CoreKind _ PointerRep) = C.Pointer
-decorateImpl (CoreKind _ (StructRep ρs)) = C.Struct $ C.RepresentationFix $ decorateImpl <$> ρs
+instance Functor PatternDecorated where
+  fmap f (PatternDecorated p pm) = PatternDecorated (f p) $ case pm of
+    PatternVariable x σ -> PatternVariable x σ
+    RuntimePatternPair pm1 pm2 -> RuntimePatternPair (f <$> pm1) (f <$> pm2)
+
+data TermDecerated p = TermDecerated p (TermRuntime () TypeDecorated (Bound (PatternDecorated p) (TermDecerated p)) () (TermDecerated p))
+
+instance Functor TermDecerated where
+  fmap f (TermDecerated p e) = TermDecerated (f p) $ case e of
+    Variable x () -> Variable x ()
+    Alias e1 (Bound pm e2) -> Alias (f <$> e1) (Bound (f <$> pm) (f <$> e2))
+    Extern sm σ τ -> Extern sm σ τ
+    RuntimePairIntroduction e1 e2 -> RuntimePairIntroduction (f <$> e1) (f <$> e2)
+    FunctionApplication e1 e2 σ -> FunctionApplication (f <$> e1) (f <$> e2) σ
+    ReadReference () e σ -> ReadReference () (f <$> e) σ
+    FunctionLiteral (Bound pm e) -> FunctionLiteral (Bound (f <$> pm) (f <$> e))
+
+external :: TermDecerated p -> Set String
+external (TermDecerated _ (Variable _ ())) = mempty
+external (TermDecerated _ (Extern (Symbol sym) _ _)) = singleton sym
+external (TermDecerated _ (Alias e (Bound _ e'))) = external e <> external e'
+external (TermDecerated _ (FunctionApplication e e' _)) = external e <> external e'
+external (TermDecerated _ (RuntimePairIntroduction e e')) = external e <> external e'
+external (TermDecerated _ (FunctionLiteral (Bound _ e))) = external e
+external (TermDecerated _ (ReadReference _ e _)) = external e
+
+decorateImpl :: Kind Void p -> TypeDecorated
+decorateImpl (CoreKind _ (KindRuntime PointerRep)) = TypeDecorated $ PointerRep
+decorateImpl (CoreKind _ (KindRuntime (StructRep ρs))) = TypeDecorated $ StructRep (decorateImpl <$> ρs)
 decorateImpl _ = error "unable to decorate kind"
 
 decoration (CoreKind _ (Type (CoreKind _ (Runtime _ (CoreKind _ (Real κ)))))) = decorateImpl κ
 decoration _ = error "unable to decorate kind"
 
-augmentVariable p x σ e = modifyTypeEnvironment (Map.insert x (p, Unrestricted, σ)) e
+decorateTermPattern :: Monad m => TermPattern θ TypeInfer p -> ReaderT (Map TypeIdentifier KindInfer) m (PatternDecorated p)
+decorateTermPattern (CoreTermPattern p (PatternCommon (PatternVariable x σ))) = do
+  σ' <- decoration <$> reconstruct σ
+  pure $ PatternDecorated p $ PatternVariable x σ'
+decorateTermPattern (CoreTermPattern p (PatternCommon (RuntimePatternPair pm1 pm2))) = do
+  pm1' <- decorateTermPattern pm1
+  pm2' <- decorateTermPattern pm2
+  pure $ PatternDecorated p $ RuntimePatternPair pm1' pm2'
+decorateTermPattern (CoreTermPattern _ (PatternCopy _ pm)) = decorateTermPattern pm
+decorateTermPattern _ = error "unable to decerate pattern"
 
-augmentPattern (CoreRuntimePattern p (PatternCommon (RuntimePatternVariable x σ))) e = augmentVariable p x σ e
-augmentPattern (CoreRuntimePattern _ (PatternCommon (RuntimePatternPair pm pm'))) e = augmentPattern pm (augmentPattern pm' e)
-
-decoratePattern (CoreRuntimePattern p (PatternCommon (RuntimePatternVariable x σ))) = do
-  dσ <- decoration <$> typeCheck σ
-  pure $ PatternDecorated dσ p (RuntimePatternVariable x ())
-decoratePattern (CoreRuntimePattern p (PatternCommon (RuntimePatternPair pm1 pm2))) = do
-  pm1'@(PatternDecorated d1 _ _) <- decoratePattern pm1
-  pm2'@(PatternDecorated d2 _ _) <- decoratePattern pm2
-  pure $ PatternDecorated (C.Struct $ C.RepresentationFix [d1, d2]) p (RuntimePatternPair pm1' pm2')
-
-decorateTerm (CoreTerm p (TermCommon (Variable x))) = pure $ TermDecerated p (Variable x)
-decorateTerm (CoreTerm p (TermCommon (Extern _ _ sm σ τ))) = do
-  dσ <- decoration <$> typeCheck σ
-  dτ <- decoration <$> typeCheck τ
-  pure $ TermDecerated p (Extern dσ dτ sm () ())
-decorateTerm e@(CoreTerm p (TermCommon (FunctionApplication _ _ e1 e2))) = do
-  dσ <- decoration <$> (typeCheck =<< typeCheck e)
-  dτ <- decoration <$> (typeCheck =<< typeCheck e2)
+decorateTerm :: Monad m => Term θ TypeInfer p -> ReaderT (Map TypeIdentifier KindInfer) m (TermDecerated p)
+decorateTerm (CoreTerm p (TermRuntime (Variable x _))) = pure $ TermDecerated p (Variable x ())
+decorateTerm (CoreTerm p (TermRuntime (Extern sym σ τ))) = do
+  σ' <- decoration <$> reconstruct σ
+  τ' <- decoration <$> reconstruct τ
+  pure $ TermDecerated p $ Extern sym σ' τ'
+decorateTerm (CoreTerm p (TermRuntime (FunctionApplication e1 e2 σ))) = do
   e1' <- decorateTerm e1
   e2' <- decorateTerm e2
-  pure $ TermDecerated p (FunctionApplication dσ dτ e1' e2')
-decorateTerm (CoreTerm _ (TypeAbstraction (Bound pmσ e))) = augment pmσ $ decorateTerm e
-decorateTerm (CoreTerm _ (TypeApplication e _)) = decorateTerm e
-decorateTerm (CoreTerm p (TermCommon (FunctionLiteral () (Bound pm e)))) = do
-  dpm <- decoratePattern pm
-  e' <- augmentPattern pm (decorateTerm e)
-  dτ <- decoration <$> augmentPattern pm (typeCheck =<< typeCheck e)
-  pure $ TermDecerated p $ FunctionLiteral dτ (Bound dpm e')
-decorateTerm (CoreTerm _ (QualifiedAssume _ e)) = decorateTerm e
-decorateTerm (CoreTerm _ (QualifiedCheck e)) = decorateTerm e
-decorateTerm (CoreTerm p (TermCommon (Alias e1 (Bound pm e2)))) = do
-  pm' <- decoratePattern pm
+  σ' <- decoration <$> reconstruct σ
+  pure $ TermDecerated p $ FunctionApplication e1' e2' σ'
+decorateTerm (CoreTerm p (TermRuntime (Alias e1 (Bound pm e2)))) = do
   e1' <- decorateTerm e1
-  e2' <- augmentPattern pm (decorateTerm e2)
-  pure $ TermDecerated p (Alias e1' (Bound pm' e2'))
-decorateTerm (CoreTerm p (TermCommon (RuntimePairIntroduction () e1 e2))) = do
+  pm' <- decorateTermPattern pm
+  e2' <- decorateTerm e2
+  pure $ TermDecerated p $ Alias e1' (Bound pm' e2')
+decorateTerm (CoreTerm p (TermRuntime (RuntimePairIntroduction e1 e2))) = do
   e1' <- decorateTerm e1
   e2' <- decorateTerm e2
-  de1 <- decoration <$> (typeCheck =<< typeCheck e1)
-  de2 <- decoration <$> (typeCheck =<< typeCheck e2)
-  let dσ = C.Struct $ C.RepresentationFix [de1, de2]
-  pure (TermDecerated p (RuntimePairIntroduction dσ e1' e2'))
-decorateTerm (CoreTerm _ (Pack _ e)) = decorateTerm e
-decorateTerm (CoreTerm _ (Unpack e)) = decorateTerm e
-decorateTerm (CoreTerm _ (PureRegionTransformer _ e)) = decorateTerm e
-decorateTerm (CoreTerm p (DoRegionTransformer e λ)) = decorateTerm (CoreTerm p (TermCommon (Alias e λ)))
-decorateTerm e2@(CoreTerm p (TermCommon (ReadReference () e))) = do
+  pure $ TermDecerated p $ RuntimePairIntroduction e1' e2'
+decorateTerm (CoreTerm p (TermRuntime (FunctionLiteral (Bound pm e)))) = do
+  pm' <- decorateTermPattern pm
   e' <- decorateTerm e
-  dσ <- decoration <$> (typeCheck =<< typeCheck e2)
-  pure (TermDecerated p (ReadReference dσ e'))
-decorateTerm (CoreTerm _ (CastRegionTransformer _ e)) = decorateTerm e
-decorateTerm (CoreTerm p (TermCommon (LocalRegion () (Bound pmσ (_, (e1, (Bound pm e2))))))) = do
-  e1' <- augment pmσ $ decorateTerm e1
-  pm' <- augment pmσ $ decoratePattern pm
-  dσ <- decoration <$> (typeCheck =<< augment pmσ (typeCheck e1))
-  e2' <- augment pmσ (augmentPattern pm (decorateTerm e2))
-  pure $ TermDecerated p (LocalRegion dσ (Bound () ((), (e1', Bound pm' e2'))))
-decorateTerm _ = error "unable to decorate term"
+  pure $ TermDecerated p $ FunctionLiteral $ Bound pm' e'
+decorateTerm (CoreTerm p (TermRuntime (ReadReference _ e σ))) = do
+  e' <- decorateTerm e
+  σ' <- decoration <$> reconstruct σ
+  pure $ TermDecerated p $ ReadReference () e' σ'
+decorateTerm (CoreTerm _ (PureRegionTransformer e)) = decorateTerm e
+decorateTerm (CoreTerm p (DoRegionTransformer e (Bound pm e'))) =
+  decorateTerm (CoreTerm p $ TermRuntime $ Alias e (Bound pm e'))
+decorateTerm (CoreTerm _ (ImplicationAbstraction (Bound _ e))) = decorateTerm e
+decorateTerm (CoreTerm _ (ImplicationApplication _ e)) = decorateTerm e
+decorateTerm _ = error "decorate illegal term"
 
-runDecorate :: Core.TypeCheck.Core Internal Identity a -> a
-runDecorate e = runIdentity $ runCore e emptyState
+decorateTermAnnotate :: Monad m => Term θ TypeInfer p -> TypeSchemeInfer -> ReaderT (Map TypeIdentifier KindInfer) m (TermDecerated p)
+decorateTermAnnotate e (CoreTypeScheme _ (MonoType _)) = decorateTerm e
+decorateTermAnnotate e (CoreTypeScheme _ (Forall (Bound (Pattern _ x κ) σ))) = withReaderT (Map.insert x κ) $ decorateTermAnnotate e σ
+decorateTermAnnotate _ (CoreTypeScheme _ (KindForall _)) = error "kind forall in decorated term"
+
+decorateAugment (PatternDecorated _ (PatternVariable x σ)) e = withReaderT (Map.insert x σ) e
+decorateAugment (PatternDecorated _ (RuntimePatternPair pm pm')) e = decorateAugment pm (decorateAugment pm' e)
+
+decorateTypeCheck :: Monad m => TermDecerated p -> ReaderT (Map TermIdentifier TypeDecorated) m (TermDecerated (p, TypeDecorated))
+decorateTypeCheck (TermDecerated p (Variable x ())) = do
+  σΓ <- ask
+  pure $ TermDecerated (p, σΓ ! x) (Variable x ())
+decorateTypeCheck (TermDecerated p (Extern sm σ τ)) = pure $ TermDecerated (p, TypeDecorated PointerRep) (Extern sm σ τ)
+decorateTypeCheck (TermDecerated p (FunctionApplication e1 e2 σ)) = do
+  e1' <- decorateTypeCheck e1
+  e2' <- decorateTypeCheck e2
+  pure $ TermDecerated (p, σ) (FunctionApplication e1' e2' σ)
+decorateTypeCheck (TermDecerated p (Alias e1 (Bound pm e2))) = do
+  e1' <- decorateTypeCheck e1
+  e2'@(TermDecerated (_, σ) _) <- decorateAugment pm $ decorateTypeCheck e2
+  let pm' = decorateTypeCheckPattern pm
+  pure $ TermDecerated (p, σ) (Alias e1' (Bound pm' e2'))
+decorateTypeCheck (TermDecerated p (RuntimePairIntroduction e1 e2)) = do
+  e1'@(TermDecerated (_, σ1) _) <- decorateTypeCheck e1
+  e2'@(TermDecerated (_, σ2) _) <- decorateTypeCheck e2
+  pure $ TermDecerated (p, TypeDecorated $ StructRep [σ1, σ2]) (RuntimePairIntroduction e1' e2')
+decorateTypeCheck (TermDecerated p (ReadReference () e σ)) = do
+  e' <- decorateTypeCheck e
+  pure $ TermDecerated (p, σ) (ReadReference () e' σ)
+decorateTypeCheck (TermDecerated p (FunctionLiteral (Bound pm e))) = do
+  e' <- decorateAugment pm $ decorateTypeCheck e
+  let pm' = decorateTypeCheckPattern pm
+  pure $ TermDecerated (p, error "type of function") (FunctionLiteral (Bound pm' e'))
+
+decorateTypeCheckPattern :: PatternDecorated p -> PatternDecorated (p, TypeDecorated)
+decorateTypeCheckPattern (PatternDecorated p (PatternVariable x σ)) = PatternDecorated (p, σ) (PatternVariable x σ)
+decorateTypeCheckPattern (PatternDecorated p (RuntimePatternPair pm1 pm2)) = PatternDecorated (p, TypeDecorated $ StructRep [σ, τ]) (RuntimePatternPair pm1' pm2')
+  where
+    pm1'@(PatternDecorated (_, σ) _) = decorateTypeCheckPattern pm1
+    pm2'@(PatternDecorated (_, τ) _) = decorateTypeCheckPattern pm2

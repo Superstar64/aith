@@ -3,11 +3,17 @@ module BaseMain where
 import qualified C.Ast as C
 import qualified C.Print as C
 import Codegen
-import Core.Ast.Common
-import qualified Data.Map as Map
+import Control.Monad.Reader
 import Data.Traversable (for)
-import Error
-import Misc.Identifier
+import Data.Void
+import Decorate
+import Language.Ast.Common
+import Language.Ast.Kind hiding (Text, typex)
+import Language.Ast.Term
+import Language.Ast.Type (Type (..), TypeF (..), TypeInfer, TypeSchemeInfer, mapTypeF)
+import Language.TypeCheck.Core
+import Language.TypeCheck.Variable
+import qualified Misc.MonoidMap as Map
 import Misc.Path hiding (path)
 import Module hiding (modulex)
 import Syntax
@@ -18,53 +24,53 @@ import Text.Megaparsec (SourcePos, errorBundlePretty)
 import Prelude hiding (readFile, writeFile)
 import qualified Prelude
 
+compileFunctionLiteral ::
+  [String] ->
+  String ->
+  TypeSchemeInfer ->
+  Term θ TypeInfer p ->
+  C.Global (C.Representation C.RepresentationFix)
+compileFunctionLiteral path name σ e = fmap ctype $ runCodegen (compileFunctionLiteralImpl sym e'') (external e'')
+  where
+    e'' = snd <$> runReader (decorateTypeCheck e') Map.empty
+    e' = runReader (decorateTermAnnotate e σ) Map.empty
+    sym = mangle (Path path name)
+
+compileModule path (CoreModule code) = Map.toList code >>= (uncurry $ compileItem path)
+
+compileItem ::
+  [String] ->
+  String ->
+  Item TypeSchemeInfer θ TypeInfer p ->
+  [C.Global (C.Representation C.RepresentationFix)]
+compileItem path name (Module items) = compileModule (path ++ [name]) items
+compileItem path name (Global (Text σ e)) = [compileFunctionLiteral path name σ e]
+compileItem _ _ (Global (Inline _ _)) = []
+compileItem _ _ (Global (Import _ _)) = []
+
+nameType :: TypeUnify -> Type (KindAuto Internal) Void Internal
+nameType (CoreType p (TypeExtra _)) = CoreType p $ TypeVariable $ TypeIdentifier "_"
+nameType (CoreType p σ) = CoreType p $ mapTypeF (error "unexpected logic variable") nameType σ
+
+nameKind :: KindUnify -> Kind Void Internal
+nameKind (CoreKind p (KindExtra _)) = CoreKind p $ KindVariable $ KindIdentifier "_"
+nameKind (CoreKind p κ) = CoreKind p $ mapKindF (error "unexpected logic variable") nameKind κ
+
+prettyError :: TypeError [SourcePos] -> String
+prettyError (UnknownIdentifier p (TermIdentifier x)) = "Unknown identifer " ++ x ++ positions p
+prettyError (TypeMismatch p σ σ') = "Type mismatch between " ++ pretty typex (nameType σ) ++ " and " ++ pretty typex (nameType σ') ++ positions p
+prettyError (KindMismatch p κ κ') = "Kind mismatch between " ++ pretty kind (nameKind κ) ++ " and " ++ pretty kind (nameKind κ') ++ positions p
+prettyError e = show e
+
 newtype PrettyIO a = PrettyIO {runPrettyIO :: IO a} deriving (Functor, Applicative, Monad)
 
 quoted x = "\"" ++ x ++ "\""
 
-prettyIdentifier (Identifier x) = quoted x
-
-prettyType = quoted . pretty (typex Syntax.Runtime)
-
-prettyKind = quoted . pretty kind
-
-prettySort = quoted . pretty sort
+prettyIdentifier x = quoted x
 
 prettyPath = quoted . pretty path
 
 expected a b p = "Expected " ++ a ++ " but got " ++ b ++ positions p
-
-prettyError (UnknownIdentfier p x) = "Unknown Identifier: " ++ prettyIdentifier x ++ positions p
-prettyError (ExpectedMacro p σ) = expected "Macro" (prettyType σ) p
-prettyError (ExpectedFunctionPointer p σ) = expected "Function" (prettyType σ) p
-prettyError (ExpectedForall p σ) = expected "Forall" (prettyType σ) p
-prettyError (ExpectedKindForall p σ) = expected "Kind Forall" (prettyType σ) p
-prettyError (ExpectedQualified p σ) = expected "Qualified" (prettyType σ) p
-prettyError (ExpectedOfCourse p σ) = expected "Of Course" (prettyType σ) p
-prettyError (ExpectedRecursive p σ) = expected "Recursive" (prettyType σ) p
-prettyError (ExpectedRegionTransformer p σ) = expected "Region Transformer" (prettyType σ) p
-prettyError (ExpectedRegionReference p σ) = expected "Region Reference" (prettyType σ) p
-prettyError (ExpectedType p κ) = expected "Type" (prettyKind κ) p
-prettyError (ExpectedHigher p κ) = expected "Higher" (prettyKind κ) p
-prettyError (ExpectedPoly p κ) = expected "Poly" (prettyKind κ) p
-prettyError (ExpectedConstraint p κ) = expected "Constraint" (prettyKind κ) p
-prettyError (ExpectedRegion p κ) = expected "Region" (prettyKind κ) p
-prettyError (ExpectedText p κ) = expected "Text" (prettyKind κ) p
-prettyError (ExpectedRuntime p κ) = expected "Runtime" (prettyKind κ) p
-prettyError (ExpectedData p κ) = expected "Data" (prettyKind κ) p
-prettyError (ExpectedReal p κ) = expected "Real" (prettyKind κ) p
-prettyError (ExpectedKind p μ) = expected "Kind" (prettySort μ) p
-prettyError (ExpectedStage p μ) = expected "Stage" (prettySort μ) p
-prettyError (ExpectedImpact p μ) = expected "Impact" (prettySort μ) p
-prettyError (ExpectedExistance p μ) = expected "Existance" (prettySort μ) p
-prettyError (ExpectedRepresentation p μ) = expected "Representation" (prettySort μ) p
-prettyError (EscapingTypeVariable p α σ) = "Escaping type variable " ++ prettyIdentifier α ++ " " ++ prettyType σ ++ positions p
-prettyError (IncompatibleType p σ τ) = "Type mismatch between " ++ prettyType σ ++ " and " ++ prettyType τ ++ positions p
-prettyError (IncompatibleKind p κ κ') = "Kind mismatch between " ++ prettyKind κ ++ " and " ++ prettyKind κ' ++ positions p
-prettyError (IncompatibleSort p μ μ') = "Sort mismatch between " ++ prettySort μ ++ " and " ++ prettySort μ' ++ positions p
-prettyError (CaptureLinear p x) = "Linear variable " ++ prettyIdentifier x ++ " captured" ++ positions p
-prettyError (InvalidUsage p x) = "Linear Variable " ++ prettyIdentifier x ++ " copied" ++ positions p
-prettyError (NoProof p σ) = "No proof for " ++ prettyType σ ++ positions p
 
 prettyModuleError (IllegalPath p path) = "Unknown path " ++ prettyPath path ++ positions p
 prettyModuleError (IncompletePath p path) = "Incomplete path " ++ prettyPath path ++ positions p
@@ -73,8 +79,10 @@ prettyModuleError (Cycle p path) = "Global cycle" ++ prettyPath path ++ position
 
 positions p = " in positions: " ++ show p
 
-instance Base [SourcePos] PrettyIO where
+instance TypeErrorQuit [SourcePos] PrettyIO where
   quit e = PrettyIO $ die $ prettyError e
+
+instance ModuleErrorQuit [SourcePos] PrettyIO where
   moduleQuit e = PrettyIO $ die $ prettyModuleError e
 
 readFile "-" = getContents
@@ -88,6 +96,7 @@ writeFile name file = Prelude.writeFile name file
 data CommandLine = CommandLine
   { loadItem :: [(Path, FilePath)],
     prettyItem :: [(Path, FilePath)],
+    prettyItemAnnotated :: [(Path, FilePath)],
     prettyItemReduced :: [(Path, FilePath)],
     generateCItem :: [(Path, FilePath)]
   }
@@ -99,6 +108,8 @@ printHelp = do
   putStrLn "     Load a file or folder into the specified aith path"
   putStrLn " --format <aith path> <file>"
   putStrLn "     Format the specified aith path into a file"
+  putStrLn " --annotate <aith path> <file>"
+  putStrLn "     Annotate and format the specified aith path into a file"
   putStrLn " --reduce <aith path> <file>"
   putStrLn "     Reduce and format the specified aith path into a file"
   putStrLn " --generate-c <aith path> <file>"
@@ -116,13 +127,16 @@ parseArguments ("--load" : filePath : targetPath : xs) = parsePathPair load file
 parseArguments ("--format" : targetPath : filePath : xs) = parsePathPair pretty filePath targetPath xs
   where
     pretty item command = command {prettyItem = item : prettyItem command}
+parseArguments ("--annotate" : targetPath : filePath : xs) = parsePathPair pretty filePath targetPath xs
+  where
+    pretty item command = command {prettyItemAnnotated = item : prettyItemAnnotated command}
 parseArguments ("--reduce" : targetPath : filePath : xs) = parsePathPair pretty filePath targetPath xs
   where
-    pretty item command = command {prettyItemReduced = item : prettyItem command}
+    pretty item command = command {prettyItemReduced = item : prettyItemReduced command}
 parseArguments ("--generate-c" : targetPath : filePath : xs) = parsePathPair generate filePath targetPath xs
   where
     generate item command = command {generateCItem = item : generateCItem command}
-parseArguments [] = pure $ CommandLine [] [] [] []
+parseArguments [] = pure $ CommandLine [] [] [] [] []
 parseArguments x = die $ "Unknown arguments" ++ show x
 
 load fileName = do
@@ -132,7 +146,7 @@ load fileName = do
       children <- listDirectory fileName
       inner <- for children $ \child -> do
         item <- load (fileName ++ [pathSeparator] ++ child)
-        pure (Identifier (dropExtension child), item)
+        pure (dropExtension child, item)
       pure (Module $ CoreModule $ Map.fromList inner)
     else do
       file <- readFile fileName
@@ -180,10 +194,13 @@ baseMain arguments = do
     [] -> printHelp
     _ -> pure ()
   command <- parseArguments arguments
-  code <- (fmap (: [])) <$> addAll (loadItem command) :: IO (Module [SourcePos])
-  prettyAll (prettyItem command) (Internal <$ code)
+  code <- mapModuleAuto (: []) <$> addAll (loadItem command) :: IO (ModuleAuto [SourcePos])
+  prettyAll (prettyItem command) (mapModuleAuto (const Internal) code)
   ordering <- runPrettyIO $ order code
-  environment <- runPrettyIO $ typeCheckModule ordering
-  let code = unorder $ reduceModule environment ordering
-  prettyAll (prettyItemReduced command) (Internal <$ code)
-  generateAll (generateCItem command) (Internal <$ code)
+  ordering' <- runPrettyIO $ typeCheckModule ordering
+  let code' = unorder $ unInfer $ ordering'
+  prettyAll (prettyItemAnnotated command) code'
+  let ordering'' = reduceModule ordering'
+  let code'' = unorder $ unInfer $ ordering''
+  prettyAll (prettyItemReduced command) code''
+  generateAll (generateCItem command) (unorder $ ordering'')

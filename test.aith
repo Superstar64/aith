@@ -1,0 +1,43 @@
+module:
+
+inline runtimeCall = \f => \x => f # x;
+
+module combinators = {
+	inline flip = \f => \x => \y => f y x;
+	inline compose = \f => \g => \x => f (g x);
+	
+	inline readerPure = \x => \!r => x;
+	inline readerBind = \m => \f => \!r => f(m (!r)) (!r);
+	inline readerMap = \f => \m => readerBind m (compose readerPure f);
+};
+
+import compose = /test/combinators/compose;
+
+module runtime = {
+	import call = /test/runtimeCall;
+	
+	symbol _ :: \/a : _type (_runtime _data (_real _pointer)) => a -#> a;
+	symbol idPtr = #\x => x;
+	
+	symbol useIdPtr = #\x => call idPtr x;
+	
+	symbol _ :: \/a : _type (_runtime _data (_real _pointer)) => \/b : _type (_runtime _data (_real _pointer)) => _copy b -^> (a #, b) -#> a;
+	symbol fst = ^\proof => #\(x #, #!proof y) => x;
+	
+	symbol _ :: \/a : _type (_runtime _data (_real _pointer)) => \/b : _type (_runtime _data (_real _pointer)) => _copy a -^> (a #, b) -#> b;
+	symbol snd = ^\proof => #\(#!proof x #, y) => y;
+	
+  
+	symbol readBoth = ^\proof => #\(p1 #, p2) {
+		_do x1 = _read proof p1;
+		_do x2 = _read proof p2;
+		_pure (call idPtr x1 #, call idPtr x2)
+	};
+	
+	inline copyFunction = _copyFunction;
+	
+	symbol _ :: \/a:_type (_runtime _data (_real _pointer)) => (a -#> a) -#> (a -#> a) #, (a -#> a); 
+	symbol cloneFP = #\ #!copyFunction x {
+		(x #, x)
+	};
+};
