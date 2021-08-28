@@ -54,18 +54,19 @@ See ``/documentation`` for typing rules.
 | Macro Application | ``e e'``|
 | Of Course Introduction | ``!e`` |
 | Macro Binding | ``_inline pm = e; e'``|
-| Extern | ``_extern "x" (σa) (σa')`` |
+| Extern | ``_extern "x" σa -> σa'`` |
 | Function Application | ``e # e'``|
 | Function Application Ascribe | ``e # e' : σ``|
-| Function Literal | ``#\pme => e`` |
-| Function Literal | ``#\pme { e }`` |
-| Evidence Abstraction | ``^\pm => e``
-| Evidence Abstraction | ``^pm { e }``|
+| Function Literal | ``#\pm => e`` |
+| Function Literal | ``#\pm { e }`` |
+| Evidence Abstraction | ``^\pm => e`` |
+| Evidence Abstraction | ``^\pm { e }``|
 | Evidence Application | ``e ^ e'`` |
+| Runtime Binding | ``_let pm = e; e'`` |
 | Runtime Pair Construction | ``e #, e'`` |
 | Pure Region Transformer | ``_pure e`` |
 | Bind Region Transformer | `` _do pm = e; e' `` |
-| Read Reference | `` _read e : (σ)`` |
+| Read Reference | `` _read e : σ`` |
 | Copy Function Proof | ``_copyFunction`` |
 | Copy Pair Proof | ``_copyPair e e'`` |
 | Copy Reference Proof | ``_copyReference``|
@@ -77,20 +78,20 @@ See ``/documentation`` for typing rules.
 | Variable Abscribe | ``x : σ`` |
 | OfCourse | ``!pm`` |
 | Runtime Pair Destruction | ``pm #, pm'`` |
-| Copy Variable | ``#!(e) pm`` |
+| Copy Variable | ``#!e pm`` |
 
 ## Auto Type (σa)
+| Description | Syntax |
 |-|-|
 | Type | ``σ`` |
 | Hole | ``_`` |
 
 # Type Scheme(ς)
+| Description | Syntax |
 |-|-|
 | MonoType | ``σ`` |
 | Forall | ``\/pmσ => ς`` |
-| Forall | ``\/pmσ { ς }`` |
-| Kind Forall | ``\/pmκ => ς`` |
-| Kind Forall | ``\/pmκ { ς }`` |
+| Kind Forall | `` `\/pmκ => ς`` |
 
 ## Types(σ, τ, π)
 | Description | Syntax |
@@ -108,12 +109,13 @@ See ``/documentation`` for typing rules.
 
 
 ## Type Pattern(pmσ)
-|Description | Syntax |
+| Description | Syntax |
 |-|-|
 | Variable | ``x`` |
 | Variable Abscribe | ``x : κ``|
 
 ## Auto Kind (κa)
+| Description | Syntax |
 |-|-|
 | Kind | ``κ`` |
 | Hole | ``_`` |
@@ -136,7 +138,7 @@ See ``/documentation`` for typing rules.
 | Struct Representation | ``_struct (ρ, ρ', ...)`` |
 
 # Kind Pattern (pmκ)
-|Description | Syntax |
+| Description | Syntax |
 |-|-|
 | Variable Ascribe | ``x : μ`` |
 
