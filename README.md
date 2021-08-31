@@ -186,7 +186,7 @@ Useful / Inspirational papers:
 * [Generalizing Hindley-Milner Type Inference Algorithms](https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.18.9348&rep=rep1&type=pdf)
   * Let generalization not implemented yet
 ### Type Inference
-* [QML : Explicit First-Class Polymorphism for ML]
+* [QML : Explicit First-Class Polymorphism for ML](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/QML-Explicit-First-Class-Polymorphism-for-ML.pdf)
 
 
 ## Related / Unused
