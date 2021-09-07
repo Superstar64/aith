@@ -8,7 +8,7 @@ import Data.List (find)
 import Data.Traversable (for)
 import Data.Void
 import Language.Ast.Common
-import Language.Ast.Kind (mapKind)
+import Language.Ast.Kind (KindAuto, KindInfer, mapKind)
 import Language.Ast.Multiplicity
 import Language.Ast.Term
 import Language.Ast.Type
@@ -37,25 +37,25 @@ instance ModuleErrorQuit Internal Identity where
 instance ModuleErrorQuit p m => ModuleErrorQuit p (StateT s m) where
   moduleQuit = lift . moduleQuit
 
-newtype Module ς θ σ p = CoreModule (Map String (Item ς θ σ p)) deriving (Show)
+newtype Module ς θ κ σ p = CoreModule (Map String (Item ς θ κ σ p)) deriving (Show)
 
-type ModuleAuto p = Module (TypeSchemeAuto p) () (TypeAuto p) p
+type ModuleAuto p = Module (TypeSchemeAuto p) () (KindAuto p) (TypeAuto p) p
 
 mapModuleAuto :: (p -> p') -> ModuleAuto p -> ModuleAuto p'
 mapModuleAuto f (CoreModule m) = CoreModule $ fmap (mapItemAuto f) m
 
 coreModule = Isomorph CoreModule $ \(CoreModule code) -> code
 
-data Item ς θ σ p
-  = Module (Module ς θ σ p)
-  | Global (Global ς θ σ p)
+data Item ς θ κ σ p
+  = Module (Module ς θ κ σ p)
+  | Global (Global ς θ κ σ p)
   deriving (Show)
 
 mapItemAuto :: (p -> p') -> ItemAuto p -> ItemAuto p'
 mapItemAuto f (Module m) = Module $ mapModuleAuto f m
-mapItemAuto f (Global g) = Global $ mapGlobal (fmap $ mapTypeScheme (fmap $ mapKind absurd f) absurd f f) id (fmap $ mapType (fmap $ mapKind absurd f) absurd f) f g
+mapItemAuto f (Global g) = Global $ mapGlobal (fmap $ mapTypeScheme (fmap $ mapKind absurd f) absurd f f) id (fmap $ fmap f) (fmap $ mapType (fmap $ mapKind absurd f) absurd f) f g
 
-type ItemAuto p = Item (TypeSchemeAuto p) () (TypeAuto p) p
+type ItemAuto p = Item (TypeSchemeAuto p) () (KindAuto p) (TypeAuto p) p
 
 modulex = Prism Module $ \case
   (Module code) -> Just code
@@ -65,24 +65,25 @@ global = Prism Global $ \case
   (Global global) -> Just global
   _ -> Nothing
 
-data Global ς θ σ p
-  = Inline ς (Term θ σ p)
+data Global ς θ κ σ p
+  = Inline ς (Term θ κ σ p)
   | Import p Path
-  | Text ς (Term θ σ p)
+  | Text ς (Term θ κ σ p)
   deriving (Show)
 
-type GlobalAuto p = Global (TypeSchemeAuto p) () (TypeAuto p) p
+type GlobalAuto p = Global (TypeSchemeAuto p) () (KindAuto p) (TypeAuto p) p
 
 mapGlobal ::
   (ς -> ς') ->
   (θ -> θ') ->
+  (κ -> κ') ->
   (σ -> σ') ->
   (p -> p') ->
-  Global ς θ σ p ->
-  Global ς' θ' σ' p'
-mapGlobal f g h i global = case global of
-  Inline ς e -> Inline (f ς) (mapTerm g h i e)
-  Text ς e -> Text (f ς) (mapTerm g h i e)
+  Global ς θ κ σ p ->
+  Global ς' θ' κ' σ' p'
+mapGlobal f g j h i global = case global of
+  Inline ς e -> Inline (f ς) (mapTerm g j h i e)
+  Text ς e -> Text (f ς) (mapTerm g j h i e)
   Import p path -> Import (i p) path
 
 inline = Prism (uncurry Inline) $ \case
@@ -129,26 +130,28 @@ depend (Text σ e) (Path location _) = Map.mapKeysMonotonic (Path location) (ann
 depend (Import p path) _ = Map.singleton path p
 
 -- nodes without dependencies are at the end of the list
-data ModuleOrder ς θ σ p = Ordering [(Path, Global ς θ σ p)] deriving (Show)
+data ModuleOrder ς θ κ σ p = Ordering [(Path, Global ς θ κ σ p)] deriving (Show)
 
-type ModuleOrderAuto p = ModuleOrder (TypeSchemeAuto p) () (TypeAuto p) p
+type ModuleOrderAuto p = ModuleOrder (TypeSchemeAuto p) () (KindAuto p) (TypeAuto p) p
 
 instance
   ( UnInfer σ (TypeAuto Internal),
-    UnInfer ς (TypeSchemeAuto Internal)
+    UnInfer ς (TypeSchemeAuto Internal),
+    UnInfer κ (KindAuto Internal)
   ) =>
-  UnInfer (ModuleOrder ς θ σ p) (ModuleOrderAuto Internal)
+  UnInfer (ModuleOrder ς θ κ σ p) (ModuleOrderAuto Internal)
   where
-  unInfer = mapOrder unInfer (const ()) unInfer (const Internal)
+  unInfer = mapOrder unInfer (const ()) unInfer unInfer (const Internal)
 
 mapOrder ::
   (ς -> ς') ->
   (θ -> θ') ->
+  (κ -> κ') ->
   (σ -> σ') ->
   (p -> p') ->
-  ModuleOrder ς θ σ p ->
-  ModuleOrder ς' θ' σ' p'
-mapOrder f g h i (Ordering nodes) = Ordering $ map (second (mapGlobal f g h i)) nodes
+  ModuleOrder ς θ κ σ p ->
+  ModuleOrder ς' θ' κ' σ' p'
+mapOrder f j g h i (Ordering nodes) = Ordering $ map (second (mapGlobal f j g h i)) nodes
 
 items :: [String] -> ModuleAuto p -> [(Path, GlobalAuto p)]
 items heading (CoreModule code) = do
@@ -212,14 +215,14 @@ mangle (Path path name) = Symbol $ (concat $ map (++ "_") $ extract <$> path) ++
     extract x = x
 
 searchUnsafe ::
-  ModuleOrder TypeSchemeInfer InstantiationInfer TypeInfer p ->
+  ModuleOrder TypeSchemeInfer InstantiationInfer KindInfer TypeInfer p ->
   Path ->
-  Global TypeSchemeInfer InstantiationInfer TypeInfer p
+  Global TypeSchemeInfer InstantiationInfer KindInfer TypeInfer p
 searchUnsafe (Ordering []) _ = error "bad search"
 searchUnsafe (Ordering ((path, e) : _)) path' | path == path' = e
 searchUnsafe (Ordering (_ : items)) path' = searchUnsafe (Ordering items) path'
 
-typeCheckModule :: ModuleErrorQuit p m => ModuleOrderAuto p -> m (ModuleOrder TypeSchemeInfer InstantiationInfer TypeInfer p)
+typeCheckModule :: ModuleErrorQuit p m => ModuleOrderAuto p -> m (ModuleOrder TypeSchemeInfer InstantiationInfer KindInfer TypeInfer p)
 typeCheckModule (Ordering []) = pure $ Ordering []
 typeCheckModule (Ordering ((path@(Path heading _), item) : nodes)) = do
   Ordering nodes' <- typeCheckModule $ Ordering nodes
@@ -240,8 +243,8 @@ typeCheckModule (Ordering ((path@(Path heading _), item) : nodes)) = do
     Import p sym -> pure $ Ordering ((path, Import p sym) : nodes')
   where
     inject ::
-      (Path -> Global TypeSchemeInfer InstantiationInfer TypeInfer p) ->
-      (Path, Global TypeSchemeInfer InstantiationInfer TypeInfer p) ->
+      (Path -> Global TypeSchemeInfer InstantiationInfer KindInfer TypeInfer p) ->
+      (Path, Global TypeSchemeInfer InstantiationInfer KindInfer TypeInfer p) ->
       CoreEnvironment p ->
       CoreEnvironment p
     inject _ (Path heading' name, Inline σ (CoreTerm p _)) env
@@ -260,7 +263,7 @@ makeExtern ::
   Path ->
   p ->
   TypeSchemeInfer ->
-  Term InstantiationInfer TypeInfer p
+  Term InstantiationInfer KindInfer TypeInfer p
 makeExtern path p (CoreTypeScheme _ (MonoType σ)) = go σ
   where
     go (CoreType _ (FunctionPointer σ τ)) = CoreTerm p (TermRuntime $ Extern (mangle path) σ τ)
@@ -270,8 +273,8 @@ makeExtern _ _ (CoreTypeScheme _ (KindForall _)) = error "extern of kind forall"
 makeExtern path p (CoreTypeScheme _ (Forall (Bound _ σ))) = makeExtern path p σ
 
 reduceModule ::
-  ModuleOrder TypeSchemeInfer InstantiationInfer TypeInfer p ->
-  ModuleOrder TypeSchemeInfer InstantiationInfer TypeInfer p
+  ModuleOrder TypeSchemeInfer InstantiationInfer KindInfer TypeInfer p ->
+  ModuleOrder TypeSchemeInfer InstantiationInfer KindInfer TypeInfer p
 reduceModule (Ordering []) = Ordering []
 reduceModule (Ordering ((path@(Path heading _), item) : nodes)) = case item of
   Inline σ e ->

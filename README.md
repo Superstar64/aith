@@ -21,8 +21,8 @@ See ``/documentation`` for typing rules.
 * [x] Modules
 * [ ] Runtime Primitives
   * [ ] Booleans
-  * [ ] Integers
-  * [ ] Pointers
+  * [x] Integers
+  * [x] Pointers
   * [ ] Arrays
   * [x] Function Pointers
   * [x] Tuples
@@ -49,36 +49,48 @@ See ``/documentation`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Macro Abstraction | ``\pm { e }`` |
-| Macro Abstraction | ``\pm => e`` |
-| Macro Application | ``e e'``|
-| Of Course Introduction | ``!e`` |
+| Macro Abstraction | `` `\pm { e }`` |
+| Macro Abstraction | `` `\pm => e`` |
+| Macro Application | ``e ` e'``|
+| Of Course Introduction | ``![e]`` |
 | Macro Binding | ``_inline pm = e; e'``|
 | Extern | ``_extern "x" σa -> σa'`` |
-| Function Application | ``e # e'``|
-| Function Application Ascribe | ``e # e' : σ``|
-| Function Literal | ``#\pm => e`` |
-| Function Literal | ``#\pm { e }`` |
+| Function Application | ``e $ e'``|
+| Function Application Ascribe | ``e $ e' : σ``|
+| Function Literal | ``\pm => e`` |
+| Function Literal | ``\pm { e }`` |
 | Evidence Abstraction | ``^\pm => e`` |
 | Evidence Abstraction | ``^\pm { e }``|
 | Evidence Application | ``e ^ e'`` |
 | Runtime Binding | ``_let pm = e; e'`` |
-| Runtime Pair Construction | ``e #, e'`` |
+| Runtime Pair Construction | ``e, e'`` |
 | Pure Region Transformer | ``_pure e`` |
 | Bind Region Transformer | `` _do pm = e; e' `` |
-| Read Reference | `` _read e : σ`` |
+| Read Reference | `` _read e`` |
+| Read Reference Ascribe | `` _read e : σ`` |
 | Copy Function Proof | ``_copyFunction`` |
 | Copy Pair Proof | ``_copyPair e e'`` |
 | Copy Reference Proof | ``_copyReference``|
+| Number Literal | ``n`` |
+| Number Literal Ascribe | ``n : σ`` |
+| Addition | ``e + e'`` |
+| Addition with Sign | ``e + @ρ e'`` |
+| Subtraction | ``e - e'`` |
+| Subtraction with Sign | ``e - @ρ e'`` |
+| Multiplication | ``e * e'`` |
+| Multiplication with Sign | ``e * @ρ e'`` |
+| Divsion | ``e / e'`` |
+| Division with Sign | ``e / @ρ e'`` |
+
 
 ## Patterns(pm)
 | Description | Syntax |
 |-|-|
 | Variable | ``x``|
 | Variable Abscribe | ``x : σ`` |
-| OfCourse | ``!pm`` |
-| Runtime Pair Destruction | ``pm #, pm'`` |
-| Copy Variable | ``#!e pm`` |
+| OfCourse | ``![pm]`` |
+| Runtime Pair Destruction | ``pm , pm'`` |
+| Copy Variable | ``!(e)[pm]`` |
 
 ## Auto Type (σa)
 | Description | Syntax |
@@ -97,15 +109,16 @@ See ``/documentation`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Macro | ``σ -> τ``|
-| Of Course | ``!σ``|
-| Function Pointer | `` τ -#> σ `` |
+| Macro | ``σ -`> τ``|
+| Of Course | ``![σ]``|
+| Function Pointer | `` τ -> σ `` |
 | Function Literal Type | `` τ _function σ `` |
 | Implied | `` π -^> σ `` |
 | Copy Predicate | ``_copy σ`` |
-| Runtime Pair | ``σ #, σ'`` |
+| Runtime Pair | ``σ, σ'`` |
 | Region Transformer | ``_state π σ`` |
 | Region Reference | ``_reference π σ`` |
+| Number | ``_number ρ ρ'`` |
 
 
 ## Type Pattern(pmσ)
@@ -124,10 +137,10 @@ See ``/documentation`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Type | ``_type s`` |
+| Type | ``*[s]`` |
 | Evidence | ``_evidence`` |
 | Region | ``_region`` |
-| Runtime | ``_runtime ρ ρ'`` |
+| Runtime | ``ρ @ ρ'`` |
 | Code | ``_code`` |
 | Data | ``_data`` |
 | Real | ``_real ρ``|
@@ -136,6 +149,13 @@ See ``/documentation`` for typing rules.
 | Text | ``_text`` |
 | Pointer Representation | ``_pointer``|
 | Struct Representation | ``_struct (ρ, ρ', ...)`` |
+| Word Representation | ``_word ρ`` |
+| Signed | ``_signed`` |
+| Unsigned | ``_unsigned`` |
+| Byte Size | ``_byte``|
+| Short Size | ``_short``|
+| Int Size | ``_int`` |
+| Long Size | ``_long`` |
 
 # Kind Pattern (pmκ)
 | Description | Syntax |
@@ -150,6 +170,8 @@ See ``/documentation`` for typing rules.
 | Impact | ``_impact`` |
 | Existance | ``_existance`` |
 | Representation | ``_representation`` |
+| Signedness | ``_signedness`` |
+| Size | ``_size`` |
 
 # C Compiler Requirements
 * All pointers must have the same representation

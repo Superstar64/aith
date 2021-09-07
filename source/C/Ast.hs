@@ -5,7 +5,7 @@ import Control.Monad.Writer (runWriter, tell)
 import qualified Data.Set as Set
 import Misc.Prism
 
-data Representation x = Pointer | Struct x deriving (Show, Eq, Ord)
+data Representation x = Pointer | Struct x | Byte | Short | Int | Long deriving (Show, Eq, Ord)
 
 pointer = Prism (const Pointer) $ \case
   Pointer -> Just ()
@@ -15,10 +15,40 @@ struct = Prism Struct $ \case
   (Struct x) -> Just x
   _ -> Nothing
 
+byte = Prism (const Byte) $ \case
+  Byte -> Just ()
+  _ -> Nothing
+
+short = Prism (const Short) $ \case
+  Short -> Just ()
+  _ -> Nothing
+
+int = Prism (const Int) $ \case
+  Int -> Just ()
+  _ -> Nothing
+
+long = Prism (const Long) $ \case
+  Long -> Just ()
+  _ -> Nothing
+
+data Sign = Signed | Unsigned deriving (Show)
+
+signed = Prism (const Signed) $ \case
+  Signed -> Just ()
+  _ -> Nothing
+
+unsigned = Prism (const Unsigned) $ \case
+  Unsigned -> Just ()
+  _ -> Nothing
+
 data RepresentationFix = RepresentationFix ([Representation RepresentationFix]) deriving (Show, Eq, Ord)
 
 mangleType Pointer = "p"
 mangleType (Struct (RepresentationFix items)) = "s" ++ (items >>= mangleType) ++ "e"
+mangleType Byte = "b"
+mangleType Short = "w"
+mangleType Int = "i"
+mangleType Long = "l"
 
 fields = map (\x -> '_' : show x) [0 ..]
 
@@ -33,6 +63,10 @@ escapeStruct (Struct (RepresentationFix items)) = do
       tell [StructDefinition mangling (zip items' fields)]
     else pure ()
   pure $ Struct $ mangling
+escapeStruct Byte = pure Byte
+escapeStruct Short = pure Short
+escapeStruct Int = pure Int
+escapeStruct Long = pure Long
 
 escapeStructs :: [Global (Representation RepresentationFix)] -> ([Global (Representation String)], [Global (Representation String)])
 escapeStructs x = runWriter $ evalStateT (traverse (traverse escapeStruct) x) (Set.empty)
@@ -75,6 +109,11 @@ data Expression x
   | Member (Expression x) String
   | Dereference x (Expression x)
   | Address (Expression x)
+  | IntegerLiteral Integer
+  | Addition (Sign, x) (Expression x) (Sign, x) (Expression x)
+  | Subtraction (Sign, x) (Expression x) (Sign, x) (Expression x)
+  | Multiplication (Sign, x) (Expression x) (Sign, x) (Expression x)
+  | Division (Sign, x) (Expression x) (Sign, x) (Expression x)
   deriving (Show, Functor, Foldable, Traversable)
 
 variable = Prism Variable $ \case
@@ -99,4 +138,24 @@ dereference = Prism (uncurry $ Dereference) $ \case
 
 address = Prism Address $ \case
   (Address value) -> Just value
+  _ -> Nothing
+
+integerLiteral = Prism IntegerLiteral $ \case
+  (IntegerLiteral n) -> Just n
+  _ -> Nothing
+
+addition = Prism (uncurry $ uncurry $ uncurry Addition) $ \case
+  Addition x e x' e' -> Just (((x, e), x'), e')
+  _ -> Nothing
+
+subtraction = Prism (uncurry $ uncurry $ uncurry Subtraction) $ \case
+  Subtraction x e x' e' -> Just (((x, e), x'), e')
+  _ -> Nothing
+
+multiplication = Prism (uncurry $ uncurry $ uncurry Multiplication) $ \case
+  Multiplication x e x' e' -> Just (((x, e), x'), e')
+  _ -> Nothing
+
+division = Prism (uncurry $ uncurry $ uncurry Division) $ \case
+  Division x e x' e' -> Just (((x, e), x'), e')
   _ -> Nothing

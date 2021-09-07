@@ -10,9 +10,22 @@ import qualified Misc.MonoidMap as Map
 import Misc.Prism
 import Prelude hiding ((.))
 
-data KindRuntime κ
+data KindSize
+  = Byte
+  | Short
+  | Int
+  | Long
+  deriving (Show)
+
+data KindSignedness
+  = Signed
+  | Unsigned
+  deriving (Show)
+
+data KindRuntime s κ
   = PointerRep
   | StructRep [κ]
+  | WordRep s
   deriving (Show)
 
 data KindF v κ
@@ -28,7 +41,9 @@ data KindF v κ
   | Real κ
   | Meta
   | Text
-  | KindRuntime (KindRuntime κ)
+  | KindRuntime (KindRuntime κ κ)
+  | KindSize (KindSize)
+  | KindSignedness (KindSignedness)
   deriving (Show)
 
 data Kind v p = CoreKind p (KindF v (Kind v p)) deriving (Show)
@@ -42,8 +57,16 @@ instance UnInfer KindInfer (KindAuto Internal) where
 
 coreKind = Isomorph (uncurry CoreKind) $ \(CoreKind p κ) -> (p, κ)
 
-kindCommon = Prism KindRuntime $ \case
+kindRuntime = Prism KindRuntime $ \case
   (KindRuntime κ) -> Just κ
+  _ -> Nothing
+
+kindSize = Prism KindSize $ \case
+  (KindSize κ) -> Just κ
+  _ -> Nothing
+
+kindSignedness = Prism KindSignedness $ \case
+  (KindSignedness κ) -> Just κ
   _ -> Nothing
 
 kindVariable = Prism KindVariable $ \case
@@ -94,14 +117,49 @@ text = Prism (const Text) $ \case
   Text -> Just ()
   _ -> Nothing
 
-pointerRep = (kindCommon .) $
+pointerRep = (kindRuntime .) $
   Prism (const PointerRep) $ \case
     PointerRep -> Just ()
     _ -> Nothing
 
-structRep = (kindCommon .) $
+structRep = (kindRuntime .) $
   Prism StructRep $ \case
     (StructRep ρs) -> Just ρs
+    _ -> Nothing
+
+wordRep = (kindRuntime .) $
+  Prism WordRep $ \case
+    (WordRep κ) -> Just κ
+    _ -> Nothing
+
+byte = (kindSize .) $
+  Prism (const Byte) $ \case
+    Byte -> Just ()
+    _ -> Nothing
+
+short = (kindSize .) $
+  Prism (const Short) $ \case
+    Short -> Just ()
+    _ -> Nothing
+
+int = (kindSize .) $
+  Prism (const Int) $ \case
+    Int -> Just ()
+    _ -> Nothing
+
+long = (kindSize .) $
+  Prism (const Long) $ \case
+    Long -> Just ()
+    _ -> Nothing
+
+signed = (kindSignedness .) $
+  Prism (const Signed) $ \case
+    Signed -> Just ()
+    _ -> Nothing
+
+unsigend = (kindSignedness .) $
+  Prism (const Unsigned) $ \case
+    Unsigned -> Just ()
     _ -> Nothing
 
 traverseKindF ::
@@ -125,6 +183,9 @@ traverseKindF f g κ = case κ of
   Text -> pure Text
   KindRuntime PointerRep -> KindRuntime <$> (pure PointerRep)
   KindRuntime (StructRep κs) -> KindRuntime <$> (pure StructRep <*> traverse g κs)
+  KindRuntime (WordRep κ) -> KindRuntime <$> (pure WordRep <*> g κ)
+  (KindSize κ) -> pure (KindSize κ)
+  (KindSignedness κ) -> pure (KindSignedness κ)
 
 foldKindF f g = getConst . traverseKindF (Const . f) (Const . g)
 
@@ -157,6 +218,9 @@ instance Substitute (Kind v p) KindIdentifier (Kind v p) where
 
 instance FreeVariablesInternal KindIdentifier (Kind v p) where
   freeVariablesInternal = freeVariables . fmap (const Internal)
+
+instance Reduce (Kind v p) where
+  reduce = id
 
 instance Location (Kind v) where
   location (CoreKind p _) = p

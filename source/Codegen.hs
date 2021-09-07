@@ -8,7 +8,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Decorate
 import Language.Ast.Common hiding (fresh)
-import Language.Ast.Kind (KindRuntime (..))
+import Language.Ast.Kind (KindRuntime (..), KindSignedness (..), KindSize (..))
 import Language.Ast.Term
 import Misc.MonoidMap (Map, (!))
 import qualified Misc.MonoidMap as Map
@@ -32,6 +32,10 @@ temporary = do
 ctype :: TypeDecorated -> C.Representation C.RepresentationFix
 ctype (TypeDecorated PointerRep) = C.Pointer
 ctype (TypeDecorated (StructRep σs)) = C.Struct $ C.RepresentationFix $ fmap ctype σs
+ctype (TypeDecorated (WordRep Byte)) = C.Byte
+ctype (TypeDecorated (WordRep Short)) = C.Short
+ctype (TypeDecorated (WordRep Int)) = C.Int
+ctype (TypeDecorated (WordRep Long)) = C.Long
 
 compilePattern :: PatternDecorated TypeDecorated -> C.Expression TypeDecorated -> Codegen ([C.Statement TypeDecorated])
 compilePattern (PatternDecorated σ (PatternVariable x@(TermIdentifier base) _)) target = do
@@ -69,16 +73,21 @@ compileTerm (TermDecerated σ (RuntimePairIntroduction e1 e2)) = do
 compileTerm (TermDecerated _ (ReadReference () e σ)) = do
   e' <- compileTerm e
   pure $ C.Dereference σ e'
-{-
-compileTerm (TermDecerated _ (LocalRegion (e1@(TermDecerated σ _), (Bound pm e2)))) = do
-  e1' <- compileTerm e1
-  stack <- lift temporary
-  tell $ [C.VariableDeclaration σ stack e1']
-  binding <- lift $ compilePattern pm (C.Address $ C.Variable stack)
-  tell $ binding
-  compileTerm e2
--}
 compileTerm (TermDecerated _ (FunctionLiteral _)) = error "function literal inside runtime"
+compileTerm (TermDecerated _ (NumberLiteral n _)) = pure $ C.IntegerLiteral n
+compileTerm (TermDecerated _ (Arithmatic o e1@(TermDecerated σ _) e2 s)) = do
+  e1' <- compileTerm e1
+  e2' <- compileTerm e2
+  pure $ op (sign, σ) e1' (sign, σ) e2'
+  where
+    op = case o of
+      Addition -> C.Addition
+      Subtraction -> C.Subtraction
+      Multiplication -> C.Multiplication
+      Division -> C.Division
+    sign = case s of
+      Signed -> C.Signed
+      Unsigned -> C.Unsigned
 
 compileFunctionLiteralImpl :: Symbol -> TermDecerated TypeDecorated -> Codegen (C.Global TypeDecorated)
 compileFunctionLiteralImpl (Symbol name) (TermDecerated _ (FunctionLiteral (Bound pm@(PatternDecorated σ _) e@(TermDecerated τ _)))) = do
@@ -89,12 +98,3 @@ compileFunctionLiteralImpl (Symbol name) (TermDecerated _ (FunctionLiteral (Boun
   let body = bindings ++ depend ++ [C.Return result]
   pure $ C.FunctionDefinition τ name arguments body
 compileFunctionLiteralImpl _ _ = error "top level non function literal"
-
-{-
-compileFunctionLiteral :: [Identifier] -> Identifier -> Term Internal -> [C.Global (C.Representation C.RepresentationFix)]
-compileFunctionLiteral path name e = [fmap ctype $ run $ compileFunctionLiteralImpl manging decorated]
-  where
-    manging = mangle $ Path path name
-    decorated = fmap snd $ runReader (decorateTypeCheck (runDecorate $ decorateTerm e)) Map.empty
-    run c = runCodegen c (external e)
--}

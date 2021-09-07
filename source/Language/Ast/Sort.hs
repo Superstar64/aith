@@ -1,8 +1,9 @@
 module Language.Ast.Sort where
 
+import Language.Ast.Common
 import Misc.Prism
 
-data Sort = Kind | Stage | Impact | Existance | Representation deriving (Show)
+data Sort = Kind | Stage | Impact | Existance | Representation | Size | Signedness deriving (Show)
 
 kind = Prism (const Kind) $ \case
   Kind -> Just ()
@@ -23,3 +24,14 @@ existance = Prism (const Existance) $ \case
 representation = Prism (const Representation) $ \case
   Representation -> Just ()
   _ -> Nothing
+
+size = Prism (const Size) $ \case
+  Size -> Just ()
+  _ -> Nothing
+
+signedness = Prism (const Signedness) $ \case
+  Signedness -> Just ()
+  _ -> Nothing
+
+instance Substitute e x Sort where
+  substitute _ _ = id

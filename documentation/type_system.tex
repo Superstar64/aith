@@ -7,6 +7,7 @@
 \begin{align*}
 e \tag* {[Terms]} \\
 x \tag* {[Variables]} \\
+n \tag* {[Numbers]} \\
 \sigma, \tau \tag* {[Types]} \\
 \alpha \tag* {[Type Variables]} \\
 \kappa, s, \rho \tag* {[Kinds]} \\
@@ -43,11 +44,13 @@ e \Coloneqq & \\
 & \text{runRGN} (\Lambda \alpha. e) \tag*{[Evaluate Region]} \\
 & \text{readRGNLoc} \, e' \, e \tag*{[Dereference Pointer]} \\
 & \text{localRGN} (\Lambda \alpha.\lambda^\xi x'. \text{let}^* x =^{e''} e; e'_\pi ) \tag*{[Allocate Stack Pointer]} \\
-& \text{copy}^{\to^\#} \sigma \tau \\
-& \text{copy}^{\#(,)} \, e \, e' \\
-& \text{copy}^{\text{RGNLoc}} \pi \sigma \\
-& \text{id}^\preceq \pi \\
-& e \circ^\preceq e' \\
+& n \rho \rho' \tag*{[Numeric Literal]} \\
+& \text{copy}^\text{Int} \rho \rho' \tag*{[Copy Integer Proof]} \\
+& \text{copy}^{\to^\#} \sigma \tau \tag*{[Copy Function Pointer Proof]} \\
+& \text{copy}^{\#(,)} \, e \, e' \tag*{[Copy Tuple Proof]} \\
+& \text{copy}^{\text{RGNLoc}} \pi \sigma \tag*{[Copy Reference Proof]}\\
+& \text{id}^\preceq \pi \tag*{[SubType Identity Proof]}\\
+& e \circ^\preceq e' \tag*{[SubType Compose Proof]}\\
 \\
 \sigma, \tau, \pi \Coloneqq & \\
 & \alpha \tag* {[Type Variable]} \\
@@ -67,6 +70,7 @@ e \Coloneqq & \\
 & \text{RGNLoc} \pi \sigma \tag*{[Reference]} \\
 & \text{Copy} \, \sigma \tag*{[Runtime Copyable]} \\
 & \pi \preceq \pi' \tag*{[Region Scoping]} \\
+& \text{Number} (\rho, \rho) \tag*{[Number]} \\
 \\
 \kappa, s, \rho \Coloneqq & \\
 & \kappa \alpha \tag*{[Kind Variable]} \\
@@ -84,6 +88,13 @@ e \Coloneqq & \\
 & \text{Imaginary} \tag*{[Imaginary Existance]} \\
 & \text{Pointer} \tag*{[Pointer Representation]}\\
 & \text{Structure} \{ \rho, \rho', \dots \} \tag*{[Structure Representation]} \\
+& \text{Word} (\rho) \tag*{[Word Representation]} \\
+& 8 \tag*{[Byte Size]} \\
+& 16 \tag*{[Short Size]} \\
+& 32 \tag*{[Int Size]} \\
+& 64 \tag*{[Long Size]} \\
+& \text{signed} \tag*{[Signed]} \\
+& \text{unsigned} \tag*{[Unsigned]}
 \\
 \mu \Coloneqq & \\
 & \text{Kind} \\
@@ -91,6 +102,8 @@ e \Coloneqq & \\
 & \text{Impact} \\
 & \text{Existance} \\
 & \text{Representation} \\
+& \text{Size} \\
+& \text{Signedness}
 \\
 \Gamma \Coloneqq & \Gamma, [x : \sigma] | \Gamma, \langle x : \sigma \rangle | \emptyset \\
 \Phi \Coloneqq & \Phi, \alpha : \kappa | \Phi, \kappa \alpha : \mu |  \emptyset \\
@@ -242,6 +255,14 @@ $ RT (\sigma) $ and is shorthand for $ \Phi \vdash \sigma : \text{Type} (\text{R
 {\Phi | \Gamma, \Gamma', \Gamma'' \vdash \text{localRGN} (\Lambda \alpha. \lambda^\xi x'. \text{let}^* x =^{e''} e; e'_\pi ) : \text{RGN} \pi \sigma} \\
 \\
 \frac
+{\Phi \vdash \rho : \text{Signedness} \quad \Phi \vdash \rho' : \text{Size}}
+{\Phi | \Gamma \vdash n \rho \rho' : \text{Number}(\rho, \rho')} \\
+\\
+\frac
+{\Phi \vdash \rho : \text{Signedness} \quad \Phi \vdash \rho' : \text{Size}}
+{\Phi | \Gamma \vdash \text{copy}^\text{Int} \rho \rho' : \text{Copy} (\text{Number} (\rho, \rho'))} \\
+\\
+\frac
 {\text{RT} (\sigma) \quad \Phi | \Gamma \vdash \tau : \text{Type}(\text{Runtime}(\kappa, \kappa'))}
 {\Phi | \Gamma \vdash \text{copy}^{\to\#} \sigma \tau : \text{Copy} (\sigma \to^\# \tau)} \\
 \\
@@ -323,7 +344,7 @@ $ RT (\sigma) $ and is shorthand for $ \Phi \vdash \sigma : \text{Type} (\text{R
 {\Phi \vdash \text{RGN} \pi \sigma : \text{Type}(\text{Runtime}(\text{Code}, \rho))} \\
 \\
 \frac
-{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \sigma : \text{Type}(\text{Runtime}(\text{Data}, \text{Real}(\rho))}
+{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \sigma : \text{Type}(\text{Runtime}(\text{Data}, \text{Real}(\rho)))}
 {\Phi \vdash \text{RGNLoc} \pi \sigma : \text{Type}(\text{Runtime} (\text{Data}, \text{Real}(\rho)))} \\
 \\
 \frac
@@ -332,7 +353,11 @@ $ RT (\sigma) $ and is shorthand for $ \Phi \vdash \sigma : \text{Type} (\text{R
 \\
 \frac
 {\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \pi' : \text{Region}}
-{\Phi \vdash \pi \preceq \pi' : \text{Type}(\text{Evidence})}
+{\Phi \vdash \pi \preceq \pi' : \text{Type}(\text{Evidence})} \\
+\\
+\frac
+{\Phi \vdash \rho : \text{Signedness} \quad \Phi \vdash \rho' : \text{Size}}
+{\Phi \vdash \text{Number} (\rho, \rho') : \text{Type} (\text{Runtime} (\text{Data}, \text{Real} (\text{Word} (\rho')))) } \\
 \\
 \\
 \\
@@ -397,6 +422,34 @@ $ RT (\sigma) $ and is shorthand for $ \Phi \vdash \sigma : \text{Type} (\text{R
 \frac
 {\Phi \vdash \rho : \text{Representation} \quad \Phi \vdash \rho' : \text{Representation} \quad \dots}
 {\Phi \vdash \text{Structure} \{ \rho, \rho', \dots \} : \text{Representation} } \\
+\\
+\frac
+{\Phi \vdash \rho : \text{Size}}
+{\Phi \vdash \text{Word} (\rho) : \text{Representation}} \\
+\\
+\frac
+{}
+{\Phi \vdash 8 : \text{Size}} \\
+\\
+\frac
+{}
+{\Phi \vdash 16 : \text{Size}} \\
+\\
+\frac
+{}
+{\Phi \vdash 32 : \text{Size}} \\
+\\
+\frac
+{}
+{\Phi \vdash 64 : \text{Size}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{signed} : \text{Signedness}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{unsigned} : \text{Signedness}} \\
 \end{gather*}
 
 \end{document}

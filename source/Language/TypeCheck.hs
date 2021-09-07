@@ -58,6 +58,8 @@ instance TypeErrorQuit p m => Match m p Sort where
   match _ Impact Impact = pure ()
   match _ Existance Existance = pure ()
   match _ Representation Representation = pure ()
+  match _ Size Size = pure ()
+  match _ Signedness Signedness = pure ()
   match p μ μ' = quit $ SortMismatch p μ μ'
 
 checkKind p μt = do
@@ -78,6 +80,14 @@ checkImpact p μt = do
 
 checkRepresentation p μ = do
   match p μ Representation
+  pure ()
+
+checkSize p μ = do
+  match p μ Size
+  pure ()
+
+checkSignedness p μ = do
+  match p μ Signedness
   pure ()
 
 checkType p κt = do
@@ -191,6 +201,12 @@ checkCopy p σt = do
   match p σt (CoreType Internal $ Copy σ)
   pure σ
 
+checkNumber p σt = do
+  ρ1 <- freshKindVariable p Signedness
+  ρ2 <- freshKindVariable p Size
+  match p σt (CoreType Internal $ Number ρ1 ρ2)
+  pure (ρ1, ρ2)
+
 augmentVariableLinear p x l σ e = do
   (σ', lΓ) <- augmentTypeEnvironment x p l (CoreTypeScheme Internal $ MonoType σ) e
   case (count x lΓ, l) of
@@ -287,7 +303,7 @@ instance
     System p m,
     TypeErrorQuit p m
   ) =>
-  AugmentLinear m (TermPattern InstantiationUnify TypeUnify p) TermIdentifier
+  AugmentLinear m (TermPattern InstantiationUnify KindUnify TypeUnify p) TermIdentifier
   where
   augmentLinear l pm = go l pm
     where
@@ -342,6 +358,20 @@ instance
     (π', _) <- secondM (checkRegion p) =<< typeCheckValidate π
     (σ', κ) <- secondM (checkTypeRT p) =<< typeCheckValidate σ
     pure (CoreType Internal $ RegionReference π' σ', makeTypeRT κ)
+  typeCheckValidate (CoreType p (Number ρ1 ρ2)) = do
+    ρ1' <- case ρ1 of
+      Just ρ1 -> fst <$> (secondM (checkSignedness p) =<< typeCheckValidate ρ1)
+      Nothing -> freshKindVariable p Signedness
+    ρ2' <- case ρ2 of
+      Just ρ2 -> fst <$> (secondM (checkSize p) =<< typeCheckValidate ρ2)
+      Nothing -> freshKindVariable p Size
+    pure
+      ( CoreType Internal $ Number ρ1' ρ2',
+        CoreKind Internal $
+          Type $
+            CoreKind Internal $
+              Runtime (CoreKind Internal Data) $ CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime $ WordRep ρ2'
+      )
   typeCheckValidate (CoreType _ (TypeExtra v)) = absurd v
 
 instance
@@ -376,6 +406,11 @@ instance
   typeCheckValidate (CoreKind p (KindRuntime (StructRep κs))) = do
     (κs', _) <- unzip <$> traverse (secondM (checkRepresentation p) <=< typeCheckValidate) κs
     pure (CoreKind Internal (KindRuntime (StructRep κs')), Representation)
+  typeCheckValidate (CoreKind p (KindRuntime (WordRep κ))) = do
+    (κ', _) <- secondM (checkSize p) =<< typeCheckValidate κ
+    pure (CoreKind Internal (KindRuntime (WordRep κ')), Representation)
+  typeCheckValidate (CoreKind _ (KindSize κ)) = pure (CoreKind Internal (KindSize κ), Size)
+  typeCheckValidate (CoreKind _ (KindSignedness κ)) = pure (CoreKind Internal (KindSignedness κ), Signedness)
   typeCheckValidate (CoreKind _ (KindExtra v)) = absurd v
 
 instantiateTypeScheme _ (CoreTypeScheme _ (MonoType σ)) = pure (σ, InstantiateEmpty)
@@ -393,7 +428,7 @@ instance
     Environment p m,
     TypeErrorQuit p m
   ) =>
-  TypeCheckAnnotateLinear m (Term () (TypeAuto p) p) (Term InstantiationUnify TypeUnify p) TypeUnify TermIdentifier
+  TypeCheckAnnotateLinear m (Term () (KindAuto p) (TypeAuto p) p) (Term InstantiationUnify KindUnify TypeUnify p) TypeUnify TermIdentifier
   where
   typeCheckAnnotateLinear (CoreTerm p (TermRuntime (Variable x ()))) = do
     mσ <- lookupTypeEnviroment x
@@ -440,16 +475,16 @@ instance
         σ <- validate σ >>= enforceRuntime p
         pure σ
     pure ((CoreTerm p (TermRuntime (Extern sym τ' σ')), CoreType Internal $ FunctionPointer τ' σ'), useNothing)
-  typeCheckAnnotateLinear (CoreTerm p (TermRuntime (FunctionApplication e1 e2 σ''))) = do
+  typeCheckAnnotateLinear (CoreTerm p (TermRuntime (FunctionApplication e1 e2 τ'))) = do
     ((e1', (σ, τ)), lΓ1) <- firstM (secondM (checkFunctionPointer p)) =<< typeCheckAnnotateLinear e1
     ((e2', σ'), lΓ2) <- typeCheckAnnotateLinear e2
     match p σ σ'
-    case σ'' of
+    case τ' of
       Nothing -> pure ()
-      Just σ'' -> do
-        σ''' <- validate σ''
-        match p σ σ'''
-    pure ((CoreTerm p $ TermRuntime $ FunctionApplication e1' e2' σ, τ), lΓ1 `combine` lΓ2)
+      Just τ' -> do
+        τ'' <- validate τ'
+        match p τ τ''
+    pure ((CoreTerm p $ TermRuntime $ FunctionApplication e1' e2' τ, τ), lΓ1 `combine` lΓ2)
   typeCheckAnnotateLinear (CoreTerm p (TermRuntime (FunctionLiteral (Bound pm e)))) = do
     ((pm', σ), lΓ1) <- typeCheckAnnotateLinearPatternRuntime pm
     ((e', τ), lΓ2) <- augmentLinear Linear pm' (typeCheckAnnotateLinear e)
@@ -493,6 +528,10 @@ instance
     ((e2', (π', τ)), lΓ2) <- firstM (secondM (checkRegionTransformer p)) =<< augmentLinear Linear pm' (typeCheckAnnotateLinear e2)
     match p π π'
     pure ((CoreTerm p $ DoRegionTransformer e1' (Bound pm' e2'), CoreType Internal $ RegionTransformer π τ), lΓ1 `combine` lΓ2)
+  typeCheckAnnotateLinear (CoreTerm p ProofCopyNumber) = do
+    ρ1 <- freshKindVariable p Signedness
+    ρ2 <- freshKindVariable p Size
+    pure ((CoreTerm p ProofCopyNumber, CoreType Internal $ Copy $ CoreType Internal $ Number ρ1 ρ2), useNothing)
   typeCheckAnnotateLinear (CoreTerm p ProofCopyFunction) = do
     σ <- freshRTTypeVariable p
     τ <- freshRuntimeTypeVariable p
@@ -505,6 +544,29 @@ instance
     π <- freshRegionTypeVariable p
     σ <- freshRTTypeVariable p
     pure ((CoreTerm p ProofCopyReference, CoreType Internal $ Copy $ CoreType Internal $ RegionReference π σ), useNothing)
+  typeCheckAnnotateLinear (CoreTerm p (TermRuntime (NumberLiteral n σ'))) = do
+    ρ1 <- freshKindVariable p Signedness
+    ρ2 <- freshKindVariable p Size
+    let σ = CoreType Internal $ Number ρ1 ρ2
+    case σ' of
+      Nothing -> pure ()
+      Just σ' -> do
+        σ'' <- validate σ'
+        match p σ σ''
+    pure ((CoreTerm p $ TermRuntime $ NumberLiteral n σ, σ), useNothing)
+  typeCheckAnnotateLinear (CoreTerm p (TermRuntime (Arithmatic o e1 e2 κ'))) = do
+    κ <- freshKindVariable p Signedness
+    case κ' of
+      Nothing -> pure ()
+      Just κ' -> do
+        κ'' <- validate κ'
+        match p κ κ''
+    ((e1', (ρ1, ρ2)), lΓ1) <- firstM (secondM $ checkNumber p) =<< typeCheckAnnotateLinear e1
+    ((e2', (ρ1', ρ2')), lΓ2) <- firstM (secondM $ checkNumber p) =<< typeCheckAnnotateLinear e2
+    match p κ ρ1
+    match p ρ1 ρ1'
+    match p ρ2 ρ2'
+    pure ((CoreTerm p $ TermRuntime (Arithmatic o e1' e2' κ), CoreType Internal $ Number ρ1 ρ2), lΓ1 `combine` lΓ2)
 
 -- todo this is ugly, find a better way to do this
 class Reconstruct m σ κ | σ -> κ where
@@ -548,6 +610,8 @@ instance
     case κ of
       (CoreKind _ (Type (CoreKind _ (Runtime _ κ)))) -> pure $ CoreKind Internal $ Type $ CoreKind Internal $ Runtime (CoreKind Internal Code) κ
       _ -> error "internal error: reconstruction of region transformer didn't return runtime kind"
+  reconstruct (CoreType _ (Number _ ρ)) = do
+    pure $ CoreKind Internal $ Type $ CoreKind Internal $ Runtime (CoreKind Internal Data) (CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime $ WordRep ρ)
   reconstruct (CoreType _ (RegionReference _ σ)) = reconstruct σ
 
 instance
@@ -571,6 +635,8 @@ instance
   reconstruct (CoreKind _ Imaginary) = pure $ Existance
   reconstruct (CoreKind _ (Real _)) = pure $ Existance
   reconstruct (CoreKind _ (KindRuntime _)) = pure $ Representation
+  reconstruct (CoreKind _ (KindSize _)) = pure $ Size
+  reconstruct (CoreKind _ (KindSignedness _)) = pure $ Signedness
 
 class Unifier x σ where
   unify :: TypeErrorQuit p m => p -> σ -> σ -> WriterT (Substitution x σ) (Core p m) ()
@@ -622,6 +688,9 @@ instance Unifier LogicVariableType TypeUnify where
   unify p (CoreType _ (RegionReference π σ)) (CoreType _ (RegionReference π' σ')) = do
     match p π π'
     match p σ σ'
+  unify p (CoreType _ (Number ρ1 ρ2)) (CoreType _ (Number ρ1' ρ2')) = do
+    match p ρ1 ρ1'
+    match p ρ2 ρ2'
   unify p σ σ' = quit $ TypeMismatch p σ σ'
 
   solve = do
@@ -661,6 +730,13 @@ instance Unifier LogicVariableKind KindUnify where
   unify _ (CoreKind _ (KindRuntime PointerRep)) (CoreKind _ (KindRuntime PointerRep)) = pure ()
   unify p (CoreKind _ (KindRuntime (StructRep κs))) (CoreKind _ (KindRuntime (StructRep κs'))) | length κs == length κs' = do
     sequence_ $ zipWith (match p) κs κs'
+  unify p (CoreKind _ (KindRuntime (WordRep κ))) (CoreKind _ (KindRuntime (WordRep κ'))) = match p κ κ'
+  unify _ (CoreKind _ (KindSize Byte)) (CoreKind _ (KindSize Byte)) = pure ()
+  unify _ (CoreKind _ (KindSize Short)) (CoreKind _ (KindSize Short)) = pure ()
+  unify _ (CoreKind _ (KindSize Int)) (CoreKind _ (KindSize Int)) = pure ()
+  unify _ (CoreKind _ (KindSize Long)) (CoreKind _ (KindSize Long)) = pure ()
+  unify _ (CoreKind _ (KindSignedness Signed)) (CoreKind _ (KindSignedness Signed)) = pure ()
+  unify _ (CoreKind _ (KindSignedness Unsigned)) (CoreKind _ (KindSignedness Unsigned)) = pure ()
   unify p κ κ' = quit $ KindMismatch p κ κ'
   solve = do
     equations <- lift $ getKindEquations
@@ -721,8 +797,8 @@ ambiguousKindCheck legal = do
 class StripUnifier e e' | e -> e' where
   stripUnifier :: e -> e'
 
-instance StripUnifier (Term InstantiationUnify TypeUnify p) (Term InstantiationInfer TypeInfer p) where
-  stripUnifier = mapTerm stripUnifier stripUnifier id
+instance StripUnifier (Term InstantiationUnify KindUnify TypeUnify p) (Term InstantiationInfer KindInfer TypeInfer p) where
+  stripUnifier = mapTerm stripUnifier stripUnifier stripUnifier id
 
 instance StripUnifier KindUnify (Kind Void Internal) where
   stripUnifier = mapKind errorUnifierKind id
@@ -761,7 +837,7 @@ generalizeCommon i f g e@(CoreTerm p _) = do
   let α1 = Map.keysSet $ freeVariablesInternal @LogicVariableType σ
   ambiguousTypeCheck α1
   (pm, θσ) <- attachRigidType p typeTemporaries (Set.toList α1)
-  let α2 = f $ Map.keysSet $ freeVariablesInternal @LogicVariableKind pm
+  let α2 = f $ Map.keysSet $ freeVariablesInternal @LogicVariableKind pm <> freeVariablesInternal @LogicVariableKind σ
   ambiguousKindCheck α2
   (pm2, θκ) <- attachRigidKind p kindTemporaries (Set.toList α2)
   (((e, σ), pm), pm2) <- pure $ applySubstitution θσ $ applySubstitution θκ (((e, σ), pm), pm2)
@@ -777,14 +853,14 @@ generalizeCommon i f g e@(CoreTerm p _) = do
 
 generalize ::
   TypeErrorQuit p m =>
-  Term () (TypeAuto p) p ->
-  Core p m (Term InstantiationInfer TypeInfer p, TypeSchemeInfer)
+  Term () (KindAuto p) (TypeAuto p) p ->
+  Core p m (Term InstantiationInfer KindInfer TypeInfer p, TypeSchemeInfer)
 generalize = generalizeCommon (const $ const $ pure ()) id id
 
 generalizeText ::
   TypeErrorQuit p m =>
-  Term () (TypeAuto p) p ->
-  Core p m (Term InstantiationInfer TypeInfer p, TypeSchemeInfer)
+  Term () (KindAuto p) (TypeAuto p) p ->
+  Core p m (Term InstantiationInfer KindInfer TypeInfer p, TypeSchemeInfer)
 generalizeText = generalizeCommon check (const Set.empty) (convertFunctionLiteral False)
   where
     check p σ = do
@@ -809,16 +885,16 @@ generalizeAnnotateCommon i f g e@(CoreTerm p _) ς = do
 
 generalizeAnnotate ::
   TypeErrorQuit p m =>
-  Term () (TypeAuto p) p ->
+  Term () (KindAuto p) (TypeAuto p) p ->
   TypeScheme (KindAuto p) Void p p ->
-  Core p m (Term InstantiationInfer TypeInfer p, TypeSchemeInfer)
+  Core p m (Term InstantiationInfer KindInfer TypeInfer p, TypeSchemeInfer)
 generalizeAnnotate = generalizeAnnotateCommon (const $ const $ pure ()) id id
 
 generalizeAnnotateText ::
   TypeErrorQuit p m =>
-  Term () (TypeAuto p) p ->
+  Term () (KindAuto p) (TypeAuto p) p ->
   TypeScheme (KindAuto p) Void p p ->
-  Core p m (Term InstantiationInfer TypeInfer p, TypeSchemeInfer)
+  Core p m (Term InstantiationInfer KindInfer TypeInfer p, TypeSchemeInfer)
 generalizeAnnotateText = generalizeAnnotateCommon (flip match $ CoreKind Internal $ Type $ CoreKind Internal Text) (convertFunctionLiteral True) (convertFunctionLiteral False)
 
 convertFunctionLiteral hide ς = case ς of

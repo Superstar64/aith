@@ -27,6 +27,8 @@ line = Printer $ \() -> Just $ "\n"
 
 identifer = Printer $ \name -> Just $ name ++ " "
 
+integer = Printer $ \n -> Just $ show n
+
 betweenParens = between (string "(") (string ")")
 
 betweenBraces = between (string "{") (string "}")
@@ -38,24 +40,42 @@ preprocess x = line ≫ x ≪ line
 once name x = preprocess (string "#ifndef " ≫ name) ⊗ preprocess (string "#define " ≫ name ⊗ string " " ≫ name) ⊗ x ≪ preprocess (string "#endif")
 
 header :: Printer ()
-header = discardInfo (\() -> ((), ((), ()))) ⊣ once (string "AITH") (string "typedef void* pointer;")
+header = preprocess (string "#include \"stdint.h\"")
 
 globals = header ≫ many global
 
-pointer = C.pointer ⊣ string "pointer" ∥ C.struct ⊣ string "struct" ≫ identifer
+typex =
+  choice
+    [ C.pointer ⊣ string "void*",
+      C.struct ⊣ string "struct" ≫ identifer,
+      C.byte ⊣ string "int8_t",
+      C.short ⊣ string "int16_t",
+      C.int ⊣ string "int32_t",
+      C.long ⊣ string "int64_t"
+    ]
 
-representation = pointer
+signedType =
+  choice
+    [ (C.signed ⊣ always) ⊗ (C.byte ⊣ string "int8_t"),
+      (C.signed ⊣ always) ⊗ (C.short ⊣ string "int16_t"),
+      (C.signed ⊣ always) ⊗ (C.int ⊣ string "int32_t"),
+      (C.signed ⊣ always) ⊗ (C.long ⊣ string "int64_t"),
+      (C.unsigned ⊣ always) ⊗ (C.byte ⊣ string "uint8_t"),
+      (C.unsigned ⊣ always) ⊗ (C.short ⊣ string "uint16_t"),
+      (C.unsigned ⊣ always) ⊗ (C.int ⊣ string "uint32_t"),
+      (C.unsigned ⊣ always) ⊗ (C.long ⊣ string "uint64_t")
+    ]
 
 global = functionDefinition ∥ structDefinition
   where
-    functionDefinition = C.functionDefinition ⊣ representation ⊗ identifer ⊗ arguments ⊗ compound
+    functionDefinition = C.functionDefinition ⊣ typex ⊗ identifer ⊗ arguments ⊗ compound
       where
-        arguments = argumentList (representation ⊗ identifer)
+        arguments = argumentList (typex ⊗ identifer)
     structDefinition = C.structDefinition . toPrism ignoreCpp ⊣ once identifer definition
       where
         definition = string "struct" ≫ identifer ⊗ betweenBraces (many declare) ≪ string ";"
           where
-            declare = representation ⊗ identifer ≪ string ";"
+            declare = typex ⊗ identifer ≪ string ";"
     ignoreCpp = discardInfo (\(name, _) -> (name, (name, name)))
 
 compound = betweenBraces $ many statement
@@ -63,17 +83,23 @@ compound = betweenBraces $ many statement
 statement =
   choice
     [ C.returnx ⊣ string "return" ≫ expression ≪ string ";",
-      C.forwardDeclare ⊣ representation ⊗ identifer ⊗ argumentList representation ≪ string ";",
-      C.variableDeclation ⊣ representation ⊗ identifer ≪ string "=" ⊗ expression ≪ string ";"
+      C.forwardDeclare ⊣ typex ⊗ identifer ⊗ argumentList typex ≪ string ";",
+      C.variableDeclation ⊣ typex ⊗ identifer ≪ string "=" ⊗ expression ≪ string ";"
     ]
 
-expression = variable ∥ call ∥ compoundLiteral ∥ member ∥ dereference ∥ address
+expression = choice options
   where
-    variable = C.variable ⊣ identifer
-    call = C.call ⊣ betweenParens (betweenParens castFunctionPointer ⊗ expression) ⊗ argumentList expression
-      where
-        castFunctionPointer = representation ≪ string "(*)" ⊗ argumentList representation
-    compoundLiteral = C.compoundLiteral ⊣ betweenParens representation ⊗ betweenBraces (seperatedMany expression (string ","))
-    member = C.member ⊣ betweenParens expression ≪ string "." ⊗ identifer
-    dereference = C.dereference ⊣ betweenParens (string "*" ≫ betweenParens (representation ≪ string "*") ⊗ expression)
-    address = C.address ⊣ betweenParens (betweenParens (string "pointer") ≫ string "&" ≫ expression)
+    options =
+      [ C.variable ⊣ identifer,
+        C.call ⊣ betweenParens (betweenParens castFunctionPointer ⊗ expression) ⊗ argumentList expression,
+        C.compoundLiteral ⊣ betweenParens typex ⊗ betweenBraces (seperatedMany expression (string ",")),
+        C.member ⊣ betweenParens expression ≪ string "." ⊗ identifer,
+        C.dereference ⊣ betweenParens (string "*" ≫ betweenParens (typex ≪ string "*") ⊗ expression),
+        C.address ⊣ betweenParens (betweenParens (string "void*") ≫ string "&" ≫ expression),
+        C.integerLiteral ⊣ integer,
+        C.addition ⊣ betweenParens signedType ⊗ betweenParens expression ⊗ string "+" ≫ betweenParens signedType ⊗ betweenParens expression,
+        C.subtraction ⊣ betweenParens signedType ⊗ betweenParens expression ⊗ string "-" ≫ betweenParens signedType ⊗ betweenParens expression,
+        C.multiplication ⊣ betweenParens signedType ⊗ betweenParens expression ⊗ string "*" ≫ betweenParens signedType ⊗ betweenParens expression,
+        C.division ⊣ betweenParens signedType ⊗ betweenParens expression ⊗ string "/" ≫ betweenParens signedType ⊗ betweenParens expression
+      ]
+    castFunctionPointer = typex ≪ string "(*)" ⊗ argumentList typex

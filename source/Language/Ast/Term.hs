@@ -5,6 +5,7 @@ import Data.Bitraversable (bitraverse)
 import Data.Functor.Const (Const (..), getConst)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import Language.Ast.Common
+import Language.Ast.Kind
 import Language.Ast.Type
 import Misc.Isomorph
 import Misc.MonoidMap as Map
@@ -23,9 +24,16 @@ data TermPatternF σ e pm
   | PatternOfCourse pm
   deriving (Show)
 
-data TermPattern θ σ p = CoreTermPattern p (TermPatternF σ (Term θ σ p) (TermPattern θ σ p)) deriving (Show)
+data TermPattern θ κ σ p = CoreTermPattern p (TermPatternF σ (Term θ κ σ p) (TermPattern θ κ σ p)) deriving (Show)
 
-data TermRuntime θ σ λ ev e
+data Arithmatic
+  = Addition
+  | Subtraction
+  | Multiplication
+  | Division
+  deriving (Show, Eq)
+
+data TermRuntime θ s σ λ ev e
   = Variable TermIdentifier θ
   | Alias e λ
   | Extern Symbol σ σ
@@ -33,10 +41,12 @@ data TermRuntime θ σ λ ev e
   | RuntimePairIntroduction e e
   | FunctionLiteral λ
   | ReadReference ev e σ
+  | NumberLiteral Integer σ
+  | Arithmatic Arithmatic e e s
   deriving (Show)
 
-data TermF θ σ λ e
-  = TermRuntime (TermRuntime θ σ λ e e)
+data TermF θ κ σ λ e
+  = TermRuntime (TermRuntime θ κ σ λ e e)
   | MacroAbstraction λ
   | MacroApplication e e
   | ImplicationAbstraction λ
@@ -45,19 +55,21 @@ data TermF θ σ λ e
   | Bind e λ
   | PureRegionTransformer e
   | DoRegionTransformer e λ
+  | ProofCopyNumber
   | ProofCopyFunction
   | ProofCopyPair e e
   | ProofCopyReference
   deriving (Show)
 
-data Term θ σ p
+data Term θ κ σ p
   = CoreTerm
       p
       ( TermF
           θ
+          κ
           σ
-          (Bound (TermPattern θ σ p) (Term θ σ p))
-          (Term θ σ p)
+          (Bound (TermPattern θ κ σ p) (Term θ κ σ p))
+          (Term θ κ σ p)
       )
   deriving (Show)
 
@@ -159,6 +171,15 @@ readReference = (termRuntime .) $
     (ReadReference ev e σ) -> Just ((ev, e), σ)
     _ -> Nothing
 
+numberLiteral = (termRuntime .) $
+  Prism (uncurry $ NumberLiteral) $ \case
+    (NumberLiteral n σ) -> Just (n, σ)
+    _ -> Nothing
+
+proofCopyNumber = Prism (const ProofCopyNumber) $ \case
+  ProofCopyNumber -> Just ()
+  _ -> Nothing
+
 proofCopyFunction = Prism (const ProofCopyFunction) $ \case
   ProofCopyFunction -> Just ()
   _ -> Nothing
@@ -170,6 +191,11 @@ proofCopyPair = Prism (uncurry $ ProofCopyPair) $ \case
 proofCopyReference = Prism (const ProofCopyReference) $ \case
   ProofCopyReference -> Just ()
   _ -> Nothing
+
+arithmatic o = (termRuntime .) $
+  Prism (uncurry $ uncurry $ Arithmatic o) $ \case
+    Arithmatic o' e e' κ | o == o' -> Just ((e, e'), κ)
+    _ -> Nothing
 
 traversePatternCommon ::
   Applicative m =>
@@ -200,27 +226,29 @@ mapTermPatternF f h g = runIdentity . traverseTermPatternF (Identity . f) (Ident
 traverseTermPattern ::
   Applicative m =>
   (θ -> m θ') ->
+  (κ -> m κ') ->
   (σ -> m σ') ->
   (p -> m p') ->
-  TermPattern θ σ p ->
-  m (TermPattern θ' σ' p')
-traverseTermPattern h f g (CoreTermPattern p pm) =
-  pure CoreTermPattern <*> g p <*> traverseTermPatternF f (traverseTerm h f g) (traverseTermPattern h f g) pm
+  TermPattern θ κ σ p ->
+  m (TermPattern θ' κ' σ' p')
+traverseTermPattern h i f g (CoreTermPattern p pm) =
+  pure CoreTermPattern <*> g p <*> traverseTermPatternF f (traverseTerm h i f g) (traverseTermPattern h i f g) pm
 
-foldTermPattern h f g = getConst . traverseTermPattern (Const . h) (Const . f) (Const . g)
+foldTermPattern h i f g = getConst . traverseTermPattern (Const . h) (Const . i) (Const . f) (Const . g)
 
-mapTermPattern h f g = runIdentity . traverseTermPattern (Identity . h) (Identity . f) (Identity . g)
+mapTermPattern h i f g = runIdentity . traverseTermPattern (Identity . h) (Identity . i) (Identity . f) (Identity . g)
 
 traverseTermRuntime ::
   Applicative m =>
   (θ -> m θ') ->
+  (s -> m s') ->
   (σ -> m σ') ->
   (λ -> m λ') ->
   (ev -> m ev') ->
   (e -> m e') ->
-  TermRuntime θ σ λ ev e ->
-  m (TermRuntime θ' σ' λ' ev' e')
-traverseTermRuntime d f g j i e =
+  TermRuntime θ s σ λ ev e ->
+  m (TermRuntime θ' s' σ' λ' ev' e')
+traverseTermRuntime d h f g j i e =
   case e of
     Variable x θ -> pure Variable <*> pure x <*> d θ
     Alias e λ -> pure Alias <*> i e <*> g λ
@@ -229,18 +257,21 @@ traverseTermRuntime d f g j i e =
     RuntimePairIntroduction e1 e2 -> pure RuntimePairIntroduction <*> i e1 <*> i e2
     FunctionLiteral λ -> pure FunctionLiteral <*> g λ
     ReadReference ev e σ -> pure ReadReference <*> j ev <*> i e <*> f σ
+    NumberLiteral n σ -> pure NumberLiteral <*> pure n <*> f σ
+    Arithmatic o e e' κ -> pure Arithmatic <*> pure o <*> i e <*> i e' <*> h κ
 
 traverseTermF ::
   Applicative m =>
   (θ -> m θ') ->
+  (κ -> m κ') ->
   (σ -> m σ') ->
   (λ -> m λ') ->
   (e -> m e') ->
-  TermF θ σ λ e ->
-  m (TermF θ' σ' λ' e')
-traverseTermF d f h i e =
+  TermF θ κ σ λ e ->
+  m (TermF θ' κ' σ' λ' e')
+traverseTermF d j f h i e =
   case e of
-    TermRuntime e -> pure TermRuntime <*> traverseTermRuntime d f h i i e
+    TermRuntime e -> pure TermRuntime <*> traverseTermRuntime d j f h i i e
     MacroAbstraction λ -> pure MacroAbstraction <*> h λ
     MacroApplication e1 e2 -> pure MacroApplication <*> i e1 <*> i e2
     ImplicationAbstraction λ -> pure ImplicationAbstraction <*> h λ
@@ -249,57 +280,66 @@ traverseTermF d f h i e =
     Bind e λ -> pure Bind <*> i e <*> h λ
     PureRegionTransformer e -> pure PureRegionTransformer <*> i e
     DoRegionTransformer e λx -> pure DoRegionTransformer <*> i e <*> h λx
+    ProofCopyNumber -> pure ProofCopyNumber
     ProofCopyFunction -> pure ProofCopyFunction
     ProofCopyPair e e' -> pure ProofCopyPair <*> i e <*> i e'
     ProofCopyReference -> pure ProofCopyReference
 
-foldTermF d f h i = getConst . traverseTermF (Const . d) (Const . f) (Const . h) (Const . i)
+foldTermF d j f h i = getConst . traverseTermF (Const . d) (Const . j) (Const . f) (Const . h) (Const . i)
 
-mapTermF d f h i = runIdentity . traverseTermF (Identity . d) (Identity . f) (Identity . h) (Identity . i)
+mapTermF d j f h i = runIdentity . traverseTermF (Identity . d) (Identity . j) (Identity . f) (Identity . h) (Identity . i)
 
-traverseTerm :: Applicative m => (θ -> m θ') -> (σ -> m σ') -> (p -> m p') -> Term θ σ p -> m (Term θ' σ' p')
-traverseTerm d f g (CoreTerm p e) =
-  let recurse = traverseTerm d f g
+traverseTerm ::
+  Applicative m =>
+  (θ -> m θ') ->
+  (κ -> m κ') ->
+  (σ -> m σ') ->
+  (p -> m p') ->
+  Term θ κ σ p ->
+  m (Term θ' κ' σ' p')
+traverseTerm d h f g (CoreTerm p e) =
+  let recurse = traverseTerm d h f g
    in pure CoreTerm <*> g p
         <*> traverseTermF
           d
+          h
           f
-          (bitraverse (traverseTermPattern d f g) recurse)
+          (bitraverse (traverseTermPattern d h f g) recurse)
           recurse
           e
 
-mapTerm d f g = runIdentity . traverseTerm (Identity . d) (Identity . f) (Identity . g)
+mapTerm d h f g = runIdentity . traverseTerm (Identity . d) (Identity . h) (Identity . f) (Identity . g)
 
-instance Substitute (Term θ σ p) TermIdentifier σ where
+instance Substitute (Term θ κ σ p) TermIdentifier σ where
   substitute _ _ = id
 
-instance Substitute (Term θ σ p) TermIdentifier θ where
+instance Substitute (Term θ κ σ p) TermIdentifier θ where
   substitute _ _ = id
 
-instance Functor (TermPattern θ σ) where
-  fmap f = runIdentity . traverseTermPattern pure pure (Identity . f)
+instance Functor (TermPattern θ κ σ) where
+  fmap f = mapTermPattern id id id f
 
-instance Functor (Term θ σ) where
-  fmap f = runIdentity . traverseTerm pure pure (Identity . f)
+instance Functor (Term θ κ σ) where
+  fmap f = mapTerm id id id f
 
 instance
   ( Semigroup p
   ) =>
-  FreeVariables TermIdentifier p (TermPattern θ σ p)
+  FreeVariables TermIdentifier p (TermPattern θ κ σ p)
   where
   freeVariables (CoreTermPattern _ pm) = foldTermPatternF mempty go go pm
     where
       go = freeVariables
 
-instance Convert TermIdentifier (TermPattern θ σ p) where
+instance Convert TermIdentifier (TermPattern θ κ σ p) where
   convert ux x (CoreTermPattern p pm) = CoreTermPattern p $ mapTermPatternF id go go pm
     where
       go = convert ux x
 
 instance
-  ( Correct θ (Term θ σ p)
+  ( Correct θ (Term θ κ σ p)
   ) =>
-  Substitute (Term θ σ p) TermIdentifier (TermPattern θ σ p)
+  Substitute (Term θ κ σ p) TermIdentifier (TermPattern θ κ σ p)
   where
   substitute ux x (CoreTermPattern p pm) = CoreTermPattern p $ mapTermPatternF go go go pm
     where
@@ -310,7 +350,7 @@ instance
     FreeVariables TypeIdentifier p σ,
     Semigroup p
   ) =>
-  FreeVariables TypeIdentifier p (TermPattern θ σ p)
+  FreeVariables TypeIdentifier p (TermPattern θ κ σ p)
   where
   freeVariables (CoreTermPattern _ pm) = foldTermPatternF go go go pm
     where
@@ -320,7 +360,7 @@ instance
   ( Substitute σ TypeIdentifier θ,
     Substitute σ TypeIdentifier σ'
   ) =>
-  Substitute σ TypeIdentifier (TermPattern θ σ' p)
+  Substitute σ TypeIdentifier (TermPattern θ κ σ' p)
   where
   substitute ux x (CoreTermPattern p pm) = CoreTermPattern p $ mapTermPatternF go go go pm
     where
@@ -328,9 +368,10 @@ instance
 
 instance
   ( Substitute κ KindIdentifier θ,
-    Substitute κ KindIdentifier σ
+    Substitute κ KindIdentifier σ,
+    Substitute κ KindIdentifier κ'
   ) =>
-  Substitute κ KindIdentifier (TermPattern θ σ p)
+  Substitute κ KindIdentifier (TermPattern θ κ' σ p)
   where
   substitute ux x (CoreTermPattern p pm) = CoreTermPattern p $ mapTermPatternF go go go pm
     where
@@ -338,7 +379,7 @@ instance
 
 instance
   () =>
-  Rename TermIdentifier (TermPattern θ σ p)
+  Rename TermIdentifier (TermPattern θ κ σ p)
   where
   rename ux x (CoreTermPattern p (PatternCommon (PatternVariable x' σ))) | x == x' = CoreTermPattern p $ PatternCommon $ PatternVariable ux σ
   rename ux x (CoreTermPattern p pm) = CoreTermPattern p $ mapTermPatternF id id go pm
@@ -347,14 +388,14 @@ instance
 
 instance
   () =>
-  Bindings TermIdentifier Internal (TermPattern θ σ Internal)
+  Bindings TermIdentifier Internal (TermPattern θ κ σ Internal)
   where
   bindings (CoreTermPattern p (PatternCommon (PatternVariable x _))) = Map.singleton x p
   bindings (CoreTermPattern _ pm) = foldTermPatternF mempty mempty go pm
     where
       go = bindings
 
-instance Reduce (TermPattern InstantiationInfer TypeInfer p) where
+instance Reduce (TermPattern InstantiationInfer KindInfer TypeInfer p) where
   reduce (CoreTermPattern p pm) = CoreTermPattern p $ mapTermPatternF go go go pm
     where
       go = reduce
@@ -362,29 +403,29 @@ instance Reduce (TermPattern InstantiationInfer TypeInfer p) where
 instance
   ( Semigroup p
   ) =>
-  FreeVariables TermIdentifier p (Term θ σ p)
+  FreeVariables TermIdentifier p (Term θ κ σ p)
   where
   freeVariables (CoreTerm p (TermRuntime (Variable x _))) = Map.singleton x p
-  freeVariables (CoreTerm _ e) = foldTermF mempty mempty go go e
+  freeVariables (CoreTerm _ e) = foldTermF mempty mempty mempty go go e
     where
       go = freeVariables
 
 instance
   () =>
-  Convert TermIdentifier (Term θ σ p)
+  Convert TermIdentifier (Term θ κ σ p)
   where
   convert ux x (CoreTerm p (TermRuntime (Variable x' θ))) | x == x' = CoreTerm p $ TermRuntime $ Variable ux θ
-  convert ux x (CoreTerm p e) = CoreTerm p $ mapTermF id id go go e
+  convert ux x (CoreTerm p e) = CoreTerm p $ mapTermF id id id go go e
     where
       go = convert ux x
 
 instance
-  ( Correct θ (Term θ σ p)
+  ( Correct θ (Term θ κ σ p)
   ) =>
-  Substitute (Term θ σ p) TermIdentifier (Term θ σ p)
+  Substitute (Term θ κ σ p) TermIdentifier (Term θ κ σ p)
   where
   substitute ux x (CoreTerm _ (TermRuntime (Variable x' θ))) | x == x' = correct θ ux
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF id id go go e
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF id id id go go e
     where
       go = substitute ux x
 
@@ -393,9 +434,9 @@ instance
     FreeVariables TypeIdentifier p σ,
     FreeVariables TypeIdentifier p θ
   ) =>
-  FreeVariables TypeIdentifier p (Term θ σ p)
+  FreeVariables TypeIdentifier p (Term θ κ σ p)
   where
-  freeVariables (CoreTerm _ e) = foldTermF go go go go e
+  freeVariables (CoreTerm _ e) = foldTermF go mempty go go go e
     where
       go = freeVariables
 
@@ -403,39 +444,40 @@ instance
   ( Substitute σ TypeIdentifier θ,
     Substitute σ TypeIdentifier σ'
   ) =>
-  Substitute σ TypeIdentifier (Term θ σ' p)
+  Substitute σ TypeIdentifier (Term θ κ σ' p)
   where
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF go go go go e
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF go id go go go e
     where
       go = substitute ux x
 
 instance
   ( Substitute κ KindIdentifier σ,
-    Substitute κ KindIdentifier θ
+    Substitute κ KindIdentifier θ,
+    Substitute κ KindIdentifier κ'
   ) =>
-  Substitute κ KindIdentifier (Term θ σ p)
+  Substitute κ KindIdentifier (Term θ κ' σ p)
   where
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF go go go go e
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF go go go go go e
     where
       go = substitute ux x
 
-instance Correct InstantiationInfer (Term InstantiationInfer TypeInfer p) where
+instance Correct InstantiationInfer (Term InstantiationInfer KindInfer TypeInfer p) where
   correct (InstantiateEmpty) e = e
   correct (InstantiateType x σ θ) e = substitute σ x $ correct θ e
   correct (InstantiateKind x κ θ) e = substitute κ x $ correct θ e
 
-instance Reduce (Term InstantiationInfer TypeInfer p) where
+instance Reduce (Term InstantiationInfer KindInfer TypeInfer p) where
   reduce (CoreTerm _ (Bind e λ)) = apply (reduce λ) (reduce e)
   reduce (CoreTerm _ (MacroApplication e1 e2)) | (CoreTerm _ (MacroAbstraction λ)) <- reduce e1 = apply λ (reduce e2)
-  reduce (CoreTerm p e) = CoreTerm p (mapTermF go go go go e)
+  reduce (CoreTerm p e) = CoreTerm p (mapTermF go go go go go e)
     where
       go = reduce
 
 instance
   Apply
-    (Bound (TermPattern InstantiationInfer TypeInfer p) (Term InstantiationInfer TypeInfer p))
-    (Term InstantiationInfer TypeInfer p)
-    (Term InstantiationInfer TypeInfer p)
+    (Bound (TermPattern InstantiationInfer KindInfer TypeInfer p) (Term InstantiationInfer KindInfer TypeInfer p))
+    (Term InstantiationInfer KindInfer TypeInfer p)
+    (Term InstantiationInfer KindInfer TypeInfer p)
   where
   apply (Bound (CoreTermPattern _ (PatternCommon (PatternVariable x _))) e) ux = reduce $ substitute ux x e
   apply (Bound (CoreTermPattern _ (PatternOfCourse pm)) e) (CoreTerm _ (OfCourseIntroduction ux)) = apply (Bound pm e) ux
@@ -446,23 +488,23 @@ instance
   ( FreeVariables TermIdentifier p u,
     Semigroup p
   ) =>
-  FreeVariables TermIdentifier p (Bound (TermPattern θ σ p) u)
+  FreeVariables TermIdentifier p (Bound (TermPattern θ κ σ p) u)
   where
   freeVariables = freeVariablesBoundDependent
 
 instance
   ( Convert TermIdentifier u
   ) =>
-  Convert TermIdentifier (Bound (TermPattern θ σ p) u)
+  Convert TermIdentifier (Bound (TermPattern θ κ σ p) u)
   where
   convert = substituteDependent convert convert (avoidCaptureConvert @TermIdentifier)
 
 instance
-  ( Substitute (Term θ σ p) TermIdentifier u,
-    Correct θ (Term θ σ p),
+  ( Substitute (Term θ κ σ p) TermIdentifier u,
+    Correct θ (Term θ κ σ p),
     Convert TermIdentifier u
   ) =>
-  Substitute (Term θ σ p) TermIdentifier (Bound (TermPattern θ σ p) u)
+  Substitute (Term θ κ σ p) TermIdentifier (Bound (TermPattern θ κ σ p) u)
   where
   substitute = substituteDependent substitute substitute (avoidCapture @TermIdentifier)
 
@@ -472,7 +514,7 @@ instance
     FreeVariables TypeIdentifier p θ,
     Semigroup p
   ) =>
-  FreeVariables TypeIdentifier p (Bound (TermPattern θ σ p) u)
+  FreeVariables TypeIdentifier p (Bound (TermPattern θ κ σ p) u)
   where
   freeVariables (Bound pm e) = freeVariables pm <> freeVariables e
 
@@ -481,27 +523,28 @@ instance
     Substitute σ TypeIdentifier u,
     Substitute σ TypeIdentifier θ
   ) =>
-  Substitute σ TypeIdentifier (Bound (TermPattern θ σ' p) u)
+  Substitute σ TypeIdentifier (Bound (TermPattern θ κ' σ' p) u)
   where
   substitute = substituteHigher substitute substitute
 
 instance
   ( Substitute κ KindIdentifier u,
     Substitute κ KindIdentifier σ,
-    Substitute κ KindIdentifier θ
+    Substitute κ KindIdentifier θ,
+    Substitute κ KindIdentifier κ'
   ) =>
-  Substitute κ KindIdentifier (Bound (TermPattern θ σ p) u)
+  Substitute κ KindIdentifier (Bound (TermPattern θ κ' σ p) u)
   where
   substitute = substituteHigher substitute substitute
 
-instance FreeVariablesInternal TermIdentifier (Term θ σ p) where
+instance FreeVariablesInternal TermIdentifier (Term θ κ σ p) where
   freeVariablesInternal = freeVariables . (Internal <$)
 
-instance BindingsInternal TermIdentifier (TermPattern θ σ p) where
+instance BindingsInternal TermIdentifier (TermPattern θ κ σ p) where
   bindingsInternal = bindings . (Internal <$)
 
-instance Location (Term θ σ) where
+instance Location (Term θ κ σ) where
   location (CoreTerm p _) = p
 
-instance Location (TermPattern θ σ) where
+instance Location (TermPattern θ κ σ) where
   location (CoreTermPattern p _) = p

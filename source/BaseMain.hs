@@ -28,7 +28,7 @@ compileFunctionLiteral ::
   [String] ->
   String ->
   TypeSchemeInfer ->
-  Term θ TypeInfer p ->
+  Term θ KindInfer TypeInfer p ->
   C.Global (C.Representation C.RepresentationFix)
 compileFunctionLiteral path name σ e = fmap ctype $ runCodegen (compileFunctionLiteralImpl sym e'') (external e'')
   where
@@ -41,7 +41,7 @@ compileModule path (CoreModule code) = Map.toList code >>= (uncurry $ compileIte
 compileItem ::
   [String] ->
   String ->
-  Item TypeSchemeInfer θ TypeInfer p ->
+  Item TypeSchemeInfer θ KindInfer TypeInfer p ->
   [C.Global (C.Representation C.RepresentationFix)]
 compileItem path name (Module items) = compileModule (path ++ [name]) items
 compileItem path name (Global (Text σ e)) = [compileFunctionLiteral path name σ e]
@@ -50,7 +50,7 @@ compileItem _ _ (Global (Import _ _)) = []
 
 nameType :: TypeUnify -> Type (KindAuto Internal) Void Internal
 nameType (CoreType p (TypeExtra _)) = CoreType p $ TypeVariable $ TypeIdentifier "_"
-nameType (CoreType p σ) = CoreType p $ mapTypeF (error "unexpected logic variable") nameType σ
+nameType (CoreType p σ) = CoreType p $ mapTypeF (error "unexpected logic variable") (Just . nameKind) nameType σ
 
 nameKind :: KindUnify -> Kind Void Internal
 nameKind (CoreKind p (KindExtra _)) = CoreKind p $ KindVariable $ KindIdentifier "_"

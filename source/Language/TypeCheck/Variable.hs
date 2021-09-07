@@ -22,7 +22,14 @@ type InstantiationUnify = Instantiation KindUnify TypeUnify Internal
 
 instance FreeVariables LogicVariableType Internal TypeUnify where
   freeVariables (CoreType _ (TypeExtra x)) = Map.singleton x Internal
-  freeVariables (CoreType _ σ) = foldTypeF mempty freeVariables σ
+  freeVariables (CoreType _ σ) = foldTypeF mempty mempty go σ
+    where
+      go = freeVariables
+
+instance FreeVariables LogicVariableKind Internal TypeUnify where
+  freeVariables (CoreType _ σ) = foldTypeF mempty go go σ
+    where
+      go = freeVariables
 
 instance FreeVariables LogicVariableKind Internal KindUnify where
   freeVariables (CoreKind _ (KindExtra x)) = Map.singleton x Internal
@@ -30,7 +37,7 @@ instance FreeVariables LogicVariableKind Internal KindUnify where
 
 instance Substitute TypeUnify LogicVariableType TypeUnify where
   substitute ux x (CoreType _ (TypeExtra x')) | x == x' = ux
-  substitute ux x (CoreType p σ) = CoreType p $ mapTypeF id go σ
+  substitute ux x (CoreType p σ) = CoreType p $ mapTypeF id id go σ
     where
       go = substitute ux x
 
@@ -48,38 +55,49 @@ instance Substitute KindUnify LogicVariableKind (TypeScheme KindUnify LogicVaria
 instance FreeVariablesInternal LogicVariableType TypeUnify where
   freeVariablesInternal = freeVariables
 
+instance FreeVariablesInternal LogicVariableKind TypeUnify where
+  freeVariablesInternal = freeVariables
+
 instance FreeVariablesInternal LogicVariableKind KindUnify where
   freeVariablesInternal = freeVariables
 
-instance Substitute TypeUnify LogicVariableType (TermPattern InstantiationUnify TypeUnify p) where
+instance Substitute TypeUnify LogicVariableType (TermPattern InstantiationUnify KindUnify TypeUnify p) where
   substitute ux x (CoreTermPattern p pm) = CoreTermPattern p $ mapTermPatternF go go go pm
     where
       go = substitute ux x
 
-instance Substitute KindUnify LogicVariableKind (TermPattern InstantiationUnify TypeUnify p) where
+instance Substitute KindUnify LogicVariableKind (TermPattern InstantiationUnify KindUnify TypeUnify p) where
   substitute ux x (CoreTermPattern p pm) = CoreTermPattern p $ mapTermPatternF go go go pm
     where
       go = substitute ux x
 
-instance Substitute TypeUnify LogicVariableType (Term InstantiationUnify TypeUnify p) where
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF go go go go e
+instance Substitute TypeUnify LogicVariableType (Term InstantiationUnify KindUnify TypeUnify p) where
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF go id go go go e
     where
       go = substitute ux x
 
-instance Substitute KindUnify LogicVariableKind (Term InstantiationUnify TypeUnify p) where
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF go go go go e
+instance Substitute KindUnify LogicVariableKind (Term InstantiationUnify KindUnify TypeUnify p) where
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF go go go go go e
     where
       go = substitute ux x
+
+instance Substitute KindUnify LogicVariableKind TypeUnify where
+  substitute ux x (CoreType p σ) = CoreType p $ mapTypeF id go go σ
+    where
+      go = substitute ux x
+
+instance Substitute TypeUnify x KindUnify where
+  substitute _ _ = id
 
 instance
   (Substitute TypeUnify LogicVariableType u) =>
-  Substitute TypeUnify LogicVariableType (Bound (TermPattern InstantiationUnify TypeUnify p) u)
+  Substitute TypeUnify LogicVariableType (Bound (TermPattern InstantiationUnify KindUnify TypeUnify p) u)
   where
   substitute = substituteHigher substitute substitute
 
 instance
   (Substitute KindUnify LogicVariableKind u) =>
-  Substitute KindUnify LogicVariableKind (Bound (TermPattern InstantiationUnify TypeUnify p) u)
+  Substitute KindUnify LogicVariableKind (Bound (TermPattern InstantiationUnify KindUnify TypeUnify p) u)
   where
   substitute = substituteHigher substitute substitute
 
@@ -108,20 +126,6 @@ instance
   Substitute KindUnify LogicVariableKind (Bound (Pattern KindIdentifier Sort p) u)
   where
   substitute ux x (Bound pm κ) = Bound pm (substitute ux x κ)
-
--- todo refill when types can contain kinds
-
-instance Substitute KindUnify LogicVariableKind TypeUnify where
-  substitute _ _ = id
-
-instance Substitute TypeUnify LogicVariableType KindUnify where
-  substitute _ _ = id
-
-instance Substitute TypeUnify LogicVariableType Sort where
-  substitute _ _ = id
-
-instance Substitute KindUnify LogicVariableKind Sort where
-  substitute _ _ = id
 
 data TypeEquation p σ = TypeEquation p σ σ
   deriving (Show, Functor)

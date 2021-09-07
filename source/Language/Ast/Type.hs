@@ -42,7 +42,7 @@ data Instantiation κ σ p
 
 type InstantiationInfer = Instantiation KindInfer TypeInfer Internal
 
-data TypeF v σ
+data TypeF v κ σ
   = TypeVariable TypeIdentifier
   | TypeExtra v
   | Macro σ σ
@@ -54,9 +54,10 @@ data TypeF v σ
   | RuntimePair σ σ
   | RegionTransformer σ σ
   | RegionReference σ σ
+  | Number κ κ
   deriving (Show)
 
-data Type κ vσ p = CoreType p (TypeF vσ (Type κ vσ p)) deriving (Show)
+data Type κ vσ p = CoreType p (TypeF vσ κ (Type κ vσ p)) deriving (Show)
 
 type TypeAuto p = Maybe (Type (KindAuto p) Void p)
 
@@ -102,10 +103,11 @@ mapTypeScheme f g h i = runIdentity . traverseTypeScheme (Identity . f) (Identit
 traverseTypeF ::
   Applicative m =>
   (v -> m v') ->
+  (κ -> m κ') ->
   (σ -> m σ') ->
-  TypeF v σ ->
-  m (TypeF v' σ')
-traverseTypeF f g σ = case σ of
+  TypeF v κ σ ->
+  m (TypeF v' κ' σ')
+traverseTypeF f h g σ = case σ of
   TypeVariable x -> pure TypeVariable <*> pure x
   TypeExtra v -> pure TypeExtra <*> f v
   Macro σ τ -> pure Macro <*> g σ <*> g τ
@@ -117,15 +119,16 @@ traverseTypeF f g σ = case σ of
   RuntimePair σ τ -> pure RuntimePair <*> g σ <*> g τ
   RegionTransformer π σ -> pure RegionTransformer <*> g π <*> g σ
   RegionReference π σ -> pure RegionReference <*> g π <*> g σ
+  Number ρ ρ' -> pure Number <*> h ρ <*> h ρ'
 
-mapTypeF f g = runIdentity . traverseTypeF (Identity . f) (Identity . g)
+mapTypeF f h g = runIdentity . traverseTypeF (Identity . f) (Identity . h) (Identity . g)
 
-foldTypeF f g = getConst . traverseTypeF (Const . f) (Const . g)
+foldTypeF f h g = getConst . traverseTypeF (Const . f) (Const . h) (Const . g)
 
 traverseType :: Applicative m => (κ -> m κ') -> (vσ -> m vσ') -> (p -> m p') -> Type κ vσ p -> m (Type κ' vσ' p')
 traverseType f g h (CoreType p σ) =
   let recurse = traverseType f g h
-   in pure CoreType <*> h p <*> traverseTypeF g recurse σ
+   in pure CoreType <*> h p <*> traverseTypeF g f recurse σ
 
 mapType f g h = runIdentity . traverseType (Identity . f) (Identity . g) (Identity . h)
 
@@ -189,6 +192,10 @@ regionReference = Prism (uncurry RegionReference) $ \case
   (RegionReference π σ) -> Just (π, σ)
   _ -> Nothing
 
+number = Prism (uncurry Number) $ \case
+  (Number ρ ρ') -> Just (ρ, ρ')
+  _ -> Nothing
+
 instance Functor (Type κ vσ) where
   fmap f = runIdentity . traverseType pure pure (Identity . f)
 
@@ -207,7 +214,8 @@ instance
       go = convert ux x
 
 instance
-  ( Convert KindIdentifier κ
+  ( Convert KindIdentifier κ,
+    FreeVariablesInternal KindIdentifier κ
   ) =>
   Substitute (Type κ vσ p) TypeIdentifier (TypeScheme κ vσ p p)
   where
@@ -237,17 +245,17 @@ instance
 
 instance Semigroup p => FreeVariables TypeIdentifier p (Type κ vσ p) where
   freeVariables (CoreType p (TypeVariable x)) = Map.singleton x p
-  freeVariables (CoreType _ σ) = foldTypeF mempty freeVariables σ
+  freeVariables (CoreType _ σ) = foldTypeF mempty mempty freeVariables σ
 
 instance Convert TypeIdentifier (Type κ vσ p) where
   convert ux x (CoreType p (TypeVariable x')) | x == x' = CoreType p $ TypeVariable ux
-  convert ux x (CoreType p σ) = CoreType p $ mapTypeF id go σ
+  convert ux x (CoreType p σ) = CoreType p $ mapTypeF id id go σ
     where
       go = convert ux x
 
 instance Substitute (Type κ vσ p) TypeIdentifier (Type κ vσ p) where
   substitute ux x (CoreType _ (TypeVariable x')) | x == x' = ux
-  substitute ux x (CoreType p σ) = CoreType p $ mapTypeF id go σ
+  substitute ux x (CoreType p σ) = CoreType p $ mapTypeF id id go σ
     where
       go = substitute ux x
 
@@ -273,15 +281,38 @@ instance
 instance FreeVariablesInternal TypeIdentifier (Type κ vσ p) where
   freeVariablesInternal = freeVariables . fmap (const Internal)
 
--- todo refill when types can contain kinds
-instance FreeVariablesInternal KindIdentifier (Type κ vσ p) where
-  freeVariablesInternal = mempty
+instance (FreeVariablesInternal KindIdentifier κ) => FreeVariablesInternal KindIdentifier (Type κ vσ p) where
+  freeVariablesInternal (CoreType _ σ) = foldTypeF mempty go go σ
+    where
+      go = freeVariablesInternal
 
-instance Convert KindIdentifier (Type κ vσ p) where
-  convert _ _ = id
+instance
+  ( FreeVariables KindIdentifier p κ,
+    Semigroup p
+  ) =>
+  FreeVariables KindIdentifier p (Type κ vσ p)
+  where
+  freeVariables (CoreType _ σ) = foldTypeF mempty go go σ
+    where
+      go = freeVariables
 
-instance Substitute κ KindIdentifier (Type κ vσ p) where
-  substitute _ _ = id
+instance
+  ( Convert KindIdentifier κ
+  ) =>
+  Convert KindIdentifier (Type κ vσ p)
+  where
+  convert ux x (CoreType p σ) = CoreType p $ mapTypeF id go go σ
+    where
+      go = convert ux x
+
+instance
+  ( Substitute κ KindIdentifier κ
+  ) =>
+  Substitute κ KindIdentifier (Type κ vσ p)
+  where
+  substitute ux x (CoreType p σ) = CoreType p $ mapTypeF id go go σ
+    where
+      go = substitute ux x
 
 instance Reduce (Type κ vσ p) where
   reduce = id
