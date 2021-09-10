@@ -103,7 +103,7 @@ See ``/documentation`` for typing rules.
 |-|-|
 | MonoType | ``σ`` |
 | Forall | ``\/pmσ => ς`` |
-| Kind Forall | `` `\/pmκ => ς`` |
+| Kind Forall | ``\\|/pmκ => ς`` |
 
 ## Types(σ, τ, π)
 | Description | Syntax |
