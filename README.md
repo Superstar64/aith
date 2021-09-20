@@ -217,8 +217,6 @@ Useful / Inspirational papers:
 * [Linear Haskell](https://arxiv.org/pdf/1710.09756.pdf) [(video)](https://youtu.be/t0mhvd3-60Y)
 * [Making Uniqueness Typing Less Unique](http://edsko.net/pubs/thesis.pdf)
 * [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
-### Compiler Design
-* [Typed Tagless Final Interpreters](http://okmij.org/ftp/tagless-final/index.html)
 ### Type Inference
 * [FreezeML : Complete and Easy Type Inference for First-Class Polymorphism](https://export.arxiv.org/pdf/2004.00396)
 ### General Type Systems
