@@ -218,6 +218,8 @@ Useful / Inspirational papers:
 * [Making Uniqueness Typing Less Unique](http://edsko.net/pubs/thesis.pdf)
 * [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
 ### Type Inference
+* [HMF: Simple type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2007-118.pdf)
+* [Flexible types: robust type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2008-55.pdf)
 * [FreezeML : Complete and Easy Type Inference for First-Class Polymorphism](https://export.arxiv.org/pdf/2004.00396)
 ### General Type Systems
 * [Type Systems](http://lucacardelli.name/Papers/TypeSystems.pdf)
