@@ -213,6 +213,9 @@ Useful / Inspirational papers:
 
 ## Related / Unused
 
+### General Introductions
+* [Practical Foundations for Programming Languages](https://profs.sci.univr.it/~merro/files/harper.pdf)
+* [Type Systems](http://lucacardelli.name/Papers/TypeSystems.pdf)
 ### Linear Types
 * [Linear Haskell](https://arxiv.org/pdf/1710.09756.pdf) [(video)](https://youtu.be/t0mhvd3-60Y)
 * [Making Uniqueness Typing Less Unique](http://edsko.net/pubs/thesis.pdf)
@@ -221,8 +224,9 @@ Useful / Inspirational papers:
 * [HMF: Simple type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2007-118.pdf)
 * [Flexible types: robust type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2008-55.pdf)
 * [FreezeML : Complete and Easy Type Inference for First-Class Polymorphism](https://export.arxiv.org/pdf/2004.00396)
-### General Type Systems
-* [Type Systems](http://lucacardelli.name/Papers/TypeSystems.pdf)
+### Unification
+* [Unification Under a Mixed Prefix](https://www.lix.polytechnique.fr/~dale/papers/jsc92.pdf)
+### Internals
 * [System F with Type Equality Coercions](https://www.microsoft.com/en-us/research/wp-content/uploads/2007/01/tldi22-sulzmann-with-appendix.pdf)
 
 
