@@ -181,7 +181,7 @@ Useful / Inspirational papers:
 
 ## Implemented
 
-### Linear Types
+### Linear / Unique Types
 * [A taste of linear logic](https://homepages.inf.ed.ac.uk/wadler/papers/lineartaste/lineartaste-revised.pdf)
   * Faithfully implemented
 ### Levity polymorphism
@@ -198,12 +198,14 @@ Useful / Inspirational papers:
 
 ## Planned
 
-### Linear Types
+### Linear / Unique Types
 * [The Best of Both Worlds: Linear Functional Programming without Compromise](https://jgbm.github.io/pubs/morris-icfp2016-linearity-extended.pdf) [(video)](https://youtu.be/ij9DbNTr-B8)
   * Currently a manual version of evidence passing is implemented
 ### Regions
-* [Monadic Regions](https://www.cs.cornell.edu/people/fluet/research/rgn-monad/JFP06/jfp06.pdf)
-  * Partially implemented, Rank 2 types are still missing
+* 
+  * [Monadic and Substructural Type Systems for Region-Based Memory Management](https://www.cs.rit.edu/~mtf/research/thesis/fluet-thesis.single.pdf)
+  * [Monadic Regions](https://www.cs.cornell.edu/people/fluet/research/rgn-monad/JFP06/jfp06.pdf)
+    * Partially implemented, Rank 2 types are still missing
 ### Compiler Design
 * [Generalizing Hindley-Milner Type Inference Algorithms](https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.18.9348&rep=rep1&type=pdf)
   * Let generalization not implemented yet
@@ -216,13 +218,16 @@ Useful / Inspirational papers:
 ### General Introductions
 * [Practical Foundations for Programming Languages](https://profs.sci.univr.it/~merro/files/harper.pdf)
 * [Type Systems](http://lucacardelli.name/Papers/TypeSystems.pdf)
-### Linear Types
+### Linear / Unique Types
 * [Linear Haskell](https://arxiv.org/pdf/1710.09756.pdf) [(video)](https://youtu.be/t0mhvd3-60Y)
-* [Making Uniqueness Typing Less Unique](http://edsko.net/pubs/thesis.pdf)
-* [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
+*
+  * [Uniqueness Typing Simplified](https://www.cs.rit.edu/~mtf/research/thesis/fluet-thesis.single.pdf)
+  * [Making Uniqueness Typing Less Unique](http://edsko.net/pubs/thesis.pdf)
+  * [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
 ### Type Inference
-* [HMF: Simple type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2007-118.pdf)
-* [Flexible types: robust type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2008-55.pdf)
+*
+  * [HMF: Simple type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2007-118.pdf)
+  * [Flexible types: robust type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2008-55.pdf)
 * [FreezeML : Complete and Easy Type Inference for First-Class Polymorphism](https://export.arxiv.org/pdf/2004.00396)
 ### Unification
 * [Unification Under a Mixed Prefix](https://www.lix.polytechnique.fr/~dale/papers/jsc92.pdf)
