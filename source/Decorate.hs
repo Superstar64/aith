@@ -2,12 +2,12 @@ module Decorate where
 
 import Control.Monad.Reader (ReaderT, ask, withReaderT)
 import Data.Set (Set, singleton)
-import Data.Void (Void)
+import Data.Void (Void, absurd)
 import Language.Ast.Common
 import Language.Ast.Kind
 import Language.Ast.Term
 import Language.Ast.Type
-import Language.TypeCheck
+import Language.TypeCheck.Unify
 import Misc.MonoidMap (Map, (!))
 import qualified Misc.MonoidMap as Map
 import Misc.Symbol
@@ -58,9 +58,15 @@ decorateImpl _ = error "unable to decorate kind"
 decoration (CoreKind _ (Type (CoreKind _ (Runtime _ (CoreKind _ (Real κ)))))) = decorateImpl κ
 decoration _ = error "unable to decorate kind"
 
+decorateReconstruct :: Monad m => TypeInfer -> ReaderT (Map TypeIdentifier KindInfer) m KindInfer
+decorateReconstruct = reconstructType indexVariable absurd augment
+  where
+    indexVariable x = (Map.! x) <$> ask
+    augment (Pattern _ x κ) = withReaderT (Map.insert x κ)
+
 decorateTermPattern :: Monad m => TermPattern θ KindInfer TypeInfer p -> ReaderT (Map TypeIdentifier KindInfer) m (PatternDecorated p)
 decorateTermPattern (CoreTermPattern p (PatternCommon (PatternVariable x σ))) = do
-  σ' <- decoration <$> reconstruct σ
+  σ' <- decoration <$> decorateReconstruct σ
   pure $ PatternDecorated p $ PatternVariable x σ'
 decorateTermPattern (CoreTermPattern p (PatternCommon (RuntimePatternPair pm1 pm2))) = do
   pm1' <- decorateTermPattern pm1
@@ -72,13 +78,13 @@ decorateTermPattern _ = error "unable to decerate pattern"
 decorateTerm :: Monad m => Term θ KindInfer TypeInfer p -> ReaderT (Map TypeIdentifier KindInfer) m (TermDecerated p)
 decorateTerm (CoreTerm p (TermRuntime (Variable x _))) = pure $ TermDecerated p (Variable x ())
 decorateTerm (CoreTerm p (TermRuntime (Extern sym σ τ))) = do
-  σ' <- decoration <$> reconstruct σ
-  τ' <- decoration <$> reconstruct τ
+  σ' <- decoration <$> decorateReconstruct σ
+  τ' <- decoration <$> decorateReconstruct τ
   pure $ TermDecerated p $ Extern sym σ' τ'
 decorateTerm (CoreTerm p (TermRuntime (FunctionApplication e1 e2 σ))) = do
   e1' <- decorateTerm e1
   e2' <- decorateTerm e2
-  σ' <- decoration <$> reconstruct σ
+  σ' <- decoration <$> decorateReconstruct σ
   pure $ TermDecerated p $ FunctionApplication e1' e2' σ'
 decorateTerm (CoreTerm p (TermRuntime (Alias e1 (Bound pm e2)))) = do
   e1' <- decorateTerm e1
@@ -95,10 +101,10 @@ decorateTerm (CoreTerm p (TermRuntime (FunctionLiteral (Bound pm e)))) = do
   pure $ TermDecerated p $ FunctionLiteral $ Bound pm' e'
 decorateTerm (CoreTerm p (TermRuntime (ReadReference _ e σ))) = do
   e' <- decorateTerm e
-  σ' <- decoration <$> reconstruct σ
+  σ' <- decoration <$> decorateReconstruct σ
   pure $ TermDecerated p $ ReadReference () e' σ'
 decorateTerm (CoreTerm p (TermRuntime (NumberLiteral n σ))) = do
-  σ' <- decoration <$> reconstruct σ
+  σ' <- decoration <$> decorateReconstruct σ
   pure $ TermDecerated p $ NumberLiteral n σ'
 decorateTerm (CoreTerm p (TermRuntime (Arithmatic o e1 e2 κ))) = do
   e1' <- decorateTerm e1
@@ -114,7 +120,18 @@ decorateTerm (CoreTerm p (DoRegionTransformer e (Bound pm e'))) =
   decorateTerm (CoreTerm p $ TermRuntime $ Alias e (Bound pm e'))
 decorateTerm (CoreTerm _ (ImplicationAbstraction (Bound _ e))) = decorateTerm e
 decorateTerm (CoreTerm _ (ImplicationApplication _ e)) = decorateTerm e
-decorateTerm _ = error "decorate illegal term"
+decorateTerm (CoreTerm _ (TypeAbstraction (Bound (Pattern _ x κ) (_, e)))) = withReaderT (Map.insert x κ) $ decorateTerm e
+decorateTerm (CoreTerm _ (TypeApplication (e, _))) = decorateTerm e
+decorateTerm (CoreTerm _ (MacroAbstraction _)) = decorateFail
+decorateTerm (CoreTerm _ (MacroApplication _ _)) = decorateFail
+decorateTerm (CoreTerm _ (OfCourseIntroduction _)) = decorateFail
+decorateTerm (CoreTerm _ (Bind _ _)) = decorateFail
+decorateTerm (CoreTerm _ ProofCopyFunction) = decorateFail
+decorateTerm (CoreTerm _ ProofCopyNumber) = decorateFail
+decorateTerm (CoreTerm _ (ProofCopyPair _ _)) = decorateFail
+decorateTerm (CoreTerm _ ProofCopyReference) = decorateFail
+
+decorateFail = error "decorate illegal term"
 
 decorateTermAnnotate :: Monad m => Term θ KindInfer TypeInfer p -> TypeSchemeInfer -> ReaderT (Map TypeIdentifier KindInfer) m (TermDecerated p)
 decorateTermAnnotate e (CoreTypeScheme _ (MonoType _)) = decorateTerm e

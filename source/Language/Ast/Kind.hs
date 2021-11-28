@@ -30,7 +30,7 @@ data KindRuntime s κ
 
 data KindF v κ
   = KindVariable KindIdentifier
-  | KindExtra v
+  | KindLogical v
   | Type κ
   | Evidence
   | Region
@@ -49,6 +49,8 @@ data KindF v κ
 data Kind v p = CoreKind p (KindF v (Kind v p)) deriving (Show)
 
 type KindAuto p = Maybe (Kind Void p)
+
+type KindUnify = Kind KindLogicalRaw Internal
 
 type KindInfer = Kind Void Internal
 
@@ -73,8 +75,8 @@ kindVariable = Prism KindVariable $ \case
   (KindVariable x) -> Just x
   _ -> Nothing
 
-kindExtra = Prism KindExtra $ \case
-  (KindExtra v) -> Just v
+kindExtra = Prism KindLogical $ \case
+  (KindLogical v) -> Just v
   _ -> Nothing
 
 typex = Prism Type $ \case
@@ -170,7 +172,7 @@ traverseKindF ::
   m (KindF v' κ')
 traverseKindF f g κ = case κ of
   KindVariable x -> pure KindVariable <*> pure x
-  KindExtra v -> pure KindExtra <*> f v
+  KindLogical v -> pure KindLogical <*> f v
   Type κ -> pure Type <*> g κ
   Evidence -> pure Evidence
   Region -> pure Region
@@ -204,6 +206,10 @@ instance Semigroup p => FreeVariables KindIdentifier p (Kind vκ p) where
   freeVariables (CoreKind p (KindVariable x)) = Map.singleton x p
   freeVariables (CoreKind _ κ) = foldKindF mempty freeVariables κ
 
+instance FreeVariables KindLogicalRaw Internal KindUnify where
+  freeVariables (CoreKind _ (KindLogical x)) = Map.singleton x Internal
+  freeVariables (CoreKind _ κ) = foldKindF mempty freeVariables κ
+
 instance Convert KindIdentifier (Kind v p) where
   convert ux x (CoreKind p (KindVariable x')) | x == x' = CoreKind p (KindVariable ux)
   convert ux x (CoreKind p κ) = CoreKind p $ mapKindF id go κ
@@ -216,8 +222,17 @@ instance Substitute (Kind v p) KindIdentifier (Kind v p) where
     where
       go = substitute ux x
 
+instance Substitute KindUnify KindLogicalRaw KindUnify where
+  substitute ux x (CoreKind _ (KindLogical x')) | x == x' = ux
+  substitute ux x (CoreKind p κ) = CoreKind p $ mapKindF id go κ
+    where
+      go = substitute ux x
+
 instance FreeVariablesInternal KindIdentifier (Kind v p) where
   freeVariablesInternal = freeVariables . fmap (const Internal)
+
+instance FreeVariablesInternal KindLogicalRaw KindUnify where
+  freeVariablesInternal = freeVariables
 
 instance Reduce (Kind v p) where
   reduce = id

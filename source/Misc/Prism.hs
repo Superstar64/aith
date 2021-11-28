@@ -74,15 +74,25 @@ secondP (Prism f g) = Prism f' g'
       b' <- g b
       pure (a, b')
 
-foldlP :: Prism (a, b) a -> Isomorph (a, [b]) a
+foldlP :: Prism (b, a) b -> Isomorph (b, [a]) b
 foldlP (Prism f g) = Isomorph f' g'
   where
     f' (x, xs) = foldl (curry f) x xs
     g' x = case g x of
       Nothing -> (x, [])
-      Just (a, b) -> (first, a' ++ [b])
+      Just (h, t) -> (first, items ++ [t])
         where
-          (first, a') = g' a
+          (first, items) = g' h
+
+foldrP :: Prism (a, b) b -> Isomorph ([a], b) b
+foldrP (Prism f g) = Isomorph f' g'
+  where
+    f' (xs, x) = foldr (curry f) x xs
+    g' x = case g x of
+      Nothing -> ([], x)
+      Just (h, t) -> (h : items, last)
+        where
+          (items, last) = g' t
 
 foldlNonEmptyP :: Prism (a, b) a -> Prism (a, NonEmpty b) a
 foldlNonEmptyP (Prism f g) = Prism f' g'
@@ -109,5 +119,8 @@ branch a b = Prism pick prefer
         (Just x) -> Just $ Right x
         Nothing -> Nothing
 
-branchDistribute :: (ToPrism f, ToPrism g) => f (a, b1) c -> g (a, b2) c -> Prism (a, Either b1 b2) c
+branchDistribute :: (ToPrism f, ToPrism g) => f (x, a) c -> g (x, b) c -> Prism (x, Either a b) c
 branchDistribute x y = branch x y . toPrism distribute
+
+branchDistribute' :: (ToPrism f, ToPrism g) => f (a, x) c -> g (b, x) c -> Prism (Either a b, x) c
+branchDistribute' x y = branch x y . toPrism distribute'

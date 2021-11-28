@@ -28,14 +28,22 @@ data ModuleError p
   | Cycle p Path
   deriving (Show)
 
-class (TypeErrorQuit p m, Semigroup p) => ModuleErrorQuit p m where
+class (Monad m, Semigroup p) => ModuleQuit p m where
   moduleQuit :: ModuleError p -> m a
+  typeQuit :: TypeError p -> m a
 
-instance ModuleErrorQuit Internal Identity where
+instance ModuleQuit Internal Identity where
   moduleQuit e = error $ "internal module error:" ++ show e
+  typeQuit e = error $ "internal type error:" ++ show e
 
-instance ModuleErrorQuit p m => ModuleErrorQuit p (StateT s m) where
+instance ModuleQuit p m => ModuleQuit p (StateT s m) where
   moduleQuit = lift . moduleQuit
+  typeQuit = lift . typeQuit
+
+runCoreModule :: ModuleQuit p m => Core p a -> CoreEnvironment p -> CoreState p -> m a
+runCoreModule m enviroment state = case runCore m enviroment state of
+  Right (e, _) -> pure e
+  Left err -> typeQuit err
 
 newtype Module ς θ κ σ p = CoreModule (Map String (Item ς θ κ σ p)) deriving (Show)
 
@@ -98,7 +106,7 @@ text = Prism (uncurry Text) $ \case
   (Text σ e) -> Just (σ, e)
   _ -> Nothing
 
-resolve :: ModuleErrorQuit p m => p -> ModuleAuto p -> Path -> m (GlobalAuto p)
+resolve :: ModuleQuit p m => p -> ModuleAuto p -> Path -> m (GlobalAuto p)
 resolve p (CoreModule code) path = go code path
   where
     go code (Path [] name) = case Map.lookup name code of
@@ -165,7 +173,7 @@ data Mark = Unmarked | Temporary | Permanent deriving (Eq)
 -- https://en.wikipedia.org/wiki/Topological_sorting#Depth-first_search
 
 visit ::
-  ModuleErrorQuit p m =>
+  ModuleQuit p m =>
   ModuleAuto p ->
   (Maybe p, Path, GlobalAuto p) ->
   StateT (Map Path Mark) (StateT [(Path, GlobalAuto p)] m) ()
@@ -222,23 +230,23 @@ searchUnsafe (Ordering []) _ = error "bad search"
 searchUnsafe (Ordering ((path, e) : _)) path' | path == path' = e
 searchUnsafe (Ordering (_ : items)) path' = searchUnsafe (Ordering items) path'
 
-typeCheckModule :: ModuleErrorQuit p m => ModuleOrderAuto p -> m (ModuleOrder TypeSchemeInfer InstantiationInfer KindInfer TypeInfer p)
+typeCheckModule :: ModuleQuit p m => ModuleOrderAuto p -> m (ModuleOrder TypeSchemeInfer InstantiationInfer KindInfer TypeInfer p)
 typeCheckModule (Ordering []) = pure $ Ordering []
 typeCheckModule (Ordering ((path@(Path heading _), item) : nodes)) = do
   Ordering nodes' <- typeCheckModule $ Ordering nodes
   let env = foldr (inject $ searchUnsafe $ Ordering nodes') emptyEnvironment nodes'
   case item of
     Inline Nothing e -> do
-      ((e, σ), _) <- runCore (generalize e) env emptyState
+      (e, σ) <- runCoreModule (typeCheckGlobal e) env emptyState
       pure $ Ordering ((path, Inline σ e) : nodes')
     Inline (Just σ) e -> do
-      ((e, σ), _) <- runCore (generalizeAnnotate e σ) env emptyState
+      (e, σ) <- runCoreModule (typeCheckGlobalAnnotate e σ) env emptyState
       pure $ Ordering ((path, Inline σ e) : nodes')
     Text Nothing e -> do
-      ((e, σ), _) <- runCore (generalizeText e) env emptyState
+      (e, σ) <- runCoreModule (typeCheckGlobalText e) env emptyState
       pure $ Ordering ((path, Text σ e) : nodes')
     Text (Just σ) e -> do
-      ((e, σ), _) <- runCore (generalizeAnnotateText e σ) env emptyState
+      (e, σ) <- runCoreModule (typeCheckGlobalAnnotateText e σ) env emptyState
       pure $ Ordering ((path, Text σ e) : nodes')
     Import p sym -> pure $ Ordering ((path, Import p sym) : nodes')
   where
@@ -287,7 +295,9 @@ reduceModule (Ordering ((path@(Path heading _), item) : nodes)) = case item of
   where
     Ordering nodes' = reduceModule $ Ordering nodes
     inject (Path heading' x, Inline _ ex) e
-      | heading == heading' = substitute ex (TermIdentifier x) e
+      | heading == heading',
+        (TermIdentifier x) `Map.member` freeVariablesInternal @TermIdentifier e =
+        substitute ex (TermIdentifier x) e
     inject (_, Inline _ _) e = e
     inject (path@(Path heading' x), Text σ (CoreTerm p _)) e
       | heading == heading' = substitute (makeExtern path p σ) (TermIdentifier x) e

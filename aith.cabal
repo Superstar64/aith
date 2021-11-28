@@ -15,6 +15,7 @@ common aith-base
         Language.TypeCheck
         Language.TypeCheck.Variable
         Language.TypeCheck.Core
+        Language.TypeCheck.Unify
         Language.Ast.Common
         Language.Ast.Kind
         Language.Ast.Type

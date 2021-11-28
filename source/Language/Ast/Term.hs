@@ -26,6 +26,12 @@ data TermPatternF σ e pm
 
 data TermPattern θ κ σ p = CoreTermPattern p (TermPatternF σ (Term θ κ σ p) (TermPattern θ κ σ p)) deriving (Show)
 
+type TermPatternAuto p = TermPattern () (KindAuto p) (TypeAuto p) p
+
+type TermPatternUnify = TermPattern InstantiationUnify KindUnify TypeUnify
+
+type TermPatternInfer = TermPattern InstantiationInfer KindInfer TypeInfer
+
 data Arithmatic
   = Addition
   | Subtraction
@@ -45,7 +51,7 @@ data TermRuntime θ s σ λ ev e
   | Arithmatic Arithmatic e e s
   deriving (Show)
 
-data TermF θ κ σ λ e
+data TermF λtl λta θ κ σ λ e
   = TermRuntime (TermRuntime θ κ σ λ e e)
   | MacroAbstraction λ
   | MacroApplication e e
@@ -59,12 +65,16 @@ data TermF θ κ σ λ e
   | ProofCopyFunction
   | ProofCopyPair e e
   | ProofCopyReference
+  | TypeAbstraction λtl
+  | TypeApplication λta
   deriving (Show)
 
 data Term θ κ σ p
   = CoreTerm
       p
       ( TermF
+          (Bound (Pattern TypeIdentifier κ p) (σ, (Term θ κ σ p)))
+          (Term θ κ σ p, (σ, Bound (Pattern TypeIdentifier κ p) σ))
           θ
           κ
           σ
@@ -72,6 +82,12 @@ data Term θ κ σ p
           (Term θ κ σ p)
       )
   deriving (Show)
+
+type TermAuto p = Term () (KindAuto p) (TypeAuto p) p
+
+type TermUnify = Term InstantiationUnify KindUnify TypeUnify
+
+type TermInfer = Term InstantiationInfer KindInfer TypeInfer
 
 coreTermPattern = Isomorph (uncurry $ CoreTermPattern) $ \(CoreTermPattern p pm) -> (p, pm)
 
@@ -197,6 +213,14 @@ arithmatic o = (termRuntime .) $
     Arithmatic o' e e' κ | o == o' -> Just ((e, e'), κ)
     _ -> Nothing
 
+typeLambda = Prism TypeAbstraction $ \case
+  TypeAbstraction pm -> Just pm
+  _ -> Nothing
+
+typeApplication = Prism TypeApplication $ \case
+  TypeApplication e -> Just e
+  _ -> Nothing
+
 traversePatternCommon ::
   Applicative m =>
   (σ -> m σ') ->
@@ -262,14 +286,16 @@ traverseTermRuntime d h f g j i e =
 
 traverseTermF ::
   Applicative m =>
+  (λtl -> m λtl') ->
+  (λta -> m λta') ->
   (θ -> m θ') ->
   (κ -> m κ') ->
   (σ -> m σ') ->
   (λ -> m λ') ->
   (e -> m e') ->
-  TermF θ κ σ λ e ->
-  m (TermF θ' κ' σ' λ' e')
-traverseTermF d j f h i e =
+  TermF λtl λta θ κ σ λ e ->
+  m (TermF λtl' λta' θ' κ' σ' λ' e')
+traverseTermF k l d j f h i e =
   case e of
     TermRuntime e -> pure TermRuntime <*> traverseTermRuntime d j f h i i e
     MacroAbstraction λ -> pure MacroAbstraction <*> h λ
@@ -284,10 +310,12 @@ traverseTermF d j f h i e =
     ProofCopyFunction -> pure ProofCopyFunction
     ProofCopyPair e e' -> pure ProofCopyPair <*> i e <*> i e'
     ProofCopyReference -> pure ProofCopyReference
+    TypeAbstraction λ -> pure TypeAbstraction <*> k λ
+    TypeApplication a -> pure TypeApplication <*> l a
 
-foldTermF d j f h i = getConst . traverseTermF (Const . d) (Const . j) (Const . f) (Const . h) (Const . i)
+foldTermF l k d j f h i = getConst . traverseTermF (Const . l) (Const . k) (Const . d) (Const . j) (Const . f) (Const . h) (Const . i)
 
-mapTermF d j f h i = runIdentity . traverseTermF (Identity . d) (Identity . j) (Identity . f) (Identity . h) (Identity . i)
+mapTermF l k d j f h i = runIdentity . traverseTermF (Identity . l) (Identity . k) (Identity . d) (Identity . j) (Identity . f) (Identity . h) (Identity . i)
 
 traverseTerm ::
   Applicative m =>
@@ -301,6 +329,8 @@ traverseTerm d h f g (CoreTerm p e) =
   let recurse = traverseTerm d h f g
    in pure CoreTerm <*> g p
         <*> traverseTermF
+          (bitraverse (traversePattern pure h g) (bitraverse f recurse))
+          (bitraverse recurse (bitraverse f (bitraverse (traversePattern pure h g) f)))
           d
           h
           f
@@ -323,7 +353,8 @@ instance Functor (Term θ κ σ) where
   fmap f = mapTerm id id id f
 
 instance
-  ( Semigroup p
+  ( Semigroup p,
+    FreeVariables TermIdentifier p σ
   ) =>
   FreeVariables TermIdentifier p (TermPattern θ κ σ p)
   where
@@ -331,13 +362,24 @@ instance
     where
       go = freeVariables
 
-instance Convert TermIdentifier (TermPattern θ κ σ p) where
+instance
+  ( Convert TypeIdentifier θ,
+    Convert TermIdentifier σ
+  ) =>
+  Convert TermIdentifier (TermPattern θ κ σ p)
+  where
   convert ux x (CoreTermPattern p pm) = CoreTermPattern p $ mapTermPatternF id go go pm
     where
       go = convert ux x
 
 instance
-  ( Correct θ (Term θ κ σ p)
+  ( Correct θ (Term θ κ σ p),
+    Convert TermIdentifier σ,
+    Convert TypeIdentifier σ,
+    Convert TypeIdentifier θ,
+    FreeVariables TypeIdentifier Internal σ,
+    FreeVariables TypeIdentifier Internal θ,
+    FreeVariables TermIdentifier Internal σ
   ) =>
   Substitute (Term θ κ σ p) TermIdentifier (TermPattern θ κ σ p)
   where
@@ -357,11 +399,30 @@ instance
       go = freeVariables
 
 instance
+  ( Convert TypeIdentifier θ,
+    Convert TypeIdentifier σ
+  ) =>
+  Convert TypeIdentifier (TermPattern θ κ σ p)
+  where
+  convert ux x (CoreTermPattern p pm) = CoreTermPattern p $ mapTermPatternF go go go pm
+    where
+      go = convert ux x
+
+instance
   ( Substitute σ TypeIdentifier θ,
-    Substitute σ TypeIdentifier σ'
+    Substitute σ TypeIdentifier σ',
+    FreeVariablesInternal TypeIdentifier σ,
+    Convert TypeIdentifier σ',
+    Convert TypeIdentifier θ,
+    FreeVariables TermIdentifier Internal σ
   ) =>
   Substitute σ TypeIdentifier (TermPattern θ κ σ' p)
   where
+  substitute ux x (CoreTermPattern p pm) = CoreTermPattern p $ mapTermPatternF go go go pm
+    where
+      go = substitute ux x
+
+instance Substitute TypeUnify TypeLogicalRaw (TermPattern InstantiationUnify KindUnify TypeUnify p) where
   substitute ux x (CoreTermPattern p pm) = CoreTermPattern p $ mapTermPatternF go go go pm
     where
       go = substitute ux x
@@ -373,6 +434,11 @@ instance
   ) =>
   Substitute κ KindIdentifier (TermPattern θ κ' σ p)
   where
+  substitute ux x (CoreTermPattern p pm) = CoreTermPattern p $ mapTermPatternF go go go pm
+    where
+      go = substitute ux x
+
+instance Substitute KindUnify KindLogicalRaw (TermPattern InstantiationUnify KindUnify TypeUnify p) where
   substitute ux x (CoreTermPattern p pm) = CoreTermPattern p $ mapTermPatternF go go go pm
     where
       go = substitute ux x
@@ -401,31 +467,40 @@ instance Reduce (TermPattern InstantiationInfer KindInfer TypeInfer p) where
       go = reduce
 
 instance
-  ( Semigroup p
+  ( Semigroup p,
+    FreeVariables TermIdentifier p σ
   ) =>
   FreeVariables TermIdentifier p (Term θ κ σ p)
   where
   freeVariables (CoreTerm p (TermRuntime (Variable x _))) = Map.singleton x p
-  freeVariables (CoreTerm _ e) = foldTermF mempty mempty mempty go go e
+  freeVariables (CoreTerm _ e) = foldTermF go go mempty mempty mempty go go e
     where
       go = freeVariables
 
 instance
-  () =>
+  ( Convert TermIdentifier σ,
+    Convert TypeIdentifier θ
+  ) =>
   Convert TermIdentifier (Term θ κ σ p)
   where
   convert ux x (CoreTerm p (TermRuntime (Variable x' θ))) | x == x' = CoreTerm p $ TermRuntime $ Variable ux θ
-  convert ux x (CoreTerm p e) = CoreTerm p $ mapTermF id id id go go e
+  convert ux x (CoreTerm p e) = CoreTerm p $ mapTermF go go id id id go go e
     where
       go = convert ux x
 
 instance
-  ( Correct θ (Term θ κ σ p)
+  ( Correct θ (Term θ κ σ p),
+    FreeVariables TypeIdentifier Internal σ,
+    FreeVariables TypeIdentifier Internal θ,
+    Convert TermIdentifier σ,
+    Convert TypeIdentifier σ,
+    Convert TypeIdentifier θ,
+    FreeVariables TermIdentifier Internal σ
   ) =>
   Substitute (Term θ κ σ p) TermIdentifier (Term θ κ σ p)
   where
   substitute ux x (CoreTerm _ (TermRuntime (Variable x' θ))) | x == x' = correct θ ux
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF id id id go go e
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF go go id id id go go e
     where
       go = substitute ux x
 
@@ -436,17 +511,36 @@ instance
   ) =>
   FreeVariables TypeIdentifier p (Term θ κ σ p)
   where
-  freeVariables (CoreTerm _ e) = foldTermF go mempty go go go e
+  freeVariables (CoreTerm _ e) = foldTermF go go go mempty go go go e
     where
       go = freeVariables
 
 instance
+  ( Convert TypeIdentifier θ,
+    Convert TypeIdentifier σ'
+  ) =>
+  Convert TypeIdentifier (Term θ κ σ' p)
+  where
+  convert ux x (CoreTerm p e) = CoreTerm p $ mapTermF go go go id go go go e
+    where
+      go = convert ux x
+
+instance
   ( Substitute σ TypeIdentifier θ,
-    Substitute σ TypeIdentifier σ'
+    Substitute σ TypeIdentifier σ',
+    Convert TypeIdentifier σ',
+    FreeVariablesInternal TypeIdentifier σ,
+    Convert TypeIdentifier θ,
+    FreeVariables TermIdentifier Internal σ
   ) =>
   Substitute σ TypeIdentifier (Term θ κ σ' p)
   where
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF go id go go go e
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF go go go id go go go e
+    where
+      go = substitute ux x
+
+instance Substitute TypeUnify TypeLogicalRaw (Term InstantiationUnify KindUnify TypeUnify p) where
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF go go go id go go go e
     where
       go = substitute ux x
 
@@ -457,7 +551,12 @@ instance
   ) =>
   Substitute κ KindIdentifier (Term θ κ' σ p)
   where
-  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF go go go go go e
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF go go go go go go go e
+    where
+      go = substitute ux x
+
+instance Substitute KindUnify KindLogicalRaw (Term InstantiationUnify KindUnify TypeUnify p) where
+  substitute ux x (CoreTerm p e) = CoreTerm p $ mapTermF go go go go go go go e
     where
       go = substitute ux x
 
@@ -469,7 +568,8 @@ instance Correct InstantiationInfer (Term InstantiationInfer KindInfer TypeInfer
 instance Reduce (Term InstantiationInfer KindInfer TypeInfer p) where
   reduce (CoreTerm _ (Bind e λ)) = apply (reduce λ) (reduce e)
   reduce (CoreTerm _ (MacroApplication e1 e2)) | (CoreTerm _ (MacroAbstraction λ)) <- reduce e1 = apply λ (reduce e2)
-  reduce (CoreTerm p e) = CoreTerm p (mapTermF go go go go go e)
+  reduce (CoreTerm _ (TypeApplication (e1, (σ, _)))) | (CoreTerm _ (TypeAbstraction (Bound pm (_, e)))) <- reduce e1 = apply (Bound pm e) σ
+  reduce (CoreTerm p e) = CoreTerm p (mapTermF go go go go go go go e)
     where
       go = reduce
 
@@ -485,15 +585,29 @@ instance
   apply λ ux@(CoreTerm p _) = CoreTerm p $ Bind ux λ
 
 instance
+  Apply
+    ( Bound
+        (Pattern TypeIdentifier KindInfer p)
+        (Term InstantiationInfer KindInfer TypeInfer p)
+    )
+    TypeInfer
+    (Term InstantiationInfer KindInfer TypeInfer p)
+  where
+  apply (Bound (Pattern _ α _) e) σ = substitute σ α e
+
+instance
   ( FreeVariables TermIdentifier p u,
-    Semigroup p
+    Semigroup p,
+    FreeVariables TermIdentifier p σ
   ) =>
   FreeVariables TermIdentifier p (Bound (TermPattern θ κ σ p) u)
   where
   freeVariables = freeVariablesBoundDependent
 
 instance
-  ( Convert TermIdentifier u
+  ( Convert TermIdentifier u,
+    Convert TypeIdentifier θ,
+    Convert TermIdentifier σ
   ) =>
   Convert TermIdentifier (Bound (TermPattern θ κ σ p) u)
   where
@@ -502,7 +616,13 @@ instance
 instance
   ( Substitute (Term θ κ σ p) TermIdentifier u,
     Correct θ (Term θ κ σ p),
-    Convert TermIdentifier u
+    Convert TermIdentifier u,
+    FreeVariables TermIdentifier Internal σ,
+    Convert TermIdentifier σ,
+    Convert TypeIdentifier σ,
+    Convert TypeIdentifier θ,
+    FreeVariables TypeIdentifier Internal σ,
+    FreeVariables TypeIdentifier Internal θ
   ) =>
   Substitute (Term θ κ σ p) TermIdentifier (Bound (TermPattern θ κ σ p) u)
   where
@@ -519,9 +639,22 @@ instance
   freeVariables (Bound pm e) = freeVariables pm <> freeVariables e
 
 instance
+  ( Convert TypeIdentifier u,
+    Convert TypeIdentifier θ,
+    Convert TypeIdentifier σ
+  ) =>
+  Convert TypeIdentifier (Bound (TermPattern θ κ σ p) u)
+  where
+  convert = substituteHigher convert convert
+
+instance
   ( Substitute σ TypeIdentifier σ',
     Substitute σ TypeIdentifier u,
-    Substitute σ TypeIdentifier θ
+    Substitute σ TypeIdentifier θ,
+    FreeVariablesInternal TypeIdentifier σ,
+    Convert TypeIdentifier σ',
+    Convert TypeIdentifier θ,
+    FreeVariables TermIdentifier Internal σ
   ) =>
   Substitute σ TypeIdentifier (Bound (TermPattern θ κ' σ' p) u)
   where
@@ -537,7 +670,31 @@ instance
   where
   substitute = substituteHigher substitute substitute
 
-instance FreeVariablesInternal TermIdentifier (Term θ κ σ p) where
+instance
+  (Substitute TypeUnify TypeLogicalRaw u) =>
+  Substitute TypeUnify TypeLogicalRaw (Bound (TermPattern InstantiationUnify KindUnify TypeUnify p) u)
+  where
+  substitute = substituteHigher substitute substitute
+
+instance
+  (Substitute KindUnify KindLogicalRaw u) =>
+  Substitute KindUnify KindLogicalRaw (Bound (TermPattern InstantiationUnify KindUnify TypeUnify p) u)
+  where
+  substitute = substituteHigher substitute substitute
+
+instance
+  ( FreeVariables TypeIdentifier Internal σ,
+    FreeVariables TypeIdentifier Internal θ
+  ) =>
+  FreeVariablesInternal TypeIdentifier (Term θ κ σ p)
+  where
+  freeVariablesInternal = freeVariables . (Internal <$)
+
+instance
+  ( FreeVariables TermIdentifier Internal σ
+  ) =>
+  FreeVariablesInternal TermIdentifier (Term θ κ σ p)
+  where
   freeVariablesInternal = freeVariables . (Internal <$)
 
 instance BindingsInternal TermIdentifier (TermPattern θ κ σ p) where

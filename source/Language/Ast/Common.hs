@@ -3,6 +3,7 @@ module Language.Ast.Common where
 import Data.Bifoldable (Bifoldable, bifoldMap)
 import Data.Bifunctor (Bifunctor, bimap)
 import Data.Bitraversable (Bitraversable, bitraverse)
+import Data.Functor.Identity (Identity (..), runIdentity)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Misc.Isomorph
@@ -19,6 +20,8 @@ data Pattern i σ p = Pattern p i σ deriving (Show, Functor)
 bound = Isomorph (uncurry Bound) $ \(Bound pm e) -> (pm, e)
 
 pattern = Isomorph (uncurry $ uncurry Pattern) (\(Pattern p i σ) -> ((p, i), σ))
+
+mapPattern f g h = runIdentity . traversePattern (Identity . f) (Identity . g) (Identity . h)
 
 traversePattern ::
   Applicative m =>
@@ -162,6 +165,16 @@ instance Substitute u x e => Substitute u x [e] where
 instance Reduce e => Reduce [e] where
   reduce = map reduce
 
+instance
+  ( Ord x,
+    Semigroup p,
+    FreeVariables x p e
+  ) =>
+  FreeVariables x p (Maybe e)
+  where
+  freeVariables Nothing = mempty
+  freeVariables (Just e) = freeVariables e
+
 class Fresh i where
   fresh :: Set i -> i -> i
 
@@ -185,6 +198,10 @@ kindIdentifier = Isomorph KindIdentifier runKindIdentifier
 
 instance Fresh KindIdentifier where
   fresh c (KindIdentifier x) = KindIdentifier $ Util.fresh (Set.mapMonotonic runKindIdentifier c) x
+
+newtype TypeLogicalRaw = TypeLogicalRaw Int deriving (Eq, Ord, Show)
+
+newtype KindLogicalRaw = KindLogicalRaw Int deriving (Eq, Ord, Show)
 
 freeVariablesBound (Bound pm e) = foldr Map.delete (freeVariables e) (map fst $ Map.toList $ bindingsInternal pm)
 
@@ -272,6 +289,29 @@ instance
   substitute = substituteSame substitute (avoidCapture @TermIdentifier)
 
 instance
+  ( FreeVariables TermIdentifier p u
+  ) =>
+  FreeVariables TermIdentifier p (Bound (Pattern TypeIdentifier κ p) u)
+  where
+  freeVariables (Bound _ e) = freeVariables e
+
+instance
+  ( Convert TermIdentifier u
+  ) =>
+  Convert TermIdentifier (Bound (Pattern TypeIdentifier κ p) u)
+  where
+  convert = substituteLower convert (const id)
+
+instance
+  ( FreeVariablesInternal TypeIdentifier e,
+    Substitute e TermIdentifier u,
+    Convert TypeIdentifier u
+  ) =>
+  Substitute e TermIdentifier (Bound (Pattern TypeIdentifier κ p) u)
+  where
+  substitute = substituteLower substitute (avoidCapture @TypeIdentifier)
+
+instance
   ( Semigroup p,
     FreeVariables TypeIdentifier p σ,
     FreeVariables TypeIdentifier p u
@@ -333,6 +373,15 @@ instance
   substitute = substituteLower substitute (avoidCapture @KindIdentifier)
 
 instance
+  ( Semigroup p,
+    FreeVariables KindIdentifier p u,
+    FreeVariables KindIdentifier p κ
+  ) =>
+  FreeVariables KindIdentifier p (Bound (Pattern TypeIdentifier κ p) u)
+  where
+  freeVariables (Bound κ e) = freeVariables κ <> freeVariables e
+
+instance
   ( Substitute κ KindIdentifier u,
     Substitute κ KindIdentifier σ
   ) =>
@@ -350,9 +399,9 @@ instance
 
 instance
   ( Substitute κ KindIdentifier u,
-    Substitute κ KindIdentifier κ
+    Substitute κ KindIdentifier κ'
   ) =>
-  Substitute κ KindIdentifier (Bound (Pattern TypeIdentifier κ p) u)
+  Substitute κ KindIdentifier (Bound (Pattern TypeIdentifier κ' p) u)
   where
   substitute = substituteHigher substitute substitute
 
@@ -371,6 +420,42 @@ instance
   Substitute κ KindIdentifier (Bound (Pattern KindIdentifier μ p) u)
   where
   substitute = substituteSame substitute (avoidCapture @KindIdentifier)
+
+instance
+  ( FreeVariables KindLogicalRaw p u,
+    Semigroup p,
+    FreeVariables KindLogicalRaw p κ
+  ) =>
+  FreeVariables KindLogicalRaw p (Bound (Pattern TypeIdentifier κ p) u)
+  where
+  freeVariables (Bound pm e) = freeVariables pm <> freeVariables e
+
+instance
+  ( Substitute κ KindLogicalRaw u,
+    Substitute κ KindLogicalRaw κ
+  ) =>
+  Substitute κ KindLogicalRaw (Bound (Pattern TypeIdentifier κ p) u)
+  where
+  substitute = substituteHigher substitute substitute
+
+instance
+  ( FreeVariables TypeLogicalRaw p u
+  ) =>
+  FreeVariables TypeLogicalRaw p (Bound (Pattern TypeIdentifier κ p) u)
+  where
+  freeVariables = freeVariablesBound
+
+instance
+  ( Convert TypeIdentifier u,
+    FreeVariablesInternal TypeIdentifier σ,
+    Substitute σ TypeLogicalRaw u
+  ) =>
+  Substitute σ TypeLogicalRaw (Bound (Pattern TypeIdentifier κ p) u)
+  where
+  substitute = substituteLower substitute (avoidCapture @TypeIdentifier)
+
+instance BindingsInternal TypeLogicalRaw (Pattern TypeIdentifier κ p) where
+  bindingsInternal = mempty
 
 class Location f where
   location :: f a -> a

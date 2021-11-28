@@ -76,6 +76,10 @@ betweenBangSquares = between (token "![") (token "]")
 
 betweenStarSquares = between (token "*[") (token "]")
 
+betweenDoubleBraces = between (token "{{") (token "}}")
+
+betweenDoubleSquares = between (token "[[") (token "]]")
+
 symbol = Symbol.symbol ⊣ stringLiteral
 
 lambdaCore e = binaryToken "=>" ≫ e
@@ -193,13 +197,16 @@ typex = typeArrow
           [ Language.copy ⊣ prefixKeyword "copy" ≫ typeCore,
             Language.regionTransformer ⊣ prefixKeyword "state" ≫ typeCore ⊗ space ≫ typeCore,
             Language.regionReference ⊣ prefixKeyword "reference" ≫ typeCore ⊗ space ≫ typeCore,
-            Language.number ⊣ prefixKeyword "number" ≫ kindCoreAuto ≪ space ⊗ kindCoreAuto,
             Language.ofCourse ⊣ betweenBangSquares typex
           ]
 
-typeCore = Language.coreType ⊣ position ⊗ variable ∥ betweenParens typex
+typeCore = Language.coreType ⊣ position ⊗ (choice options) ∥ betweenParens typex
   where
-    variable = Language.typeVariable ⊣ typeIdentifier
+    options =
+      [ Language.typeVariable ⊣ typeIdentifier,
+        Language.number ⊣ betweenDoubleBraces kindAuto ⊗ space ≫ kindCoreAuto,
+        Language.explicitForall ⊣ Language.bound ⊣ token "\\/" ≫ typePattern ⊗ lambdaInline typex
+      ]
 
 typeAuto = just ⊣ typex ∥ nothing ⊣ token "_"
 
@@ -207,14 +214,14 @@ typeCoreAuto = just ⊣ typeCore ∥ nothing ⊣ token "_"
 
 typeAnnotation = just ⊣ binaryToken ":" ≫ typeCore ∥ nothing ⊣ always
 
-typeScheme = typeSchemeCore
+typeScheme = mono ∥ foldrP applyScheme ⊣ scheme
   where
-    typeSchemeCore = Language.coreTypeScheme ⊣ position ⊗ choice options
-    options =
-      [ Language.monoType ⊣ typex,
-        token "\\/" ≫ (Language.forallx ⊣ Language.bound ⊣ typePattern ⊗ lambdaCore typeScheme),
-        token "\\|/" ≫ (Language.kindForall ⊣ Language.bound ⊣ kindPattern ⊗ lambdaCore typeScheme)
-      ]
+    mono = Language.coreTypeScheme ⊣ position ⊗ (Language.monoType ⊣ typex)
+    schemeCore = typePattern ⊕ token "'" ≫ kindPattern
+    scheme = betweenAngle (commaSeperatedMany (position ⊗ schemeCore)) ⊗ space ≫ mono
+    applyScheme = toPrism Language.coreTypeScheme . secondP inner . toPrism associate
+      where
+        inner = (Language.forallx . toPrism Language.bound) `branchDistribute'` (Language.kindForall . toPrism Language.bound)
 
 termPattern = patternTop
   where
@@ -235,6 +242,7 @@ termPattern = patternTop
 term :: (Position δ p, Syntax δ) => δ (Language.Term () (Language.KindAuto p) (Language.TypeAuto p) p)
 term = termBinding
   where
+    semiBinaryToken t = space ≫ token t
     termBinding = Language.coreTerm ⊣ position ⊗ choice options ∥ termRTApply
       where
         options =
@@ -247,13 +255,13 @@ term = termBinding
       where
         applyBinary = apply `branchDistribute` unit'
         apply = withInnerPosition3 Language.coreTerm Language.functionApplication . toPrism associate'
-    signMarker = just ⊣ token "@" ≫ kindCore ≪ space ∥ nothing ⊣ always
-    termAdd = foldlP applyAdd ⊣ termMul ⊗ many (binaryToken "+" ≫ (swap ⊣ signMarker ⊗ termMul) ⊕ binaryToken "-" ≫ (swap ⊣ signMarker ⊗ termMul))
+    signMarker = just ⊣ token "'" ≫ kindCore ≪ space ∥ nothing ⊣ space
+    termAdd = foldlP applyAdd ⊣ termMul ⊗ many (semiBinaryToken "+" ≫ (swap ⊣ signMarker ⊗ termMul) ⊕ semiBinaryToken "-" ≫ (swap ⊣ signMarker ⊗ termMul))
       where
         applyAdd = add `branchDistribute` sub
         add = withInnerPosition3 Language.coreTerm (Language.arithmatic Language.Addition) . toPrism associate'
         sub = withInnerPosition3 Language.coreTerm (Language.arithmatic Language.Subtraction) . toPrism associate'
-    termMul = foldlP applyMul ⊣ termPair ⊗ many (binaryToken "*" ≫ (swap ⊣ signMarker ⊗ termPair) ⊕ binaryToken "/" ≫ (swap ⊣ signMarker ⊗ termPair))
+    termMul = foldlP applyMul ⊣ termPair ⊗ many (semiBinaryToken "*" ≫ (swap ⊣ signMarker ⊗ termPair) ⊕ semiBinaryToken "/" ≫ (swap ⊣ signMarker ⊗ termPair))
       where
         applyMul = mul `branchDistribute` div
         mul = withInnerPosition3 Language.coreTerm (Language.arithmatic Language.Multiplication) . toPrism associate'
@@ -261,11 +269,15 @@ term = termBinding
     termPair = foldlP pair ⊣ termApply ⊗ many (token "," ≫ space ≫ termApply)
       where
         pair = withInnerPosition Language.coreTerm Language.runtimePairIntrouction
-    termApply = Language.coreTerm ⊣ position ⊗ choice options ∥ foldlP applyBinary ⊣ termCore ⊗ many (space ≫ token "`" ≫ termCore ⊕ space ≫ token "^" ≫ termCore)
+    termApply = Language.coreTerm ⊣ position ⊗ choice options ∥ foldlP applyBinary ⊣ termCore ⊗ many (applySyntax ⊕ implicationApplySyntax ⊕ typeApplySyntax)
       where
-        applyBinary = application `branchDistribute` implicationApplication
+        applyBinary = application `branchDistribute` implicationApplication `branchDistribute` typeApplication
         application = withInnerPosition Language.coreTerm Language.macroApplication
         implicationApplication = withInnerPosition Language.coreTerm Language.implicationApplication
+        typeApplication = withInnerPosition Language.coreTerm Language.typeApplication
+        applySyntax = space ≫ token "`" ≫ termCore
+        implicationApplySyntax = space ≫ token "^" ≫ termCore
+        typeApplySyntax = swap ⊣ space ≫ betweenDoubleSquares (Language.bound ⊣ token "\\/" ≫ typePattern ⊗ lambdaInline typeAuto) ⊗ betweenAngle typeAuto
         options =
           [ Language.proofCopyPair ⊣ prefixKeyword "copyPair" ≫ termCore ⊗ space ≫ termCore,
             Language.readReference ⊣ prefixKeyword "read" ≫ termCore ≪ space ⊗ termCore ⊗ typeAnnotation,
@@ -284,7 +296,8 @@ termCore = Language.coreTerm ⊣ position ⊗ choice options ∥ betweenParens t
         Language.proofCopyFunction ⊣ keyword "copyFunction",
         Language.proofCopyReference ⊣ keyword "copyReference",
         Language.ofCourseIntroduction ⊣ betweenBangSquares term,
-        Language.numberLiteral ⊣ number ⊗ typeAnnotation
+        Language.numberLiteral ⊣ number ⊗ typeAnnotation,
+        Language.typeLambda ⊣ Language.bound ⊣ token "/\\" ≫ typePattern ⊗ (binaryToken "###" ≫ typeAuto ⊗ lambdaMajor term)
       ]
 
 modulex ::

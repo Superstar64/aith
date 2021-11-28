@@ -16,15 +16,15 @@ import compose = /test/combinators/compose;
 module runtime = {
 	import call = /test/runtimeCall;
 	
-	symbol _ :: \/a : *[_data @ _real _pointer] => a -> a;
+	symbol _ :: <A : *[_data @ _real _pointer]> A -> A;
 	symbol idPtr = \x => x;
 	
 	symbol useIdPtr = \x => call `idPtr `x;
 	
-	symbol _ :: \/a : *[_data @ _real _pointer] => \/b : *[_data @ _real _pointer] => _copy b -^> (a, b) -> a;
+	symbol _ :: <A : *[_data @ _real _pointer], B : *[_data @ _real _pointer]> _copy B -^> (A, B) -> A;
 	symbol fst = ^\proof => \(x, !(proof)[y]) => x;
 	
-	symbol _ :: \/a : *[_data @ _real _pointer] => \/b : *[_data @ _real _pointer] => _copy a -^> (a, b) -> b;
+	symbol _ :: <A : *[_data @ _real _pointer], B : *[_data @ _real _pointer]> _copy A -^> (A, B) -> B;
 	symbol snd = ^\proof => \(!(proof)[x], y) => y;
 	
   
@@ -36,7 +36,7 @@ module runtime = {
 	
 	inline copyFunction = _copyFunction;
 	
-	symbol _ :: \/a: *[_data @ _real _pointer] => (a -> a) -> (a -> a), (a -> a);
+	symbol _ :: <A: *[_data @ _real _pointer]> (A -> A) -> (A -> A), (A -> A);
 	symbol cloneFP = \!(copyFunction)[x] {
 		(x, x)
 	};
@@ -45,9 +45,36 @@ module runtime = {
 module integers = {
   inline two = 1 + 1;
 
-  symbol _ :: _number _unsigned _int -> _number _unsigned _int;
+  symbol _ :: {{_unsigned}} _int -> {{_unsigned}} _int;
   symbol doubleU = \x => x * two;
 
-  symbol _ :: _number _signed _int -> _number _signed _int;
+  symbol _ :: {{_signed}} _int -> {{_signed}} _int;
   symbol doubleI = \x => x * two;
+};
+
+module systemf = {
+  inline idSysF = /\A ### (A -`> A) => `\x => x;
+  inline runIdSysF = `\f {
+    f[[\/A => A -`> A]]<_>
+  };
+  
+  inline id = runIdSysF `idSysF;
+
+  inline _ :: <'X:_stage, 'Y:_signedness, 'W:_size> \/A:*[X] => ({{Y}} W -`> A) -`> A;  
+  inline scott = /\A ### ({{Y}} W -`> A) -`> A => `\f : {{Y}} W -`> A {
+	  f `1 : {{Y}} W
+  };
+  
+  inline _ :: <'Y:_signedness, 'W:_size> {{Y}} W;
+  inline one = scott[[\/A => ({{Y}} W -`> A) -`> A]]<_> `(`\x => x);
+  
+  inline constSysF = /\A ### \/B => ![A] -`> ![B] -`> A {
+    /\B ### ![A] -`> ![B] -`> A {
+      `\![x] => `\![y] => x
+    }
+  };
+  
+  inline _ :: <'X:_stage, 'Y:_stage, A:*[X], B:*[Y]> ![A] -`> ![B] -`> A;
+  inline const = constSysF[[\/A => \/B => ![A] -`> ![B] -`> A]]<_>[[\/ B => ![A] -`> ![B] -`> A]]<_>;
+
 };

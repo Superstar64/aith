@@ -5,17 +5,23 @@ module Language.TypeCheck.Core where
 import Control.Monad.Reader (ReaderT, ask, runReaderT, withReaderT)
 import Control.Monad.State (StateT, get, put, runStateT)
 import Control.Monad.Trans (lift)
-import Control.Monad.Writer (WriterT)
-import Data.Functor.Identity (Identity)
-import Data.Maybe (fromJust)
-import Data.Set (Set)
-import Data.Void (Void, absurd)
 import Language.Ast.Common
+import Language.Ast.Kind
 import Language.Ast.Multiplicity
 import Language.Ast.Sort
+import Language.Ast.Type
 import Language.TypeCheck.Variable
 import Misc.MonoidMap (Map, (!))
 import qualified Misc.MonoidMap as Map
+
+-- levels are inspired from "How OCaml type checker works -- or what polymorphism and garbage collection have in common"
+-- however, rather then using levels for let generalization, levels here are used for skolemization
+-- where each level can be thought of as a ∀α ∃ βγδ... qualifier in unification under a mixed prefix
+newtype Level = Level Int deriving (Eq, Ord, Show)
+
+instance Bounded Level where
+  minBound = Level 0
+  maxBound = Level maxBound
 
 data TypeError p
   = UnknownIdentifier p TermIdentifier
@@ -25,148 +31,139 @@ data TypeError p
   | TypeMismatch p TypeUnify TypeUnify
   | KindMismatch p KindUnify KindUnify
   | SortMismatch p Sort Sort
-  | TypeOccursCheck p LogicVariableType TypeUnify
-  | KindOccursCheck p LogicVariableKind KindUnify
-  | AmbiguousType p LogicVariableType (Set LogicVariableType)
-  | AmbiguousKind p LogicVariableKind (Set LogicVariableKind)
+  | TypeOccursCheck p TypeLogicalRaw TypeUnify
+  | KindOccursCheck p KindLogicalRaw KindUnify
+  | AmbiguousType p TypeLogicalRaw
+  | AmbiguousKind p KindLogicalRaw
+  | EscapingSkolemType p TypeIdentifier TypeUnify
+  | EscapingSkolemKind p KindIdentifier KindUnify
   | CaptureLinear p TermIdentifier
   | ExpectedMetaPattern p
   | ExpectedRuntimePattern p
+  | ExpectedTypeAnnotation p
   deriving (Show)
 
-class Monad m => TypeErrorQuit p m | m -> p where
-  quit :: TypeError p -> m a
+lookupKindEnvironmentImpl x = do
+  xΓ <- Core ask
+  pure $ Map.lookup x (kindEnvironment xΓ)
 
-class Monad m => Index m k v where
-  index :: k -> m v
+lookupSortEnvironmentImpl x = do
+  xΓ <- Core ask
+  pure $ Map.lookup x (sortEnvironment xΓ)
 
-class Monad m => Environment p m | m -> p where
-  lookupTypeEnviroment :: TermIdentifier -> m (Maybe (p, Multiplicity, TypeSchemeUnify))
-  augmentTypeEnvironment :: TermIdentifier -> p -> Multiplicity -> TypeSchemeUnify -> m a -> m a
-  lookupKindEnvironment :: TypeIdentifier -> m (Maybe (p, KindUnify))
-  augmentKindEnvironment :: TypeIdentifier -> p -> KindUnify -> m a -> m a
-  lookupSortEnvironment :: KindIdentifier -> m (Maybe (p, Sort))
-  augmentSortEnvironment :: KindIdentifier -> p -> Sort -> m a -> m a
+lookupTypeEnviroment :: TermIdentifier -> Core p (Maybe (p, Multiplicity, TypeSchemeUnify))
+lookupTypeEnviroment x = do
+  xΓ <- Core ask
+  pure $ Map.lookup x (typeEnvironment xΓ)
 
-class Monad m => System p m | m -> p where
-  insertTypeEquation :: TypeEquation p TypeUnify -> m ()
-  freshTypeVariableRaw :: p -> KindUnify -> m LogicVariableType
-  insertKindEquation :: KindEquation p KindUnify -> m ()
-  freshKindVariableRaw :: p -> Sort -> m LogicVariableKind
+augmentTypeEnvironment :: TermIdentifier -> p -> Multiplicity -> TypeSchemeUnify -> Core p a -> Core p a
+augmentTypeEnvironment x p l σ = modifyTypeEnvironment (Map.insert x (p, l, σ))
+  where
+    modifyTypeEnvironment f (Core r) = Core $ withReaderT (\env -> env {typeEnvironment = f (typeEnvironment env)}) r
 
-instance TypeErrorQuit Internal Identity where
-  quit e = error $ "internal type error:" ++ show e
+lookupKindEnvironment :: TypeIdentifier -> Core p (Maybe (p, KindUnify, Level))
+lookupKindEnvironment = lookupKindEnvironmentImpl
 
-instance (Monad m, Ord k) => Index (ReaderT (Map k v) m) k v where
-  index k = do
-    m <- ask
-    pure $ m ! k
+lookupSortEnvironment :: KindIdentifier -> Core p (Maybe (p, Sort, Level))
+lookupSortEnvironment = lookupSortEnvironmentImpl
 
-instance Monad m => Index m Void v where
-  index = absurd
+augmentKindEnvironment :: TypeIdentifier -> p -> KindUnify -> Level -> Core p a -> Core p a
+augmentKindEnvironment x p κ sk = modifyKindEnvironment (Map.insert x (p, κ, sk))
+  where
+    modifyKindEnvironment f (Core r) = Core $ withReaderT (\env -> env {kindEnvironment = f (kindEnvironment env)}) r
 
-instance TypeErrorQuit p m => TypeErrorQuit p (ReaderT a m) where
-  quit = lift . quit
+augmentSortEnvironment :: KindIdentifier -> p -> Sort -> Level -> Core p a -> Core p a
+augmentSortEnvironment x p μ sk = modifySortEnvironment (Map.insert x (p, μ, sk))
+  where
+    modifySortEnvironment f (Core r) = Core $ withReaderT (\env -> env {sortEnvironment = f (sortEnvironment env)}) r
 
-instance TypeErrorQuit p m => TypeErrorQuit p (StateT s m) where
-  quit = lift . quit
+insertTypeEquation :: TypeEquation p -> Core p ()
+insertTypeEquation eq = modifyTypeEquations (eq :)
 
-instance (TypeErrorQuit p m, Monoid a) => TypeErrorQuit p (WriterT a m) where
-  quit = lift . quit
+freshTypeVariableRaw :: p -> KindUnify -> Core p TypeLogicalRaw
+freshTypeVariableRaw p κ = do
+  v <- TypeLogicalRaw <$> newFreshType
+  lev <- Level <$> levelCounter <$> getState
+  insertTypeVariableMap v p κ lev
+  pure $ v
+  where
+    newFreshType = do
+      state <- getState
+      let i = freshTypeCounter state
+      putState state {freshTypeCounter = i + 1}
+      pure i
+    insertTypeVariableMap x p κ lev = do
+      state <- getState
+      putState state {typeVariableMap = Map.insert x (p, κ, lev) $ typeVariableMap state}
 
-instance TypeErrorQuit p m => TypeErrorQuit p (Core p m) where
-  quit = Core . quit
+insertKindEquation :: KindEquation p -> Core p ()
+insertKindEquation eq = modifyKindEquations (eq :)
 
-instance (System p m, Monoid a) => System p (WriterT a m) where
-  insertTypeEquation eq = lift $ insertTypeEquation eq
-  freshTypeVariableRaw p κ = lift $ freshTypeVariableRaw p κ
-  insertKindEquation eq = lift $ insertKindEquation eq
-  freshKindVariableRaw p μ = lift $ freshKindVariableRaw p μ
+freshKindVariableRaw :: p -> Sort -> Core p KindLogicalRaw
+freshKindVariableRaw p μ = do
+  v <- KindLogicalRaw <$> newFreshKind
+  lev <- Level <$> levelCounter <$> getState
+  insertKindVariableMap v p μ lev
+  pure $ v
+  where
+    newFreshKind = do
+      state <- getState
+      let i = freshKindCounter state
+      putState state {freshKindCounter = i + 1}
+      pure i
+    insertKindVariableMap x p μ lev = do
+      state <- getState
+      putState state {kindVariableMap = Map.insert x (p, μ, lev) $ kindVariableMap state}
+
+quit e = Core $ lift $ lift $ Left e
 
 data CoreEnvironment p = CoreEnvironment
   { typeEnvironment :: Map TermIdentifier (p, Multiplicity, TypeSchemeUnify),
-    kindEnvironment :: Map TypeIdentifier (p, KindUnify),
-    sortEnvironment :: Map KindIdentifier (p, Sort)
+    kindEnvironment :: Map TypeIdentifier (p, KindUnify, Level),
+    sortEnvironment :: Map KindIdentifier (p, Sort, Level)
   }
   deriving (Functor, Show)
 
 emptyEnvironment = CoreEnvironment Map.empty Map.empty Map.empty
 
 data CoreState p = CoreState
-  { typeVariableMap :: Map LogicVariableType (p, KindUnify),
-    kindVariableMap :: Map LogicVariableKind (p, Sort),
+  { typeVariableMap :: Map TypeLogicalRaw (p, KindUnify, Level),
+    kindVariableMap :: Map KindLogicalRaw (p, Sort, Level),
     freshTypeCounter :: Int,
     freshKindCounter :: Int,
-    typeEquations :: [TypeEquation p TypeUnify],
-    kindEquations :: [KindEquation p KindUnify]
+    typeEquations :: [TypeEquation p],
+    kindEquations :: [KindEquation p],
+    levelCounter :: Int
   }
-  deriving (Show)
+  deriving (Functor, Show)
 
-emptyState = CoreState Map.empty Map.empty 0 0 [] []
+emptyState = CoreState Map.empty Map.empty 0 0 [] [] 0
 
-newtype Core p m a = Core {runCore' :: ReaderT (CoreEnvironment p) (StateT (CoreState p) m) a} deriving (Functor, Applicative, Monad)
+newtype Core p a = Core {runCore' :: ReaderT (CoreEnvironment p) (StateT (CoreState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
 
 runCore c = runStateT . runReaderT (runCore' c)
 
-modifyEnvironment :: (CoreEnvironment p -> CoreEnvironment p) -> Core p m a -> Core p m a
+askEnvironment = Core $ ask
+
+modifyEnvironment :: (CoreEnvironment p -> CoreEnvironment p) -> Core p a -> Core p a
 modifyEnvironment f (Core r) = Core $ withReaderT f r
 
-instance Monad m => Environment p (Core p m) where
-  lookupTypeEnviroment x = do
-    xΓ <- Core ask
-    pure $ Map.lookup x (typeEnvironment xΓ)
-  augmentTypeEnvironment x p l σ = modifyTypeEnvironment (Map.insert x (p, l, σ))
-    where
-      modifyTypeEnvironment f (Core r) = Core $ withReaderT (\env -> env {typeEnvironment = f (typeEnvironment env)}) r
-  lookupKindEnvironment x = do
-    xΓ <- Core ask
-    pure $ Map.lookup x (kindEnvironment xΓ)
-  augmentKindEnvironment x p κ = modifyKindEnvironment (Map.insert x (p, κ))
-    where
-      modifyKindEnvironment f (Core r) = Core $ withReaderT (\env -> env {kindEnvironment = f (kindEnvironment env)}) r
-  lookupSortEnvironment x = do
-    xΓ <- Core ask
-    pure $ Map.lookup x (sortEnvironment xΓ)
-  augmentSortEnvironment x p μ = modifySortEnvironment (Map.insert x (p, μ))
-    where
-      modifySortEnvironment f (Core r) = Core $ withReaderT (\env -> env {sortEnvironment = f (sortEnvironment env)}) r
+getState = Core $ get
 
-getState = Core $ lift $ get
+putState state = Core $ put state
 
-putState state = Core $ lift $ put state
+modifyLevelCounter :: (Int -> Int) -> Core p ()
+modifyLevelCounter f = do
+  state <- getState
+  putState state {levelCounter = f $ levelCounter state}
+
+enterLevel = modifyLevelCounter (+ 1)
+
+leaveLevel = modifyLevelCounter (subtract 1)
+
+currentLevel = levelCounter <$> getState
 
 getTypeEquations = typeEquations <$> getState
-
-instance Monad m => System p (Core p m) where
-  insertTypeEquation eq = modifyTypeEquations (eq :)
-  freshTypeVariableRaw p κ = do
-    v <- LogicVariableType <$> newFreshType
-    insertTypeVariableMap v p κ
-    pure $ v
-    where
-      newFreshType = do
-        state <- getState
-        let i = freshTypeCounter state
-        putState state {freshTypeCounter = i + 1}
-        pure i
-      insertTypeVariableMap x p κ = do
-        state <- getState
-        putState state {typeVariableMap = Map.insert x (p, κ) $ typeVariableMap state}
-  insertKindEquation eq = modifyKindEquations (eq :)
-
-  freshKindVariableRaw p μ = do
-    v <- LogicVariableKind <$> newFreshKind
-    insertKindVariableMap v p μ
-    pure $ v
-    where
-      newFreshKind = do
-        state <- getState
-        let i = freshKindCounter state
-        putState state {freshKindCounter = i + 1}
-        pure i
-      insertKindVariableMap x p μ = do
-        state <- getState
-        putState state {kindVariableMap = Map.insert x (p, μ) $ kindVariableMap state}
 
 modifyTypeEquations f = do
   state <- getState
@@ -178,13 +175,17 @@ modifyKindEquations f = do
   state <- getState
   putState state {kindEquations = f $ kindEquations state}
 
-instance Monad m => Index (Core p m) LogicVariableType KindUnify where
-  index = indexTypeVariableMap
+indexTypeVariableMap x = (! x) <$> typeVariableMap <$> getState
 
-instance Monad m => Index (Core p m) TypeIdentifier KindUnify where
-  index x = snd <$> fromJust <$> lookupKindEnvironment x
+updateTypeLevel x lev = do
+  state <- getState
+  putState state {typeVariableMap = Map.adjust (\(p, κ, _) -> (p, κ, lev)) x $ typeVariableMap state}
 
-indexTypeVariableMap x = snd <$> (! x) <$> typeVariableMap <$> getState
+indexKindVariableMap x = (! x) <$> kindVariableMap <$> getState
+
+updateKindLevel x lev = do
+  state <- getState
+  putState state {kindVariableMap = Map.adjust (\(p, μ, _) -> (p, μ, lev)) x $ kindVariableMap state}
 
 getTypeVariableMap = typeVariableMap <$> getState
 
@@ -198,14 +199,6 @@ modifyTypeVariableMap f = do
 removeTypeVariable x = do
   state <- getState
   putState state {typeVariableMap = Map.delete x $ typeVariableMap state}
-
-instance Monad m => Index (Core p m) LogicVariableKind Sort where
-  index = indexKindVariableMap
-
-instance Monad m => Index (Core p m) KindIdentifier Sort where
-  index x = snd <$> fromJust <$> lookupSortEnvironment x
-
-indexKindVariableMap x = snd <$> (! x) <$> kindVariableMap <$> getState
 
 getKindVariableMap = kindVariableMap <$> getState
 

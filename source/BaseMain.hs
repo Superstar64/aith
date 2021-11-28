@@ -4,15 +4,15 @@ import qualified C.Ast as C
 import qualified C.Print as C
 import Codegen
 import Control.Monad.Reader
+import Data.Bifunctor
 import Data.Traversable (for)
 import Data.Void
 import Decorate
 import Language.Ast.Common
 import Language.Ast.Kind hiding (Text, typex)
 import Language.Ast.Term
-import Language.Ast.Type (Type (..), TypeF (..), TypeInfer, TypeSchemeInfer, mapTypeF)
+import Language.Ast.Type (Type (..), TypeF (..), TypeInfer, TypeSchemeInfer, TypeUnify, mapTypeF)
 import Language.TypeCheck.Core
-import Language.TypeCheck.Variable
 import qualified Misc.MonoidMap as Map
 import Misc.Path hiding (path)
 import Module hiding (modulex)
@@ -49,11 +49,11 @@ compileItem _ _ (Global (Inline _ _)) = []
 compileItem _ _ (Global (Import _ _)) = []
 
 nameType :: TypeUnify -> Type (KindAuto Internal) Void Internal
-nameType (CoreType p (TypeExtra _)) = CoreType p $ TypeVariable $ TypeIdentifier "_"
-nameType (CoreType p σ) = CoreType p $ mapTypeF (error "unexpected logic variable") (Just . nameKind) nameType σ
+nameType (CoreType p (TypeLogical _)) = CoreType p $ TypeVariable $ TypeIdentifier "_"
+nameType (CoreType p σ) = CoreType p $ mapTypeF (error "unexpected logic variable") (bimap (mapPattern id (Just . nameKind) id) nameType) (Just . nameKind) nameType σ
 
 nameKind :: KindUnify -> Kind Void Internal
-nameKind (CoreKind p (KindExtra _)) = CoreKind p $ KindVariable $ KindIdentifier "_"
+nameKind (CoreKind p (KindLogical _)) = CoreKind p $ KindVariable $ KindIdentifier "_"
 nameKind (CoreKind p κ) = CoreKind p $ mapKindF (error "unexpected logic variable") nameKind κ
 
 prettyError :: TypeError [SourcePos] -> String
@@ -79,11 +79,9 @@ prettyModuleError (Cycle p path) = "Global cycle" ++ prettyPath path ++ position
 
 positions p = " in positions: " ++ show p
 
-instance TypeErrorQuit [SourcePos] PrettyIO where
-  quit e = PrettyIO $ die $ prettyError e
-
-instance ModuleErrorQuit [SourcePos] PrettyIO where
+instance ModuleQuit [SourcePos] PrettyIO where
   moduleQuit e = PrettyIO $ die $ prettyModuleError e
+  typeQuit e = PrettyIO $ die $ prettyError e
 
 readFile "-" = getContents
 readFile name = do

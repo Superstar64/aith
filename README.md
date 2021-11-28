@@ -1,13 +1,13 @@
 
 Aith is a low level functional programming language with linear types, kind based staging / macros, levity polymorphism, and monadic regions.
-As of now aith is very early stages and very little is implemented. A hindley milner rework is also currently in progress.
+As of now aith is very early stages and very little is implemented.
 See ``/documentation`` for typing rules.
 
 # Road Map
 
 * [x] Macro Lambda Calculus
 * [x] Macro Beta Reduction
-* [ ] System-F
+* [x] System-F
 * [ ] System-F ω
 * [ ] New Types
 * [ ] Builtin Typeclasses
@@ -74,14 +74,16 @@ See ``/documentation`` for typing rules.
 | Number Literal | ``n`` |
 | Number Literal Ascribe | ``n : σ`` |
 | Addition | ``e + e'`` |
-| Addition with Sign | ``e + @ρ e'`` |
+| Addition with Sign | ``e +'ρ e'`` |
 | Subtraction | ``e - e'`` |
-| Subtraction with Sign | ``e - @ρ e'`` |
+| Subtraction with Sign | ``e -'ρ e'`` |
 | Multiplication | ``e * e'`` |
-| Multiplication with Sign | ``e * @ρ e'`` |
+| Multiplication with Sign | ``e *'ρ e'`` |
 | Divsion | ``e / e'`` |
-| Division with Sign | ``e / @ρ e'`` |
-
+| Division with Sign | ``e /'ρ e'`` |
+| Type Abstraction | ``/\pmσ ### σ => e`` |
+| Type Abstraction | ``/\pmσ ### σ { e }`` |
+| Type Application | ``e [[\/pmσ => σ]]<τ>``|
 
 ## Patterns(pm)
 | Description | Syntax |
@@ -101,15 +103,15 @@ See ``/documentation`` for typing rules.
 # Type Scheme(ς)
 | Description | Syntax |
 |-|-|
-| MonoType | ``σ`` |
-| Forall | ``\/pmσ => ς`` |
-| Kind Forall | ``\\|/pmκ => ς`` |
+| TypeScheme | ``<'pmκ, 'pmκ', pmσ, pmσ'> => σ`` |
 
 ## Types(σ, τ, π)
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
 | Macro | ``σ -`> τ``|
+| Forall | ``\/x : κ => σ`` |
+| Forall | ``\/x : κ { σ }`` |
 | Of Course | ``![σ]``|
 | Function Pointer | `` τ -> σ `` |
 | Function Literal Type | `` τ _function σ `` |
@@ -195,6 +197,16 @@ Useful / Inspirational papers:
   * Applicative order reduction used for reduction.
 * [Unification Theory](https://www.cs.bu.edu/fac/snyder/publications/UnifChapter.pdf)
   * Substitution composition algorithm taken from here
+### Type Inference
+* [QML : Explicit First-Class Polymorphism for ML](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/QML-Explicit-First-Class-Polymorphism-for-ML.pdf)
+  * Implemented with scoped type variables
+### Compiler Design
+* [How OCaml type checker works -- or what polymorphism and garbage collection have in common](https://okmij.org/ftp/ML/generalization.html)
+  * Only implemented for checking escaping skolem variables. Still need to implement let generalization.
+### Type Inference
+* [QML : Explicit First-Class Polymorphism for ML](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/QML-Explicit-First-Class-Polymorphism-for-ML.pdf)
+
+
 
 ## Planned
 
@@ -206,11 +218,6 @@ Useful / Inspirational papers:
   * [Monadic and Substructural Type Systems for Region-Based Memory Management](https://www.cs.rit.edu/~mtf/research/thesis/fluet-thesis.single.pdf)
   * [Monadic Regions](https://www.cs.cornell.edu/people/fluet/research/rgn-monad/JFP06/jfp06.pdf)
     * Partially implemented, Rank 2 types are still missing
-### Type Inference
-* [QML : Explicit First-Class Polymorphism for ML](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/QML-Explicit-First-Class-Polymorphism-for-ML.pdf)
-### Internals
-* [How OCaml type checker works -- or what polymorphism and garbage collection have in common](https://okmij.org/ftp/ML/generalization.html)
-
 
 ## Related / Unused
 

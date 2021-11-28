@@ -46,6 +46,8 @@ keys (Map m) = Map.keys m
 
 keysSet (Map m) = Map.keysSet m
 
+adjust f x (Map m) = Map $ Map.adjust f x m
+
 infixl 9 !
 
 Map m ! k = m Map.! k

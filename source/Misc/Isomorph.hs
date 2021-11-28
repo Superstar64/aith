@@ -81,6 +81,14 @@ distribute = Isomorph f g
     g (Left (a, b)) = (a, Left b)
     g (Right (a, b)) = (a, Right b)
 
+distribute' :: Isomorph (Either b1 b2, a) (Either (b1, a) (b2, a))
+distribute' = Isomorph f g
+  where
+    f (Left a, b) = Left (a, b)
+    f (Right a, b) = Right (a, b)
+    g (Left (a, b)) = (Left a, b)
+    g (Right (a, b)) = (Right a, b)
+
 nonEmpty :: Isomorph (a, [a]) (NonEmpty a)
 nonEmpty = Isomorph f g
   where
