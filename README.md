@@ -218,6 +218,7 @@ Useful / Inspirational papers:
   * [Monadic and Substructural Type Systems for Region-Based Memory Management](https://www.cs.rit.edu/~mtf/research/thesis/fluet-thesis.single.pdf)
   * [Monadic Regions](https://www.cs.cornell.edu/people/fluet/research/rgn-monad/JFP06/jfp06.pdf)
     * Partially implemented, Rank 2 types are still missing
+  * [Linear Regions Are All You Need](https://www.cs.cornell.edu/people/fluet/research/substruct-regions/ESOP06/esop06.pdf)
 
 ## Related / Unused
 
@@ -227,8 +228,8 @@ Useful / Inspirational papers:
 ### Linear / Unique Types
 * [Linear Haskell](https://arxiv.org/pdf/1710.09756.pdf) [(video)](https://youtu.be/t0mhvd3-60Y)
 *
-  * [Uniqueness Typing Simplified](https://www.cs.rit.edu/~mtf/research/thesis/fluet-thesis.single.pdf)
   * [Making Uniqueness Typing Less Unique](http://edsko.net/pubs/thesis.pdf)
+  * [Uniqueness Typing Simplified](http://www.edsko.net/pubs/ifl07-paper.pdf)
   * [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
 ### Type Inference
 *
