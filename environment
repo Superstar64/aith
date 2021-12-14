@@ -1,0 +1,27 @@
+# bash only
+
+# macros i use for testing
+
+# load with `source ./environment`
+# limit to 1.5 GB to stop exploding processes
+ulimit -Sv 1500000
+
+aith() {
+  cabal run aith --disable-optimization -- $@
+}
+
+aith_repl() {
+  cabal repl $@
+}
+
+aith_build() {
+  cabal build aith --disable-optimization $@
+}
+
+aith_test() {
+  cabal test --disable-optimization
+}
+
+aith_format() {
+  scripts/format.sh
+}

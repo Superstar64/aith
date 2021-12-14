@@ -52,6 +52,7 @@ common aith-base
         directory ^>=1.3.6.0,
         filepath ^>=1.4.2.1,
         pretty-simple ^>= 3.2.3.0
+    
 
 
 executable aith

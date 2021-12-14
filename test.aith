@@ -40,17 +40,25 @@ module runtime = {
 	symbol cloneFP = \!(copyFunction)[x] {
 		(x, x)
 	};
+
+  module integers = {
+    inline two = 1 + 1;
+
+    symbol _ :: {{_unsigned}} _int -> {{_unsigned}} _int;
+    symbol doubleU = \x => x * two;
+
+    symbol _ :: {{_signed}} _int -> {{_signed}} _int;
+    symbol doubleI = \x => x * two;
+  };
+  
+  symbol _ :: <R : _region> _reference R ({{_unsigned}} _int, {{_unsigned}} _int) -> _state R {{_unsigned}} _int; 
+  symbol squareSum = \p {
+    _do (!(_copyNumber)[x],!(_copyNumber)[y]) = _read (_copyPair _copyNumber _copyNumber) p;
+    _pure (x * x + y * y) 
+  };
+  
 };
 
-module integers = {
-  inline two = 1 + 1;
-
-  symbol _ :: {{_unsigned}} _int -> {{_unsigned}} _int;
-  symbol doubleU = \x => x * two;
-
-  symbol _ :: {{_signed}} _int -> {{_signed}} _int;
-  symbol doubleI = \x => x * two;
-};
 
 module systemf = {
   inline idSysF = /\A ### (A -`> A) => `\x => x;

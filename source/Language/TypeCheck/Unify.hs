@@ -63,7 +63,8 @@ reconstructType indexVariable indexLogical augment = reconstruct
         _ -> error "internal error: reconstruction of region transformer didn't return runtime kind"
     reconstruct (CoreType _ (Number _ ρ)) = do
       pure $ CoreKind Internal $ Type $ CoreKind Internal $ Runtime (CoreKind Internal Data) (CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime $ WordRep ρ)
-    reconstruct (CoreType _ (RegionReference _ σ)) = reconstruct σ
+    reconstruct (CoreType _ (RegionReference _ _)) =
+      pure $ CoreKind Internal $ Type $ CoreKind Internal $ Runtime (CoreKind Internal Data) (CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime $ PointerRep)
 
 reconstructKind indexVariable indexLogical = reconstruct
   where

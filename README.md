@@ -1,7 +1,7 @@
 
 Aith is a low level functional programming language with linear types, kind based staging / macros, levity polymorphism, and monadic regions.
 As of now aith is very early stages and very little is implemented.
-See ``/documentation`` for typing rules.
+See ``/rules`` for typing rules.
 
 # Road Map
 
@@ -66,9 +66,10 @@ See ``/documentation`` for typing rules.
 | Runtime Pair Construction | ``e, e'`` |
 | Pure Region Transformer | ``_pure e`` |
 | Bind Region Transformer | `` _do pm = e; e' `` |
-| Read Reference | `` _read e`` |
-| Read Reference Ascribe | `` _read e : σ`` |
+| Read Reference | `` _read e' e`` |
+| Read Reference Ascribe | `` _read e' e : σ`` |
 | Copy Function Proof | ``_copyFunction`` |
+| Copy Number Proof | ``_copyNumber`` |
 | Copy Pair Proof | ``_copyPair e e'`` |
 | Copy Reference Proof | ``_copyReference``|
 | Number Literal | ``n`` |

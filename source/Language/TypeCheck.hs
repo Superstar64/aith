@@ -306,8 +306,8 @@ typeCheckValidateType = typeCheckValidate
       pure (CoreType Internal $ RegionTransformer π' σ', CoreKind Internal $ Type $ CoreKind Internal $ Runtime (CoreKind Internal Code) κ)
     typeCheckValidate (CoreType p (RegionReference π σ)) = do
       (π', _) <- secondM (checkRegion p) =<< typeCheckValidate π
-      (σ', κ) <- secondM (checkTypeRT p) =<< typeCheckValidate σ
-      pure (CoreType Internal $ RegionReference π' σ', makeTypeRT κ)
+      (σ', _) <- secondM (checkTypeRT p) =<< typeCheckValidate σ
+      pure (CoreType Internal $ RegionReference π' σ', makeTypeRT (CoreKind Internal $ KindRuntime PointerRep))
     typeCheckValidate (CoreType p (Number ρ1 ρ2)) = do
       ρ1' <- case ρ1 of
         Just ρ1 -> fst <$> (secondM (checkSignedness p) =<< typeCheckValidateKind ρ1)
@@ -467,11 +467,11 @@ typeCheckAnnotateLinearTerm = typeCheckAnnotateLinear
       pure ((CoreTerm p $ PureRegionTransformer e', CoreType Internal $ RegionTransformer π σ), lΓ)
     typeCheckAnnotateLinear (CoreTerm p (DoRegionTransformer e1 (Bound pm e2))) = do
       ((e1', (π, σ)), lΓ1) <- firstM (secondM (checkRegionTransformer p)) =<< typeCheckAnnotateLinear e1
-      (pm', σ') <- typeCheckAnnotateMetaPattern pm
+      ((pm', σ'), lΓ2) <- typeCheckAnnotateLinearPatternRuntime pm
       matchType p σ σ'
-      ((e2', (π', τ)), lΓ2) <- firstM (secondM (checkRegionTransformer p)) =<< augmentTermPattern Linear pm' (typeCheckAnnotateLinear e2)
+      ((e2', (π', τ)), lΓ3) <- firstM (secondM (checkRegionTransformer p)) =<< augmentTermPattern Linear pm' (typeCheckAnnotateLinear e2)
       matchType p π π'
-      pure ((CoreTerm p $ DoRegionTransformer e1' (Bound pm' e2'), CoreType Internal $ RegionTransformer π τ), lΓ1 `combine` lΓ2)
+      pure ((CoreTerm p $ DoRegionTransformer e1' (Bound pm' e2'), CoreType Internal $ RegionTransformer π τ), lΓ1 `combine` lΓ2 `combine` lΓ3)
     typeCheckAnnotateLinear (CoreTerm p ProofCopyNumber) = do
       ρ1 <- freshKindVariable p Signedness
       ρ2 <- freshKindVariable p Size
