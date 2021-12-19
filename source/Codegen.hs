@@ -6,7 +6,6 @@ import Control.Monad.Trans (lift)
 import Control.Monad.Writer (WriterT (..), runWriterT, tell)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Decorate
 import Language.Ast.Common hiding (fresh)
 import Language.Ast.Kind (KindRuntime (..), KindSignedness (..), KindSize (..))
 import Language.Ast.Term
@@ -14,6 +13,7 @@ import Misc.MonoidMap (Map, (!))
 import qualified Misc.MonoidMap as Map
 import Misc.Symbol
 import Misc.Util
+import Simple
 
 newtype Codegen a = Codegen (State (Set String, Map TermIdentifier String) a) deriving (Functor, Applicative, Monad)
 
@@ -29,55 +29,57 @@ temporary = do
   Codegen $ put (vars <> Set.singleton name, mapping)
   pure name
 
-ctype :: TypeDecorated -> C.Representation C.RepresentationFix
-ctype (TypeDecorated PointerRep) = C.Pointer
-ctype (TypeDecorated (StructRep σs)) = C.Struct $ C.RepresentationFix $ fmap ctype σs
-ctype (TypeDecorated (WordRep Byte)) = C.Byte
-ctype (TypeDecorated (WordRep Short)) = C.Short
-ctype (TypeDecorated (WordRep Int)) = C.Int
-ctype (TypeDecorated (WordRep Long)) = C.Long
+ctype :: SimpleType -> C.Representation C.RepresentationFix
+ctype (SimpleType PointerRep) = C.Pointer
+ctype (SimpleType (StructRep σs)) = C.Struct $ C.RepresentationFix $ fmap ctype σs
+ctype (SimpleType (WordRep Byte)) = C.Byte
+ctype (SimpleType (WordRep Short)) = C.Short
+ctype (SimpleType (WordRep Int)) = C.Int
+ctype (SimpleType (WordRep Long)) = C.Long
 
-compilePattern :: PatternDecorated TypeDecorated -> C.Expression TypeDecorated -> Codegen ([C.Statement TypeDecorated])
-compilePattern (PatternDecorated σ (PatternVariable x@(TermIdentifier base) _)) target = do
+compilePattern :: SimplePattern p -> C.Expression SimpleType -> Codegen ([C.Statement SimpleType])
+compilePattern pm@(SimplePattern _ (PatternVariable x@(TermIdentifier base) _)) target = do
+  let σ = simplePatternType pm
   (vars, mapping) <- Codegen get
   let name = fresh vars base
   Codegen $ put (Set.insert name vars, Map.insert x name mapping)
   pure [C.VariableDeclaration σ name target]
-compilePattern (PatternDecorated σ (RuntimePatternPair pm1 pm2)) target = do
+compilePattern pm@(SimplePattern _ (RuntimePatternPair pm1 pm2)) target = do
+  let σ = simplePatternType pm
   new <- temporary
   let initial = C.VariableDeclaration σ new target
   pm1' <- compilePattern pm1 (C.Member (C.Variable new) "_0")
   pm2' <- compilePattern pm2 (C.Member (C.Variable new) "_1")
   pure $ initial : pm1' ++ pm2'
 
-compileTerm :: TermDecerated TypeDecorated -> WriterT [C.Statement TypeDecorated] Codegen (C.Expression TypeDecorated)
-compileTerm (TermDecerated _ (Variable x ())) = do
+compileTerm :: SimpleTerm p -> SimpleType -> WriterT [C.Statement SimpleType] Codegen (C.Expression SimpleType)
+compileTerm (SimpleTerm _ (Variable x ())) _ = do
   x' <- lift $ lookupVariable x
   pure $ C.Variable x'
-compileTerm (TermDecerated _ (Extern (Symbol name) σ τ)) = do
+compileTerm (SimpleTerm _ (Extern (Symbol name) σ τ)) _ = do
   tell [C.ForwardDeclare τ name [σ]]
   pure $ C.Variable name
-compileTerm (TermDecerated _ (FunctionApplication e1 e2@(TermDecerated τ _) σ)) = do
-  e1' <- compileTerm e1
-  e2' <- compileTerm e2
+compileTerm (SimpleTerm _ (FunctionApplication e1 e2 τ)) σ = do
+  e1' <- compileTerm e1 (SimpleType PointerRep)
+  e2' <- compileTerm e2 τ
   pure $ C.Call σ [τ] e1' [e2']
-compileTerm (TermDecerated _ (Alias e1 (Bound pm e2))) = do
-  e1' <- compileTerm e1
+compileTerm (SimpleTerm _ (Alias e1 (Bound pm e2))) σ = do
+  let τ = simplePatternType pm
+  e1' <- compileTerm e1 τ
   bindings <- lift $ compilePattern pm e1'
   tell $ bindings
-  compileTerm e2
-compileTerm (TermDecerated σ (RuntimePairIntroduction e1 e2)) = do
-  e1' <- compileTerm e1
-  e2' <- compileTerm e2
+  compileTerm e2 σ
+compileTerm (SimpleTerm _ (RuntimePairIntroduction e1 e2)) σ@(SimpleType (StructRep [τ, τ'])) = do
+  e1' <- compileTerm e1 τ
+  e2' <- compileTerm e2 τ'
   pure $ C.CompoundLiteral σ [e1', e2']
-compileTerm (TermDecerated _ (ReadReference () e σ)) = do
-  e' <- compileTerm e
+compileTerm (SimpleTerm _ (ReadReference () e)) σ = do
+  e' <- compileTerm e (SimpleType PointerRep)
   pure $ C.Dereference σ e'
-compileTerm (TermDecerated _ (FunctionLiteral _)) = error "function literal inside runtime"
-compileTerm (TermDecerated _ (NumberLiteral n _)) = pure $ C.IntegerLiteral n
-compileTerm (TermDecerated _ (Arithmatic o e1@(TermDecerated σ _) e2 s)) = do
-  e1' <- compileTerm e1
-  e2' <- compileTerm e2
+compileTerm (SimpleTerm _ (NumberLiteral n)) _ = pure $ C.IntegerLiteral n
+compileTerm (SimpleTerm _ (Arithmatic o e1 e2 s)) σ = do
+  e1' <- compileTerm e1 σ
+  e2' <- compileTerm e2 σ
   pure $ op (sign, σ) e1' (sign, σ) e2'
   where
     op = case o of
@@ -88,13 +90,13 @@ compileTerm (TermDecerated _ (Arithmatic o e1@(TermDecerated σ _) e2 s)) = do
     sign = case s of
       Signed -> C.Signed
       Unsigned -> C.Unsigned
+compileTerm _ _ = error "invalid type for simple term"
 
-compileFunctionLiteralImpl :: Symbol -> TermDecerated TypeDecorated -> Codegen (C.Global TypeDecorated)
-compileFunctionLiteralImpl (Symbol name) (TermDecerated _ (FunctionLiteral (Bound pm@(PatternDecorated σ _) e@(TermDecerated τ _)))) = do
+compileFunction :: Symbol -> SimpleFunction p -> SimpleFunctionType -> Codegen (C.Global SimpleType)
+compileFunction (Symbol name) (SimpleFunction _ (Bound pm e)) (SimpleFunctionType σ τ) = do
   argumentName <- temporary
   bindings <- compilePattern pm (C.Variable argumentName)
   let arguments = [(σ, argumentName)]
-  (result, depend) <- runWriterT (compileTerm e)
+  (result, depend) <- runWriterT (compileTerm e τ)
   let body = bindings ++ depend ++ [C.Return result]
   pure $ C.FunctionDefinition τ name arguments body
-compileFunctionLiteralImpl _ _ = error "top level non function literal"

@@ -70,7 +70,7 @@ module systemf = {
 
   inline _ :: <'X:_stage, 'Y:_signedness, 'W:_size> \/A:*[X] => ({{Y}} W -`> A) -`> A;  
   inline scott = /\A ### ({{Y}} W -`> A) -`> A => `\f : {{Y}} W -`> A {
-	  f `1 : {{Y}} W
+	  f `1
   };
   
   inline _ :: <'Y:_signedness, 'W:_size> {{Y}} W;

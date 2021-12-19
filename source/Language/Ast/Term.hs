@@ -45,18 +45,18 @@ data TermRuntime θ s σ λ ev e
   | Extern Symbol σ σ
   | FunctionApplication e e σ
   | RuntimePairIntroduction e e
-  | FunctionLiteral λ
-  | ReadReference ev e σ
-  | NumberLiteral Integer σ
+  | ReadReference ev e
+  | NumberLiteral Integer
   | Arithmatic Arithmatic e e s
   deriving (Show)
 
 data TermF λtl λta θ κ σ λ e
   = TermRuntime (TermRuntime θ κ σ λ e e)
+  | FunctionLiteral λ
   | MacroAbstraction λ
-  | MacroApplication e e
+  | MacroApplication e e σ
   | ImplicationAbstraction λ
-  | ImplicationApplication e e
+  | ImplicationApplication e e σ
   | OfCourseIntroduction e
   | Bind e λ
   | PureRegionTransformer e
@@ -129,16 +129,16 @@ macroAbstraction = Prism (MacroAbstraction) $ \case
   (MacroAbstraction λ) -> Just λ
   _ -> Nothing
 
-macroApplication = Prism (uncurry $ MacroApplication) $ \case
-  (MacroApplication e e') -> Just (e, e')
+macroApplication = Prism (uncurry $ uncurry $ MacroApplication) $ \case
+  (MacroApplication e e' σ) -> Just ((e, e'), σ)
   _ -> Nothing
 
 implicationAbstraction = Prism (ImplicationAbstraction) $ \case
   (ImplicationAbstraction λ) -> Just λ
   _ -> Nothing
 
-implicationApplication = Prism (uncurry $ ImplicationApplication) $ \case
-  (ImplicationApplication e e') -> Just (e, e')
+implicationApplication = Prism (uncurry $ uncurry $ ImplicationApplication) $ \case
+  (ImplicationApplication e e' σ) -> Just ((e, e'), σ)
   _ -> Nothing
 
 ofCourseIntroduction = Prism (OfCourseIntroduction) $ \case
@@ -164,7 +164,7 @@ functionApplication = (termRuntime .) $
     (FunctionApplication e e' σ) -> Just ((e, e'), σ)
     _ -> Nothing
 
-functionLiteral = (termRuntime .) $
+functionLiteral =
   Prism (FunctionLiteral) $ \case
     (FunctionLiteral λ) -> Just λ
     _ -> Nothing
@@ -183,13 +183,13 @@ doRegionTransformer = Prism (uncurry DoRegionTransformer) $ \case
   _ -> Nothing
 
 readReference = (termRuntime .) $
-  Prism (uncurry $ uncurry $ ReadReference) $ \case
-    (ReadReference ev e σ) -> Just ((ev, e), σ)
+  Prism (uncurry $ ReadReference) $ \case
+    (ReadReference ev e) -> Just (ev, e)
     _ -> Nothing
 
 numberLiteral = (termRuntime .) $
-  Prism (uncurry $ NumberLiteral) $ \case
-    (NumberLiteral n σ) -> Just (n, σ)
+  Prism (NumberLiteral) $ \case
+    (NumberLiteral n) -> Just n
     _ -> Nothing
 
 proofCopyNumber = Prism (const ProofCopyNumber) $ \case
@@ -279,9 +279,8 @@ traverseTermRuntime d h f g j i e =
     Extern sm σ σ' -> pure Extern <*> pure sm <*> f σ <*> f σ'
     FunctionApplication e1 e2 σ -> pure FunctionApplication <*> i e1 <*> i e2 <*> f σ
     RuntimePairIntroduction e1 e2 -> pure RuntimePairIntroduction <*> i e1 <*> i e2
-    FunctionLiteral λ -> pure FunctionLiteral <*> g λ
-    ReadReference ev e σ -> pure ReadReference <*> j ev <*> i e <*> f σ
-    NumberLiteral n σ -> pure NumberLiteral <*> pure n <*> f σ
+    ReadReference ev e -> pure ReadReference <*> j ev <*> i e
+    NumberLiteral n -> pure NumberLiteral <*> pure n
     Arithmatic o e e' κ -> pure Arithmatic <*> pure o <*> i e <*> i e' <*> h κ
 
 traverseTermF ::
@@ -298,10 +297,11 @@ traverseTermF ::
 traverseTermF k l d j f h i e =
   case e of
     TermRuntime e -> pure TermRuntime <*> traverseTermRuntime d j f h i i e
+    FunctionLiteral λ -> pure FunctionLiteral <*> h λ
     MacroAbstraction λ -> pure MacroAbstraction <*> h λ
-    MacroApplication e1 e2 -> pure MacroApplication <*> i e1 <*> i e2
+    MacroApplication e1 e2 σ -> pure MacroApplication <*> i e1 <*> i e2 <*> f σ
     ImplicationAbstraction λ -> pure ImplicationAbstraction <*> h λ
-    ImplicationApplication e1 e2 -> pure ImplicationApplication <*> i e1 <*> i e2
+    ImplicationApplication e1 e2 σ -> pure ImplicationApplication <*> i e1 <*> i e2 <*> f σ
     OfCourseIntroduction e -> pure OfCourseIntroduction <*> i e
     Bind e λ -> pure Bind <*> i e <*> h λ
     PureRegionTransformer e -> pure PureRegionTransformer <*> i e
@@ -567,8 +567,9 @@ instance Correct InstantiationInfer (Term InstantiationInfer KindInfer TypeInfer
 
 instance Reduce (Term InstantiationInfer KindInfer TypeInfer p) where
   reduce (CoreTerm _ (Bind e λ)) = apply (reduce λ) (reduce e)
-  reduce (CoreTerm _ (MacroApplication e1 e2)) | (CoreTerm _ (MacroAbstraction λ)) <- reduce e1 = apply λ (reduce e2)
+  reduce (CoreTerm _ (MacroApplication e1 e2 _)) | (CoreTerm _ (MacroAbstraction λ)) <- reduce e1 = apply λ (reduce e2)
   reduce (CoreTerm _ (TypeApplication (e1, (σ, _)))) | (CoreTerm _ (TypeAbstraction (Bound pm (_, e)))) <- reduce e1 = apply (Bound pm e) σ
+  reduce (CoreTerm _ (ImplicationApplication e1 e2 _)) | (CoreTerm _ (ImplicationAbstraction λ)) <- reduce e1 = apply λ (reduce e2)
   reduce (CoreTerm p e) = CoreTerm p (mapTermF go go go go go go go e)
     where
       go = reduce

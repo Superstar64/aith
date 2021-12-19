@@ -67,13 +67,11 @@ See ``/rules`` for typing rules.
 | Pure Region Transformer | ``_pure e`` |
 | Bind Region Transformer | `` _do pm = e; e' `` |
 | Read Reference | `` _read e' e`` |
-| Read Reference Ascribe | `` _read e' e : σ`` |
 | Copy Function Proof | ``_copyFunction`` |
 | Copy Number Proof | ``_copyNumber`` |
 | Copy Pair Proof | ``_copyPair e e'`` |
 | Copy Reference Proof | ``_copyReference``|
 | Number Literal | ``n`` |
-| Number Literal Ascribe | ``n : σ`` |
 | Addition | ``e + e'`` |
 | Addition with Sign | ``e +'ρ e'`` |
 | Subtraction | ``e - e'`` |

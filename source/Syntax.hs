@@ -212,8 +212,6 @@ typeAuto = just ⊣ typex ∥ nothing ⊣ token "_"
 
 typeCoreAuto = just ⊣ typeCore ∥ nothing ⊣ token "_"
 
-typeAnnotation = just ⊣ binaryToken ":" ≫ typeCore ∥ nothing ⊣ always
-
 typeScheme = mono ∥ foldrP applyScheme ⊣ scheme
   where
     mono = Language.coreTypeScheme ⊣ position ⊗ (Language.monoType ⊣ typex)
@@ -242,6 +240,10 @@ termPattern = patternTop
 term :: (Position δ p, Syntax δ) => δ (Language.Term () (Language.KindAuto p) (Language.TypeAuto p) p)
 term = termBinding
   where
+    optionalAnnotate e = e ⊗ pass ∥# betweenParens (term ⊗ annotate) ∥ e ⊗ pass
+      where
+        annotate = just ⊣ binaryToken ":" ≫ typex ∥ pass
+        pass = nothing ⊣ always
     semiBinaryToken t = space ≫ token t
     termBinding = Language.coreTerm ⊣ position ⊗ choice options ∥ termRTApply
       where
@@ -251,7 +253,7 @@ term = termBinding
             Language.doRegionTransformer ⊣ rotateBind ⊣ prefixKeyword "do" ≫ termPattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ term
           ]
         rotateBind = secondI Language.bound . associate . firstI swap
-    termRTApply = applyBinary ⊣ termAdd ⊗ (binaryToken "$" ≫ termRTApply ⊗ typeAnnotation ⊕ always)
+    termRTApply = applyBinary ⊣ termAdd ⊗ (binaryToken "$" ≫ optionalAnnotate termRTApply ⊕ always)
       where
         applyBinary = apply `branchDistribute` unit'
         apply = withInnerPosition3 Language.coreTerm Language.functionApplication . toPrism associate'
@@ -272,15 +274,15 @@ term = termBinding
     termApply = Language.coreTerm ⊣ position ⊗ choice options ∥ foldlP applyBinary ⊣ termCore ⊗ many (applySyntax ⊕ implicationApplySyntax ⊕ typeApplySyntax)
       where
         applyBinary = application `branchDistribute` implicationApplication `branchDistribute` typeApplication
-        application = withInnerPosition Language.coreTerm Language.macroApplication
-        implicationApplication = withInnerPosition Language.coreTerm Language.implicationApplication
+        application = withInnerPosition3 Language.coreTerm Language.macroApplication . toPrism associate'
+        implicationApplication = withInnerPosition3 Language.coreTerm Language.implicationApplication . toPrism associate'
         typeApplication = withInnerPosition Language.coreTerm Language.typeApplication
-        applySyntax = space ≫ token "`" ≫ termCore
-        implicationApplySyntax = space ≫ token "^" ≫ termCore
+        applySyntax = space ≫ token "`" ≫ optionalAnnotate termCore
+        implicationApplySyntax = space ≫ token "^" ≫ optionalAnnotate termCore
         typeApplySyntax = swap ⊣ space ≫ betweenDoubleSquares (Language.bound ⊣ token "\\/" ≫ typePattern ⊗ lambdaInline typeAuto) ⊗ betweenAngle typeAuto
         options =
           [ Language.proofCopyPair ⊣ prefixKeyword "copyPair" ≫ termCore ⊗ space ≫ termCore,
-            Language.readReference ⊣ prefixKeyword "read" ≫ termCore ≪ space ⊗ termCore ⊗ typeAnnotation,
+            Language.readReference ⊣ prefixKeyword "read" ≫ termCore ≪ space ⊗ termCore,
             Language.pureRegionTransformer ⊣ prefixKeyword "pure" ≫ termCore
           ]
 
@@ -296,7 +298,7 @@ termCore = Language.coreTerm ⊣ position ⊗ choice options ∥ betweenParens t
         Language.proofCopyFunction ⊣ keyword "copyFunction",
         Language.proofCopyReference ⊣ keyword "copyReference",
         Language.ofCourseIntroduction ⊣ betweenBangSquares term,
-        Language.numberLiteral ⊣ number ⊗ typeAnnotation,
+        Language.numberLiteral ⊣ number,
         Language.typeLambda ⊣ Language.bound ⊣ token "/\\" ≫ typePattern ⊗ (binaryToken "###" ≫ typeAuto ⊗ lambdaMajor term)
       ]
 

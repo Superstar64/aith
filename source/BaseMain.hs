@@ -7,7 +7,6 @@ import Control.Monad.Reader
 import Data.Bifunctor
 import Data.Traversable (for)
 import Data.Void
-import Decorate
 import Language.Ast.Common
 import Language.Ast.Kind hiding (Text, typex)
 import Language.Ast.Term
@@ -16,6 +15,7 @@ import Language.TypeCheck.Core
 import qualified Misc.MonoidMap as Map
 import Misc.Path hiding (path)
 import Module hiding (modulex)
+import Simple
 import Syntax
 import System.Directory
 import System.Exit
@@ -30,10 +30,9 @@ compileFunctionLiteral ::
   TypeSchemeInfer ->
   Term θ KindInfer TypeInfer p ->
   C.Global (C.Representation C.RepresentationFix)
-compileFunctionLiteral path name σ e = fmap ctype $ runCodegen (compileFunctionLiteralImpl sym e'') (external e'')
+compileFunctionLiteral path name σ e = fmap ctype $ runCodegen (compileFunction sym e' σ') (external e')
   where
-    e'' = snd <$> runReader (decorateTypeCheck e') Map.empty
-    e' = runReader (decorateTermAnnotate e σ) Map.empty
+    (e', σ') = runReader (convertTermAnnotate e σ) Map.empty
     sym = mangle (Path path name)
 
 compileModule path (CoreModule code) = Map.toList code >>= (uncurry $ compileItem path)

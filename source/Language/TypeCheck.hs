@@ -385,21 +385,31 @@ typeCheckAnnotateLinearTerm = typeCheckAnnotateLinear
       (pm', σ) <- typeCheckAnnotateMetaPattern pm
       ((e', τ), lΓ) <- augmentTermPattern Linear pm' (typeCheckAnnotateLinear e)
       pure ((CoreTerm p (MacroAbstraction (Bound pm' e')), CoreType Internal $ Macro σ τ), lΓ)
-    typeCheckAnnotateLinear (CoreTerm p (MacroApplication e1 e2)) = do
+    typeCheckAnnotateLinear (CoreTerm p (MacroApplication e1 e2 σ'')) = do
       ((e1', (σ, τ)), lΓ1) <- firstM (secondM (checkMacro p)) =<< typeCheckAnnotateLinear e1
       ((e2', σ'), lΓ2) <- typeCheckAnnotateLinear e2
       matchType p σ σ'
-      pure ((CoreTerm p (MacroApplication e1' e2'), τ), lΓ1 `combine` lΓ2)
+      case σ'' of
+        Nothing -> pure ()
+        Just σ'' -> do
+          σ'' <- fst <$> typeCheckValidateType σ''
+          matchType p σ σ''
+      pure ((CoreTerm p (MacroApplication e1' e2' σ), τ), lΓ1 `combine` lΓ2)
     typeCheckAnnotateLinear (CoreTerm p (ImplicationAbstraction (Bound pm e))) = do
       (pm', σ) <- typeCheckAnnotateMetaPattern pm
       σ <- enforceEvidence p σ
       ((e', τ), lΓ) <- augmentTermPattern Unrestricted pm' (typeCheckAnnotateLinear e)
       pure ((CoreTerm p (ImplicationAbstraction (Bound pm' e')), CoreType Internal $ Implied σ τ), lΓ)
-    typeCheckAnnotateLinear (CoreTerm p (ImplicationApplication e1 e2)) = do
+    typeCheckAnnotateLinear (CoreTerm p (ImplicationApplication e1 e2 σ'')) = do
       ((e1', (σ, τ)), lΓ1) <- firstM (secondM (checkImplied p)) =<< typeCheckAnnotateLinear e1
       ((e2', σ'), lΓ2) <- typeCheckAnnotateLinear e2
       matchType p σ σ'
-      pure ((CoreTerm p (ImplicationApplication e1' e2'), τ), lΓ1 `combine` lΓ2)
+      case σ'' of
+        Nothing -> pure ()
+        Just σ'' -> do
+          σ'' <- fst <$> typeCheckValidateType σ''
+          matchType p σ σ''
+      pure ((CoreTerm p (ImplicationApplication e1' e2' σ), τ), lΓ1 `combine` lΓ2)
     typeCheckAnnotateLinear (CoreTerm p (TermRuntime (Alias e1 (Bound pm e2)))) = do
       ((e1', τ), lΓ1) <- typeCheckAnnotateLinear e1
       ((pm', τ'), lΓ3) <- typeCheckAnnotateLinearPatternRuntime pm
@@ -419,31 +429,26 @@ typeCheckAnnotateLinearTerm = typeCheckAnnotateLinear
           σ <- (fst <$> typeCheckValidateType σ) >>= enforceRuntime p
           pure σ
       pure ((CoreTerm p (TermRuntime (Extern sym τ' σ')), CoreType Internal $ FunctionPointer τ' σ'), useNothing)
-    typeCheckAnnotateLinear (CoreTerm p (TermRuntime (FunctionApplication e1 e2 τ'))) = do
+    typeCheckAnnotateLinear (CoreTerm p (TermRuntime (FunctionApplication e1 e2 σ''))) = do
       ((e1', (σ, τ)), lΓ1) <- firstM (secondM (checkFunctionPointer p)) =<< typeCheckAnnotateLinear e1
       ((e2', σ'), lΓ2) <- typeCheckAnnotateLinear e2
-      matchType p σ σ'
-      case τ' of
-        Nothing -> pure ()
-        Just τ' -> do
-          τ'' <- fst <$> typeCheckValidateType τ'
-          matchType p τ τ''
-      pure ((CoreTerm p $ TermRuntime $ FunctionApplication e1' e2' τ, τ), lΓ1 `combine` lΓ2)
-    typeCheckAnnotateLinear (CoreTerm p (TermRuntime (FunctionLiteral (Bound pm e)))) = do
-      ((pm', σ), lΓ1) <- typeCheckAnnotateLinearPatternRuntime pm
-      ((e', τ), lΓ2) <- augmentTermPattern Linear pm' (typeCheckAnnotateLinear e)
-      τ <- enforceRuntime p τ
-      pure ((CoreTerm p $ TermRuntime $ FunctionLiteral $ Bound pm' e', CoreType Internal $ FunctionLiteralType σ τ), lΓ1 `combine` lΓ2)
-    typeCheckAnnotateLinear (CoreTerm p (TermRuntime (ReadReference ev e σ''))) = do
-      ((e', (π, σ)), lΓ1) <- firstM (secondM (checkRegionReference p)) =<< typeCheckAnnotateLinear e
-      ((ev', σ'), lΓ2) <- firstM (secondM (checkCopy p)) =<< typeCheckAnnotateLinear ev
       matchType p σ σ'
       case σ'' of
         Nothing -> pure ()
         Just σ'' -> do
-          σ''' <- fst <$> typeCheckValidateType σ''
-          matchType p σ σ'''
-      pure ((CoreTerm p (TermRuntime (ReadReference ev' e' σ)), CoreType Internal (RegionTransformer π σ)), lΓ1 `combine` lΓ2)
+          σ'' <- fst <$> typeCheckValidateType σ''
+          matchType p σ σ''
+      pure ((CoreTerm p $ TermRuntime $ FunctionApplication e1' e2' τ, τ), lΓ1 `combine` lΓ2)
+    typeCheckAnnotateLinear (CoreTerm p (FunctionLiteral (Bound pm e))) = do
+      ((pm', σ), lΓ1) <- typeCheckAnnotateLinearPatternRuntime pm
+      ((e', τ), lΓ2) <- augmentTermPattern Linear pm' (typeCheckAnnotateLinear e)
+      τ <- enforceRuntime p τ
+      pure ((CoreTerm p $ FunctionLiteral $ Bound pm' e', CoreType Internal $ FunctionLiteralType σ τ), lΓ1 `combine` lΓ2)
+    typeCheckAnnotateLinear (CoreTerm p (TermRuntime (ReadReference ev e))) = do
+      ((e', (π, σ)), lΓ1) <- firstM (secondM (checkRegionReference p)) =<< typeCheckAnnotateLinear e
+      ((ev', σ'), lΓ2) <- firstM (secondM (checkCopy p)) =<< typeCheckAnnotateLinear ev
+      matchType p σ σ'
+      pure ((CoreTerm p (TermRuntime (ReadReference ev' e')), CoreType Internal (RegionTransformer π σ)), lΓ1 `combine` lΓ2)
     typeCheckAnnotateLinear (CoreTerm p (OfCourseIntroduction e)) = do
       ((e', σ), lΓ) <- typeCheckAnnotateLinear e
       capture p lΓ
@@ -488,16 +493,11 @@ typeCheckAnnotateLinearTerm = typeCheckAnnotateLinear
       π <- freshRegionTypeVariable p
       σ <- freshRTTypeVariable p
       pure ((CoreTerm p ProofCopyReference, CoreType Internal $ Copy $ CoreType Internal $ RegionReference π σ), useNothing)
-    typeCheckAnnotateLinear (CoreTerm p (TermRuntime (NumberLiteral n σ'))) = do
+    typeCheckAnnotateLinear (CoreTerm p (TermRuntime (NumberLiteral n))) = do
       ρ1 <- freshKindVariable p Signedness
       ρ2 <- freshKindVariable p Size
       let σ = CoreType Internal $ Number ρ1 ρ2
-      case σ' of
-        Nothing -> pure ()
-        Just σ' -> do
-          σ'' <- fst <$> typeCheckValidateType σ'
-          matchType p σ σ''
-      pure ((CoreTerm p $ TermRuntime $ NumberLiteral n σ, σ), useNothing)
+      pure ((CoreTerm p $ TermRuntime $ NumberLiteral n, σ), useNothing)
     typeCheckAnnotateLinear (CoreTerm p (TermRuntime (Arithmatic o e1 e2 κ'))) = do
       κ <- freshKindVariable p Signedness
       case κ' of
