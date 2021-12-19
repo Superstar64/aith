@@ -438,7 +438,7 @@ typeCheckAnnotateLinearTerm = typeCheckAnnotateLinear
         Just σ'' -> do
           σ'' <- fst <$> typeCheckValidateType σ''
           matchType p σ σ''
-      pure ((CoreTerm p $ TermRuntime $ FunctionApplication e1' e2' τ, τ), lΓ1 `combine` lΓ2)
+      pure ((CoreTerm p $ TermRuntime $ FunctionApplication e1' e2' σ, τ), lΓ1 `combine` lΓ2)
     typeCheckAnnotateLinear (CoreTerm p (FunctionLiteral (Bound pm e))) = do
       ((pm', σ), lΓ1) <- typeCheckAnnotateLinearPatternRuntime pm
       ((e', τ), lΓ2) <- augmentTermPattern Linear pm' (typeCheckAnnotateLinear e)
