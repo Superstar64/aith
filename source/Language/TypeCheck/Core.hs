@@ -3,14 +3,14 @@
 module Language.TypeCheck.Core where
 
 import Control.Monad.Reader (ReaderT, ask, runReaderT, withReaderT)
-import Control.Monad.State (StateT, get, put, runStateT)
+import Control.Monad.State.Strict (StateT, get, put, runStateT)
 import Control.Monad.Trans (lift)
 import Language.Ast.Common
 import Language.Ast.Kind
 import Language.Ast.Multiplicity
 import Language.Ast.Sort
 import Language.Ast.Type
-import Language.TypeCheck.Variable
+import Language.TypeCheck.Substitute
 import Misc.MonoidMap (Map, (!))
 import qualified Misc.MonoidMap as Map
 
@@ -77,13 +77,12 @@ augmentSortEnvironment x p μ sk = modifySortEnvironment (Map.insert x (p, μ, s
   where
     modifySortEnvironment f (Core r) = Core $ withReaderT (\env -> env {sortEnvironment = f (sortEnvironment env)}) r
 
-insertTypeEquation :: TypeEquation p -> Core p ()
-insertTypeEquation eq = modifyTypeEquations (eq :)
+insertEquation :: Equation p -> Core p ()
+insertEquation eq = modifyEquations (eq :)
 
-freshTypeVariableRaw :: p -> KindUnify -> Core p TypeLogicalRaw
-freshTypeVariableRaw p κ = do
+freshTypeVariableRaw :: p -> KindUnify -> Level -> Core p TypeLogicalRaw
+freshTypeVariableRaw p κ lev = do
   v <- TypeLogicalRaw <$> newFreshType
-  lev <- Level <$> levelCounter <$> getState
   insertTypeVariableMap v p κ lev
   pure $ v
   where
@@ -96,13 +95,9 @@ freshTypeVariableRaw p κ = do
       state <- getState
       putState state {typeVariableMap = Map.insert x (p, κ, lev) $ typeVariableMap state}
 
-insertKindEquation :: KindEquation p -> Core p ()
-insertKindEquation eq = modifyKindEquations (eq :)
-
-freshKindVariableRaw :: p -> Sort -> Core p KindLogicalRaw
-freshKindVariableRaw p μ = do
+freshKindVariableRaw :: p -> Sort -> Level -> Core p KindLogicalRaw
+freshKindVariableRaw p μ lev = do
   v <- KindLogicalRaw <$> newFreshKind
-  lev <- Level <$> levelCounter <$> getState
   insertKindVariableMap v p μ lev
   pure $ v
   where
@@ -131,13 +126,12 @@ data CoreState p = CoreState
     kindVariableMap :: Map KindLogicalRaw (p, Sort, Level),
     freshTypeCounter :: Int,
     freshKindCounter :: Int,
-    typeEquations :: [TypeEquation p],
-    kindEquations :: [KindEquation p],
+    equations :: [Equation p],
     levelCounter :: Int
   }
   deriving (Functor, Show)
 
-emptyState = CoreState Map.empty Map.empty 0 0 [] [] 0
+emptyState = CoreState Map.empty Map.empty 0 0 [] 0
 
 newtype Core p a = Core {runCore' :: ReaderT (CoreEnvironment p) (StateT (CoreState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
 
@@ -163,17 +157,11 @@ leaveLevel = modifyLevelCounter (subtract 1)
 
 currentLevel = levelCounter <$> getState
 
-getTypeEquations = typeEquations <$> getState
+getEquations = equations <$> getState
 
-modifyTypeEquations f = do
+modifyEquations f = do
   state <- getState
-  putState state {typeEquations = f $ typeEquations state}
-
-getKindEquations = kindEquations <$> getState
-
-modifyKindEquations f = do
-  state <- getState
-  putState state {kindEquations = f $ kindEquations state}
+  putState state {equations = f $ equations state}
 
 indexTypeVariableMap x = (! x) <$> typeVariableMap <$> getState
 

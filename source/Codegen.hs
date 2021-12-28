@@ -1,9 +1,9 @@
 module Codegen where
 
 import qualified C.Ast as C
-import Control.Monad.State (State, evalState, get, put)
+import Control.Monad.State.Strict (State, evalState, get, put)
 import Control.Monad.Trans (lift)
-import Control.Monad.Writer (WriterT (..), runWriterT, tell)
+import Control.Monad.Writer.Strict (WriterT (..), runWriterT, tell)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Language.Ast.Common hiding (fresh)
@@ -15,18 +15,25 @@ import Misc.Symbol
 import Misc.Util
 import Simple
 
-newtype Codegen a = Codegen (State (Set String, Map TermIdentifier String) a) deriving (Functor, Applicative, Monad)
+data CodegenState = CodegenState
+  { temporaryCounter :: Int,
+    variables :: Map TermIdentifier String,
+    cLocals :: Set String
+  }
 
-runCodegen (Codegen x) symbols = evalState x (symbols, mempty)
+newtype Codegen a = Codegen (State CodegenState a) deriving (Functor, Applicative, Monad)
+
+-- todo, search symbols if any symbol begins with _n, where n is an integero
+runCodegen (Codegen x) symbols = evalState x $ CodegenState 0 Map.empty symbols
 
 lookupVariable x = do
-  (_, mapping) <- Codegen get
-  pure $ mapping ! x
+  CodegenState _ variables _ <- Codegen get
+  pure $ variables ! x
 
 temporary = do
-  (vars, mapping) <- Codegen get
-  let name = fresh vars "_"
-  Codegen $ put (vars <> Set.singleton name, mapping)
+  state@(CodegenState i _ _) <- Codegen get
+  let name = "_" ++ show i
+  Codegen $ put state {temporaryCounter = i + 1}
   pure name
 
 ctype :: SimpleType -> C.Representation C.RepresentationFix
@@ -37,39 +44,44 @@ ctype (SimpleType (WordRep Short)) = C.Short
 ctype (SimpleType (WordRep Int)) = C.Int
 ctype (SimpleType (WordRep Long)) = C.Long
 
+-- only effectless expressions can be passed in
 compilePattern :: SimplePattern p -> C.Expression SimpleType -> Codegen ([C.Statement SimpleType])
 compilePattern pm@(SimplePattern _ (PatternVariable x@(TermIdentifier base) _)) target = do
   let σ = simplePatternType pm
-  (vars, mapping) <- Codegen get
-  let name = fresh vars base
-  Codegen $ put (Set.insert name vars, Map.insert x name mapping)
+  state@(CodegenState _ variables cLocals) <- Codegen get
+  let name = fresh cLocals base
+  Codegen $ put state {variables = Map.insert x name variables, cLocals = Set.insert name cLocals}
   pure [C.VariableDeclaration σ name target]
-compilePattern pm@(SimplePattern _ (RuntimePatternPair pm1 pm2)) target = do
-  let σ = simplePatternType pm
-  new <- temporary
-  let initial = C.VariableDeclaration σ new target
-  pm1' <- compilePattern pm1 (C.Member (C.Variable new) "_0")
-  pm2' <- compilePattern pm2 (C.Member (C.Variable new) "_1")
-  pure $ initial : pm1' ++ pm2'
+compilePattern (SimplePattern _ (PatternPair pm1 pm2)) target = do
+  pm1' <- compilePattern pm1 (C.Member target "_0")
+  pm2' <- compilePattern pm2 (C.Member target "_1")
+  pure $ pm1' ++ pm2'
 
+putIntoVariable :: SimpleType -> C.Expression SimpleType -> WriterT [C.Statement SimpleType] Codegen (C.Expression SimpleType)
+putIntoVariable σ e = do
+  result <- lift temporary
+  tell [C.VariableDeclaration σ result $ e]
+  pure $ C.Variable result
+
+-- always returns effectless expressions
 compileTerm :: SimpleTerm p -> SimpleType -> WriterT [C.Statement SimpleType] Codegen (C.Expression SimpleType)
 compileTerm (SimpleTerm _ (Variable x ())) _ = do
   x' <- lift $ lookupVariable x
   pure $ C.Variable x'
-compileTerm (SimpleTerm _ (Extern (Symbol name) σ τ)) _ = do
+compileTerm (SimpleTerm _ (Extern (Symbol name) σ () τ)) _ = do
   tell [C.ForwardDeclare τ name [σ]]
   pure $ C.Variable name
 compileTerm (SimpleTerm _ (FunctionApplication e1 e2 τ)) σ = do
   e1' <- compileTerm e1 (SimpleType PointerRep)
   e2' <- compileTerm e2 τ
-  pure $ C.Call σ [τ] e1' [e2']
+  putIntoVariable σ $ C.Call σ [τ] e1' [e2']
 compileTerm (SimpleTerm _ (Alias e1 (Bound pm e2))) σ = do
   let τ = simplePatternType pm
   e1' <- compileTerm e1 τ
   bindings <- lift $ compilePattern pm e1'
   tell $ bindings
   compileTerm e2 σ
-compileTerm (SimpleTerm _ (RuntimePairIntroduction e1 e2)) σ@(SimpleType (StructRep [τ, τ'])) = do
+compileTerm (SimpleTerm _ (PairIntroduction e1 e2)) σ@(SimpleType (StructRep [τ, τ'])) = do
   e1' <- compileTerm e1 τ
   e2' <- compileTerm e2 τ'
   pure $ C.CompoundLiteral σ [e1', e2']

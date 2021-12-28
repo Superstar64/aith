@@ -48,17 +48,17 @@ compileItem _ _ (Global (Inline _ _)) = []
 compileItem _ _ (Global (Import _ _)) = []
 
 nameType :: TypeUnify -> Type (KindAuto Internal) Void Internal
-nameType (CoreType p (TypeLogical _)) = CoreType p $ TypeVariable $ TypeIdentifier "_"
+nameType (CoreType p (TypeLogical (TypeLogicalRaw i))) = CoreType p $ TypeVariable $ TypeIdentifier $ "_" ++ show i
 nameType (CoreType p σ) = CoreType p $ mapTypeF (error "unexpected logic variable") (bimap (mapPattern id (Just . nameKind) id) nameType) (Just . nameKind) nameType σ
 
 nameKind :: KindUnify -> Kind Void Internal
-nameKind (CoreKind p (KindLogical _)) = CoreKind p $ KindVariable $ KindIdentifier "_"
+nameKind (CoreKind p (KindLogical (KindLogicalRaw i))) = CoreKind p $ KindVariable $ KindIdentifier $ "_" ++ show i
 nameKind (CoreKind p κ) = CoreKind p $ mapKindF (error "unexpected logic variable") nameKind κ
 
 prettyError :: TypeError [SourcePos] -> String
 prettyError (UnknownIdentifier p (TermIdentifier x)) = "Unknown identifer " ++ x ++ positions p
-prettyError (TypeMismatch p σ σ') = "Type mismatch between " ++ pretty typex (nameType σ) ++ " and " ++ pretty typex (nameType σ') ++ positions p
-prettyError (KindMismatch p κ κ') = "Kind mismatch between " ++ pretty kind (nameKind κ) ++ " and " ++ pretty kind (nameKind κ') ++ positions p
+prettyError (TypeMismatch p σ σ') = "Type mismatch between ``" ++ pretty typex (nameType σ) ++ "`` and ``" ++ pretty typex (nameType σ') ++ "``" ++ positions p
+prettyError (KindMismatch p κ κ') = "Kind mismatch between ``" ++ pretty kind (nameKind κ) ++ "`` and ``" ++ pretty kind (nameKind κ') ++ "``" ++ positions p
 prettyError e = show e
 
 newtype PrettyIO a = PrettyIO {runPrettyIO :: IO a} deriving (Functor, Applicative, Monad)

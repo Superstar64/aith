@@ -11,52 +11,34 @@ module combinators = {
 	inline readerMap = `\f => `\m => readerBind `m `(compose `readerPure `f);
 };
 
-import compose = /test/combinators/compose;
 
 module runtime = {
 	import call = /test/runtimeCall;
 	
-	symbol _ :: <A : *[_data @ _real _pointer]> A -> A;
-	symbol idPtr = \x => x;
+	inline copyFP = _copyFunction;
+	inline copyRef = _copyReference;
+	inline copyPair = `\x => `\y => _copyPair x y;
+	inline copyNum = _copyNumber;
 	
-	symbol useIdPtr = \x => call `idPtr `x;
-	
-	symbol _ :: <A : *[_data @ _real _pointer], B : *[_data @ _real _pointer]> _copy B -^> (A, B) -> A;
+	inline _ :: !({{_signed}} _int, {{_signed}} _int, {{_signed}} _int);
+  inline copyVector = copyPair `(copyPair `copyNum `copyNum) `copyNum;
+
+  symbol dotProduct = \(vector1P, vector2P) {
+    _inline ![c] = ![copyNum];
+    _let (!(c)[x1],!(c)[y1],!(c)[z1]) = _read !(copyVector) vector1P;
+    _let (!(c)[x2],!(c)[y2],!(c)[z2]) = _read !(copyVector) vector2P;
+    (x1 * x2 + y1 * y2 + z1 * z2)
+  };
+  
+	symbol _ :: <A : +[#_pointer#], B : +[#_pointer#], R : _region> !(B) -^> (A, B) -> R A;
 	symbol fst = ^\proof => \(x, !(proof)[y]) => x;
 	
-	symbol _ :: <A : *[_data @ _real _pointer], B : *[_data @ _real _pointer]> _copy A -^> (A, B) -> B;
+	symbol _ :: <A : +[#_pointer#], B : +[#_pointer#], R : _region> !(A) -^> (A, B) -> R B;
 	symbol snd = ^\proof => \(!(proof)[x], y) => y;
 	
-  
-	symbol readBoth = ^\proof => \(p1, p2) {
-		_do x1 = _read proof p1;
-		_do x2 = _read proof p2;
-		_pure (call `idPtr `x1, call `idPtr `x2)
-	};
-	
-	inline copyFunction = _copyFunction;
-	
-	symbol _ :: <A: *[_data @ _real _pointer]> (A -> A) -> (A -> A), (A -> A);
-	symbol cloneFP = \!(copyFunction)[x] {
-		(x, x)
-	};
-
-  module integers = {
-    inline two = 1 + 1;
-
-    symbol _ :: {{_unsigned}} _int -> {{_unsigned}} _int;
-    symbol doubleU = \x => x * two;
-
-    symbol _ :: {{_signed}} _int -> {{_signed}} _int;
-    symbol doubleI = \x => x * two;
+  symbol pattern = ^\proof1 => ^\proof2 => \!(copyPair `proof1 `proof2)[pair] {
+    (fst ^proof2 $ pair), (snd ^proof1 $ pair)
   };
-  
-  symbol _ :: <R : _region> _reference R ({{_unsigned}} _int, {{_unsigned}} _int) -> _state R {{_unsigned}} _int; 
-  symbol squareSum = \p {
-    _do (!(_copyNumber)[x],!(_copyNumber)[y]) = _read (_copyPair _copyNumber _copyNumber) p;
-    _pure (x * x + y * y) 
-  };
-  
 };
 
 
@@ -67,14 +49,6 @@ module systemf = {
   };
   
   inline id = runIdSysF `idSysF;
-
-  inline _ :: <'X:_stage, 'Y:_signedness, 'W:_size> \/A:*[X] => ({{Y}} W -`> A) -`> A;  
-  inline scott = /\A ### ({{Y}} W -`> A) -`> A => `\f : {{Y}} W -`> A {
-	  f `1
-  };
-  
-  inline _ :: <'Y:_signedness, 'W:_size> {{Y}} W;
-  inline one = scott[[\/A => ({{Y}} W -`> A) -`> A]]<_> `(`\x => x);
   
   inline constSysF = /\A ### \/B => ![A] -`> ![B] -`> A {
     /\B ### ![A] -`> ![B] -`> A {

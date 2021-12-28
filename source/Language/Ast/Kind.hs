@@ -34,9 +34,8 @@ data KindF v κ
   | Type κ
   | Evidence
   | Region
-  | Runtime κ κ
-  | Code
-  | Data
+  | Runtime
+  | Pretype κ
   | Imaginary
   | Real κ
   | Meta
@@ -91,16 +90,12 @@ region = Prism (const Region) $ \case
   Region -> Just ()
   _ -> Nothing
 
-runtime = Prism (uncurry Runtime) $ \case
-  (Runtime κ κ') -> Just (κ, κ')
+runtime = Prism (const Runtime) $ \case
+  Runtime -> Just ()
   _ -> Nothing
 
-code = Prism (const Code) $ \case
-  Code -> Just ()
-  _ -> Nothing
-
-datax = Prism (const Data) $ \case
-  Data -> Just ()
+pretype = Prism Pretype $ \case
+  Pretype κ -> Just κ
   _ -> Nothing
 
 imaginary = Prism (const Imaginary) $ \case
@@ -176,9 +171,8 @@ traverseKindF f g κ = case κ of
   Type κ -> pure Type <*> g κ
   Evidence -> pure Evidence
   Region -> pure Region
-  Runtime κ κ' -> pure Runtime <*> g κ <*> g κ'
-  Code -> pure Code
-  Data -> pure Data
+  Runtime -> pure Runtime
+  Pretype κ -> pure Pretype <*> g κ
   Imaginary -> pure Imaginary
   Real κ -> pure Real <*> g κ
   Meta -> pure Meta

@@ -1,7 +1,7 @@
 module C.Ast where
 
-import Control.Monad.State (evalStateT, get, modify)
-import Control.Monad.Writer (runWriter, tell)
+import Control.Monad.State.Strict (evalStateT, get, modify)
+import Control.Monad.Writer.Strict (runWriter, tell)
 import qualified Data.Set as Set
 import Misc.Prism
 

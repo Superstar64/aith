@@ -13,7 +13,7 @@ common aith-base
         Misc.Util
         Environment
         Language.TypeCheck
-        Language.TypeCheck.Variable
+        Language.TypeCheck.Substitute
         Language.TypeCheck.Core
         Language.TypeCheck.Unify
         Language.Ast.Common
@@ -41,17 +41,18 @@ common aith-base
         FlexibleInstances FlexibleContexts NoMonomorphismRestriction
         TypeApplications ScopedTypeVariables AllowAmbiguousTypes
         GeneralizedNewtypeDeriving LambdaCase TypeOperators
+        StrictData
 
     ghc-options:        -W -Worphans -Wcompat -Wincomplete-uni-patterns -interactive-print=Text.Pretty.Simple.pPrint
     build-depends:
-        base ^>=4.13.0.0,
-        containers ^>=0.6.2.1,
-        mtl ^>= 2.2.2,
-        megaparsec ^>=8.0.0,
-        parser-combinators ^>=1.2.1,
-        directory ^>=1.3.6.0,
-        filepath ^>=1.4.2.1,
-        pretty-simple ^>= 3.2.3.0
+        base,
+        containers,
+        mtl,
+        megaparsec,
+        parser-combinators,
+        directory,
+        filepath,
+        pretty-simple
     
 
 

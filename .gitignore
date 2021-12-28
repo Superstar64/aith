@@ -1,2 +1,6 @@
 dist-newstyle/
+cabal.project.local
 build
+test.c
+test.o
+

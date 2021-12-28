@@ -16,7 +16,7 @@ data SimpleType = SimpleType (KindRuntime KindSize SimpleType)
 
 data SimplePattern p = SimplePattern p (PatternCommon SimpleType (SimplePattern p))
 
-data SimpleTerm p = SimpleTerm p (TermRuntime () KindSignedness SimpleType (Bound (SimplePattern p) (SimpleTerm p)) () (SimpleTerm p))
+data SimpleTerm p = SimpleTerm p (TermRuntime () KindSignedness () SimpleType (Bound (SimplePattern p) (SimpleTerm p)) () (SimpleTerm p))
 
 data SimpleFunction p = SimpleFunction p (Bound (SimplePattern p) (SimpleTerm p))
 
@@ -24,10 +24,10 @@ data SimpleFunctionType = SimpleFunctionType SimpleType SimpleType
 
 externalImpl :: SimpleTerm p -> Set String
 externalImpl (SimpleTerm _ (Variable _ ())) = mempty
-externalImpl (SimpleTerm _ (Extern (Symbol sym) _ _)) = singleton sym
+externalImpl (SimpleTerm _ (Extern (Symbol sym) _ _ _)) = singleton sym
 externalImpl (SimpleTerm _ (Alias e (Bound _ e'))) = externalImpl e <> externalImpl e'
 externalImpl (SimpleTerm _ (FunctionApplication e e' _)) = externalImpl e <> externalImpl e'
-externalImpl (SimpleTerm _ (RuntimePairIntroduction e e')) = externalImpl e <> externalImpl e'
+externalImpl (SimpleTerm _ (PairIntroduction e e')) = externalImpl e <> externalImpl e'
 externalImpl (SimpleTerm _ (ReadReference _ e)) = externalImpl e
 externalImpl (SimpleTerm _ (NumberLiteral _)) = mempty
 externalImpl (SimpleTerm _ (Arithmatic _ e e' _)) = externalImpl e <> externalImpl e'
@@ -46,7 +46,7 @@ convertKindImpl _ = simpleFailType
 simpleFailType = error "illegal simple type"
 
 convertKind :: Kind Void p -> SimpleType
-convertKind (CoreKind _ (Type (CoreKind _ (Runtime _ (CoreKind _ (Real κ)))))) = convertKindImpl κ
+convertKind (CoreKind _ (Pretype (CoreKind _ (Real κ)))) = convertKindImpl κ
 convertKind _ = simpleFailType
 
 reconstruct :: Monad m => TypeInfer -> ReaderT (Map TypeIdentifier KindInfer) m KindInfer
@@ -58,7 +58,7 @@ reconstruct = reconstructType indexVariable absurd augment
 convertType σ = convertKind <$> reconstruct σ
 
 convertFunctionType (CoreType _ (Implied _ σ)) = convertFunctionType σ
-convertFunctionType (CoreType _ (FunctionPointer σ τ)) = do
+convertFunctionType (CoreType _ (FunctionLiteralType σ _ τ)) = do
   σ' <- convertType σ
   τ' <- convertType τ
   pure $ SimpleFunctionType σ' τ'
@@ -68,10 +68,10 @@ convertTermPattern :: Monad m => TermPattern θ KindInfer TypeInfer p -> ReaderT
 convertTermPattern (CoreTermPattern p (PatternCommon (PatternVariable x σ))) = do
   σ' <- convertType σ
   pure $ SimplePattern p $ PatternVariable x σ'
-convertTermPattern (CoreTermPattern p (PatternCommon (RuntimePatternPair pm1 pm2))) = do
+convertTermPattern (CoreTermPattern p (PatternCommon (PatternPair pm1 pm2))) = do
   pm1' <- convertTermPattern pm1
   pm2' <- convertTermPattern pm2
-  pure $ SimplePattern p $ RuntimePatternPair pm1' pm2'
+  pure $ SimplePattern p $ PatternPair pm1' pm2'
 convertTermPattern (CoreTermPattern _ (PatternCopy _ pm)) = convertTermPattern pm
 convertTermPattern _ = simpleFailPattern
 
@@ -79,10 +79,10 @@ simpleFailPattern = error "illegal simple pattern"
 
 convertTerm :: Monad m => Term θ KindInfer TypeInfer p -> ReaderT (Map TypeIdentifier KindInfer) m (SimpleTerm p)
 convertTerm (CoreTerm p (TermRuntime (Variable x _))) = pure $ SimpleTerm p (Variable x ())
-convertTerm (CoreTerm p (TermRuntime (Extern sym σ τ))) = do
+convertTerm (CoreTerm p (TermRuntime (Extern sym σ _ τ))) = do
   σ' <- convertType σ
   τ' <- convertType τ
-  pure $ SimpleTerm p $ Extern sym σ' τ'
+  pure $ SimpleTerm p $ Extern sym σ' () τ'
 convertTerm (CoreTerm p (TermRuntime (FunctionApplication e1 e2 σ))) = do
   e1' <- convertTerm e1
   e2' <- convertTerm e2
@@ -93,10 +93,10 @@ convertTerm (CoreTerm p (TermRuntime (Alias e1 (Bound pm e2)))) = do
   pm' <- convertTermPattern pm
   e2' <- convertTerm e2
   pure $ SimpleTerm p $ Alias e1' (Bound pm' e2')
-convertTerm (CoreTerm p (TermRuntime (RuntimePairIntroduction e1 e2))) = do
+convertTerm (CoreTerm p (TermRuntime (PairIntroduction e1 e2))) = do
   e1' <- convertTerm e1
   e2' <- convertTerm e2
-  pure $ SimpleTerm p $ RuntimePairIntroduction e1' e2'
+  pure $ SimpleTerm p $ PairIntroduction e1' e2'
 convertTerm (CoreTerm p (TermRuntime (ReadReference _ e))) = do
   e' <- convertTerm e
   pure $ SimpleTerm p $ ReadReference () e'
@@ -111,9 +111,6 @@ convertTerm (CoreTerm p (TermRuntime (Arithmatic o e1 e2 κ))) = do
       CoreKind Internal (KindSignedness Signed) -> Signed
       CoreKind Internal (KindSignedness Unsigned) -> Unsigned
       _ -> error "bad sign"
-convertTerm (CoreTerm _ (PureRegionTransformer e)) = convertTerm e
-convertTerm (CoreTerm p (DoRegionTransformer e (Bound pm e'))) =
-  convertTerm (CoreTerm p $ TermRuntime $ Alias e (Bound pm e'))
 convertTerm (CoreTerm _ (ImplicationAbstraction (Bound _ e))) = convertTerm e
 convertTerm (CoreTerm _ (ImplicationApplication _ e _)) = convertTerm e
 convertTerm (CoreTerm _ (TypeAbstraction (Bound (Pattern _ x κ) (_, e)))) = withReaderT (Map.insert x κ) $ convertTerm e
@@ -147,4 +144,4 @@ convertTermAnnotate _ (CoreTypeScheme _ (KindForall _)) = error "kind forall in 
 
 simplePatternType :: SimplePattern p -> SimpleType
 simplePatternType (SimplePattern _ (PatternVariable _ σ)) = σ
-simplePatternType (SimplePattern _ (RuntimePatternPair pm pm')) = SimpleType $ StructRep [simplePatternType pm, simplePatternType pm']
+simplePatternType (SimplePattern _ (PatternPair pm pm')) = SimpleType $ StructRep [simplePatternType pm, simplePatternType pm']

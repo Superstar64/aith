@@ -1,5 +1,5 @@
 
-Aith is a low level functional programming language with linear types, kind based staging / macros, levity polymorphism, and monadic regions.
+Aith is a low level functional programming language with linear types, kind based staging / macros, levity polymorphism, and effectful regions.
 As of now aith is very early stages and very little is implemented.
 See ``/rules`` for typing rules.
 
@@ -7,7 +7,10 @@ See ``/rules`` for typing rules.
 
 * [x] Macro Lambda Calculus
 * [x] Macro Beta Reduction
-* [x] System-F
+* [ ] System-F
+  * [x] Type Lambda / Application
+  * [ ] Kind Lambda / Application
+  * [ ] Type Lambda / Application for Effects
 * [ ] System-F ω
 * [ ] New Types
 * [ ] Builtin Typeclasses
@@ -25,10 +28,17 @@ See ``/rules`` for typing rules.
   * [x] Pointers
   * [ ] Arrays
   * [x] Function Pointers
-  * [x] Tuples
-  * [ ] Choice (Sums) 
+  * [x] Pairs
+  * [ ] Records
+  * [ ] Tagged Unions 
   * [ ] Recursive Types
-* [ ] Monadic Regions
+* [ ] Effectful Regions
+  * [x] Effects
+  * [ ] References
+    * [x] Type
+    * [x] Read
+    * [ ] Write
+  * [ ] Let Region
 * [x] Hindley Milner
 * [x] C Code Generation
 * [ ] Javascript Code Generation
@@ -51,22 +61,22 @@ See ``/rules`` for typing rules.
 | Variable | ``x`` |
 | Macro Abstraction | `` `\pm { e }`` |
 | Macro Abstraction | `` `\pm => e`` |
-| Macro Application | ``e ` e'``|
+| Macro Application | ``e `e'``|
+| Macro Application Ascribe | ``e `(e : σ)``|
 | Of Course Introduction | ``![e]`` |
 | Macro Binding | ``_inline pm = e; e'``|
-| Extern | ``_extern "x" σa -> σa'`` |
+| Extern | ``_extern "x" σa -> σa σa'`` |
 | Function Application | ``e $ e'``|
-| Function Application Ascribe | ``e $ e' : σ``|
+| Function Application Ascribe | ``e $ (e' : σ)``|
 | Function Literal | ``\pm => e`` |
 | Function Literal | ``\pm { e }`` |
 | Evidence Abstraction | ``^\pm => e`` |
 | Evidence Abstraction | ``^\pm { e }``|
-| Evidence Application | ``e ^ e'`` |
+| Evidence Application | ``e ^e'`` |
+| Evidence Application Ascribe | ``e ^(e : σ)`` |
 | Runtime Binding | ``_let pm = e; e'`` |
 | Runtime Pair Construction | ``e, e'`` |
-| Pure Region Transformer | ``_pure e`` |
-| Bind Region Transformer | `` _do pm = e; e' `` |
-| Read Reference | `` _read e' e`` |
+| Read Reference | `` _read !(e') e`` |
 | Copy Function Proof | ``_copyFunction`` |
 | Copy Number Proof | ``_copyNumber`` |
 | Copy Pair Proof | ``_copyPair e e'`` |
@@ -102,7 +112,7 @@ See ``/rules`` for typing rules.
 # Type Scheme(ς)
 | Description | Syntax |
 |-|-|
-| TypeScheme | ``<'pmκ, 'pmκ', pmσ, pmσ'> => σ`` |
+| TypeScheme | ``<'pmκ, 'pmκ', ..., pmσ, pmσ', ...> => σ`` |
 
 ## Types(σ, τ, π)
 | Description | Syntax |
@@ -111,15 +121,15 @@ See ``/rules`` for typing rules.
 | Macro | ``σ -`> τ``|
 | Forall | ``\/x : κ => σ`` |
 | Forall | ``\/x : κ { σ }`` |
-| Of Course | ``![σ]``|
-| Function Pointer | `` τ -> σ `` |
-| Function Literal Type | `` τ _function σ `` |
+| Of Course | ``![σ]`` |
+| Function Pointer | `` τ -*> π σ `` |
+| Function Literal Type | `` τ -> π σ `` |
 | Implied | `` π -^> σ `` |
-| Copy Predicate | ``_copy σ`` |
+| Copy Predicate | ``!(σ)`` |
 | Runtime Pair | ``σ, σ'`` |
-| Region Transformer | ``_state π σ`` |
+| Effect | ``σ @ π`` |
 | Region Reference | ``_reference π σ`` |
-| Number | ``_number ρ ρ'`` |
+| Number | ``{{ρ}} ρ'`` |
 
 
 ## Type Pattern(pmσ)
@@ -139,13 +149,12 @@ See ``/rules`` for typing rules.
 |-|-|
 | Variable | ``x`` |
 | Type | ``*[s]`` |
+| Pretype | ``+[s]`` |
 | Evidence | ``_evidence`` |
 | Region | ``_region`` |
-| Runtime | ``ρ @ ρ'`` |
-| Code | ``_code`` |
-| Data | ``_data`` |
-| Real | ``_real ρ``|
-| Imaginary (currently unused) | ``_imaginary`` |
+| Runtime | ``_runtime'`` |
+| Real | ``#ρ#``|
+| Imaginary | ``_imaginary`` |
 | Meta | ``_meta`` |
 | Text | ``_text`` |
 | Pointer Representation | ``_pointer``|
@@ -168,7 +177,6 @@ See ``/rules`` for typing rules.
 |-|-|
 | Kind | ``_kind`` |
 | Stage | ``_stage`` |
-| Impact | ``_impact`` |
 | Existance | ``_existance`` |
 | Representation | ``_representation`` |
 | Signedness | ``_signedness`` |
@@ -215,8 +223,8 @@ Useful / Inspirational papers:
 ### Regions
 * 
   * [Monadic and Substructural Type Systems for Region-Based Memory Management](https://www.cs.rit.edu/~mtf/research/thesis/fluet-thesis.single.pdf)
+    * Mix of single effect region calculus and monadic regions is in progress 
   * [Monadic Regions](https://www.cs.cornell.edu/people/fluet/research/rgn-monad/JFP06/jfp06.pdf)
-    * Partially implemented, Rank 2 types are still missing
   * [Linear Regions Are All You Need](https://www.cs.cornell.edu/people/fluet/research/substruct-regions/ESOP06/esop06.pdf)
 
 ## Related / Unused

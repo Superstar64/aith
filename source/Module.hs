@@ -1,6 +1,6 @@
 module Module where
 
-import Control.Monad.State (StateT, evalStateT, execStateT, get, modify)
+import Control.Monad.State.Strict (StateT, evalStateT, execStateT, get, modify)
 import Control.Monad.Trans (lift)
 import Data.Bifunctor (second)
 import Data.Functor.Identity
@@ -33,8 +33,8 @@ class (Monad m, Semigroup p) => ModuleQuit p m where
   typeQuit :: TypeError p -> m a
 
 instance ModuleQuit Internal Identity where
-  moduleQuit e = error $ "internal module error:" ++ show e
-  typeQuit e = error $ "internal type error:" ++ show e
+  moduleQuit e = error $ "module error:" ++ show e
+  typeQuit e = error $ "type error:" ++ show e
 
 instance ModuleQuit p m => ModuleQuit p (StateT s m) where
   moduleQuit = lift . moduleQuit
@@ -255,17 +255,24 @@ typeCheckModule (Ordering ((path@(Path heading _), item) : nodes)) = do
       (Path, Global TypeSchemeInfer InstantiationInfer KindInfer TypeInfer p) ->
       CoreEnvironment p ->
       CoreEnvironment p
-    inject _ (Path heading' name, Inline σ (CoreTerm p _)) env
-      | heading == heading' =
-        env {typeEnvironment = Map.insert (TermIdentifier name) (p, Unrestricted, mapTypeScheme (mapKind absurd id) absurd id id σ) $ typeEnvironment env}
-    inject _ (_, Inline _ _) e = e
-    inject _ (Path heading' name, Text σ (CoreTerm p _)) env
-      | heading == heading' =
-        env {typeEnvironment = Map.insert (TermIdentifier name) (p, Unrestricted, mapTypeScheme (mapKind absurd id) absurd id id σ) $ typeEnvironment env}
-    inject _ (_, Text _ _) e = e
-    inject search (path@(Path heading' _), Import _ path') e
-      | heading == heading' = inject search (path, search path') e
-    inject _ (_, Import _ _) e = e
+    inject _ (Path heading' _, _) e | heading /= heading' = e
+    inject _ (Path _ name, Inline σ (CoreTerm p _)) env =
+      env {typeEnvironment = Map.insert (TermIdentifier name) (p, Unrestricted, mapTypeScheme (mapKind absurd id) absurd id id σ) $ typeEnvironment env}
+    inject _ (Path _ name, Text σ (CoreTerm p _)) env =
+      env {typeEnvironment = Map.insert (TermIdentifier name) (p, Unrestricted, transform σ) $ typeEnvironment env}
+      where
+        transform = convertFunctionLiteral . mapTypeScheme (mapKind absurd id) absurd id id
+    inject search (path, Import _ path') e =
+      inject search (path, search path') e
+
+convertFunctionLiteral ς = case ς of
+  CoreTypeScheme _ (MonoType σ) -> go id σ
+    where
+      go padding (CoreType _ (Implied π σ)) = go (\τ -> padding $ CoreType Internal $ Implied π τ) σ
+      go padding (CoreType p (FunctionLiteralType σ π τ)) = polyEffect padding (CoreType p $ FunctionPointer σ π τ)
+      go _ _ = error "unexpected literal"
+  CoreTypeScheme p (Forall (Bound pm ς)) -> CoreTypeScheme p $ Forall (Bound pm $ convertFunctionLiteral ς)
+  CoreTypeScheme p (KindForall (Bound pm ς)) -> CoreTypeScheme p $ KindForall $ Bound pm (convertFunctionLiteral ς)
 
 makeExtern ::
   Path ->
@@ -274,7 +281,7 @@ makeExtern ::
   Term InstantiationInfer KindInfer TypeInfer p
 makeExtern path p (CoreTypeScheme _ (MonoType σ)) = go σ
   where
-    go (CoreType _ (FunctionPointer σ τ)) = CoreTerm p (TermRuntime $ Extern (mangle path) σ τ)
+    go (CoreType _ (FunctionLiteralType σ π τ)) = CoreTerm p (TermRuntime $ Extern (mangle path) σ π τ)
     go (CoreType _ (Implied σ τ)) = CoreTerm p (ImplicationAbstraction (Bound (CoreTermPattern p (PatternCommon $ PatternVariable (TermIdentifier $ "x") σ)) $ go τ))
     go _ = error "extern of non function pointer"
 makeExtern _ _ (CoreTypeScheme _ (KindForall _)) = error "extern of kind forall"

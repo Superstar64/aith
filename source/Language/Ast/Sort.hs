@@ -3,7 +3,7 @@ module Language.Ast.Sort where
 import Language.Ast.Common
 import Misc.Prism
 
-data Sort = Kind | Stage | Impact | Existance | Representation | Size | Signedness deriving (Show)
+data Sort = Kind | Stage | Existance | Representation | Size | Signedness deriving (Show)
 
 kind = Prism (const Kind) $ \case
   Kind -> Just ()
@@ -11,10 +11,6 @@ kind = Prism (const Kind) $ \case
 
 stage = Prism (const Stage) $ \case
   Stage -> Just ()
-  _ -> Nothing
-
-impact = Prism (const Impact) $ \case
-  Impact -> Just ()
   _ -> Nothing
 
 existance = Prism (const Existance) $ \case

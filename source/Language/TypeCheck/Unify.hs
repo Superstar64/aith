@@ -8,20 +8,29 @@ import Language.Ast.Kind
 import Language.Ast.Sort
 import Language.Ast.Type
 import Language.TypeCheck.Core
-import Language.TypeCheck.Variable
+import Language.TypeCheck.Substitute
 
-matchType p σ σ' = insertTypeEquation (TypeEquation p σ σ')
+matchType p σ σ' = insertEquation (TypeEquation p σ σ')
 
-matchKind p κ κ' = insertKindEquation (KindEquation p κ κ')
+matchKind p κ κ' = insertEquation (KindEquation p κ κ')
+
+kindIsMember p σ κ = insertEquation (KindMember p σ κ)
 
 matchSort _ Kind Kind = pure ()
 matchSort _ Stage Stage = pure ()
-matchSort _ Impact Impact = pure ()
 matchSort _ Existance Existance = pure ()
 matchSort _ Representation Representation = pure ()
 matchSort _ Size Size = pure ()
 matchSort _ Signedness Signedness = pure ()
 matchSort p μ μ' = quit $ SortMismatch p μ μ'
+
+sortIsMember p κ μ' = do
+  μ <- effectless $ reconstructKind indexSortEnvironment indexVariableMap κ
+  matchSort p μ μ'
+  where
+    indexSortEnvironment x = mid <$> fromJust <$> lookupSortEnvironment x
+    mid (_, x, _) = x
+    indexVariableMap x = mid <$> indexKindVariableMap x
 
 -- todo this is ugly, find a better way to do this
 
@@ -39,32 +48,27 @@ reconstructType indexVariable indexLogical augment = reconstruct
       reconstruct σ
     reconstruct (CoreType _ (OfCourse _)) = do
       pure $ CoreKind Internal $ Type $ CoreKind Internal Meta
-    reconstruct (CoreType _ (FunctionPointer _ _)) = do
-      pure $ CoreKind Internal $ Type $ CoreKind Internal $ Runtime (CoreKind Internal Data) (CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime PointerRep)
-    reconstruct (CoreType _ (FunctionLiteralType _ _)) = do
+    reconstruct (CoreType _ (FunctionPointer _ _ _)) = do
+      pure $ CoreKind Internal $ Pretype $ CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime PointerRep
+    reconstruct (CoreType _ (FunctionLiteralType _ _ _)) = do
       pure $ CoreKind Internal $ Type $ CoreKind Internal $ Text
     reconstruct (CoreType _ (Copy _)) = do
       pure $ CoreKind Internal $ Type $ CoreKind Internal $ Evidence
-    reconstruct (CoreType _ (RuntimePair σ σ')) = do
+    reconstruct (CoreType _ (Pair σ σ')) = do
       κ <- reconstruct σ
       κ' <- reconstruct σ'
       case (κ, κ') of
-        ( CoreKind _ (Type (CoreKind _ (Runtime _ (CoreKind Internal (Real κ))))),
-          CoreKind _ (Type (CoreKind _ (Runtime _ (CoreKind Internal (Real κ')))))
+        ( CoreKind _ (Pretype (CoreKind _ (Real κ))),
+          CoreKind _ (Pretype (CoreKind _ (Real κ')))
           ) -> do
             pure $
-              CoreKind Internal $
-                Type $ CoreKind Internal $ Runtime (CoreKind Internal Data) $ CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime $ StructRep [κ, κ']
-        _ -> error "internal error: reconstruction of pair didn't return runtime kind"
-    reconstruct (CoreType _ (RegionTransformer _ σ)) = do
-      κ <- reconstruct σ
-      case κ of
-        (CoreKind _ (Type (CoreKind _ (Runtime _ κ)))) -> pure $ CoreKind Internal $ Type $ CoreKind Internal $ Runtime (CoreKind Internal Code) κ
-        _ -> error "internal error: reconstruction of region transformer didn't return runtime kind"
+              CoreKind Internal $ Pretype $ CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime $ StructRep [κ, κ']
+        _ -> error $ "reconstruction of pair didn't return pretype" ++ show (σ, σ', κ, κ')
+    reconstruct (CoreType _ (Effect _ _)) = pure $ CoreKind Internal $ Type $ CoreKind Internal $ Runtime
     reconstruct (CoreType _ (Number _ ρ)) = do
-      pure $ CoreKind Internal $ Type $ CoreKind Internal $ Runtime (CoreKind Internal Data) (CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime $ WordRep ρ)
-    reconstruct (CoreType _ (RegionReference _ _)) =
-      pure $ CoreKind Internal $ Type $ CoreKind Internal $ Runtime (CoreKind Internal Data) (CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime $ PointerRep)
+      pure $ CoreKind Internal $ Pretype $ CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime $ WordRep ρ
+    reconstruct (CoreType _ (Reference _ _)) =
+      pure $ CoreKind Internal $ Pretype $ CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime $ PointerRep
 
 reconstructKind indexVariable indexLogical = reconstruct
   where
@@ -77,9 +81,8 @@ reconstructKind indexVariable indexLogical = reconstruct
     reconstruct (CoreKind _ Region) = pure $ Kind
     reconstruct (CoreKind _ Meta) = pure $ Stage
     reconstruct (CoreKind _ Text) = pure $ Stage
-    reconstruct (CoreKind _ (Runtime _ _)) = pure $ Stage
-    reconstruct (CoreKind _ Code) = pure $ Impact
-    reconstruct (CoreKind _ Data) = pure $ Impact
+    reconstruct (CoreKind _ Runtime) = pure $ Stage
+    reconstruct (CoreKind _ (Pretype _)) = pure $ Kind
     reconstruct (CoreKind _ Imaginary) = pure $ Existance
     reconstruct (CoreKind _ (Real _)) = pure $ Existance
     reconstruct (CoreKind _ (KindRuntime _)) = pure $ Representation
@@ -121,20 +124,22 @@ typeOccursCheck σ' p x (CoreType _ σ) =
         Implied σ τ -> do
           recurse σ
           recurse τ
-        FunctionPointer σ τ -> do
+        FunctionPointer σ π τ -> do
           recurse σ
+          recurse π
           recurse τ
-        FunctionLiteralType σ τ -> do
+        FunctionLiteralType σ π τ -> do
           recurse σ
+          recurse π
           recurse τ
         Copy σ -> recurse σ
-        RuntimePair σ τ -> do
+        Pair σ τ -> do
           recurse σ
           recurse τ
-        RegionTransformer σ τ -> do
+        Effect σ τ -> do
           recurse σ
           recurse τ
-        RegionReference σ τ -> do
+        Reference σ τ -> do
           recurse σ
           recurse τ
         Number _ _ -> pure ()
@@ -159,11 +164,8 @@ kindOccursCheck κ' p x (CoreKind _ κ) =
         Type κ -> recurse κ
         Evidence -> pure ()
         Region -> pure ()
-        (Runtime κ κ') -> do
-          recurse κ
-          recurse κ'
-        Code -> pure ()
-        Data -> pure ()
+        Runtime -> pure ()
+        Pretype κ -> recurse κ
         Imaginary -> pure ()
         (Real κ) -> recurse κ
         Meta -> pure ()
@@ -178,42 +180,31 @@ unifyTypeVariable ::
   p ->
   TypeLogicalRaw ->
   TypeUnify ->
-  Core p (Substitution TypeLogicalRaw TypeUnify)
+  Core p Substitution
 unifyTypeVariable p x σ = do
   typeOccursCheck σ p x σ
-  κ <- effectless $ reconstructType indexKindEnvironment indexVariableMap augment σ
-  (_, κ', _) <- indexTypeVariableMap x
-  matchKind p κ κ'
+  (_, κ, _) <- indexTypeVariableMap x
+  kindIsMember p σ κ
   apply σ x
-  pure $ singleSubstitution x σ
+  pure $ singleTypeSubstitution x σ
   where
     apply σ x = do
-      modifyTypeEquations (substitute σ x)
-    indexKindEnvironment x = mid <$> fromJust <$> lookupKindEnvironment x
-      where
-        mid (_, x, _) = x
-    augment (Pattern p x κ) = augmentKindEnvironment x p κ (error "level usage during kind checking")
-    mid (_, x, _) = x
-    indexVariableMap x = mid <$> indexTypeVariableMap x
+      modifyEquations (substitute σ x)
 
 unifyKindVariable p x κ = do
   kindOccursCheck κ p x κ
-  μ <- effectless $ reconstructKind indexSortEnvironment indexVariableMap κ
-  (_, μ', _) <- indexKindVariableMap x
-  matchSort p μ μ'
+  (_, μ, _) <- indexKindVariableMap x
+  sortIsMember p κ μ
   apply κ x
-  pure $ singleSubstitution x κ
+  pure $ singleKindSubstitution x κ
   where
     apply κ x = do
-      modifyKindEquations (substitute κ x)
+      modifyEquations (substitute κ x)
       modifyTypeVariableMap (fmap $ middle $ substitute κ x)
       where
         middle f (a, b, c) = (a, f b, c)
-    indexSortEnvironment x = mid <$> fromJust <$> lookupSortEnvironment x
-    mid (_, x, _) = x
-    indexVariableMap x = mid <$> indexKindVariableMap x
 
-unifyType :: p -> TypeUnify -> TypeUnify -> WriterT (Substitution TypeLogicalRaw TypeUnify) (Core p) ()
+unifyType :: p -> TypeUnify -> TypeUnify -> WriterT Substitution (Core p) ()
 unifyType = unify
   where
     match p σ σ' = lift $ matchType p σ σ'
@@ -229,27 +220,29 @@ unifyType = unify
     unify p (CoreType _ (ExplicitForall (Bound pm@(Pattern _ α κ) σ))) (CoreType _ (ExplicitForall (Bound (Pattern _ α' κ') σ'))) = do
       lift $ matchKind p κ κ'
       let σ'' = substitute @TypeUnify (CoreType Internal $ TypeVariable α) α' σ'
-      lift $ insertTypeEquation (TypeSkolemBound p (Bound pm [TypeEquation p σ σ'']))
+      lift $ insertEquation (TypeSkolemBound p (Bound pm [TypeEquation p σ σ'']))
     unify p (CoreType _ (Implied σ τ)) (CoreType _ (Implied σ' τ')) = do
       match p σ σ'
       match p τ τ'
     unify p (CoreType _ (OfCourse σ)) (CoreType _ (OfCourse σ')) = do
       match p σ σ'
-    unify p (CoreType _ (FunctionPointer σ τ)) (CoreType _ (FunctionPointer σ' τ')) = do
+    unify p (CoreType _ (FunctionPointer σ π τ)) (CoreType _ (FunctionPointer σ' π' τ')) = do
       match p σ σ'
+      match p π π'
       match p τ τ'
-    unify p (CoreType _ (FunctionLiteralType σ τ)) (CoreType _ (FunctionLiteralType σ' τ')) = do
+    unify p (CoreType _ (FunctionLiteralType σ π τ)) (CoreType _ (FunctionLiteralType σ' π' τ')) = do
       match p σ σ'
+      match p π π'
       match p τ τ'
     unify p (CoreType _ (Copy σ)) (CoreType _ (Copy σ')) = do
       match p σ σ'
-    unify p (CoreType _ (RuntimePair σ τ)) (CoreType _ (RuntimePair σ' τ')) = do
+    unify p (CoreType _ (Pair σ τ)) (CoreType _ (Pair σ' τ')) = do
       match p σ σ'
       match p τ τ'
-    unify p (CoreType _ (RegionTransformer π σ)) (CoreType _ (RegionTransformer π' σ')) = do
-      match p π π'
+    unify p (CoreType _ (Effect σ π)) (CoreType _ (Effect σ' π')) = do
       match p σ σ'
-    unify p (CoreType _ (RegionReference π σ)) (CoreType _ (RegionReference π' σ')) = do
+      match p π π'
+    unify p (CoreType _ (Reference π σ)) (CoreType _ (Reference π' σ')) = do
       match p π π'
       match p σ σ'
     unify p (CoreType _ (Number ρ1 ρ2)) (CoreType _ (Number ρ1' ρ2')) = do
@@ -257,24 +250,50 @@ unifyType = unify
       lift $ matchKind p ρ2 ρ2'
     unify p σ σ' = lift $ quit $ TypeMismatch p σ σ'
 
-solveType = do
-  equations <- getTypeEquations
+solve = do
+  equations <- getEquations
   case equations of
     [] -> pure mempty
-    (TypeEquation p σ σ' : remaining) -> do
-      modifyTypeEquations (const remaining)
+    ((TypeEquation p σ σ') : remaining) -> do
+      modifyEquations (const remaining)
       ((), θ) <- runWriterT $ unifyType p σ σ'
-      θ' <- solveType
+      θ' <- solve
       pure $ θ <> θ'
     (TypeSkolemBound p (Bound (Pattern _ x κ) eqs) : remaining) -> do
       θ <- augmentKindEnvironment x p κ maxBound $ do
-        modifyTypeEquations (const eqs)
-        solveType
-      modifyTypeEquations (const (applySubstitution θ remaining))
-      θ' <- solveType
+        modifyEquations (const eqs)
+        solve
+      modifyEquations (const (applySubstitution θ remaining))
+      θ' <- solve
       pure $ θ <> θ'
+    (KindEquation p κ κ' : remaining) -> do
+      modifyEquations (const remaining)
+      ((), θ) <- runWriterT $ unifyKind p κ κ'
+      θ' <- solve
+      pure $ θ <> θ'
+    -- todo figure out how to remove corner case
+    (KindMember p (CoreType Internal (Pair σ σ')) κ : remaining) -> do
+      modifyEquations (const remaining)
+      α <- (CoreKind Internal . KindLogical) <$> freshKindVariableRaw p Representation maxBound
+      α' <- (CoreKind Internal . KindLogical) <$> freshKindVariableRaw p Representation maxBound
+      kindIsMember p σ (CoreKind Internal $ Pretype $ CoreKind Internal $ Real α)
+      kindIsMember p σ' (CoreKind Internal $ Pretype $ CoreKind Internal $ Real α')
+      matchKind p κ (CoreKind Internal $ Pretype $ CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime $ StructRep [α, α'])
+      solve
+    (KindMember p σ κ : remaining) -> do
+      modifyEquations (const remaining)
+      κ' <- effectless $ reconstructType indexKindEnvironment indexVariableMap augment σ
+      matchKind p κ κ'
+      solve
+      where
+        indexKindEnvironment x = mid <$> fromJust <$> lookupKindEnvironment x
+          where
+            mid (_, x, _) = x
+        indexVariableMap x = mid <$> indexTypeVariableMap x
+        augment (Pattern p x κ) = augmentKindEnvironment x p κ (error "level usage during kind checking")
+        mid (_, x, _) = x
 
-unifyKind :: p -> KindUnify -> KindUnify -> WriterT (Substitution KindLogicalRaw KindUnify) (Core p) ()
+unifyKind :: p -> KindUnify -> KindUnify -> WriterT Substitution (Core p) ()
 unifyKind = unify
   where
     match p κ κ' = lift $ matchKind p κ κ'
@@ -288,11 +307,9 @@ unifyKind = unify
       match p κ κ'
     unify _ (CoreKind _ Evidence) (CoreKind _ Evidence) = pure ()
     unify _ (CoreKind _ Region) (CoreKind _ Region) = pure ()
-    unify p (CoreKind _ (Runtime κ1 κ2)) (CoreKind _ (Runtime κ1' κ2')) = do
-      match p κ1 κ1'
-      match p κ2 κ2'
-    unify _ (CoreKind _ Code) (CoreKind _ Code) = pure ()
-    unify _ (CoreKind _ Data) (CoreKind _ Data) = pure ()
+    unify _ (CoreKind _ Runtime) (CoreKind _ Runtime) = pure ()
+    unify p (CoreKind _ (Pretype κ)) (CoreKind _ (Pretype κ')) = do
+      match p κ κ'
     unify _ (CoreKind _ Imaginary) (CoreKind _ Imaginary) = pure ()
     unify p (CoreKind _ (Real κ)) (CoreKind _ (Real κ')) = do
       match p κ κ'
@@ -309,13 +326,3 @@ unifyKind = unify
     unify _ (CoreKind _ (KindSignedness Signed)) (CoreKind _ (KindSignedness Signed)) = pure ()
     unify _ (CoreKind _ (KindSignedness Unsigned)) (CoreKind _ (KindSignedness Unsigned)) = pure ()
     unify p κ κ' = lift $ quit $ KindMismatch p κ κ'
-
-solveKind = do
-  equations <- getKindEquations
-  case equations of
-    [] -> pure mempty
-    (KindEquation p κ κ' : remaining) -> do
-      modifyKindEquations (const remaining)
-      ((), θ) <- runWriterT $ unifyKind p κ κ'
-      θ' <- solveKind
-      pure $ θ <> θ'

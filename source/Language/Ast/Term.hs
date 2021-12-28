@@ -15,7 +15,7 @@ import Prelude hiding (id, (.))
 
 data PatternCommon σ pm
   = PatternVariable TermIdentifier σ
-  | RuntimePatternPair pm pm
+  | PatternPair pm pm
   deriving (Show)
 
 data TermPatternF σ e pm
@@ -39,19 +39,19 @@ data Arithmatic
   | Division
   deriving (Show, Eq)
 
-data TermRuntime θ s σ λ ev e
+data TermRuntime θ s σ' σ λ ev e
   = Variable TermIdentifier θ
   | Alias e λ
-  | Extern Symbol σ σ
+  | Extern Symbol σ σ' σ
   | FunctionApplication e e σ
-  | RuntimePairIntroduction e e
+  | PairIntroduction e e
   | ReadReference ev e
   | NumberLiteral Integer
   | Arithmatic Arithmatic e e s
   deriving (Show)
 
 data TermF λtl λta θ κ σ λ e
-  = TermRuntime (TermRuntime θ κ σ λ e e)
+  = TermRuntime (TermRuntime θ κ σ σ λ e e)
   | FunctionLiteral λ
   | MacroAbstraction λ
   | MacroApplication e e σ
@@ -59,8 +59,6 @@ data TermF λtl λta θ κ σ λ e
   | ImplicationApplication e e σ
   | OfCourseIntroduction e
   | Bind e λ
-  | PureRegionTransformer e
-  | DoRegionTransformer e λ
   | ProofCopyNumber
   | ProofCopyFunction
   | ProofCopyPair e e
@@ -105,8 +103,8 @@ patternVariable = (patternCommon .) $
     _ -> Nothing
 
 patternRuntimePair = (patternCommon .) $
-  Prism (uncurry RuntimePatternPair) $ \case
-    (RuntimePatternPair pm pm') -> Just (pm, pm')
+  Prism (uncurry PatternPair) $ \case
+    (PatternPair pm pm') -> Just (pm, pm')
     _ -> Nothing
 
 patternCopy =
@@ -155,8 +153,8 @@ alias = (termRuntime .) $
     _ -> Nothing
 
 extern = (termRuntime .) $
-  Prism (uncurry $ uncurry $ Extern) $ \case
-    (Extern path σ τs) -> Just ((path, σ), τs)
+  Prism (uncurry $ uncurry $ uncurry $ Extern) $ \case
+    (Extern path σ π τ) -> Just (((path, σ), π), τ)
     _ -> Nothing
 
 functionApplication = (termRuntime .) $
@@ -170,17 +168,9 @@ functionLiteral =
     _ -> Nothing
 
 runtimePairIntrouction = (termRuntime .) $
-  Prism (uncurry $ RuntimePairIntroduction) $ \case
-    (RuntimePairIntroduction e1 e2) -> Just (e1, e2)
+  Prism (uncurry $ PairIntroduction) $ \case
+    (PairIntroduction e1 e2) -> Just (e1, e2)
     _ -> Nothing
-
-pureRegionTransformer = Prism PureRegionTransformer $ \case
-  (PureRegionTransformer e) -> Just e
-  _ -> Nothing
-
-doRegionTransformer = Prism (uncurry DoRegionTransformer) $ \case
-  (DoRegionTransformer e λ) -> Just (e, λ)
-  _ -> Nothing
 
 readReference = (termRuntime .) $
   Prism (uncurry $ ReadReference) $ \case
@@ -229,7 +219,7 @@ traversePatternCommon ::
   m (PatternCommon σ' pm')
 traversePatternCommon f g pm = case pm of
   PatternVariable x σ -> pure PatternVariable <*> pure x <*> f σ
-  RuntimePatternPair pm pm' -> pure RuntimePatternPair <*> g pm <*> g pm'
+  PatternPair pm pm' -> pure PatternPair <*> g pm <*> g pm'
 
 traverseTermPatternF ::
   Applicative m =>
@@ -266,19 +256,20 @@ traverseTermRuntime ::
   Applicative m =>
   (θ -> m θ') ->
   (s -> m s') ->
+  (σ2 -> m σ2') ->
   (σ -> m σ') ->
   (λ -> m λ') ->
   (ev -> m ev') ->
   (e -> m e') ->
-  TermRuntime θ s σ λ ev e ->
-  m (TermRuntime θ' s' σ' λ' ev' e')
-traverseTermRuntime d h f g j i e =
+  TermRuntime θ s σ2 σ λ ev e ->
+  m (TermRuntime θ' s' σ2' σ' λ' ev' e')
+traverseTermRuntime d h y f g j i e =
   case e of
     Variable x θ -> pure Variable <*> pure x <*> d θ
     Alias e λ -> pure Alias <*> i e <*> g λ
-    Extern sm σ σ' -> pure Extern <*> pure sm <*> f σ <*> f σ'
+    Extern sm σ σ'' σ' -> pure Extern <*> pure sm <*> f σ <*> y σ'' <*> f σ'
     FunctionApplication e1 e2 σ -> pure FunctionApplication <*> i e1 <*> i e2 <*> f σ
-    RuntimePairIntroduction e1 e2 -> pure RuntimePairIntroduction <*> i e1 <*> i e2
+    PairIntroduction e1 e2 -> pure PairIntroduction <*> i e1 <*> i e2
     ReadReference ev e -> pure ReadReference <*> j ev <*> i e
     NumberLiteral n -> pure NumberLiteral <*> pure n
     Arithmatic o e e' κ -> pure Arithmatic <*> pure o <*> i e <*> i e' <*> h κ
@@ -296,7 +287,7 @@ traverseTermF ::
   m (TermF λtl' λta' θ' κ' σ' λ' e')
 traverseTermF k l d j f h i e =
   case e of
-    TermRuntime e -> pure TermRuntime <*> traverseTermRuntime d j f h i i e
+    TermRuntime e -> pure TermRuntime <*> traverseTermRuntime d j f f h i i e
     FunctionLiteral λ -> pure FunctionLiteral <*> h λ
     MacroAbstraction λ -> pure MacroAbstraction <*> h λ
     MacroApplication e1 e2 σ -> pure MacroApplication <*> i e1 <*> i e2 <*> f σ
@@ -304,8 +295,6 @@ traverseTermF k l d j f h i e =
     ImplicationApplication e1 e2 σ -> pure ImplicationApplication <*> i e1 <*> i e2 <*> f σ
     OfCourseIntroduction e -> pure OfCourseIntroduction <*> i e
     Bind e λ -> pure Bind <*> i e <*> h λ
-    PureRegionTransformer e -> pure PureRegionTransformer <*> i e
-    DoRegionTransformer e λx -> pure DoRegionTransformer <*> i e <*> h λx
     ProofCopyNumber -> pure ProofCopyNumber
     ProofCopyFunction -> pure ProofCopyFunction
     ProofCopyPair e e' -> pure ProofCopyPair <*> i e <*> i e'
@@ -428,6 +417,17 @@ instance Substitute TypeUnify TypeLogicalRaw (TermPattern InstantiationUnify Kin
       go = substitute ux x
 
 instance
+  ( Convert KindIdentifier θ,
+    Convert KindIdentifier σ,
+    Convert KindIdentifier κ
+  ) =>
+  Convert KindIdentifier (TermPattern θ κ σ p)
+  where
+  convert ux x (CoreTermPattern p pm) = CoreTermPattern p $ mapTermPatternF go go go pm
+    where
+      go = convert ux x
+
+instance
   ( Substitute κ KindIdentifier θ,
     Substitute κ KindIdentifier σ,
     Substitute κ KindIdentifier κ'
@@ -545,6 +545,17 @@ instance Substitute TypeUnify TypeLogicalRaw (Term InstantiationUnify KindUnify 
       go = substitute ux x
 
 instance
+  ( Convert KindIdentifier θ,
+    Convert KindIdentifier σ,
+    Convert KindIdentifier κ
+  ) =>
+  Convert KindIdentifier (Term θ κ σ p)
+  where
+  convert ux x (CoreTerm p e) = CoreTerm p $ mapTermF go go go go go go go e
+    where
+      go = convert ux x
+
+instance
   ( Substitute κ KindIdentifier σ,
     Substitute κ KindIdentifier θ,
     Substitute κ KindIdentifier κ'
@@ -562,8 +573,13 @@ instance Substitute KindUnify KindLogicalRaw (Term InstantiationUnify KindUnify 
 
 instance Correct InstantiationInfer (Term InstantiationInfer KindInfer TypeInfer p) where
   correct (InstantiateEmpty) e = e
-  correct (InstantiateType x σ θ) e = substitute σ x $ correct θ e
-  correct (InstantiateKind x κ θ) e = substitute κ x $ correct θ e
+  correct (InstantiateType x σ θ) e = correct θ'' (substitute σ x e'')
+    where
+      Bound θ' e' = avoidCapture @TypeIdentifier σ (Bound θ e)
+      Bound θ'' e'' = avoidCapture @KindIdentifier σ (Bound θ' e')
+  correct (InstantiateKind x κ θ) e = correct θ' (substitute κ x e')
+    where
+      Bound θ' e' = avoidCapture @KindIdentifier κ (Bound θ e)
 
 instance Reduce (Term InstantiationInfer KindInfer TypeInfer p) where
   reduce (CoreTerm _ (Bind e λ)) = apply (reduce λ) (reduce e)
@@ -660,6 +676,16 @@ instance
   Substitute σ TypeIdentifier (Bound (TermPattern θ κ' σ' p) u)
   where
   substitute = substituteHigher substitute substitute
+
+instance
+  ( Convert KindIdentifier u,
+    Convert KindIdentifier θ,
+    Convert KindIdentifier σ,
+    Convert KindIdentifier κ
+  ) =>
+  Convert KindIdentifier (Bound (TermPattern θ κ σ p) u)
+  where
+  convert = substituteHigher convert convert
 
 instance
   ( Substitute κ KindIdentifier u,

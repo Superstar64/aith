@@ -53,12 +53,12 @@ data TypeF v λ κ σ
   | ExplicitForall λ
   | Implied σ σ
   | OfCourse σ
-  | FunctionPointer σ σ
-  | FunctionLiteralType σ σ
+  | FunctionPointer σ σ σ
+  | FunctionLiteralType σ σ σ
   | Copy σ
-  | RuntimePair σ σ
-  | RegionTransformer σ σ
-  | RegionReference σ σ
+  | Pair σ σ
+  | Effect σ σ
+  | Reference σ σ
   | Number κ κ
   deriving (Show)
 
@@ -122,12 +122,12 @@ traverseTypeF f i h g σ = case σ of
   ExplicitForall λ -> pure ExplicitForall <*> i λ
   Implied σ τ -> pure Implied <*> g σ <*> g τ
   OfCourse σ -> pure OfCourse <*> g σ
-  FunctionPointer σ τ -> pure FunctionPointer <*> g σ <*> g τ
-  FunctionLiteralType σ τ -> pure FunctionLiteralType <*> g σ <*> g τ
+  FunctionPointer σ π τ -> pure FunctionPointer <*> g σ <*> g π <*> g τ
+  FunctionLiteralType σ π τ -> pure FunctionLiteralType <*> g σ <*> g π <*> g τ
   Copy σ -> pure Copy <*> g σ
-  RuntimePair σ τ -> pure RuntimePair <*> g σ <*> g τ
-  RegionTransformer π σ -> pure RegionTransformer <*> g π <*> g σ
-  RegionReference π σ -> pure RegionReference <*> g π <*> g σ
+  Pair σ τ -> pure Pair <*> g σ <*> g τ
+  Effect π σ -> pure Effect <*> g π <*> g σ
+  Reference π σ -> pure Reference <*> g π <*> g σ
   Number ρ ρ' -> pure Number <*> h ρ <*> h ρ'
 
 mapTypeF f i h g = runIdentity . traverseTypeF (Identity . f) (Identity . i) (Identity . h) (Identity . g)
@@ -181,28 +181,28 @@ ofCourse = Prism OfCourse $ \case
   (OfCourse σ) -> Just σ
   _ -> Nothing
 
-functionPointer = Prism (uncurry FunctionPointer) $ \case
-  (FunctionPointer σ τs) -> Just (σ, τs)
+functionPointer = Prism (uncurry $ uncurry FunctionPointer) $ \case
+  (FunctionPointer σ π τ) -> Just ((σ, π), τ)
   _ -> Nothing
 
-functionLiteralType = Prism (uncurry FunctionLiteralType) $ \case
-  (FunctionLiteralType σ τs) -> Just (σ, τs)
+functionLiteralType = Prism (uncurry $ uncurry FunctionLiteralType) $ \case
+  (FunctionLiteralType σ π τ) -> Just ((σ, π), τ)
   _ -> Nothing
 
 copy = Prism Copy $ \case
   (Copy σ) -> Just σ
   _ -> Nothing
 
-runtimePair = Prism (uncurry RuntimePair) $ \case
-  (RuntimePair σ τ) -> Just (σ, τ)
+runtimePair = Prism (uncurry Pair) $ \case
+  (Pair σ τ) -> Just (σ, τ)
   _ -> Nothing
 
-regionTransformer = Prism (uncurry RegionTransformer) $ \case
-  (RegionTransformer π σ) -> Just (π, σ)
+effect = Prism (uncurry Effect) $ \case
+  (Effect π σ) -> Just (π, σ)
   _ -> Nothing
 
-regionReference = Prism (uncurry RegionReference) $ \case
-  (RegionReference π σ) -> Just (π, σ)
+reference = Prism (uncurry Reference) $ \case
+  (Reference π σ) -> Just (π, σ)
   _ -> Nothing
 
 number = Prism (uncurry Number) $ \case
@@ -313,6 +313,16 @@ instance
   substitute ux x (InstantiateKind x' κ θ) = InstantiateKind x' κ (substitute ux x θ)
 
 instance
+  ( Convert KindIdentifier σ,
+    Convert KindIdentifier κ
+  ) =>
+  Convert KindIdentifier (Instantiation κ σ p)
+  where
+  convert _ _ InstantiateEmpty = InstantiateEmpty
+  convert ux x (InstantiateType x' σ θ) = InstantiateType x' (convert ux x σ) (convert ux x θ)
+  convert ux x (InstantiateKind x' κ θ) = InstantiateKind x' (convert ux x κ) (convert ux x θ)
+
+instance
   ( Substitute κ KindIdentifier κ,
     Substitute κ KindIdentifier σ
   ) =>
@@ -328,9 +338,31 @@ instance Substitute TypeUnify TypeLogicalRaw InstantiationUnify where
   substitute _ _ InstantiateEmpty = InstantiateEmpty
 
 instance Substitute KindUnify KindLogicalRaw InstantiationUnify where
-  substitute ux x (InstantiateType x' σ θ) = InstantiateType x' σ (substitute ux x θ)
+  substitute ux x (InstantiateType x' σ θ) = InstantiateType x' (substitute ux x σ) (substitute ux x θ)
   substitute ux x (InstantiateKind x' κ θ) = InstantiateKind x' (substitute ux x κ) (substitute ux x θ)
   substitute _ _ InstantiateEmpty = InstantiateEmpty
+
+instance BindingsInternal TypeIdentifier (Instantiation κ σ p) where
+  bindingsInternal InstantiateEmpty = mempty
+  bindingsInternal (InstantiateType x _ θ) = Map.singleton x Internal <> bindingsInternal θ
+  bindingsInternal (InstantiateKind _ _ θ) = bindingsInternal θ
+
+instance BindingsInternal KindIdentifier (Instantiation κ σ p) where
+  bindingsInternal InstantiateEmpty = mempty
+  bindingsInternal (InstantiateType _ _ θ) = bindingsInternal θ
+  bindingsInternal (InstantiateKind x _ θ) = Map.singleton x Internal <> bindingsInternal θ
+
+instance Rename TypeIdentifier (Instantiation κ σ p) where
+  rename _ _ InstantiateEmpty = InstantiateEmpty
+  rename ux x (InstantiateType x' σ θ) | x == x' = InstantiateType ux σ (rename ux x θ)
+  rename ux x (InstantiateType x' σ θ) = InstantiateType x' σ (rename ux x θ)
+  rename ux x (InstantiateKind x' κ θ) = InstantiateKind x' κ (rename ux x θ)
+
+instance Rename KindIdentifier (Instantiation κ σ p) where
+  rename _ _ InstantiateEmpty = InstantiateEmpty
+  rename ux x (InstantiateType x' σ θ) = InstantiateType x' σ (rename ux x θ)
+  rename ux x (InstantiateKind x' κ θ) | x == x' = InstantiateKind ux κ (rename ux x θ)
+  rename ux x (InstantiateKind x' κ θ) = InstantiateKind x' κ (rename ux x θ)
 
 instance FreeVariablesInternal TypeIdentifier (Type κ vσ p) where
   freeVariablesInternal = freeVariables . fmap (const Internal)

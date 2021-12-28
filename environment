@@ -3,11 +3,11 @@
 # macros i use for testing
 
 # load with `source ./environment`
-# limit to 1.5 GB to stop exploding processes
-ulimit -Sv 1500000
+# limit to 4 GB to stop exploding processes
+ulimit -Sv 4000000
 
 aith() {
-  cabal run aith --disable-optimization -- $@
+  cabal run aith -- $@
 }
 
 aith_repl() {
@@ -15,11 +15,15 @@ aith_repl() {
 }
 
 aith_build() {
-  cabal build aith --disable-optimization $@
+  cabal build aith $@
 }
 
 aith_test() {
-  cabal test --disable-optimization
+  cabal test
+}
+
+aith_test_generate() {
+  aith --load test.aith /test --generate-c /test test.c && clang-format -i test.c
 }
 
 aith_format() {

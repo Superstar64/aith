@@ -4,8 +4,8 @@ import Control.Applicative (Alternative, empty, (<|>))
 import Control.Category (id, (.))
 import Control.Monad (MonadPlus, liftM2)
 import qualified Control.Monad.Combinators as Combinators
-import Control.Monad.State (State, get, put, runState)
-import Control.Monad.Writer (WriterT, runWriterT, tell)
+import Control.Monad.State.Strict (State, get, put, runState)
+import Control.Monad.Writer.Strict (WriterT, runWriterT, tell)
 import Data.Char (isAlpha, isAlphaNum)
 import Data.Maybe (fromJust)
 import Data.Void (Void)
@@ -74,6 +74,8 @@ betweenBangParens = between (token "!(") (token ")")
 
 betweenBangSquares = between (token "![") (token "]")
 
+betweenPlusSquares = between (token "+[") (token "]")
+
 betweenStarSquares = between (token "*[") (token "]")
 
 betweenDoubleBraces = between (token "{{") (token "}}")
@@ -124,7 +126,6 @@ sort =
   choice
     [ Language.kind ⊣ keyword "kind",
       Language.stage ⊣ keyword "stage",
-      Language.impact ⊣ keyword "impact",
       Language.existance ⊣ keyword "existance",
       Language.representation ⊣ keyword "representation",
       Language.size ⊣ keyword "size",
@@ -134,33 +135,29 @@ sort =
 kindPattern = Language.pattern ⊣ position ⊗ kindIdentifier ⊗ token ":" ≫ sort
 
 kind :: (Position δ p, Syntax δ) => δ (Language.Kind Void p)
-kind = kindRuntime
+kind = kindTop
   where
-    kindRuntime = applyBinary ⊣ kindPrefix ⊗ (binaryToken "@" ≫ kindRuntime ⊕ always)
-      where
-        applyBinary = runtime `branchDistribute` unit'
-        runtime = withInnerPosition Language.coreKind Language.runtime
+    kindTop = Language.coreKind ⊣ position ⊗ (Language.real ⊣ token "#" ≫ kindPrefix ≪ token "#") ∥ kindPrefix
     kindPrefix = Language.coreKind ⊣ position ⊗ choice options ∥ kindCore
       where
         options =
-          [ Language.real ⊣ prefixKeyword "real" ≫ kindCore,
-            Language.wordRep ⊣ prefixKeyword "word" ≫ kindCore
+          [ Language.wordRep ⊣ prefixKeyword "word" ≫ kindCore
           ]
 
 kindCore = Language.coreKind ⊣ position ⊗ choice options ∥ betweenParens kind
   where
     options =
       [ Language.kindVariable ⊣ kindIdentifier,
+        Language.typex ⊣ betweenStarSquares kind,
+        Language.pretype ⊣ betweenPlusSquares kind,
         Language.meta ⊣ keyword "meta",
-        Language.code ⊣ keyword "code",
-        Language.datax ⊣ keyword "data",
+        Language.runtime ⊣ keyword "runtime",
         Language.imaginary ⊣ keyword "imaginary",
         Language.evidence ⊣ keyword "evidence",
         Language.region ⊣ prefixKeyword "region",
         Language.text ⊣ keyword "text",
         Language.pointerRep ⊣ keyword "pointer",
         Language.structRep ⊣ prefixKeyword "struct" ≫ betweenParens (commaSeperatedMany kind),
-        Language.typex ⊣ betweenStarSquares kind,
         Language.byte ⊣ keyword "byte",
         Language.short ⊣ keyword "short",
         Language.int ⊣ keyword "int",
@@ -178,26 +175,26 @@ typePattern = Language.pattern ⊣ position ⊗ typeIdentifier ⊗ (just ⊣ tok
 typex :: (Position δ p, Syntax δ) => δ (Language.Type (Language.KindAuto p) Void p)
 typex = typeArrow
   where
-    typeArrow = applyBinary ⊣ typeRTArrow ⊗ (binaryToken "-`>" ≫ typeArrow ⊕ binaryToken "-^>" ≫ typeArrow ⊕ always)
+    typeArrow = applyBinary ⊣ typeEffect ⊗ (binaryToken "-`>" ≫ typeArrow ⊕ binaryToken "-^>" ≫ typeArrow ⊕ always)
       where
         applyBinary = macro `branchDistribute` implied `branchDistribute` unit'
         macro = withInnerPosition Language.coreType Language.macro
         implied = withInnerPosition Language.coreType Language.implied
-    typeRTArrow = applyBinary ⊣ typePair ⊗ (binaryToken "->" ≫ typeRTArrow ⊕ space ≫ prefixKeyword "function" ≫ typeRTArrow ⊕ always)
+    typeEffect = effect `branchDistribute` unit' ⊣ typeRTArrow ⊗ (binaryToken "@" ≫ typeCore ⊕ always)
+      where
+        effect = withInnerPosition Language.coreType Language.effect
+    typeRTArrow = applyBinary ⊣ typePair ⊗ (binaryToken "-*>" ≫ typeCore ≪ space ⊗ typeRTArrow ⊕ binaryToken "->" ≫ typeCore ≪ space ⊗ typeRTArrow ⊕ always)
       where
         applyBinary = functionPointer `branchDistribute` functionLiteralType `branchDistribute` unit'
-        functionPointer = withInnerPosition Language.coreType Language.functionPointer
-        functionLiteralType = withInnerPosition Language.coreType Language.functionLiteralType
+        functionPointer = withInnerPosition3 Language.coreType Language.functionPointer . toPrism associate'
+        functionLiteralType = withInnerPosition3 Language.coreType Language.functionLiteralType . toPrism associate'
     typePair = foldlP pair ⊣ typeApply ⊗ many (token "," ≫ space ≫ typeApply)
       where
         pair = withInnerPosition Language.coreType Language.runtimePair
     typeApply = Language.coreType ⊣ position ⊗ choice options ∥ typeCore
       where
         options =
-          [ Language.copy ⊣ prefixKeyword "copy" ≫ typeCore,
-            Language.regionTransformer ⊣ prefixKeyword "state" ≫ typeCore ⊗ space ≫ typeCore,
-            Language.regionReference ⊣ prefixKeyword "reference" ≫ typeCore ⊗ space ≫ typeCore,
-            Language.ofCourse ⊣ betweenBangSquares typex
+          [ Language.reference ⊣ prefixKeyword "reference" ≫ typeCore ⊗ space ≫ typeCore
           ]
 
 typeCore = Language.coreType ⊣ position ⊗ (choice options) ∥ betweenParens typex
@@ -205,7 +202,9 @@ typeCore = Language.coreType ⊣ position ⊗ (choice options) ∥ betweenParens
     options =
       [ Language.typeVariable ⊣ typeIdentifier,
         Language.number ⊣ betweenDoubleBraces kindAuto ⊗ space ≫ kindCoreAuto,
-        Language.explicitForall ⊣ Language.bound ⊣ token "\\/" ≫ typePattern ⊗ lambdaInline typex
+        Language.explicitForall ⊣ Language.bound ⊣ token "\\/" ≫ typePattern ⊗ lambdaInline typex,
+        Language.ofCourse ⊣ betweenBangSquares typex,
+        Language.copy ⊣ betweenBangParens typex
       ]
 
 typeAuto = just ⊣ typex ∥ nothing ⊣ token "_"
@@ -249,8 +248,7 @@ term = termBinding
       where
         options =
           [ Language.bind ⊣ rotateBind ⊣ prefixKeyword "inline" ≫ termPattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ term,
-            Language.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ termPattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ term,
-            Language.doRegionTransformer ⊣ rotateBind ⊣ prefixKeyword "do" ≫ termPattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ term
+            Language.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ termPattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ term
           ]
         rotateBind = secondI Language.bound . associate . firstI swap
     termRTApply = applyBinary ⊣ termAdd ⊗ (binaryToken "$" ≫ optionalAnnotate termRTApply ⊕ always)
@@ -282,8 +280,7 @@ term = termBinding
         typeApplySyntax = swap ⊣ space ≫ betweenDoubleSquares (Language.bound ⊣ token "\\/" ≫ typePattern ⊗ lambdaInline typeAuto) ⊗ betweenAngle typeAuto
         options =
           [ Language.proofCopyPair ⊣ prefixKeyword "copyPair" ≫ termCore ⊗ space ≫ termCore,
-            Language.readReference ⊣ prefixKeyword "read" ≫ termCore ≪ space ⊗ termCore,
-            Language.pureRegionTransformer ⊣ prefixKeyword "pure" ≫ termCore
+            Language.readReference ⊣ prefixKeyword "read" ≫ betweenBangParens term ≪ space ⊗ termCore
           ]
 
 termCore = Language.coreTerm ⊣ position ⊗ choice options ∥ betweenParens term
@@ -293,7 +290,7 @@ termCore = Language.coreTerm ⊣ position ⊗ choice options ∥ betweenParens t
         Language.macroAbstraction ⊣ Language.bound ⊣ token "`\\" ≫ termPattern ⊗ lambdaMajor term,
         Language.functionLiteral ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ lambdaMajor term,
         Language.implicationAbstraction ⊣ Language.bound ⊣ token "^\\" ≫ termPattern ⊗ lambdaMajor term,
-        Language.extern ⊣ prefixKeyword "extern" ≫ symbol ≪ space ⊗ typeCoreAuto ≪ binaryToken "->" ⊗ typeCoreAuto,
+        Language.extern ⊣ prefixKeyword "extern" ≫ symbol ≪ space ⊗ typeCoreAuto ≪ binaryToken "->" ⊗ typeCoreAuto ≪ space ⊗ typeCoreAuto,
         Language.proofCopyNumber ⊣ keyword "copyNumber",
         Language.proofCopyFunction ⊣ keyword "copyFunction",
         Language.proofCopyReference ⊣ keyword "copyReference",
