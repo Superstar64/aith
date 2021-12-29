@@ -57,6 +57,7 @@ reconstruct = reconstructType indexVariable absurd augment
 
 convertType σ = convertKind <$> reconstruct σ
 
+convertFunctionType (CoreType _ (ExplicitForall (Bound (Pattern _ x κ) σ))) = withReaderT (Map.insert x κ) $ convertFunctionType σ
 convertFunctionType (CoreType _ (Implied _ σ)) = convertFunctionType σ
 convertFunctionType (CoreType _ (FunctionLiteralType σ _ τ)) = do
   σ' <- convertType σ
@@ -127,6 +128,7 @@ convertTerm (CoreTerm _ (FunctionLiteral _)) = simpleFailTerm
 
 simpleFailTerm = error "illegal simple term"
 
+convertFunction (CoreTerm _ (TypeAbstraction (Bound (Pattern _ x κ) e))) = withReaderT (Map.insert x κ) $ convertFunction e
 convertFunction (CoreTerm _ (ImplicationAbstraction (Bound _ e))) = convertFunction e
 convertFunction (CoreTerm p (FunctionLiteral (Bound pm e))) = do
   pm' <- convertTermPattern pm

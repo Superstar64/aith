@@ -269,6 +269,7 @@ convertFunctionLiteral ς = case ς of
   CoreTypeScheme _ (MonoType σ) -> go id σ
     where
       go padding (CoreType _ (Implied π σ)) = go (\τ -> padding $ CoreType Internal $ Implied π τ) σ
+      go padding (CoreType _ (ExplicitForall (Bound pm σ))) = go (\τ -> padding $ CoreType Internal $ ExplicitForall (Bound pm τ)) σ
       go padding (CoreType p (FunctionLiteralType σ π τ)) = polyEffect padding (CoreType p $ FunctionPointer σ π τ)
       go _ _ = error "unexpected literal"
   CoreTypeScheme p (Forall (Bound pm ς)) -> CoreTypeScheme p $ Forall (Bound pm $ convertFunctionLiteral ς)
@@ -281,8 +282,9 @@ makeExtern ::
   Term InstantiationInfer KindInfer TypeInfer p
 makeExtern path p (CoreTypeScheme _ (MonoType σ)) = go σ
   where
-    go (CoreType _ (FunctionLiteralType σ π τ)) = CoreTerm p (TermRuntime $ Extern (mangle path) σ π τ)
+    go (CoreType _ (ExplicitForall (Bound pm σ))) = CoreTerm p $ TypeAbstraction (Bound (p <$ pm) $ go σ)
     go (CoreType _ (Implied σ τ)) = CoreTerm p (ImplicationAbstraction (Bound (CoreTermPattern p (PatternCommon $ PatternVariable (TermIdentifier $ "x") σ)) $ go τ))
+    go (CoreType _ (FunctionLiteralType σ π τ)) = CoreTerm p (TermRuntime $ Extern (mangle path) σ π τ)
     go _ = error "extern of non function pointer"
 makeExtern _ _ (CoreTypeScheme _ (KindForall _)) = error "extern of kind forall"
 makeExtern path p (CoreTypeScheme _ (Forall (Bound _ σ))) = makeExtern path p σ
@@ -301,12 +303,11 @@ reduceModule (Ordering ((path@(Path heading _), item) : nodes)) = case item of
   Import _ path' -> Ordering ((path, searchUnsafe (Ordering nodes') path') : nodes')
   where
     Ordering nodes' = reduceModule $ Ordering nodes
-    inject (Path heading' x, Inline _ ex) e
-      | heading == heading',
-        (TermIdentifier x) `Map.member` freeVariablesInternal @TermIdentifier e =
-        substitute ex (TermIdentifier x) e
+    inject (Path heading' _, _) e | heading /= heading' = e
+    inject (Path _ x, Inline _ ex) e
+      | (TermIdentifier x) `Map.member` freeVariablesInternal @TermIdentifier e = substitute ex (TermIdentifier x) e
     inject (_, Inline _ _) e = e
-    inject (path@(Path heading' x), Text σ (CoreTerm p _)) e
-      | heading == heading' = substitute (makeExtern path p σ) (TermIdentifier x) e
+    inject (path@(Path _ x), Text σ (CoreTerm p _)) e
+      | (TermIdentifier x) `Map.member` freeVariablesInternal @TermIdentifier e = substitute (makeExtern path p σ) (TermIdentifier x) e
     inject (_, Text _ _) e = e
     inject (_, Import _ _) _ = error "import in reduction results"

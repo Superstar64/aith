@@ -30,8 +30,11 @@ module runtime = {
     (x1 * x2 + y1 * y2 + z1 * z2)
   };
   
+  symbol fstSysF = /\A : +[#_pointer#] => /\B : +[#_pointer#] => ^\(proof : !(B)) => \((x : A), !(proof)[y]) => x;
+  
+  
 	symbol _ :: <A : +[#_pointer#], B : +[#_pointer#], R : _region> !(B) -^> (A, B) -> R A;
-	symbol fst = ^\proof => \(x, !(proof)[y]) => x;
+	symbol fst = ^\proof => \x => fstSysF[[\/A => \/B => !(B) -^> (A,B) -*> R A @ R]]<_>[[\/B => !(B) -^> (A,B) -*> R A @ R]]<_>^proof $ x;
 	
 	symbol _ :: <A : +[#_pointer#], B : +[#_pointer#], R : _region> !(A) -^> (A, B) -> R B;
 	symbol snd = ^\proof => \(!(proof)[x], y) => y;
