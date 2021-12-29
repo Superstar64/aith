@@ -410,27 +410,24 @@ typeCheckAnnotateLinearTerm =
           ((e', σ), lΓ) <- recurse e
           capture p lΓ
           pure ((CoreTerm p (OfCourseIntroduction e'), CoreType Internal $ OfCourse $ σ), lΓ)
-        (CoreTerm p (TypeAbstraction (Bound pm (σ, e)))) -> do
+        (CoreTerm p (TypeAbstraction (Bound pm e))) -> do
           pm' <- fst <$> typeCheckAnnotateTypePattern pm
-          case σ of
-            Nothing -> quit $ ExpectedTypeAnnotation p
-            Just σ -> augmentTypePatternLevel pm' $ do
-              enterLevel
-              σ <- fst <$> typeCheckValidateType σ
-              ((e', σ'), lΓ) <- typeCheckAnnotateLinearTerm e
-              matchType p σ σ'
-              leaveLevel
+          augmentTypePatternLevel pm' $ do
+            enterLevel
+            ((e', σ'), lΓ) <- typeCheckAnnotateLinearTerm e
+            leaveLevel
 
-              θ <- solve
-              let σ'' = applySubstitution θ σ'
-              let e'' = applySubstitution θ e'
+            θ <- solve
+            let σ'' = applySubstitution θ σ'
+            let e'' = applySubstitution θ e'
 
-              θ <- removeDeadVariables θ
-              reunifyEquations p θ
-              ambigousTypeCheck (Set.empty)
+            θ <- removeDeadVariables θ
+            reunifyEquations p θ
+            ambigousTypeCheck (Map.keysSet $ freeVariablesInternal @TypeLogicalRaw σ'')
+            ambigousKindCheck (Map.keysSet $ freeVariablesInternal @KindLogicalRaw σ'')
 
-              pure ((CoreTerm p (TypeAbstraction (Bound pm' (σ'', e''))), CoreType Internal $ ExplicitForall (Bound (Internal <$ pm') σ'')), lΓ)
-        (CoreTerm p (TypeApplication (e, (σ, (Bound pm@(Pattern _ α _) τ))))) -> do
+            pure ((CoreTerm p (TypeAbstraction (Bound pm' e'')), CoreType Internal $ ExplicitForall (Bound (Internal <$ pm') σ'')), lΓ)
+        (CoreTerm p (TypeApplication e σ (Bound pm@(Pattern _ α _) τ))) -> do
           ((e, ς), lΓ) <- typeCheckAnnotateLinearTerm e
           (pm', κ) <- typeCheckAnnotateTypePattern pm
           case τ of
@@ -446,7 +443,7 @@ typeCheckAnnotateLinearTerm =
               augmentTypePatternBottom pm' $ do
                 τ <- fst <$> typeCheckValidateType τ
                 matchType p (CoreType Internal $ ExplicitForall (Bound (Internal <$ pm') τ)) ς
-                pure ((CoreTerm p (TypeApplication (e, (σ, (Bound pm' τ)))), substitute σ α τ), lΓ)
+                pure (((CoreTerm p (TypeApplication e σ (Bound pm' τ))), substitute σ α τ), lΓ)
         (CoreTerm p ProofCopyNumber) -> do
           ρ1 <- freshKindVariable p Signedness
           ρ2 <- freshKindVariable p Size
@@ -687,10 +684,19 @@ typeCheckGlobalAnnotateImpl check e@(CoreTerm p _) ς = do
     leaveLevel
     θ <- solve
     e <- pure $ applySubstitution θ e
+    ς' <- pure $ applyQSubstitution θ ς'
     _ <- removeDeadVariables θ
     ambigousTypeCheck Set.empty
     ambigousKindCheck Set.empty
     pure (stripUnifier e, stripUnifier (Internal <$ ς'))
+  where
+    substituteAll = flip . foldr $ \(x, κ) -> substitute κ x
+    applyQSubstitution (Substitution _ κs) (CoreTypeScheme p (MonoType σ)) = CoreTypeScheme p $ MonoType $ substituteAll (Map.toList κs) σ
+    applyQSubstitution θ@(Substitution _ κs) (CoreTypeScheme p (Forall (Bound pm ς))) =
+      CoreTypeScheme p $
+        Forall $
+          Bound (substituteAll (Map.toList κs) pm) (applyQSubstitution θ ς)
+    applyQSubstitution θ (CoreTypeScheme p (KindForall (Bound pm ς))) = CoreTypeScheme p (KindForall (Bound pm $ applyQSubstitution θ ς))
 
 typeCheckGlobalAnnotate ::
   TermAuto p ->

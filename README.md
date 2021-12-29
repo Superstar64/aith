@@ -90,8 +90,8 @@ See ``/rules`` for typing rules.
 | Multiplication with Sign | ``e *'ρ e'`` |
 | Divsion | ``e / e'`` |
 | Division with Sign | ``e /'ρ e'`` |
-| Type Abstraction | ``/\pmσ ### σ => e`` |
-| Type Abstraction | ``/\pmσ ### σ { e }`` |
+| Type Abstraction | ``/\pmσ => e`` |
+| Type Abstraction | ``/\pmσ { e }`` |
 | Type Application | ``e [[\/pmσ => σ]]<τ>``|
 
 ## Patterns(pm)

@@ -113,8 +113,8 @@ convertTerm (CoreTerm p (TermRuntime (Arithmatic o e1 e2 κ))) = do
       _ -> error "bad sign"
 convertTerm (CoreTerm _ (ImplicationAbstraction (Bound _ e))) = convertTerm e
 convertTerm (CoreTerm _ (ImplicationApplication _ e _)) = convertTerm e
-convertTerm (CoreTerm _ (TypeAbstraction (Bound (Pattern _ x κ) (_, e)))) = withReaderT (Map.insert x κ) $ convertTerm e
-convertTerm (CoreTerm _ (TypeApplication (e, _))) = convertTerm e
+convertTerm (CoreTerm _ (TypeAbstraction (Bound (Pattern _ x κ) e))) = withReaderT (Map.insert x κ) $ convertTerm e
+convertTerm (CoreTerm _ (TypeApplication e _ _)) = convertTerm e
 convertTerm (CoreTerm _ (MacroAbstraction _)) = simpleFailTerm
 convertTerm (CoreTerm _ (MacroApplication _ _ _)) = simpleFailTerm
 convertTerm (CoreTerm _ (OfCourseIntroduction _)) = simpleFailTerm

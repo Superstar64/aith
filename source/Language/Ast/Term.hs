@@ -50,7 +50,7 @@ data TermRuntime θ s σ' σ λ ev e
   | Arithmatic Arithmatic e e s
   deriving (Show)
 
-data TermF λtl λta θ κ σ λ e
+data TermF λtl λt θ κ σ λ e
   = TermRuntime (TermRuntime θ κ σ σ λ e e)
   | FunctionLiteral λ
   | MacroAbstraction λ
@@ -64,15 +64,15 @@ data TermF λtl λta θ κ σ λ e
   | ProofCopyPair e e
   | ProofCopyReference
   | TypeAbstraction λtl
-  | TypeApplication λta
+  | TypeApplication e σ λt
   deriving (Show)
 
 data Term θ κ σ p
   = CoreTerm
       p
       ( TermF
-          (Bound (Pattern TypeIdentifier κ p) (σ, (Term θ κ σ p)))
-          (Term θ κ σ p, (σ, Bound (Pattern TypeIdentifier κ p) σ))
+          (Bound (Pattern TypeIdentifier κ p) (Term θ κ σ p))
+          (Bound (Pattern TypeIdentifier κ p) σ)
           θ
           κ
           σ
@@ -207,8 +207,8 @@ typeLambda = Prism TypeAbstraction $ \case
   TypeAbstraction pm -> Just pm
   _ -> Nothing
 
-typeApplication = Prism TypeApplication $ \case
-  TypeApplication e -> Just e
+typeApplication = Prism (uncurry $ uncurry TypeApplication) $ \case
+  TypeApplication e σ λ -> Just ((e, σ), λ)
   _ -> Nothing
 
 traversePatternCommon ::
@@ -277,14 +277,14 @@ traverseTermRuntime d h y f g j i e =
 traverseTermF ::
   Applicative m =>
   (λtl -> m λtl') ->
-  (λta -> m λta') ->
+  (λσ -> m λσ') ->
   (θ -> m θ') ->
   (κ -> m κ') ->
   (σ -> m σ') ->
   (λ -> m λ') ->
   (e -> m e') ->
-  TermF λtl λta θ κ σ λ e ->
-  m (TermF λtl' λta' θ' κ' σ' λ' e')
+  TermF λtl λσ θ κ σ λ e ->
+  m (TermF λtl' λσ' θ' κ' σ' λ' e')
 traverseTermF k l d j f h i e =
   case e of
     TermRuntime e -> pure TermRuntime <*> traverseTermRuntime d j f f h i i e
@@ -300,7 +300,7 @@ traverseTermF k l d j f h i e =
     ProofCopyPair e e' -> pure ProofCopyPair <*> i e <*> i e'
     ProofCopyReference -> pure ProofCopyReference
     TypeAbstraction λ -> pure TypeAbstraction <*> k λ
-    TypeApplication a -> pure TypeApplication <*> l a
+    TypeApplication e σ λ -> pure TypeApplication <*> i e <*> f σ <*> l λ
 
 foldTermF l k d j f h i = getConst . traverseTermF (Const . l) (Const . k) (Const . d) (Const . j) (Const . f) (Const . h) (Const . i)
 
@@ -318,8 +318,8 @@ traverseTerm d h f g (CoreTerm p e) =
   let recurse = traverseTerm d h f g
    in pure CoreTerm <*> g p
         <*> traverseTermF
-          (bitraverse (traversePattern pure h g) (bitraverse f recurse))
-          (bitraverse recurse (bitraverse f (bitraverse (traversePattern pure h g) f)))
+          (bitraverse (traversePattern pure h g) recurse)
+          (bitraverse (traversePattern pure h g) f)
           d
           h
           f
@@ -584,7 +584,7 @@ instance Correct InstantiationInfer (Term InstantiationInfer KindInfer TypeInfer
 instance Reduce (Term InstantiationInfer KindInfer TypeInfer p) where
   reduce (CoreTerm _ (Bind e λ)) = apply (reduce λ) (reduce e)
   reduce (CoreTerm _ (MacroApplication e1 e2 _)) | (CoreTerm _ (MacroAbstraction λ)) <- reduce e1 = apply λ (reduce e2)
-  reduce (CoreTerm _ (TypeApplication (e1, (σ, _)))) | (CoreTerm _ (TypeAbstraction (Bound pm (_, e)))) <- reduce e1 = apply (Bound pm e) σ
+  reduce (CoreTerm _ (TypeApplication e1 σ _)) | (CoreTerm _ (TypeAbstraction (Bound pm e))) <- reduce e1 = apply (Bound pm e) σ
   reduce (CoreTerm _ (ImplicationApplication e1 e2 _)) | (CoreTerm _ (ImplicationAbstraction λ)) <- reduce e1 = apply λ (reduce e2)
   reduce (CoreTerm p e) = CoreTerm p (mapTermF go go go go go go go e)
     where

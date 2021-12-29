@@ -274,7 +274,7 @@ term = termBinding
         applyBinary = application `branchDistribute` implicationApplication `branchDistribute` typeApplication
         application = withInnerPosition3 Language.coreTerm Language.macroApplication . toPrism associate'
         implicationApplication = withInnerPosition3 Language.coreTerm Language.implicationApplication . toPrism associate'
-        typeApplication = withInnerPosition Language.coreTerm Language.typeApplication
+        typeApplication = withInnerPosition3 Language.coreTerm Language.typeApplication . toPrism associate'
         applySyntax = space ≫ token "`" ≫ optionalAnnotate termCore
         implicationApplySyntax = space ≫ token "^" ≫ optionalAnnotate termCore
         typeApplySyntax = swap ⊣ space ≫ betweenDoubleSquares (Language.bound ⊣ token "\\/" ≫ typePattern ⊗ lambdaInline typeAuto) ⊗ betweenAngle typeAuto
@@ -296,7 +296,7 @@ termCore = Language.coreTerm ⊣ position ⊗ choice options ∥ betweenParens t
         Language.proofCopyReference ⊣ keyword "copyReference",
         Language.ofCourseIntroduction ⊣ betweenBangSquares term,
         Language.numberLiteral ⊣ number,
-        Language.typeLambda ⊣ Language.bound ⊣ token "/\\" ≫ typePattern ⊗ (binaryToken "###" ≫ typeAuto ⊗ lambdaMajor term)
+        Language.typeLambda ⊣ Language.bound ⊣ token "/\\" ≫ typePattern ⊗ lambdaMajor term
       ]
 
 modulex ::

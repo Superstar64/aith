@@ -43,18 +43,19 @@ module runtime = {
 
 
 module systemf = {
-  inline idSysF = /\A ### (A -`> A) => `\x => x;
+
+  inline _ :: <'S : _stage, B : *[S]> \/A => B -`> B;
+  inline ignored = /\A : *[S] => `\(x : B) => x;
+  
+  inline idSysF = /\A => `\(x : A) => x;
+  
   inline runIdSysF = `\f {
     f[[\/A => A -`> A]]<_>
   };
   
   inline id = runIdSysF `idSysF;
   
-  inline constSysF = /\A ### \/B => ![A] -`> ![B] -`> A {
-    /\B ### ![A] -`> ![B] -`> A {
-      `\![x] => `\![y] => x
-    }
-  };
+  inline constSysF = /\A => /\B => `\![x : A] => `\![y : B] => x;
   
   inline _ :: <'X:_stage, 'Y:_stage, A:*[X], B:*[Y]> ![A] -`> ![B] -`> A;
   inline const = constSysF[[\/A => \/B => ![A] -`> ![B] -`> A]]<_>[[\/ B => ![A] -`> ![B] -`> A]]<_>;
