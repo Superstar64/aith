@@ -2,12 +2,11 @@ module Syntax where
 
 import Control.Applicative (Alternative, empty, (<|>))
 import Control.Category (id, (.))
-import Control.Monad (MonadPlus, liftM2)
-import qualified Control.Monad.Combinators as Combinators
+import Control.Monad (MonadPlus, guard, liftM2)
 import Control.Monad.State.Strict (State, get, put, runState)
 import Control.Monad.Writer.Strict (WriterT, runWriterT, tell)
-import Data.Char (isAlpha, isAlphaNum)
 import Data.Maybe (fromJust)
+import qualified Data.Set as Set
 import Data.Void (Void)
 import Language.Ast.Common (Internal (..), location)
 import qualified Language.Ast.Common as Language
@@ -30,10 +29,48 @@ import Prelude hiding (id, (.))
 
 infixl 3 ∥#
 
+keywords =
+  Set.fromList
+    [ "multiarg",
+      "kind",
+      "stage",
+      "existance",
+      "size",
+      "signedness",
+      "word",
+      "meta",
+      "runtime",
+      "imaginary",
+      "evidence",
+      "region",
+      "text",
+      "pointer",
+      "struct",
+      "byte",
+      "short",
+      "int",
+      "long",
+      "signed",
+      "unsigned",
+      "reference",
+      "inline",
+      "let",
+      "copyPair",
+      "read",
+      "extern",
+      "copyNumber",
+      "copyFunction",
+      "copyReference",
+      "module",
+      "import",
+      "symbol"
+    ]
+
 -- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
 
 class SyntaxBase δ => Syntax δ where
-  string :: String -> δ ()
+  token :: String -> δ ()
+  keyword :: String -> δ ()
   identifer :: δ String
   stringLiteral :: δ String
   number :: δ Integer
@@ -52,15 +89,9 @@ class SyntaxBase δ => Syntax δ where
 class Position δ p where
   position :: δ p
 
-token = string
-
 binaryToken op = space ≫ token op ≫ space
 
-keyword word = string ('_' : word)
-
 prefixKeyword word = keyword word ≫ space
-
-moduleKeyword = string
 
 betweenParens = between (token "(") (token ")")
 
@@ -314,12 +345,12 @@ item header footer lambda =
       itemAnnotate "symbol" (Module.global . Module.text) term
     ]
   where
-    itemCore brand inner = moduleKeyword brand ≫ header ⊗ inner ≪ footer
-    itemAnnotate brand f inner = moduleKeyword brand ≫ (secondP f ⊣ correct ⊣ (annotated ∥ (nothing ⊣ always) ⊗ implicit))
+    itemCore brand inner = keyword brand ≫ header ⊗ inner ≪ footer
+    itemAnnotate brand f inner = keyword brand ≫ (secondP f ⊣ correct ⊣ (annotated ∥ (nothing ⊣ always) ⊗ implicit))
       where
         correct = associate . firstI swap . associate'
         implicit = header ⊗ inner ≪ footer
-        annotated = space ≫ moduleKeyword "_" ≫ binaryToken "::" ≫ (just ⊣ typeScheme) ≪ token ";" ≪ line ≪ moduleKeyword brand ⊗ implicit
+        annotated = space ≫ token "_" ≫ binaryToken "::" ≫ (just ⊣ typeScheme) ≪ token ";" ≪ line ≪ keyword brand ⊗ implicit
 
 itemSingleton ::
   (Syntax δ, Position δ p) => δ (Module.ItemAuto p)
@@ -347,18 +378,30 @@ instance SyntaxBase Parser where
   always = pure ()
 
 instance Syntax Parser where
-  string op = Parser $ Megaparsec.string op >> Megaparsec.space
-  identifer = Parser $ do
-    c <- Megaparsec.satisfy isAlpha Megaparsec.<?> "letter"
-    cs <- Combinators.many (Megaparsec.satisfy isAlphaNum Megaparsec.<?> "letter or number")
+  token op = Parser $ Megaparsec.string op >> Megaparsec.space
+  keyword string = Parser $ do
+    Megaparsec.label string $
+      Megaparsec.try $ do
+        c <- Megaparsec.letterChar
+        cs <- Megaparsec.many Megaparsec.alphaNumChar
+        guard $ (c : cs) == string
     Megaparsec.space
-    pure (c : cs)
+    pure ()
+  identifer = Parser $ do
+    str <- Megaparsec.label "identifer" $
+      Megaparsec.try $ do
+        c <- Megaparsec.letterChar
+        cs <- Megaparsec.many Megaparsec.alphaNumChar
+        guard $ (c : cs) `Set.notMember` keywords
+        pure (c : cs)
+    Megaparsec.space
+    pure str
   stringLiteral = Parser $ do
     Megaparsec.string "\""
-    Combinators.manyTill (Megaparsec.satisfy (const True)) (Megaparsec.string "\"") <* Megaparsec.space
+    Megaparsec.manyTill (Megaparsec.satisfy (const True)) (Megaparsec.string "\"") <* Megaparsec.space
   _ ∥# q = q
   number = Parser $ do
-    read <$> Combinators.some (Megaparsec.satisfy isNum Megaparsec.<?> "number") <* Megaparsec.space
+    read <$> Megaparsec.some (Megaparsec.satisfy isNum Megaparsec.<?> "number") <* Megaparsec.space
     where
       isNum x = x `elem` ['0' .. '9']
   try (Parser m) = Parser $ Megaparsec.try m
@@ -390,7 +433,10 @@ instance Position Parser Internal where
   position = Parser $ pure Internal
 
 instance Syntax Printer where
-  string op = Printer $ \() -> Just $ tell op
+  token op = Printer $ \() -> Just $ tell op
+  keyword name = Printer $ \() -> Just $ tell name
+
+  -- todo invert syntax for pretty printing keywords as identifers
   identifer = Printer $ \name -> Just $ tell name
   stringLiteral = Printer $ \str -> Just $ do
     tell "\""

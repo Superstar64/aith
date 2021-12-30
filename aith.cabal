@@ -49,7 +49,6 @@ common aith-base
         containers,
         mtl,
         megaparsec,
-        parser-combinators,
         directory,
         filepath,
         pretty-simple
