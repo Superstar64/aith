@@ -64,8 +64,8 @@ See ``/rules`` for typing rules.
 | Macro Application | ``e `e'``|
 | Macro Application Ascribe | ``e `(e : σ)``|
 | Of Course Introduction | ``![e]`` |
-| Macro Binding | ``_inline pm = e; e'``|
-| Extern | ``_extern "x" σa -> σa σa'`` |
+| Macro Binding | ``inline pm = e; e'``|
+| Extern | ``extern "x" σa -> σa σa'`` |
 | Function Application | ``e $ e'``|
 | Function Application Ascribe | ``e $ (e' : σ)``|
 | Function Literal | ``\pm => e`` |
@@ -74,13 +74,13 @@ See ``/rules`` for typing rules.
 | Evidence Abstraction | ``^\pm { e }``|
 | Evidence Application | ``e ^e'`` |
 | Evidence Application Ascribe | ``e ^(e : σ)`` |
-| Runtime Binding | ``_let pm = e; e'`` |
+| Runtime Binding | ``let pm = e; e'`` |
 | Runtime Pair Construction | ``e, e'`` |
-| Read Reference | `` _read !(e') e`` |
-| Copy Function Proof | ``_copyFunction`` |
-| Copy Number Proof | ``_copyNumber`` |
-| Copy Pair Proof | ``_copyPair e e'`` |
-| Copy Reference Proof | ``_copyReference``|
+| Read Reference | `` read !(e') e`` |
+| Copy Function Proof | ``copyFunction`` |
+| Copy Number Proof | ``copyNumber`` |
+| Copy Pair Proof | ``copyPair e e'`` |
+| Copy Reference Proof | ``copyReference``|
 | Number Literal | ``n`` |
 | Addition | ``e + e'`` |
 | Addition with Sign | ``e +'ρ e'`` |
@@ -128,7 +128,7 @@ See ``/rules`` for typing rules.
 | Copy Predicate | ``!(σ)`` |
 | Runtime Pair | ``σ, σ'`` |
 | Effect | ``σ @ π`` |
-| Region Reference | ``_reference π σ`` |
+| Region Reference | ``reference π σ`` |
 | Number | ``{{ρ}} ρ'`` |
 
 
@@ -150,22 +150,22 @@ See ``/rules`` for typing rules.
 | Variable | ``x`` |
 | Type | ``*[s]`` |
 | Pretype | ``+[s]`` |
-| Evidence | ``_evidence`` |
-| Region | ``_region`` |
-| Runtime | ``_runtime'`` |
+| Evidence | ``evidence`` |
+| Region | ``region`` |
+| Runtime | ``runtime'`` |
 | Real | ``#ρ#``|
-| Imaginary | ``_imaginary`` |
-| Meta | ``_meta`` |
-| Text | ``_text`` |
-| Pointer Representation | ``_pointer``|
-| Struct Representation | ``_struct (ρ, ρ', ...)`` |
-| Word Representation | ``_word ρ`` |
-| Signed | ``_signed`` |
-| Unsigned | ``_unsigned`` |
-| Byte Size | ``_byte``|
-| Short Size | ``_short``|
-| Int Size | ``_int`` |
-| Long Size | ``_long`` |
+| Imaginary | ``imaginary`` |
+| Meta | ``meta`` |
+| Text | ``text`` |
+| Pointer Representation | ``pointer``|
+| Struct Representation | ``struct (ρ, ρ', ...)`` |
+| Word Representation | ``word ρ`` |
+| Signed | ``signed`` |
+| Unsigned | ``unsigned`` |
+| Byte Size | ``byte``|
+| Short Size | ``short``|
+| Int Size | ``int`` |
+| Long Size | ``long`` |
 
 # Kind Pattern (pmκ)
 | Description | Syntax |
@@ -175,12 +175,12 @@ See ``/rules`` for typing rules.
 ## Sorts(μ)
 | Description | Syntax |
 |-|-|
-| Kind | ``_kind`` |
-| Stage | ``_stage`` |
-| Existance | ``_existance`` |
-| Representation | ``_representation`` |
-| Signedness | ``_signedness`` |
-| Size | ``_size`` |
+| Kind | ``kind`` |
+| Stage | ``stage`` |
+| Existance | ``existance`` |
+| Representation | ``representation`` |
+| Signedness | ``signedness`` |
+| Size | ``size`` |
 
 # C Compiler Requirements
 * All pointers must have the same representation
