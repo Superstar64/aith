@@ -38,6 +38,16 @@ module run = {
   symbol pattern = ^\proof1 => ^\proof2 => \!(copyPair proof1 proof2)[pair] {
     (fst ^proof2 $ pair), (snd ^proof1 $ pair)
   };
+  
+  symbol _ :: <R : region> {{unsigned}} int, {{unsigned}} int -> R {{unsigned}} int; 
+  symbol mid = \(x,y) {
+    (x + y) / 2
+  };
+  
+  symbol _ :: <R : region> {{unsigned}} int, {{unsigned}} int -> R {{unsigned}} int;
+  symbol div = \(x,!(copyNumber)[y]) {
+    (x + y - 1) / y
+  };
 };
 
 
