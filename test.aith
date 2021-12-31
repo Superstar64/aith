@@ -17,16 +17,16 @@ module run = {
 	
 	
 	inline _ :: !({{signed}} int, {{signed}} int, {{signed}} int);
-  inline copyVector = copyPair (copyPair copyNumber copyNumber) copyNumber;
+	inline copyVector = copyPair (copyPair copyNumber copyNumber) copyNumber;
 
-  symbol dotProduct = \(vector1P, vector2P) {
-    inline ![c] = ![copyNumber];
-    let (!(c)[x1],!(c)[y1],!(c)[z1]) = read !(copyVector) vector1P;
-    let (!(c)[x2],!(c)[y2],!(c)[z2]) = read !(copyVector) vector2P;
-    (x1 * x2 + y1 * y2 + z1 * z2)
-  };
+	symbol dotProduct = \(vector1P, vector2P) {
+		inline ![c] = ![copyNumber];
+		let (!(c)[x1],!(c)[y1],!(c)[z1]) = read !(copyVector) vector1P;
+		let (!(c)[x2],!(c)[y2],!(c)[z2]) = read !(copyVector) vector2P;
+		(x1 * x2 + y1 * y2 + z1 * z2)
+	};
   
-  symbol fstSysF = /\A : +[#pointer#] => /\B : +[#pointer#] => ^\(proof : !(B)) => \((x : A), !(proof)[y]) => x;
+	symbol fstSysF = /\A : +[#pointer#] => /\B : +[#pointer#] => ^\(proof : !(B)) => \((x : A), !(proof)[y]) => x;
   
   
 	symbol _ :: <A : +[#pointer#], B : +[#pointer#], R : region> !(B) -^> (A, B) -> R A;
@@ -35,38 +35,38 @@ module run = {
 	symbol _ :: <A : +[#pointer#], B : +[#pointer#], R : region> !(A) -^> (A, B) -> R B;
 	symbol snd = ^\proof => \(!(proof)[x], y) => y;
 	
-  symbol pattern = ^\proof1 => ^\proof2 => \!(copyPair proof1 proof2)[pair] {
-    (fst ^proof2 $ pair), (snd ^proof1 $ pair)
-  };
+	symbol pattern = ^\proof1 => ^\proof2 => \!(copyPair proof1 proof2)[pair] {
+		(fst ^proof2 $ pair), (snd ^proof1 $ pair)
+	};
   
-  symbol _ :: <R : region> {{unsigned}} int, {{unsigned}} int -> R {{unsigned}} int; 
-  symbol mid = \(x,y) {
-    (x + y) / 2
-  };
+	symbol _ :: <R : region> {{unsigned}} int, {{unsigned}} int -> R {{unsigned}} int; 
+	symbol mid = \(x,y) {
+		(x + y) / 2
+	};
   
-  symbol _ :: <R : region> {{unsigned}} int, {{unsigned}} int -> R {{unsigned}} int;
-  symbol div = \(x,!(copyNumber)[y]) {
-    (x + y - 1) / y
-  };
+	symbol _ :: <R : region> {{unsigned}} int, {{unsigned}} int -> R {{unsigned}} int;
+	symbol div = \(x,!(copyNumber)[y]) {
+		(x + y - 1) / y
+	};
 };
 
 
 module systemf = {
 
-  inline _ :: <'S : stage, B : *[S]> \/A => B -`> B;
-  inline ignored = /\A : *[S] => `\(x : B) => x;
-  
-  inline idSysF = /\A => `\(x : A) => x;
-  
-  inline runIdSysF = `\f {
-    f[[\/A => A -`> A]]<_>
-  };
-  
-  inline id = runIdSysF `idSysF;
-  
-  inline constSysF = /\A => /\B => `\![x : A] => `\![y : B] => x;
-  
-  inline _ :: <'X:stage, 'Y:stage, A:*[X], B:*[Y]> ![A] -`> ![B] -`> A;
-  inline const = constSysF[[\/A => \/B => ![A] -`> ![B] -`> A]]<_>[[\/ B => ![A] -`> ![B] -`> A]]<_>;
+	inline _ :: <'S : stage, B : *[S]> \/A => B -`> B;
+	inline ignored = /\A : *[S] => `\(x : B) => x;
+
+	inline idSysF = /\A => `\(x : A) => x;
+
+	inline runIdSysF = `\f {
+		f[[\/A => A -`> A]]<_>
+	};
+
+	inline id = runIdSysF `idSysF;
+
+	inline constSysF = /\A => /\B => `\![x : A] => `\![y : B] => x;
+
+	inline _ :: <'X:stage, 'Y:stage, A:*[X], B:*[Y]> ![A] -`> ![B] -`> A;
+	inline const = constSysF[[\/A => \/B => ![A] -`> ![B] -`> A]]<_>[[\/ B => ![A] -`> ![B] -`> A]]<_>;
 
 };
