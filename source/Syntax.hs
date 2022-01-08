@@ -1,5 +1,11 @@
 module Syntax where
 
+import Ast.Common (Internal (..), location)
+import qualified Ast.Common as Language
+import qualified Ast.Kind as Language
+import qualified Ast.Sort as Language
+import qualified Ast.Term as Language
+import qualified Ast.Type as Language
 import Control.Applicative (Alternative, empty, (<|>))
 import Control.Category (id, (.))
 import Control.Monad (MonadPlus, guard, liftM2)
@@ -8,13 +14,8 @@ import Control.Monad.Writer.Strict (WriterT, runWriterT, tell)
 import Data.Maybe (fromJust)
 import qualified Data.Set as Set
 import Data.Void (Void)
-import Language.Ast.Common (Internal (..), location)
-import qualified Language.Ast.Common as Language
-import qualified Language.Ast.Kind as Language
-import qualified Language.Ast.Sort as Language
-import qualified Language.Ast.Term as Language
-import qualified Language.Ast.Type as Language
 import Misc.Isomorph
+import Misc.MonoidMap (Map)
 import qualified Misc.Path as Path
 import Misc.Prism
 import qualified Misc.Symbol as Symbol
@@ -32,18 +33,12 @@ infixl 3 ∥#
 keywords =
   Set.fromList
     [ "multiarg",
-      "kind",
-      "stage",
       "existance",
       "size",
       "signedness",
       "word",
-      "meta",
-      "runtime",
       "imaginary",
-      "evidence",
       "region",
-      "text",
       "pointer",
       "struct",
       "byte",
@@ -55,12 +50,7 @@ keywords =
       "reference",
       "inline",
       "let",
-      "copyPair",
-      "read",
       "extern",
-      "copyNumber",
-      "copyFunction",
-      "copyReference",
       "module",
       "import",
       "symbol"
@@ -139,6 +129,8 @@ withInnerPosition core app = toPrism core . secondP app . toPrism (extractInfo $
 
 withInnerPosition3 core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst . fst)
 
+withInnerPosition4 core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst . fst . fst)
+
 path = (Path.path . swapNonEmpty) ⊣ token "/" ≫ identifer ⊗ pathTail
   where
     pathTail = cons ⊣ token "/" ≫ identifer ⊗ pathTail ∥ nil ⊣ always
@@ -155,8 +147,7 @@ kindIdentifier = Language.kindIdentifier ⊣ identifer
 
 sort =
   choice
-    [ Language.kind ⊣ keyword "kind",
-      Language.stage ⊣ keyword "stage",
+    [ Language.kind ⊣ token "[" ≫ space ≫ token "]",
       Language.existance ⊣ keyword "existance",
       Language.representation ⊣ keyword "representation",
       Language.size ⊣ keyword "size",
@@ -179,14 +170,10 @@ kindCore = Language.coreKind ⊣ position ⊗ choice options ∥ betweenParens k
   where
     options =
       [ Language.kindVariable ⊣ kindIdentifier,
-        Language.typex ⊣ betweenStarSquares kind,
+        Language.typex ⊣ token "*",
         Language.pretype ⊣ betweenPlusSquares kind,
-        Language.meta ⊣ keyword "meta",
-        Language.runtime ⊣ keyword "runtime",
         Language.imaginary ⊣ keyword "imaginary",
-        Language.evidence ⊣ keyword "evidence",
         Language.region ⊣ prefixKeyword "region",
-        Language.text ⊣ keyword "text",
         Language.pointerRep ⊣ keyword "pointer",
         Language.structRep ⊣ prefixKeyword "struct" ≫ betweenParens (commaSeperatedMany kind),
         Language.byte ⊣ keyword "byte",
@@ -201,16 +188,26 @@ kindCoreAuto = just ⊣ kindCore ∥ nothing ⊣ token "_"
 
 kindAuto = just ⊣ kind ∥ nothing ⊣ token "_"
 
+constraint = Language.copy ⊣ keyword "copy" ≫ always
+
+constraints :: Syntax δ => δ σ -> δ (Map Language.Constraint [σ])
+constraints σ = orderless ⊣ (items ∥ nil ⊣ always)
+  where
+    items = cons ⊣ inverse nonEmpty ⊣ binaryToken "+" ≫ seperatedSome (constraint ⊗ many σ) (binaryToken "&")
+
 typePattern = Language.pattern ⊣ position ⊗ typeIdentifier ⊗ (just ⊣ token ":" ≫ kind ∥ nothing ⊣ always)
+
+constraintBound = firstP (toPrism Language.bound) . toPrism transform
+  where
+    transform = associate' . secondI swap . associate
 
 typex :: (Position δ p, Syntax δ) => δ (Language.Type (Language.KindAuto p) Void p)
 typex = typeArrow
   where
-    typeArrow = applyBinary ⊣ typeEffect ⊗ (binaryToken "-`>" ≫ typeArrow ⊕ binaryToken "-^>" ≫ typeArrow ⊕ always)
+    typeArrow = applyBinary ⊣ typeEffect ⊗ (binaryToken "-`>" ≫ typeArrow ⊕ always)
       where
-        applyBinary = macro `branchDistribute` implied `branchDistribute` unit'
+        applyBinary = macro `branchDistribute` unit'
         macro = withInnerPosition Language.coreType Language.macro
-        implied = withInnerPosition Language.coreType Language.implied
     typeEffect = effect `branchDistribute` unit' ⊣ typeRTArrow ⊗ (binaryToken "@" ≫ typeCore ⊕ always)
       where
         effect = withInnerPosition Language.coreType Language.effect
@@ -233,9 +230,8 @@ typeCore = Language.coreType ⊣ position ⊗ (choice options) ∥ betweenParens
     options =
       [ Language.typeVariable ⊣ typeIdentifier,
         Language.number ⊣ betweenDoubleBraces kindAuto ⊗ space ≫ kindCoreAuto,
-        Language.explicitForall ⊣ Language.bound ⊣ token "\\/" ≫ typePattern ⊗ lambdaInline typex,
-        Language.ofCourse ⊣ betweenBangSquares typex,
-        Language.copy ⊣ betweenBangParens typex
+        Language.explicitForall ⊣ constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints typeCore ⊗ lambdaInline typex,
+        Language.ofCourse ⊣ betweenBangSquares typex
       ]
 
 typeAuto = just ⊣ typex ∥ nothing ⊣ token "_"
@@ -245,11 +241,11 @@ typeCoreAuto = just ⊣ typeCore ∥ nothing ⊣ token "_"
 typeScheme = mono ∥ foldrP applyScheme ⊣ scheme
   where
     mono = Language.coreTypeScheme ⊣ position ⊗ (Language.monoType ⊣ typex)
-    schemeCore = typePattern ⊕ token "'" ≫ kindPattern
+    schemeCore = typePattern ⊗ constraints typeCore ⊕ token "'" ≫ kindPattern
     scheme = betweenAngle (commaSeperatedMany (position ⊗ schemeCore)) ⊗ space ≫ mono
     applyScheme = toPrism Language.coreTypeScheme . secondP inner . toPrism associate
       where
-        inner = (Language.forallx . toPrism Language.bound) `branchDistribute'` (Language.kindForall . toPrism Language.bound)
+        inner = (Language.forallx . constraintBound) `branchDistribute'` (Language.kindForall . toPrism Language.bound)
 
 termPattern = patternTop
   where
@@ -263,7 +259,6 @@ termPattern = patternTop
       where
         options =
           [ Language.patternVariable ⊣ termIdentifier ⊗ (nothing ⊣ always),
-            Language.patternCopy ⊣ betweenBangParens term ⊗ betweenSquares termPattern,
             Language.patternOfCourse ⊣ betweenBangSquares termPattern
           ]
 
@@ -300,18 +295,17 @@ term = termBinding
     termPair = foldlP pair ⊣ termApply ⊗ many (token "," ≫ space ≫ termApply)
       where
         pair = withInnerPosition Language.coreTerm Language.runtimePairIntrouction
-    termApply = Language.coreTerm ⊣ position ⊗ choice options ∥ foldlP applyBinary ⊣ termCore ⊗ many (applySyntax ⊕ implicationApplySyntax ⊕ typeApplySyntax)
+    termApply = Language.coreTerm ⊣ position ⊗ choice options ∥ foldlP applyBinary ⊣ termCore ⊗ many (applySyntax ⊕ typeApplySyntax)
       where
-        applyBinary = application `branchDistribute` implicationApplication `branchDistribute` typeApplication
+        applyBinary = application `branchDistribute` typeApplication
         application = withInnerPosition3 Language.coreTerm Language.macroApplication . toPrism associate'
-        implicationApplication = withInnerPosition3 Language.coreTerm Language.implicationApplication . toPrism associate'
-        typeApplication = withInnerPosition3 Language.coreTerm Language.typeApplication . toPrism associate'
+        typeApplication = withInnerPosition4 Language.coreTerm Language.typeApplication . toPrism (firstI associate' . associate')
         applySyntax = space ≫ token "`" ≫ optionalAnnotate termCore
-        implicationApplySyntax = space ≫ token "^" ≫ optionalAnnotate termCore
-        typeApplySyntax = swap ⊣ space ≫ betweenDoubleSquares (Language.bound ⊣ token "\\/" ≫ typePattern ⊗ lambdaInline typeAuto) ⊗ betweenAngle typeAuto
+        typeApplySyntax =
+          associate' ⊣ swap ⊣ space
+            ≫ betweenDoubleSquares (constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints typeCoreAuto ⊗ lambdaInline typeAuto) ⊗ betweenAngle typeAuto
         options =
-          [ Language.proofCopyPair ⊣ prefixKeyword "copyPair" ≫ termCore ⊗ space ≫ termCore,
-            Language.readReference ⊣ prefixKeyword "read" ≫ betweenBangParens term ≪ space ⊗ termCore
+          [ Language.readReference ⊣ token "*" ≫ termCore
           ]
 
 termCore = Language.coreTerm ⊣ position ⊗ choice options ∥ betweenParens term
@@ -320,14 +314,10 @@ termCore = Language.coreTerm ⊣ position ⊗ choice options ∥ betweenParens t
       [ Language.variable ⊣ termIdentifier ⊗ always,
         Language.macroAbstraction ⊣ Language.bound ⊣ token "`\\" ≫ termPattern ⊗ lambdaMajor term,
         Language.functionLiteral ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ lambdaMajor term,
-        Language.implicationAbstraction ⊣ Language.bound ⊣ token "^\\" ≫ termPattern ⊗ lambdaMajor term,
         Language.extern ⊣ prefixKeyword "extern" ≫ symbol ≪ space ⊗ typeCoreAuto ≪ binaryToken "->" ⊗ typeCoreAuto ≪ space ⊗ typeCoreAuto,
-        Language.proofCopyNumber ⊣ keyword "copyNumber",
-        Language.proofCopyFunction ⊣ keyword "copyFunction",
-        Language.proofCopyReference ⊣ keyword "copyReference",
         Language.ofCourseIntroduction ⊣ betweenBangSquares term,
         Language.numberLiteral ⊣ number,
-        Language.typeLambda ⊣ Language.bound ⊣ token "/\\" ≫ typePattern ⊗ lambdaMajor term
+        Language.typeLambda ⊣ constraintBound ⊣ token "/\\" ≫ typePattern ⊗ constraints typeCoreAuto ⊗ lambdaMajor term
       ]
 
 modulex ::

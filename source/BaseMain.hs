@@ -1,5 +1,9 @@
 module BaseMain where
 
+import Ast.Common
+import Ast.Kind hiding (typex)
+import Ast.Term
+import Ast.Type (Type (..), TypeF (..), TypeInfer, TypeSchemeInfer, TypeUnify, mapTypeF)
 import qualified C.Ast as C
 import qualified C.Print as C
 import Codegen
@@ -7,11 +11,6 @@ import Control.Monad.Reader
 import Data.Bifunctor
 import Data.Traversable (for)
 import Data.Void
-import Language.Ast.Common
-import Language.Ast.Kind hiding (Text, typex)
-import Language.Ast.Term
-import Language.Ast.Type (Type (..), TypeF (..), TypeInfer, TypeSchemeInfer, TypeUnify, mapTypeF)
-import Language.TypeCheck.Core
 import qualified Misc.MonoidMap as Map
 import Misc.Path hiding (path)
 import Module hiding (modulex)
@@ -21,6 +20,7 @@ import System.Directory
 import System.Exit
 import System.FilePath
 import Text.Megaparsec (SourcePos, errorBundlePretty)
+import TypeCheck.Core
 import Prelude hiding (readFile, writeFile)
 import qualified Prelude
 
@@ -59,6 +59,9 @@ prettyError :: TypeError [SourcePos] -> String
 prettyError (UnknownIdentifier p (TermIdentifier x)) = "Unknown identifer " ++ x ++ positions p
 prettyError (TypeMismatch p σ σ') = "Type mismatch between ``" ++ pretty typex (nameType σ) ++ "`` and ``" ++ pretty typex (nameType σ') ++ "``" ++ positions p
 prettyError (KindMismatch p κ κ') = "Kind mismatch between ``" ++ pretty kind (nameKind κ) ++ "`` and ``" ++ pretty kind (nameKind κ') ++ "``" ++ positions p
+prettyError (ConstraintMismatch p c σ σs) = "Unable to proof ``" ++ pretty constraint c ++ "(" ++ pretty typex (nameType σ) ++ (σs >>= argument) ++ ")``" ++ positions p
+  where
+    argument σ = ", " ++ pretty typex (nameType σ)
 prettyError e = show e
 
 newtype PrettyIO a = PrettyIO {runPrettyIO :: IO a} deriving (Functor, Applicative, Monad)

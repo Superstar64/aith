@@ -12,16 +12,15 @@ common aith-base
         Misc.Path
         Misc.Util
         Environment
-        Language.TypeCheck
-        Language.TypeCheck.Substitute
-        Language.TypeCheck.Core
-        Language.TypeCheck.Unify
-        Language.Ast.Common
-        Language.Ast.Kind
-        Language.Ast.Type
-        Language.Ast.Multiplicity
-        Language.Ast.Term
-        Language.Ast.Sort
+        TypeCheck
+        TypeCheck.Substitute
+        TypeCheck.Core
+        TypeCheck.Unify
+        Ast.Common
+        Ast.Kind
+        Ast.Type
+        Ast.Term
+        Ast.Sort
         Module
         Misc.MonoidMap
         Misc.Symbol
@@ -41,7 +40,6 @@ common aith-base
         FlexibleInstances FlexibleContexts NoMonomorphismRestriction
         TypeApplications ScopedTypeVariables AllowAmbiguousTypes
         GeneralizedNewtypeDeriving LambdaCase TypeOperators
-        StrictData
 
     ghc-options:        -W -Worphans -Wcompat -Wincomplete-uni-patterns -interactive-print=Text.Pretty.Simple.pPrint
     build-depends:

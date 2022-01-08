@@ -1,10 +1,10 @@
-module Language.Ast.Kind where
+module Ast.Kind where
 
+import Ast.Common
 import Control.Category ((.))
 import Data.Functor.Const (Const (..), getConst)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import Data.Void (Void, absurd)
-import Language.Ast.Common
 import Misc.Isomorph
 import qualified Misc.MonoidMap as Map
 import Misc.Prism
@@ -31,15 +31,11 @@ data KindRuntime s κ
 data KindF v κ
   = KindVariable KindIdentifier
   | KindLogical v
-  | Type κ
-  | Evidence
+  | Type
   | Region
-  | Runtime
   | Pretype κ
   | Imaginary
   | Real κ
-  | Meta
-  | Text
   | KindRuntime (KindRuntime κ κ)
   | KindSize (KindSize)
   | KindSignedness (KindSignedness)
@@ -78,20 +74,12 @@ kindExtra = Prism KindLogical $ \case
   (KindLogical v) -> Just v
   _ -> Nothing
 
-typex = Prism Type $ \case
-  (Type κ) -> Just κ
-  _ -> Nothing
-
-evidence = Prism (const Evidence) $ \case
-  Evidence -> Just ()
+typex = Prism (const Type) $ \case
+  Type -> Just ()
   _ -> Nothing
 
 region = Prism (const Region) $ \case
   Region -> Just ()
-  _ -> Nothing
-
-runtime = Prism (const Runtime) $ \case
-  Runtime -> Just ()
   _ -> Nothing
 
 pretype = Prism Pretype $ \case
@@ -104,14 +92,6 @@ imaginary = Prism (const Imaginary) $ \case
 
 real = Prism Real $ \case
   (Real κ) -> Just κ
-  _ -> Nothing
-
-meta = Prism (const Meta) $ \case
-  Meta -> Just ()
-  _ -> Nothing
-
-text = Prism (const Text) $ \case
-  Text -> Just ()
   _ -> Nothing
 
 pointerRep = (kindRuntime .) $
@@ -168,15 +148,11 @@ traverseKindF ::
 traverseKindF f g κ = case κ of
   KindVariable x -> pure KindVariable <*> pure x
   KindLogical v -> pure KindLogical <*> f v
-  Type κ -> pure Type <*> g κ
-  Evidence -> pure Evidence
+  Type -> pure Type
   Region -> pure Region
-  Runtime -> pure Runtime
   Pretype κ -> pure Pretype <*> g κ
   Imaginary -> pure Imaginary
   Real κ -> pure Real <*> g κ
-  Meta -> pure Meta
-  Text -> pure Text
   KindRuntime PointerRep -> KindRuntime <$> (pure PointerRep)
   KindRuntime (StructRep κs) -> KindRuntime <$> (pure StructRep <*> traverse g κs)
   KindRuntime (WordRep κ) -> KindRuntime <$> (pure WordRep <*> g κ)

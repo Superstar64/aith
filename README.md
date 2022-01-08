@@ -70,17 +70,9 @@ See ``/rules`` for typing rules.
 | Function Application Ascribe | ``e $ (e' : σ)``|
 | Function Literal | ``\pm => e`` |
 | Function Literal | ``\pm { e }`` |
-| Evidence Abstraction | ``^\pm => e`` |
-| Evidence Abstraction | ``^\pm { e }``|
-| Evidence Application | ``e ^e'`` |
-| Evidence Application Ascribe | ``e ^(e : σ)`` |
 | Runtime Binding | ``let pm = e; e'`` |
 | Runtime Pair Construction | ``e, e'`` |
-| Read Reference | `` read !(e') e`` |
-| Copy Function Proof | ``copyFunction`` |
-| Copy Number Proof | ``copyNumber`` |
-| Copy Pair Proof | ``copyPair e e'`` |
-| Copy Reference Proof | ``copyReference``|
+| Read Reference | ``*e`` |
 | Number Literal | ``n`` |
 | Addition | ``e + e'`` |
 | Addition with Sign | ``e +'ρ e'`` |
@@ -94,14 +86,20 @@ See ``/rules`` for typing rules.
 | Type Abstraction | ``/\pmσ { e }`` |
 | Type Application | ``e [[\/pmσ => σ]]<τ>``|
 
-## Patterns(pm)
+## Meta Patterns(pm)
 | Description | Syntax |
 |-|-|
 | Variable | ``x``|
 | Variable Abscribe | ``x : σ`` |
 | OfCourse | ``![pm]`` |
+
+## Runtime Patterns(pm)
+| Description | Syntax |
+|-|-|
+| Variable | ``x``|
+| Variable Abscribe | ``x : σ`` |
+| Copy | ``![pm]`` |
 | Runtime Pair Destruction | ``pm , pm'`` |
-| Copy Variable | ``!(e)[pm]`` |
 
 ## Auto Type (σa)
 | Description | Syntax |
@@ -125,7 +123,6 @@ See ``/rules`` for typing rules.
 | Function Pointer | `` τ -*> π σ `` |
 | Function Literal Type | `` τ -> π σ `` |
 | Implied | `` π -^> σ `` |
-| Copy Predicate | ``!(σ)`` |
 | Runtime Pair | ``σ, σ'`` |
 | Effect | ``σ @ π`` |
 | Region Reference | ``reference π σ`` |
@@ -136,7 +133,14 @@ See ``/rules`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Variable Abscribe | ``x : κ``|
+| Variable Ascribe | ``x : κ``|
+| Variable Constrained | ``x + c & c' & ...`` |
+| Variable Ascribe Constrained | ``x : κ + c & c' & ...`` |
+
+## Constraints (c)
+| Description | Syntax |
+|-|-|
+| Copy | ``copy`` |
 
 ## Auto Kind (κa)
 | Description | Syntax |
@@ -148,15 +152,12 @@ See ``/rules`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Type | ``*[s]`` |
+| Type | ``*]`` |
 | Pretype | ``+[s]`` |
 | Evidence | ``evidence`` |
 | Region | ``region`` |
-| Runtime | ``runtime'`` |
 | Real | ``#ρ#``|
 | Imaginary | ``imaginary`` |
-| Meta | ``meta`` |
-| Text | ``text`` |
 | Pointer Representation | ``pointer``|
 | Struct Representation | ``struct (ρ, ρ', ...)`` |
 | Word Representation | ``word ρ`` |
@@ -175,8 +176,7 @@ See ``/rules`` for typing rules.
 ## Sorts(μ)
 | Description | Syntax |
 |-|-|
-| Kind | ``kind`` |
-| Stage | ``stage`` |
+| Kind | ``[ ]`` |
 | Existance | ``existance`` |
 | Representation | ``representation`` |
 | Signedness | ``signedness`` |

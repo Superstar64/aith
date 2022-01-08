@@ -1,19 +1,20 @@
-module Language.Ast.Type where
+module Ast.Type where
 
+import Ast.Common
+import Ast.Kind
+import Ast.Sort
 import Data.Bitraversable (bitraverse)
 import Data.Functor.Const (Const (..), getConst)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import Data.Void (Void, absurd)
-import Language.Ast.Common
-import Language.Ast.Kind
-import Language.Ast.Sort
 import Misc.Isomorph
-import Misc.MonoidMap as Map
+import Misc.MonoidMap (Map)
+import qualified Misc.MonoidMap as Map
 import Misc.Prism
 
 data TypeSchemeF λκ λσ σ
   = MonoType σ
-  | Forall λσ
+  | Forall λσ (Map Constraint [σ])
   | KindForall λκ
   deriving (Show)
 
@@ -46,16 +47,18 @@ type InstantiationUnify = Instantiation KindUnify TypeUnify Internal
 
 type InstantiationInfer = Instantiation KindInfer TypeInfer Internal
 
+data Constraint
+  = Copy
+  deriving (Eq, Ord, Show)
+
 data TypeF v λ κ σ
   = TypeVariable TypeIdentifier
   | TypeLogical v
   | Macro σ σ
-  | ExplicitForall λ
-  | Implied σ σ
+  | ExplicitForall λ (Map Constraint [σ])
   | OfCourse σ
   | FunctionPointer σ σ σ
   | FunctionLiteralType σ σ σ
-  | Copy σ
   | Pair σ σ
   | Effect σ σ
   | Reference σ σ
@@ -86,7 +89,7 @@ traverseTypeSchemeF ::
 traverseTypeSchemeF f g h σ =
   case σ of
     MonoType σ -> pure MonoType <*> h σ
-    Forall λ -> pure Forall <*> g λ
+    Forall λ c -> pure Forall <*> g λ <*> (traverse . traverse) h c
     KindForall λ -> pure KindForall <*> f λ
 
 mapTypeSchemeF f g h = runIdentity . traverseTypeSchemeF (Identity . f) (Identity . g) (Identity . h)
@@ -119,12 +122,10 @@ traverseTypeF f i h g σ = case σ of
   TypeVariable x -> pure TypeVariable <*> pure x
   TypeLogical v -> pure TypeLogical <*> f v
   Macro σ τ -> pure Macro <*> g σ <*> g τ
-  ExplicitForall λ -> pure ExplicitForall <*> i λ
-  Implied σ τ -> pure Implied <*> g σ <*> g τ
+  ExplicitForall λ c -> pure ExplicitForall <*> i λ <*> (traverse . traverse) g c
   OfCourse σ -> pure OfCourse <*> g σ
   FunctionPointer σ π τ -> pure FunctionPointer <*> g σ <*> g π <*> g τ
   FunctionLiteralType σ π τ -> pure FunctionLiteralType <*> g σ <*> g π <*> g τ
-  Copy σ -> pure Copy <*> g σ
   Pair σ τ -> pure Pair <*> g σ <*> g τ
   Effect π σ -> pure Effect <*> g π <*> g σ
   Reference π σ -> pure Reference <*> g π <*> g σ
@@ -147,8 +148,8 @@ monoType = Prism MonoType $ \case
   (MonoType σ) -> Just σ
   _ -> Nothing
 
-forallx = Prism Forall $ \case
-  (Forall λ) -> Just λ
+forallx = Prism (uncurry Forall) $ \case
+  (Forall λ c) -> Just (λ, c)
   _ -> Nothing
 
 kindForall = Prism KindForall $ \case
@@ -169,12 +170,8 @@ macro = Prism (uncurry Macro) $ \case
   (Macro σ τ) -> Just (σ, τ)
   _ -> Nothing
 
-explicitForall = Prism ExplicitForall $ \case
-  (ExplicitForall λ) -> Just λ
-  _ -> Nothing
-
-implied = Prism (uncurry Implied) $ \case
-  (Implied σ τ) -> Just (σ, τ)
+explicitForall = Prism (uncurry ExplicitForall) $ \case
+  (ExplicitForall λ c) -> Just (λ, c)
   _ -> Nothing
 
 ofCourse = Prism OfCourse $ \case
@@ -189,9 +186,8 @@ functionLiteralType = Prism (uncurry $ uncurry FunctionLiteralType) $ \case
   (FunctionLiteralType σ π τ) -> Just ((σ, π), τ)
   _ -> Nothing
 
-copy = Prism Copy $ \case
-  (Copy σ) -> Just σ
-  _ -> Nothing
+copy = Prism (const Copy) $ \case
+  Copy -> Just ()
 
 runtimePair = Prism (uncurry Pair) $ \case
   (Pair σ τ) -> Just (σ, τ)

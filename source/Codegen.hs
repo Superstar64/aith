@@ -1,14 +1,14 @@
 module Codegen where
 
+import Ast.Common hiding (fresh)
+import Ast.Kind (KindRuntime (..), KindSignedness (..), KindSize (..))
+import Ast.Term
 import qualified C.Ast as C
 import Control.Monad.State.Strict (State, evalState, get, put)
 import Control.Monad.Trans (lift)
 import Control.Monad.Writer.Strict (WriterT (..), runWriterT, tell)
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Language.Ast.Common hiding (fresh)
-import Language.Ast.Kind (KindRuntime (..), KindSignedness (..), KindSize (..))
-import Language.Ast.Term
 import Misc.MonoidMap (Map, (!))
 import qualified Misc.MonoidMap as Map
 import Misc.Symbol
@@ -85,7 +85,7 @@ compileTerm (SimpleTerm _ (PairIntroduction e1 e2)) σ@(SimpleType (StructRep [�
   e1' <- compileTerm e1 τ
   e2' <- compileTerm e2 τ'
   pure $ C.CompoundLiteral σ [e1', e2']
-compileTerm (SimpleTerm _ (ReadReference () e)) σ = do
+compileTerm (SimpleTerm _ (ReadReference e)) σ = do
   e' <- compileTerm e (SimpleType PointerRep)
   pure $ C.Dereference σ e'
 compileTerm (SimpleTerm _ (NumberLiteral n)) _ = pure $ C.IntegerLiteral n

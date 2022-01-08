@@ -1,4 +1,4 @@
-module Language.Ast.Common where
+module Ast.Common where
 
 import Data.Bifoldable (Bifoldable, bifoldMap)
 import Data.Bifunctor (Bifunctor, bimap)
@@ -157,10 +157,16 @@ instance (Ord x, FreeVariablesInternal x e) => FreeVariablesInternal x [e] where
   freeVariablesInternal = foldMap freeVariablesInternal
 
 instance Convert x e => Convert x [e] where
-  convert ux x e = map (convert ux x) e
+  convert ux x = map (convert ux x)
+
+instance Convert x e => Convert x (Map k e) where
+  convert ux x = fmap (convert ux x)
 
 instance Substitute u x e => Substitute u x [e] where
-  substitute ux x e = map (substitute ux x) e
+  substitute ux x = map (substitute ux x)
+
+instance Substitute u x e => Substitute u x (Map k e) where
+  substitute ux x = fmap (substitute ux x)
 
 instance Reduce e => Reduce [e] where
   reduce = map reduce

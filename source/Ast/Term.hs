@@ -1,14 +1,15 @@
-module Language.Ast.Term where
+module Ast.Term where
 
+import Ast.Common
+import Ast.Kind
+import Ast.Type
 import Control.Category (id, (.))
 import Data.Bitraversable (bitraverse)
 import Data.Functor.Const (Const (..), getConst)
 import Data.Functor.Identity (Identity (..), runIdentity)
-import Language.Ast.Common
-import Language.Ast.Kind
-import Language.Ast.Type
 import Misc.Isomorph
-import Misc.MonoidMap as Map
+import Misc.MonoidMap (Map)
+import qualified Misc.MonoidMap as Map
 import Misc.Prism
 import Misc.Symbol
 import Prelude hiding (id, (.))
@@ -20,7 +21,6 @@ data PatternCommon σ pm
 
 data TermPatternF σ e pm
   = PatternCommon (PatternCommon σ pm)
-  | PatternCopy e pm
   | PatternOfCourse pm
   deriving (Show)
 
@@ -45,7 +45,7 @@ data TermRuntime θ s σ' σ λ ev e
   | Extern Symbol σ σ' σ
   | FunctionApplication e e σ
   | PairIntroduction e e
-  | ReadReference ev e
+  | ReadReference e
   | NumberLiteral Integer
   | Arithmatic Arithmatic e e s
   deriving (Show)
@@ -55,16 +55,10 @@ data TermF λtl λt θ κ σ λ e
   | FunctionLiteral λ
   | MacroAbstraction λ
   | MacroApplication e e σ
-  | ImplicationAbstraction λ
-  | ImplicationApplication e e σ
   | OfCourseIntroduction e
   | Bind e λ
-  | ProofCopyNumber
-  | ProofCopyFunction
-  | ProofCopyPair e e
-  | ProofCopyReference
-  | TypeAbstraction λtl
-  | TypeApplication e σ λt
+  | TypeAbstraction λtl (Map Constraint [σ])
+  | TypeApplication e σ λt (Map Constraint [σ])
   deriving (Show)
 
 data Term θ κ σ p
@@ -107,11 +101,6 @@ patternRuntimePair = (patternCommon .) $
     (PatternPair pm pm') -> Just (pm, pm')
     _ -> Nothing
 
-patternCopy =
-  Prism (uncurry PatternCopy) $ \case
-    (PatternCopy e pm) -> Just (e, pm)
-    _ -> Nothing
-
 coreTerm = Isomorph (uncurry CoreTerm) $ \(CoreTerm p e) -> (p, e)
 
 termRuntime = Prism TermRuntime $ \case
@@ -129,14 +118,6 @@ macroAbstraction = Prism (MacroAbstraction) $ \case
 
 macroApplication = Prism (uncurry $ uncurry $ MacroApplication) $ \case
   (MacroApplication e e' σ) -> Just ((e, e'), σ)
-  _ -> Nothing
-
-implicationAbstraction = Prism (ImplicationAbstraction) $ \case
-  (ImplicationAbstraction λ) -> Just λ
-  _ -> Nothing
-
-implicationApplication = Prism (uncurry $ uncurry $ ImplicationApplication) $ \case
-  (ImplicationApplication e e' σ) -> Just ((e, e'), σ)
   _ -> Nothing
 
 ofCourseIntroduction = Prism (OfCourseIntroduction) $ \case
@@ -173,8 +154,8 @@ runtimePairIntrouction = (termRuntime .) $
     _ -> Nothing
 
 readReference = (termRuntime .) $
-  Prism (uncurry $ ReadReference) $ \case
-    (ReadReference ev e) -> Just (ev, e)
+  Prism (ReadReference) $ \case
+    (ReadReference e) -> Just (e)
     _ -> Nothing
 
 numberLiteral = (termRuntime .) $
@@ -182,33 +163,17 @@ numberLiteral = (termRuntime .) $
     (NumberLiteral n) -> Just n
     _ -> Nothing
 
-proofCopyNumber = Prism (const ProofCopyNumber) $ \case
-  ProofCopyNumber -> Just ()
-  _ -> Nothing
-
-proofCopyFunction = Prism (const ProofCopyFunction) $ \case
-  ProofCopyFunction -> Just ()
-  _ -> Nothing
-
-proofCopyPair = Prism (uncurry $ ProofCopyPair) $ \case
-  ProofCopyPair e e' -> Just (e, e')
-  _ -> Nothing
-
-proofCopyReference = Prism (const ProofCopyReference) $ \case
-  ProofCopyReference -> Just ()
-  _ -> Nothing
-
 arithmatic o = (termRuntime .) $
   Prism (uncurry $ uncurry $ Arithmatic o) $ \case
     Arithmatic o' e e' κ | o == o' -> Just ((e, e'), κ)
     _ -> Nothing
 
-typeLambda = Prism TypeAbstraction $ \case
-  TypeAbstraction pm -> Just pm
+typeLambda = Prism (uncurry TypeAbstraction) $ \case
+  TypeAbstraction pm c -> Just (pm, c)
   _ -> Nothing
 
-typeApplication = Prism (uncurry $ uncurry TypeApplication) $ \case
-  TypeApplication e σ λ -> Just ((e, σ), λ)
+typeApplication = Prism (uncurry $ uncurry $ uncurry TypeApplication) $ \case
+  TypeApplication e σ λ c -> Just (((e, σ), λ), c)
   _ -> Nothing
 
 traversePatternCommon ::
@@ -230,7 +195,6 @@ traverseTermPatternF ::
   m (TermPatternF σ' e' pm')
 traverseTermPatternF f h g pm = case pm of
   PatternCommon pm -> pure PatternCommon <*> traversePatternCommon f g pm
-  PatternCopy e pm -> pure PatternCopy <*> h e <*> g pm
   PatternOfCourse pm -> pure PatternOfCourse <*> g pm
 
 foldTermPatternF f h g = getConst . traverseTermPatternF (Const . f) (Const . h) (Const . g)
@@ -270,7 +234,7 @@ traverseTermRuntime d h y f g j i e =
     Extern sm σ σ'' σ' -> pure Extern <*> pure sm <*> f σ <*> y σ'' <*> f σ'
     FunctionApplication e1 e2 σ -> pure FunctionApplication <*> i e1 <*> i e2 <*> f σ
     PairIntroduction e1 e2 -> pure PairIntroduction <*> i e1 <*> i e2
-    ReadReference ev e -> pure ReadReference <*> j ev <*> i e
+    ReadReference e -> pure ReadReference <*> i e
     NumberLiteral n -> pure NumberLiteral <*> pure n
     Arithmatic o e e' κ -> pure Arithmatic <*> pure o <*> i e <*> i e' <*> h κ
 
@@ -291,16 +255,10 @@ traverseTermF k l d j f h i e =
     FunctionLiteral λ -> pure FunctionLiteral <*> h λ
     MacroAbstraction λ -> pure MacroAbstraction <*> h λ
     MacroApplication e1 e2 σ -> pure MacroApplication <*> i e1 <*> i e2 <*> f σ
-    ImplicationAbstraction λ -> pure ImplicationAbstraction <*> h λ
-    ImplicationApplication e1 e2 σ -> pure ImplicationApplication <*> i e1 <*> i e2 <*> f σ
     OfCourseIntroduction e -> pure OfCourseIntroduction <*> i e
     Bind e λ -> pure Bind <*> i e <*> h λ
-    ProofCopyNumber -> pure ProofCopyNumber
-    ProofCopyFunction -> pure ProofCopyFunction
-    ProofCopyPair e e' -> pure ProofCopyPair <*> i e <*> i e'
-    ProofCopyReference -> pure ProofCopyReference
-    TypeAbstraction λ -> pure TypeAbstraction <*> k λ
-    TypeApplication e σ λ -> pure TypeApplication <*> i e <*> f σ <*> l λ
+    TypeAbstraction λ c -> pure TypeAbstraction <*> k λ <*> (traverse . traverse) f c
+    TypeApplication e σ λ c -> pure TypeApplication <*> i e <*> f σ <*> l λ <*> (traverse . traverse) f c
 
 foldTermF l k d j f h i = getConst . traverseTermF (Const . l) (Const . k) (Const . d) (Const . j) (Const . f) (Const . h) (Const . i)
 
@@ -584,8 +542,7 @@ instance Correct InstantiationInfer (Term InstantiationInfer KindInfer TypeInfer
 instance Reduce (Term InstantiationInfer KindInfer TypeInfer p) where
   reduce (CoreTerm _ (Bind e λ)) = apply (reduce λ) (reduce e)
   reduce (CoreTerm _ (MacroApplication e1 e2 _)) | (CoreTerm _ (MacroAbstraction λ)) <- reduce e1 = apply λ (reduce e2)
-  reduce (CoreTerm _ (TypeApplication e1 σ _)) | (CoreTerm _ (TypeAbstraction (Bound pm e))) <- reduce e1 = apply (Bound pm e) σ
-  reduce (CoreTerm _ (ImplicationApplication e1 e2 _)) | (CoreTerm _ (ImplicationAbstraction λ)) <- reduce e1 = apply λ (reduce e2)
+  reduce (CoreTerm _ (TypeApplication e1 σ _ _)) | (CoreTerm _ (TypeAbstraction (Bound pm e) _)) <- reduce e1 = apply (Bound pm e) σ
   reduce (CoreTerm p e) = CoreTerm p (mapTermF go go go go go go go e)
     where
       go = reduce
@@ -610,7 +567,7 @@ instance
     TypeInfer
     (Term InstantiationInfer KindInfer TypeInfer p)
   where
-  apply (Bound (Pattern _ α _) e) σ = substitute σ α e
+  apply (Bound (Pattern _ α _) e) σ = reduce $ substitute σ α e
 
 instance
   ( FreeVariables TermIdentifier p u,

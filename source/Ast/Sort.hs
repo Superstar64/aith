@@ -1,16 +1,12 @@
-module Language.Ast.Sort where
+module Ast.Sort where
 
-import Language.Ast.Common
+import Ast.Common
 import Misc.Prism
 
-data Sort = Kind | Stage | Existance | Representation | Size | Signedness deriving (Show)
+data Sort = Kind | Existance | Representation | Size | Signedness deriving (Show)
 
 kind = Prism (const Kind) $ \case
   Kind -> Just ()
-  _ -> Nothing
-
-stage = Prism (const Stage) $ \case
-  Stage -> Just ()
   _ -> Nothing
 
 existance = Prism (const Existance) $ \case

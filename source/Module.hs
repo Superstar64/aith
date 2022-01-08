@@ -1,25 +1,25 @@
 module Module where
 
-import Control.Monad.State.Strict (StateT, evalStateT, execStateT, get, modify)
+import Ast.Common
+import Ast.Kind (KindAuto, KindInfer, mapKind)
+import Ast.Term
+import Ast.Type
+import Control.Monad.State.Strict (StateT, evalStateT, execStateT, get)
 import Control.Monad.Trans (lift)
 import Data.Bifunctor (second)
 import Data.Functor.Identity
 import Data.List (find)
 import Data.Traversable (for)
 import Data.Void
-import Language.Ast.Common
-import Language.Ast.Kind (KindAuto, KindInfer, mapKind)
-import Language.Ast.Multiplicity
-import Language.Ast.Term
-import Language.Ast.Type
-import Language.TypeCheck
-import Language.TypeCheck.Core
 import Misc.Isomorph
 import Misc.MonoidMap (Map, (!))
 import qualified Misc.MonoidMap as Map
 import Misc.Path
 import Misc.Prism
 import Misc.Symbol
+import Misc.Util
+import TypeCheck
+import TypeCheck.Core
 
 data ModuleError p
   = IllegalPath p Path
@@ -168,31 +168,14 @@ items heading (CoreModule code) = do
     Module inner -> items (heading ++ [name]) inner
     Global global -> pure $ (Path heading name, global)
 
-data Mark = Unmarked | Temporary | Permanent deriving (Eq)
-
--- https://en.wikipedia.org/wiki/Topological_sorting#Depth-first_search
-
-visit ::
-  ModuleQuit p m =>
-  ModuleAuto p ->
-  (Maybe p, Path, GlobalAuto p) ->
-  StateT (Map Path Mark) (StateT [(Path, GlobalAuto p)] m) ()
-visit code (p, path, global) = do
-  marks <- get
-  case marks ! path of
-    Permanent -> pure ()
-    Temporary -> case p of
+visit code = visitTopological quit children
+  where
+    quit p path = case p of
       Just p -> moduleQuit $ Cycle p path
       Nothing -> error "temporary mark on top level"
-    Unmarked -> do
-      modify $ Map.insert path Temporary
-      let dependencies = depend global path
-      children <- for (Map.toList dependencies) $ \(path, p) -> do
-        global <- resolve p code path
-        pure (Just p, path, global)
-      for children (visit code)
-      modify $ Map.insert path Permanent
-      lift $ modify $ ((path, global) :)
+    children global path = for (Map.toList $ depend global path) $ \(path, p) -> do
+      global <- resolve p code path
+      pure (Just p, path, global)
 
 order code = Ordering <$> execStateT (evalStateT go (const Unmarked <$> globals)) []
   where
@@ -268,11 +251,10 @@ typeCheckModule (Ordering ((path@(Path heading _), item) : nodes)) = do
 convertFunctionLiteral ς = case ς of
   CoreTypeScheme _ (MonoType σ) -> go id σ
     where
-      go padding (CoreType _ (Implied π σ)) = go (\τ -> padding $ CoreType Internal $ Implied π τ) σ
-      go padding (CoreType _ (ExplicitForall (Bound pm σ))) = go (\τ -> padding $ CoreType Internal $ ExplicitForall (Bound pm τ)) σ
+      go padding (CoreType _ (ExplicitForall (Bound pm σ) c)) = go (\τ -> padding $ CoreType Internal $ ExplicitForall (Bound pm τ) c) σ
       go padding (CoreType p (FunctionLiteralType σ π τ)) = polyEffect padding (CoreType p $ FunctionPointer σ π τ)
       go _ _ = error "unexpected literal"
-  CoreTypeScheme p (Forall (Bound pm ς)) -> CoreTypeScheme p $ Forall (Bound pm $ convertFunctionLiteral ς)
+  CoreTypeScheme p (Forall (Bound pm ς) c) -> CoreTypeScheme p $ Forall (Bound pm $ convertFunctionLiteral ς) c
   CoreTypeScheme p (KindForall (Bound pm ς)) -> CoreTypeScheme p $ KindForall $ Bound pm (convertFunctionLiteral ς)
 
 makeExtern ::
@@ -282,12 +264,11 @@ makeExtern ::
   Term InstantiationInfer KindInfer TypeInfer p
 makeExtern path p (CoreTypeScheme _ (MonoType σ)) = go σ
   where
-    go (CoreType _ (ExplicitForall (Bound pm σ))) = CoreTerm p $ TypeAbstraction (Bound (p <$ pm) $ go σ)
-    go (CoreType _ (Implied σ τ)) = CoreTerm p (ImplicationAbstraction (Bound (CoreTermPattern p (PatternCommon $ PatternVariable (TermIdentifier $ "x") σ)) $ go τ))
+    go (CoreType _ (ExplicitForall (Bound pm σ) c)) = CoreTerm p $ TypeAbstraction (Bound (p <$ pm) $ go σ) c
     go (CoreType _ (FunctionLiteralType σ π τ)) = CoreTerm p (TermRuntime $ Extern (mangle path) σ π τ)
     go _ = error "extern of non function pointer"
 makeExtern _ _ (CoreTypeScheme _ (KindForall _)) = error "extern of kind forall"
-makeExtern path p (CoreTypeScheme _ (Forall (Bound _ σ))) = makeExtern path p σ
+makeExtern path p (CoreTypeScheme _ (Forall (Bound _ σ) _)) = makeExtern path p σ
 
 reduceModule ::
   ModuleOrder TypeSchemeInfer InstantiationInfer KindInfer TypeInfer p ->

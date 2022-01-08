@@ -1,5 +1,6 @@
 \documentclass {article}
 \usepackage{mathtools}
+\usepackage{mathabx}
 \usepackage{hyperref}
 \allowdisplaybreaks
 \begin{document}
@@ -9,20 +10,17 @@
 
 \section{Main Language}
 
-All valid terms have a type who's kind is of the form $ \text{Type} (\kappa) $. \\
+All valid terms have a type who's kind is of the form $ * $. \\
 \\
-All valid types have a kind who's sort is of the form $ \text{Kind} $.\\
+All valid types have a kind who's sort is of the form $ \boxvoid $.\\
 \\
 Function literals and function literal types can not appear at runtime. They must be bound by a global "function" binding.
 This binding converts a function literal into an extern and a function literal type into a function pointer type. \\
 \\
-Terms with a type of kind $ \text{Type} (\text{Runtime}) $ are runtime terms and can't be reduced.
-They should be treated as if they are already is $ \beta $ normal form. \\
+Terms with a type $ \sigma^\pi $ are runtime terms and can't be reduced.
+They should be treated as if they are already in $ \beta $ normal form. \\
 \\
-Reduction of $ \Lambda \alpha : \kappa. e $ and $ \lambda^\wedge x : \sigma. e $ may occur inside a term with a type of kind $ \text{Type} (\text{Runtime}) $,
-but they don't change the term's code generation. \\
-\\
-After $ \beta $ reduction, terms with no free variables and of with a type not of kind $ \text{Type} (\text{Runtime}) $ must corrispond with these types. \\
+After $ \beta $ reduction, terms not of type $ \sigma^\pi $ must either be a free variable or corrispond to these $ \beta $ normal forms. \\
 \\
 
 \begin{gather*}
@@ -31,10 +29,9 @@ After $ \beta $ reduction, terms with no free variables and of with a type not o
 \hline
 \sigma \to \tau & \lambda x : \sigma. e \\
 !\sigma & !e \\
-\forall \alpha : \kappa. \sigma & \Lambda \alpha : \kappa. e  \\
-\forall \beta : \mu. \sigma & \Lambda \beta : \mu. e \\
+\forall \alpha. \sigma & \Lambda \alpha : \kappa + \{ c, c', \dots \} . e  \\
+\forall \beta. \sigma & \Lambda \beta : \mu. e \\
 \sigma \xrightarrow{\text{text}} \tau & \text{function}(x : \sigma). e \\
-\pi \xrightarrow{\wedge} \sigma & \lambda^\wedge x : \sigma. e
 \end{array}
 \\
 \end{gather*}
@@ -47,6 +44,7 @@ x \tag{Variables} \\
 n \tag{Numbers} \\
 \sigma, \tau \tag{Types} \\
 \alpha \tag{Type Variables} \\
+c \tag{Constraints} \\
 \kappa, s, \rho \tag{Kinds} \\
 \beta \tag{Kind Variables} \\
 \mu \tag{Sorts} \\
@@ -63,6 +61,8 @@ Type and Kind checking uses synthesis mode.
 \Phi \mid \Gamma \vdash \, & e : \sigma \tag{\text{Term Validation}} \\
 \Phi \vdash \, & \sigma : \kappa \tag{\text{Type Validation}} \\
 \Phi \vdash \, & \kappa : \mu \tag{Kind Validation} \\
+\Phi \vdash \, &c (\sigma) \tag{Constraint Instantiation} \\
+\Phi \vdash \, &c : \kappa \to \diamond \tag{Constraint Validation} 
 \end{align*}
 
 \subsection{Typing Environments}
@@ -72,7 +72,7 @@ Type and Kind checking uses synthesis mode.
 & \Gamma, \langle x : \sigma \rangle \\
 & \emptyset \\
 \Phi \Coloneqq & \\
-& \Phi, \alpha : \kappa \\
+& \Phi, \alpha : \kappa + \{ c, c', \dots \} \\
 & \Phi, \beta : \mu \\
 & \emptyset \\
 \end{align*}
@@ -80,16 +80,15 @@ Type and Kind checking uses synthesis mode.
 \subsection{Meta}
 \begin{align*}
 \kappa, s, \rho \Coloneqq & \\
-& \text{Type} (s) \tag{Type} \\
+& * \tag{Type} \\
 \mu \Coloneqq & \\
-& \text{Kind} \\
-& \text{Stage} \\
+& \boxvoid \tag{Kind} \\
 \end{align*}
 
 \begin{gather*}
 \frac
-{\Phi \vdash s : \text{Stage}}
-{\Phi \vdash \text {Type} (s) : \text{Kind}} \\
+{}
+{\Phi \vdash * : \boxvoid} \\
 \end{gather*}
 
 
@@ -126,7 +125,7 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{(\alpha : \kappa) \in \Phi}
+{(\alpha : \kappa + \{ c, c', \dots \}) \in \Phi}
 {\Phi \vdash \alpha : \kappa}
 \end{gather*}
 
@@ -148,8 +147,6 @@ e \Coloneqq & \\
 & \sigma \xrightarrow{\uparrow} \tau \tag{Macro} \\
 & !\sigma \tag{Bang} \\
 & \dots \\
-\kappa, s, \rho \Coloneqq & \\
-& \text{Meta} \tag{Meta Stage} \\
 \dots
 \end{align*}
 
@@ -159,7 +156,7 @@ e \Coloneqq & \\
 {\Phi | \Gamma \vdash \lambda^\uparrow x. e : \sigma \to \tau } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e_1 : \sigma \to \tau \quad \Phi | \Gamma' \vdash e_2 : \sigma \quad \Phi \vdash \sigma : \text{Type} (\kappa)}
+{\Phi | \Gamma \vdash e_1 : \sigma \to \tau \quad \Phi | \Gamma' \vdash e_2 : \sigma \quad \Phi \vdash \sigma : *}
 {\Phi | \Gamma, \Gamma' \vdash e_1(^\uparrow e_2 : \sigma) : \tau} \\
 \\
 \frac
@@ -167,47 +164,41 @@ e \Coloneqq & \\
 {\Phi | \Gamma \vdash !e : !\sigma } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : !\tau \quad \Phi | \Gamma', [x : \tau] \vdash e' : \sigma \quad \Phi \vdash \tau : \text{Type} (\kappa) }
+{\Phi | \Gamma \vdash e : !\tau \quad \Phi | \Gamma', [x : \tau] \vdash e' : \sigma \quad \Phi \vdash \tau : * }
 {\Phi | \Gamma, \Gamma' \vdash \text{let}^\uparrow \, !(x : \tau) = e; e' : \sigma}  \\
 \end{gather*}
 
 \begin{gather*}
 \frac
-{\Phi \vdash \sigma : \text{Type} (s) \quad \Phi \vdash \tau : \text{Type} (s')}
-{\Phi \vdash \sigma \to \tau : \text{Type} (\text{Meta})} \\
+{\Phi \vdash \sigma : * \quad \Phi \vdash \tau : *}
+{\Phi \vdash \sigma \to \tau : * } \\
 \\
 \frac
-{\Phi \vdash \sigma : \text{Type} (s)}
-{\Phi \vdash !\sigma : \text{Type} (\text{Meta})} \\
-\end{gather*}
-
-\begin{gather*}
-\frac
-{}
-{\Phi \vdash \text{Meta} : \text{Stage}} \\
+{\Phi \vdash \sigma : * }
+{\Phi \vdash !\sigma : * } \\
 \end{gather*}
 
 \subsubsection{System-F}
 \begin{align*}
 e \Coloneqq & \\
 & \Lambda \alpha. e \tag{Type Lambda} \\
-& (e : \forall \alpha. \tau) \sigma \tag{Type Application} \\
+& (e : \forall \alpha + \{ c, c', \dots \}. \tau) \sigma \tag{Type Application} \\
 & \Lambda \beta. e \tag{Kind Lambda} \\
 & (e : \forall \beta. \tau) \kappa \tag{Kind Application} \\
 & \dots \\
 \sigma, \tau, \pi \Coloneqq & \\
-& \forall \alpha : \kappa. \sigma \tag{Type Forall}\\ 
+& \forall \alpha : \kappa + \{ c, c', \dots \}. \sigma \tag{Type Forall}\\ 
 & \forall \beta : \mu. \sigma \tag{Kind Forall}\\
 & \dots
 \end{align*}
 
 \begin{gather*}
 \frac
-{\Phi, \alpha : \kappa | \Gamma \vdash e : \sigma}
-{\Phi | \Gamma \vdash \Lambda \alpha. e : \forall \alpha : \kappa. \sigma } \\
+{\Phi, \alpha : \kappa + \{ c, c', \dots \} | \Gamma \vdash e : \sigma \quad \Phi \vdash c : \kappa \to \diamond \quad \Phi \vdash c' : \kappa \to \diamond \quad \dots}
+{\Phi | \Gamma \vdash \Lambda \alpha. e : \forall \alpha : \kappa + \{ c, c', \dots \} . \sigma } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \forall \alpha : \kappa. \sigma \quad \Phi \vdash \tau : \kappa }
+{\Phi | \Gamma \vdash e : \forall \alpha + \{ c, c', \dots \} : \kappa. \sigma \quad \Phi \vdash \tau : \kappa \quad \Phi \vdash c \tau \quad \Phi \vdash c' \tau \quad \dots }
 {\Phi | \Gamma \vdash (e : \forall \alpha. \sigma) \tau : \sigma [\tau/\alpha] } \\
 \\
 \frac
@@ -221,56 +212,19 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi, \alpha : \kappa \vdash \sigma : \text{Type}(s) \quad \Phi \vdash \kappa : \text{Kind}}
-{\Phi \vdash \forall \alpha : \kappa. \sigma : \text{Type} (s) } \\
+{\Phi, \alpha : \kappa + \{ c, c', \dots \} \vdash \sigma : * \quad \Phi \vdash \kappa : \boxvoid \quad \Phi \vdash c : \kappa \to \diamond \quad \Phi \vdash c' : \kappa \to \diamond \quad \dots}
+{\Phi \vdash \forall \alpha : \kappa + \{ c, c', \dots \}. \sigma : * } \\
 \\
 \frac
-{\Phi, \beta : \mu \vdash \sigma : \text{Type} (s) \quad \Phi \vdash \mu  }
-{\Phi \vdash \forall \beta : \mu. \sigma : \text{Type} (\text{Meta}) } \\
-\end{gather*}
-
-\subsubsection{Evidence Passing}
-\begin{align*}
-e \Coloneqq & \\
-& \lambda^\wedge x. e \tag{Evidence Lambda} \\
-& e (^\wedge e' : \pi) \tag{Evidence Application} \\
-& \dots \\
-\sigma, \tau, \pi \Coloneqq & \\
-& \pi \xrightarrow{\wedge} \sigma \tag{Evidence Function} \\
-& \dots \\
-\kappa, s, \rho \Coloneqq & \\
-& \text{Evidence} \tag{Evidence Stage} \\
-& \dots
-\end{align*}
-
-\begin{gather*}
-\frac
-{\Phi | \Gamma, [x : \pi] \vdash e : \sigma}
-{\Phi | \Gamma \vdash \lambda^\wedge x. e : \pi \xrightarrow{\wedge} \sigma} \\
-\\
-\frac
-{\Phi | \Gamma \vdash e : \pi \xrightarrow{\wedge} \sigma \quad \Phi | \Gamma' \vdash e': \pi  \quad \Phi \vdash \pi : \text{Text}(\text{Evidence})}
-{\Phi | \Gamma, \Gamma' \vdash e (^\wedge e' : \pi) : \sigma}
-\end{gather*}
-
-\begin{gather*}
-\frac
-{\Phi \vdash \pi : \text{Type}(\text{Evidence}) \quad \Phi \vdash \sigma : \text{Type}(s)}
-{\Phi \vdash \pi \xrightarrow{\wedge} \sigma : \text{Type}(s)} \\
-\end{gather*}
-
-\begin{gather*}
-\frac
-{}
-{\Phi \vdash \text{Evidence} : \text{Stage}} \\
+{\Phi, \beta : \mu \vdash \sigma : * \quad \Phi \vdash \mu}
+{\Phi \vdash \forall \beta : \mu. \sigma : * } \\
 \end{gather*}
 
 \subsection{Runtime}
 
 \begin{align*}
 \kappa, s, \rho \Coloneqq & \\
-& \text{Runtime} \tag{Runtime Stage}\\
-& \text{Pretype}(\rho) \tag{Pretype Kind}\\
+& +^\rho \tag{Pretype Kind}\\
 & \text{Real} (\rho) \tag{Real Existance} \\
 & \text{Imaginary} \tag{Imaginary Existance} \\
 & \text{Pointer} \tag{Pointer Representation}\\
@@ -282,13 +236,10 @@ e \Coloneqq & \\
 \end{align*}
 
 \begin{gather*}
-\frac
-{}
-{\Phi \vdash \text{Runtime} : \text{Stage}} \\
 \\
 \frac
 {\Phi \vdash \rho : \text{Existance}}
-{\Phi \vdash \text{Pretype} (\rho) : \text{Kind}} \\
+{\Phi \vdash +^\rho : \boxvoid} \\
 \\
 \frac
 {\Phi \vdash \rho : \text{Representation}}
@@ -306,10 +257,10 @@ e \Coloneqq & \\
 \subsubsection{Single Effect Region Calculus}
 \begin{align*}
 e \Coloneqq & \\
-& \text{letRGN} \, (\Lambda \alpha \lambda^\wedge x. e) \tag{Create Region} \\
-& \text{subRGN} \, \pi \, e \, e' \tag{Subtype Region} \\
+& \text{letRGN} \, (\Lambda \alpha e) \tag{Create Region} \\
+& \text{subRGN} \, \pi \, e \tag{Subtype Region} \\
 & \text{let}^\downarrow \, (x : \tau) = e; e' \tag{Runtime Let} \\
-& \text{copy} \, (x : \tau) =^{e''} e; e' \tag{Runtime Copy Let} \\
+& \text{copy} \, (x : \tau) = e; e' \tag{Runtime Copy Let} \\
 & \dots \\
 \sigma, \tau, \pi \Coloneqq & \\
 & \sigma^\pi \tag{Region Effect} \\
@@ -321,27 +272,27 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi , \alpha : \text{Region} | \Gamma, [x : \pi \preceq \alpha] \vdash e : \sigma^\alpha \quad \alpha \notin \text{Free}(\sigma, \pi)}
-{\Phi | \Gamma \vdash \text{letRGN} \, (\Lambda \alpha \lambda^\wedge x. e) : \sigma^\pi} \\
+{\Phi , \alpha : \text{Region} \, +  (\preceq \pi) | \Gamma \vdash e : \sigma^\alpha \quad \alpha \notin \text{Free}(\sigma, \pi)}
+{\Phi | \Gamma \vdash \text{letRGN} \, (\Lambda \alpha. e) : \sigma^\pi} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \sigma^\pi \quad \Phi | \Gamma' \vdash e' : \pi \preceq \pi' \quad \Phi \vdash \pi : \text{Region}}
-{\Phi | \Gamma, \Gamma' \vdash \text{subRGN} \pi \, e' \, e : \sigma^{\pi'} } \\
+{\Phi | \Gamma \vdash e : \sigma^\pi \quad \Phi \vdash \pi : \text{Region} \quad \Phi \vdash (\preceq \pi') \pi }
+{\Phi | \Gamma \vdash \text{subRGN} \pi \, e : \sigma^{\pi'} } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi | \Gamma', \langle x : \forall \alpha. \tau^\alpha \rangle \vdash e : \sigma^\pi \quad \Phi \vdash \tau : \text{Pretype}(\text{Real}(\rho))}
+{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi | \Gamma', \langle x : \forall \alpha. \tau^\alpha \rangle \vdash e : \sigma^\pi \quad \Phi \vdash \tau : +^{\text{Real}(\rho)}}
 {\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow \, (x : \tau) = e; e' : \sigma^\pi} \\
 \\
 \frac
-{\splitfrac{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi | \Gamma', [ x : \forall \alpha. \tau^\alpha ] \vdash e : \sigma^\pi \quad \Phi \vdash \tau : \text{Pretype}(\text{Real}(\rho))}
-{\Phi | \Gamma'' \vdash e'' : \text{Copy}(\tau)}}
-{\Phi | \Gamma, \Gamma', \Gamma'' \vdash \text{copy} \, (x : \tau) =^{e''} e; e' : \sigma^\pi} \\
+{\splitfrac{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi | \Gamma', [ x : \forall \alpha. \tau^\alpha ] \vdash e : \sigma^\pi \quad \Phi \vdash \tau : +^{\text{Real}(\rho)}}
+{\Phi \vdash \text{Copy}(\tau)}}
+{\Phi | \Gamma, \Gamma' \vdash \text{copy} \, (x : \tau) = e; e' : \sigma^\pi} \\
 \end{gather*}
 
 \begin{gather*}
 \frac
-{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \sigma : \text{Pretype}(\rho)}
-{\Phi \vdash \sigma^\pi : \text{Type}(\text{Runtime})} \\
+{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \sigma : +^\rho}
+{\Phi \vdash \sigma^\pi : *} \\
 \end{gather*}
 
 \begin{gather*}
@@ -353,7 +304,7 @@ e \Coloneqq & \\
 \subsubsection{References}
 \begin{align*}
 e \Coloneqq & \\
-& \text{readRGNLoc} \, e' \, e \tag{Dereference Pointer} \\
+& \text{readRGNLoc} \, e \tag{Dereference Pointer} \\
 & \dots \\
 \sigma, \tau, \pi \Coloneqq & \\
 & \text{RGNLoc} \pi \sigma \tag{Reference} \\
@@ -362,14 +313,14 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi | \Gamma \vdash e : (\text{RGNLoc} \pi \sigma)^\pi \quad \Phi | \Gamma' \vdash e' : \text{Copy} (\sigma) \quad \Phi \vdash \sigma : \text{Pretype}(\text{Real}(\rho)) }
-{\Phi | \Gamma, \Gamma' \vdash \text{readRGNLoc} \, e' \, e : \sigma^\pi} \\
+{\Phi | \Gamma \vdash e : (\text{RGNLoc} \pi \sigma)^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \Phi \vdash \sigma : +^{\text{Real}(\rho)} }
+{\Phi | \Gamma \vdash \text{readRGNLoc} \, e : \sigma^\pi} \\
 \end{gather*}
 
 \begin{gather*}
 \frac
-{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \sigma : \text{Pretype}(\text{Real}(\rho)))}
-{\Phi \vdash \text{RGNLoc} \pi \sigma : \text{Pretype} (\text{Real}(\text{Pointer}))}
+{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \sigma : +^{\text{Real}(\rho)}}
+{\Phi \vdash \text{RGNLoc} \pi \sigma : +^{\text{Real}(\text{Pointer})}}
 \end{gather*}
 
 \subsubsection{Functions}
@@ -383,9 +334,7 @@ e \Coloneqq & \\
 \sigma, \tau, \pi \Coloneqq & \\
 & \tau \xrightarrow{\downarrow}_\pi \sigma \tag{Function Pointer}\\
 & \tau \xrightarrow{\text{text}}_\pi \sigma  \tag{Function Literal Type} \\
-& \dots \\
-\kappa, s, \rho \Coloneqq & \\
-& \text{Text} \tag{Symbol Stage} \\
+& \dots
 \end{align*}
 
 \begin{gather*}
@@ -394,7 +343,7 @@ e \Coloneqq & \\
 {\Phi | \Gamma \vdash \text{extern} \, \text{sym} : (\tau \xrightarrow{\downarrow}_{\pi'} \sigma)^\pi} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\sigma \xrightarrow{\downarrow}_\pi \tau)^\pi \quad \Phi | \Gamma' \vdash e' : \sigma^\pi \quad \Phi \vdash \sigma : \text{Pretype}(\text{Real}(\rho))}
+{\Phi | \Gamma \vdash e : (\sigma \xrightarrow{\downarrow}_\pi \tau)^\pi \quad \Phi | \Gamma' \vdash e' : \sigma^\pi \quad \Phi \vdash \sigma : +^{\text{Real}(\rho)}}
 {\Phi | \Gamma, \Gamma' \vdash e(^\downarrow e' : \sigma) : \tau^\pi} \\
 \\
 \frac
@@ -404,19 +353,12 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi \vdash \sigma : \text{Pretype} (\text{Real} (\rho)) \quad \Phi \vdash \tau : \text{Pretype} (\rho') \quad \Phi \vdash \pi : \text{Region}}
-{\Phi \vdash \sigma \xrightarrow{\downarrow}_\pi \tau : \text{Pretype} (\text{Real} (\text{Pointer}))} \\
+{\Phi \vdash \sigma : +^{\text{Real} (\rho)} \quad \Phi \vdash \tau : +^{\rho'} \quad \Phi \vdash \pi : \text{Region}}
+{\Phi \vdash \sigma \xrightarrow{\downarrow}_\pi \tau : +^{\text{Real} (\text{Pointer})}} \\
 \\
 \frac
-{\Phi \vdash \sigma : \text{Pretype} (\text{Real} (\rho)) \quad \Phi \vdash \tau : \text{Pretype} (\rho') \quad \Phi \vdash \pi : \text{Region}}
-{\Phi \vdash \sigma \xrightarrow{\text{text}}_\pi \tau : \text{Type} (\text{Text})} \\
-\end{gather*}
-
-
-\begin{gather*}
-\frac
-{}
-{\Phi \vdash \text{Text} : \text{Stage}} \\
+{\Phi \vdash \sigma : +^{\text{Real} (\rho)} \quad \Phi \vdash \tau : +^{\rho'} \quad \Phi \vdash \pi : \text{Region}}
+{\Phi \vdash \sigma \xrightarrow{\text{text}}_\pi \tau : *} \\
 \end{gather*}
 
 \subsubsection{Pairs}
@@ -440,14 +382,14 @@ e \Coloneqq & \\
 \\
 \frac
 {\splitfrac{\Phi | \Gamma \vdash e : (\tau, \tau')^\pi \quad \Phi | \Gamma , \langle x : \forall \alpha. \tau^\alpha \rangle, \langle x' : \forall \alpha. \tau'^\alpha \rangle \vdash e : \sigma^\pi}
-{\Phi \vdash \tau : \text{Pretype}(\text{Real}(\rho)) \quad \Phi \vdash \tau' : \text{Pretype}(\text{Real}(\rho')) }}
+{\Phi \vdash \tau : +^{\text{Real}(\rho)} \quad \Phi \vdash \tau' : +^{\text{Real}(\rho')} }}
 {\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow (x : \tau, x' : \tau') = e; e' : \sigma^\pi}
 \end{gather*}
 
 \begin{gather*}
 \frac
-{\Phi \vdash \tau : \text{Pretype} (\text{Real} (\kappa)) \quad \Phi \vdash \tau : \text{Pretype} (\text{Real} (\kappa')) }
-{\Phi \vdash (\sigma, \tau) : \text{Pretype} (\text{Real} (\text{Structure} \{ \kappa,\kappa'\} ))} \\
+{\Phi \vdash \tau : +^{\text{Real} (\kappa)} \quad \Phi \vdash \tau : +^{\text{Real} (\kappa')} }
+{\Phi \vdash (\sigma, \tau) : +^{\text{Real} (\text{Structure} \{ \kappa,\kappa'\} )}} \\
 \end{gather*}
 
 
@@ -531,69 +473,50 @@ e \Coloneqq & \\
 {\Phi \vdash \text{unsigned} : \text{Signedness}} \\
 \end{gather*}
 
+\subsection{Constraints}
 
-\subsubsection{Copy Evidence}
+\subsubsection{Copy}
 \begin{align*}
-e \Coloneqq & \\
-& \text{copy}^\text{Int} \tag{Copy Integer Proof} \\
-& \text{copy}^{\to^\downarrow} \tag{Copy Function Pointer Proof} \\
-& \text{copy}^{\downarrow(,)} \, e \, e' \tag{Copy Tuple Proof} \\
-& \text{copy}^{\text{RGNLoc}} \tag{Copy Reference Proof}\\
-& \dots \\
-\sigma, \tau, \pi \Coloneqq & \\
-& \text{Copy} \, \sigma \tag{Runtime Copyable} \\
-\end{align*}
-
-\begin{gather*}
-\frac
-{}
-{\Phi | \Gamma \vdash \text{copy}^\text{Int}  : \text{Copy} (\text{Number} (\rho, \rho'))} \\
-\\
-\frac
-{}
-{\Phi | \Gamma \vdash \text{copy}^{\to\downarrow} : \text{Copy} (\sigma \to^\downarrow \tau)} \\
-\\
-\frac
-{\Phi | \Gamma \vdash e : \text{Copy} (\sigma) \quad \Phi | \Gamma \vdash e' : \text{Copy} (\tau)}
-{\Phi | \Gamma, \Gamma' \vdash \text{copy}^{\downarrow(,)} \, e \, e' : \text{Copy} ((^\downarrow\sigma, \tau))} \\
-\\
-\frac
-{}
-{\Phi | \Gamma \vdash \text{copy}^\text{RGNLoc} : \text{Copy} (\text{RGNLoc} \pi \sigma)} \\
-\end{gather*}
-
-\begin{gather*}
-\frac
-{\Phi \vdash \sigma : \text{Pretype}(\text{Real}(\rho))}
-{\Phi \vdash \text{Copy} \, \sigma : \text{Type}(\text{Evidence})} \\
-\end{gather*}
-
-
-\subsubsection{Region Evidence}
-\begin{align*}
-e \Coloneqq & \\
-& \text{id}^\preceq \tag{SubType Identity Proof} \\
-& e \circ^\preceq \pi e' \tag{SubType Compose Proof} \\
-& \dots \\
-\sigma, \tau, \pi \Coloneqq & \\
-& \pi \preceq \pi' \tag{Region Scoping} \\
+c \Coloneqq & \\
+& \text{Copy} \\
 & \dots
 \end{align*}
 
 \begin{gather*}
 \frac
 {}
-{\Phi | \Gamma \vdash \text{id}^{\preceq}  : \pi \preceq \pi} \\
+{\Phi \vdash \text{Copy} (\text{Number} (\rho, \rho'))} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \pi' \preceq \pi'' \quad \Phi | \Gamma' \vdash e' : \pi \preceq \pi' \quad \Phi \vdash \pi' : \text{Region}}
-{\Phi | \Gamma, \Gamma' \vdash e \circ^\preceq \pi' e' : \pi \preceq \pi''} \\
+{}
+{\Phi \vdash \text{Copy} (\sigma \xrightarrow{\downarrow}_\pi \tau)} \\
+\\
+\frac
+{\Phi \vdash \text{Copy}(\sigma) \quad \Phi \vdash \text{Copy}(\tau) }
+{\Phi \vdash \text{Copy} (^\downarrow \sigma, \tau ) } \\
+\\
+\frac
+{}
+{\Gamma \vdash \text{Copy} (\text{RGNLoc} \pi \sigma) }
 \end{gather*}
 
 \begin{gather*}
 \frac
-{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \pi' : \text{Region}}
-{\Phi \vdash \pi \preceq \pi' : \text{Type}(\text{Evidence})} \\
+{}
+{\Phi \vdash \text{Copy} : \text{Pretype}(\text{Real}(\rho)) \to \diamond} \\
+\end{gather*}
+
+
+\subsubsection{Region}
+\begin{align*}
+c \Coloneqq & \\
+& \preceq \sigma
+\end{align*}
+
+\begin{gather*}
+\frac
+{\Phi \vdash \sigma : \text{Region}}
+{\Phi \vdash (\preceq \sigma) : \text{Region} \to \diamond}
 \end{gather*}
 
 \section{Simple Language}
@@ -607,11 +530,11 @@ e \Coloneqq & \\
 & e(e' : \tau) \\
 & (e,e') \\
 & \text{let} (x: \sigma, x' : \sigma') = e; e' \\
-& \star e \\
+& * e \\
 & n \\
 & e +^z e' \\
 \sigma \Coloneqq & \\
-& \text{void}\star \\ 
+& \text{void}* \\ 
 & (\sigma, \sigma', \dots) \\
 & \text{word} \, s \\
 s \Coloneqq & \, \text{char} \, | \, \text{short} \, | \, \text{int} \, | \, \text{long} \\
@@ -629,10 +552,10 @@ z \Coloneqq & \, \text{signed} \, | \, \text{unsigned}
 \\
 \frac
 {}
-{\Gamma \vdash \text{extern} \, \text{sym} \, \sigma \to \tau : \text{void} \star} \\
+{\Gamma \vdash \text{extern} \, \text{sym} \, \sigma \to \tau : \text{void} *} \\
 \\
 \frac
-{\Gamma \vdash e : \text{void} \star \quad \Gamma \vdash e' : \tau}
+{\Gamma \vdash e : \text{void} * \quad \Gamma \vdash e' : \tau}
 {\Gamma \vdash e(e' : \tau) : \sigma} \\
 \\
 \frac
@@ -644,8 +567,8 @@ z \Coloneqq & \, \text{signed} \, | \, \text{unsigned}
 {\Gamma \vdash \text{let} (x: \sigma, x' : \sigma') = e; e' : \tau} \\
 \\
 \frac
-{\Gamma \vdash e : \text{void} \star}
-{\Gamma \vdash \star e : \sigma} \\
+{\Gamma \vdash e : \text{void} *}
+{\Gamma \vdash * e : \sigma} \\
 \\
 \frac
 {}
