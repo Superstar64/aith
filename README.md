@@ -40,6 +40,8 @@ See ``/rules`` for typing rules.
     * [ ] Write
   * [ ] Let Region
 * [x] Hindley Milner
+  * [x] Builtin typeclasses
+  * [ ] User defined typeclasses
 * [x] C Code Generation
 * [ ] Javascript Code Generation
 
@@ -122,7 +124,6 @@ See ``/rules`` for typing rules.
 | Of Course | ``![σ]`` |
 | Function Pointer | `` τ -*> π σ `` |
 | Function Literal Type | `` τ -> π σ `` |
-| Implied | `` π -^> σ `` |
 | Runtime Pair | ``σ, σ'`` |
 | Effect | ``σ @ π`` |
 | Region Reference | ``reference π σ`` |
@@ -154,7 +155,6 @@ See ``/rules`` for typing rules.
 | Variable | ``x`` |
 | Type | ``*]`` |
 | Pretype | ``+[s]`` |
-| Evidence | ``evidence`` |
 | Region | ``region`` |
 | Real | ``#ρ#``|
 | Imaginary | ``imaginary`` |
@@ -219,7 +219,7 @@ Useful / Inspirational papers:
 
 ### Linear / Unique Types
 * [The Best of Both Worlds: Linear Functional Programming without Compromise](https://jgbm.github.io/pubs/morris-icfp2016-linearity-extended.pdf) [(video)](https://youtu.be/ij9DbNTr-B8)
-  * Currently a manual version of evidence passing is implemented
+  * `Un` typeclass implemented as a builtin currently.
 ### Regions
 * 
   * [Monadic and Substructural Type Systems for Region-Based Memory Management](https://www.cs.rit.edu/~mtf/research/thesis/fluet-thesis.single.pdf)
