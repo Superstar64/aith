@@ -173,7 +173,7 @@ kindCore = Language.coreKind ⊣ position ⊗ choice options ∥ betweenParens k
         Language.typex ⊣ token "*",
         Language.pretype ⊣ betweenPlusSquares kind,
         Language.imaginary ⊣ keyword "imaginary",
-        Language.region ⊣ prefixKeyword "region",
+        Language.region ⊣ keyword "region",
         Language.pointerRep ⊣ keyword "pointer",
         Language.structRep ⊣ prefixKeyword "struct" ≫ betweenParens (commaSeperatedMany kind),
         Language.byte ⊣ keyword "byte",
@@ -247,19 +247,31 @@ typeScheme = mono ∥ foldrP applyScheme ⊣ scheme
       where
         inner = (Language.forallx . constraintBound) `branchDistribute'` (Language.kindForall . toPrism Language.bound)
 
+termRuntimePattern = patternTop
+  where
+    patternTop = Language.coreTermRuntimePattern ⊣ position ⊗ variableLong ∥ patternPair
+      where
+        variableLong = try $ Language.runtimePatternVariable ⊣ termIdentifier ⊗ (just ⊣ binaryToken ":" ≫ typex)
+    patternPair = foldlP pair ⊣ patternCore ⊗ many (binaryToken "," ≫ patternCore)
+      where
+        pair = withInnerPosition Language.coreTermRuntimePattern Language.runtimePatternPair
+    patternCore = Language.coreTermRuntimePattern ⊣ position ⊗ choice options ∥ betweenParens patternTop
+      where
+        options =
+          [ Language.runtimePatternVariable ⊣ termIdentifier ⊗ (nothing ⊣ always)
+          ]
+
 termPattern = patternTop
   where
     patternTop = Language.coreTermPattern ⊣ position ⊗ variableLong ∥ patternPair
       where
         variableLong = try $ Language.patternVariable ⊣ termIdentifier ⊗ (just ⊣ binaryToken ":" ≫ typex)
-    patternPair = foldlP pair ⊣ patternCore ⊗ many (binaryToken "," ≫ patternCore)
-      where
-        pair = withInnerPosition Language.coreTermPattern Language.patternRuntimePair
-    patternCore = Language.coreTermPattern ⊣ position ⊗ choice options ∥ betweenParens termPattern
+    patternPair = patternCore
+    patternCore = Language.coreTermPattern ⊣ position ⊗ choice options ∥ betweenParens patternTop
       where
         options =
           [ Language.patternVariable ⊣ termIdentifier ⊗ (nothing ⊣ always),
-            Language.patternOfCourse ⊣ betweenBangSquares termPattern
+            Language.patternOfCourse ⊣ betweenBangSquares patternTop
           ]
 
 term :: (Position δ p, Syntax δ) => δ (Language.Term () (Language.KindAuto p) (Language.TypeAuto p) p)
@@ -274,7 +286,7 @@ term = termBinding
       where
         options =
           [ Language.bind ⊣ rotateBind ⊣ prefixKeyword "inline" ≫ termPattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ term,
-            Language.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ termPattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ term
+            Language.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ termRuntimePattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ term
           ]
         rotateBind = secondI Language.bound . associate . firstI swap
     termRTApply = applyBinary ⊣ termAdd ⊗ (binaryToken "$" ≫ optionalAnnotate termRTApply ⊕ always)
@@ -313,7 +325,7 @@ termCore = Language.coreTerm ⊣ position ⊗ choice options ∥ betweenParens t
     options =
       [ Language.variable ⊣ termIdentifier ⊗ always,
         Language.macroAbstraction ⊣ Language.bound ⊣ token "`\\" ≫ termPattern ⊗ lambdaMajor term,
-        Language.functionLiteral ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ lambdaMajor term,
+        Language.functionLiteral ⊣ Language.bound ⊣ token "\\" ≫ termRuntimePattern ⊗ lambdaMajor term,
         Language.extern ⊣ prefixKeyword "extern" ≫ symbol ≪ space ⊗ typeCoreAuto ≪ binaryToken "->" ⊗ typeCoreAuto ≪ space ⊗ typeCoreAuto,
         Language.ofCourseIntroduction ⊣ betweenBangSquares term,
         Language.numberLiteral ⊣ number,

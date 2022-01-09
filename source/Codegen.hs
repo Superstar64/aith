@@ -46,13 +46,13 @@ ctype (SimpleType (WordRep Long)) = C.Long
 
 -- only effectless expressions can be passed in
 compilePattern :: SimplePattern p -> C.Expression SimpleType -> Codegen ([C.Statement SimpleType])
-compilePattern pm@(SimplePattern _ (PatternVariable x@(TermIdentifier base) _)) target = do
+compilePattern pm@(SimplePattern _ (RuntimePatternVariable x@(TermIdentifier base) _)) target = do
   let σ = simplePatternType pm
   state@(CodegenState _ variables cLocals) <- Codegen get
   let name = fresh cLocals base
   Codegen $ put state {variables = Map.insert x name variables, cLocals = Set.insert name cLocals}
   pure [C.VariableDeclaration σ name target]
-compilePattern (SimplePattern _ (PatternPair pm1 pm2)) target = do
+compilePattern (SimplePattern _ (RuntimePatternPair pm1 pm2)) target = do
   pm1' <- compilePattern pm1 (C.Member target "_0")
   pm2' <- compilePattern pm2 (C.Member target "_1")
   pure $ pm1' ++ pm2'

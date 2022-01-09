@@ -254,7 +254,7 @@ unifyKind = unify
       tell θ
     unify p κ κ'@(CoreKind _ (KindLogical _)) = unify p κ' κ
     unify _ (CoreKind _ (KindVariable x)) (CoreKind _ (KindVariable x')) | x == x' = pure ()
-    unify p (CoreKind _ Type) (CoreKind _ Type) = pure ()
+    unify _ (CoreKind _ Type) (CoreKind _ Type) = pure ()
     unify _ (CoreKind _ Region) (CoreKind _ Region) = pure ()
     unify p (CoreKind _ (Pretype κ)) (CoreKind _ (Pretype κ')) = do
       match p κ κ'
@@ -302,12 +302,12 @@ unifyPredicate p c σ@(CoreType _ (TypeVariable x)) σs = do
   case Map.lookup c cs of
     Nothing -> quit $ ConstraintMismatch p c σ σs
     Just σs' -> sequence_ $ zipWith (matchType p) σs σs'
-unifyPredicate p Copy (CoreType _ (Number _ _)) [] = pure ()
-unifyPredicate p Copy (CoreType _ (FunctionPointer _ _ _)) [] = pure ()
+unifyPredicate _ Copy (CoreType _ (Number _ _)) [] = pure ()
+unifyPredicate _ Copy (CoreType _ (FunctionPointer _ _ _)) [] = pure ()
 unifyPredicate p Copy (CoreType _ (Pair σ τ)) [] = do
   constrain p Copy σ []
   constrain p Copy τ []
-unifyPredicate p Copy (CoreType _ (Reference _ _)) [] = pure ()
+unifyPredicate _ Copy (CoreType _ (Reference _ _)) [] = pure ()
 unifyPredicate p c σ σs = quit $ ConstraintMismatch p c σ σs
 
 solve = do

@@ -14,7 +14,7 @@ import TypeCheck.Unify
 
 data SimpleType = SimpleType (KindRuntime KindSize SimpleType)
 
-data SimplePattern p = SimplePattern p (PatternCommon SimpleType (SimplePattern p))
+data SimplePattern p = SimplePattern p (TermRuntimePatternF SimpleType (SimplePattern p))
 
 data SimpleTerm p = SimpleTerm p (TermRuntime () KindSignedness () SimpleType (Bound (SimplePattern p) (SimpleTerm p)) () (SimpleTerm p))
 
@@ -64,15 +64,14 @@ convertFunctionType (CoreType _ (FunctionLiteralType σ _ τ)) = do
   pure $ SimpleFunctionType σ' τ'
 convertFunctionType _ = error "failed to convert function type"
 
-convertTermPattern :: Monad m => TermPattern θ KindInfer TypeInfer p -> ReaderT (Map TypeIdentifier KindInfer) m (SimplePattern p)
-convertTermPattern (CoreTermPattern p (PatternCommon (PatternVariable x σ))) = do
+convertTermPattern :: Monad m => TermRuntimePattern θ KindInfer TypeInfer p -> ReaderT (Map TypeIdentifier KindInfer) m (SimplePattern p)
+convertTermPattern (CoreTermRuntimePattern p (RuntimePatternVariable x σ)) = do
   σ' <- convertType σ
-  pure $ SimplePattern p $ PatternVariable x σ'
-convertTermPattern (CoreTermPattern p (PatternCommon (PatternPair pm1 pm2))) = do
+  pure $ SimplePattern p $ RuntimePatternVariable x σ'
+convertTermPattern (CoreTermRuntimePattern p (RuntimePatternPair pm1 pm2)) = do
   pm1' <- convertTermPattern pm1
   pm2' <- convertTermPattern pm2
-  pure $ SimplePattern p $ PatternPair pm1' pm2'
-convertTermPattern (CoreTermPattern _ (PatternOfCourse pm)) = convertTermPattern pm
+  pure $ SimplePattern p $ RuntimePatternPair pm1' pm2'
 
 simpleFailPattern = error "illegal simple pattern"
 
@@ -136,5 +135,5 @@ convertTermAnnotate e (CoreTypeScheme _ (Forall (Bound (Pattern _ x κ) σ) _)) 
 convertTermAnnotate _ (CoreTypeScheme _ (KindForall _)) = error "kind forall in simple term"
 
 simplePatternType :: SimplePattern p -> SimpleType
-simplePatternType (SimplePattern _ (PatternVariable _ σ)) = σ
-simplePatternType (SimplePattern _ (PatternPair pm pm')) = SimpleType $ StructRep [simplePatternType pm, simplePatternType pm']
+simplePatternType (SimplePattern _ (RuntimePatternVariable _ σ)) = σ
+simplePatternType (SimplePattern _ (RuntimePatternPair pm pm')) = SimpleType $ StructRep [simplePatternType pm, simplePatternType pm']

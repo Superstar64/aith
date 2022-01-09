@@ -13,7 +13,7 @@ import Misc.MonoidMap (Map, (!))
 import qualified Misc.MonoidMap as Map
 import TypeCheck.Substitute
 
-data Multiplicity = Linear | Unrestricted deriving (Show)
+data Multiplicity = Linear | Unrestricted | Automatic TypeUnify deriving (Show)
 
 -- levels are inspired from "How OCaml type checker works -- or what polymorphism and garbage collection have in common"
 -- however, rather then using levels for let generalization, levels here are used for skolemization
@@ -39,8 +39,6 @@ data TypeError p
   | EscapingSkolemType p TypeIdentifier TypeUnify
   | EscapingSkolemKind p KindIdentifier KindUnify
   | CaptureLinear p TermIdentifier
-  | ExpectedMetaPattern p
-  | ExpectedRuntimePattern p
   | ExpectedTypeAnnotation p
   | ConstraintMismatch p Constraint TypeUnify [TypeUnify]
   | ConstraintKindError p Constraint KindUnify [KindUnify]

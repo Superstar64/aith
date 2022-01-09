@@ -100,7 +100,6 @@ See ``/rules`` for typing rules.
 |-|-|
 | Variable | ``x``|
 | Variable Abscribe | ``x : σ`` |
-| Copy | ``![pm]`` |
 | Runtime Pair Destruction | ``pm , pm'`` |
 
 ## Auto Type (σa)

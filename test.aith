@@ -17,21 +17,21 @@ module run = {
 	
 	
 	symbol dotProduct = \(vector1P, vector2P) {
-		let (![x1],![y1],![z1 : {{signed}} int]) = *vector1P;
-		let (![x2],![y2],![z2]) = *vector2P;
+		let (x1,y1,(z1 : {{signed}} int)) = *vector1P;
+		let (x2,y2,z2) = *vector2P;
 		(x1 * x2 + y1 * y2 + z1 * z2)
 	};
   
-	symbol fstSysF = /\A : +[#pointer#] => /\B : +[#pointer#] + copy => \((x : A), ![y : B]) => x;
+	symbol fstSysF = /\A : +[#pointer#] => /\B : +[#pointer#] + copy => \((x : A), (y : B)) => x;
   
   
 	symbol _ :: <A : +[#pointer#], B : +[#pointer#] + copy, R : region> (A, B) -> R A;
 	symbol fst = \x => fstSysF[[\/A => \/B => (A,B) -*> R A @ R]]<_>[[\/B => (A,B) -*> R A @ R]]<_> $ x;
 	
 	symbol _ :: <A : +[#pointer#] + copy, B : +[#pointer#], R : region> (A, B) -> R B;
-	symbol snd = \(![x], y) => y;
+	symbol snd = \(x, y) => y;
 	
-	symbol pattern = \![pair] {
+	symbol pattern = \pair {
 		(fst $ pair), (snd $ pair)
 	};
   
@@ -41,7 +41,7 @@ module run = {
 	};
   
 	symbol _ :: <R : region> {{unsigned}} int, {{unsigned}} int -> R {{unsigned}} int;
-	symbol div = \(x,![y]) {
+	symbol div = \(x,y) {
 		(x + y - 1) / y
 	};
 };

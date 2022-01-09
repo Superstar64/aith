@@ -131,29 +131,30 @@ checkNumber p σt = do
 
 augmentVariableLinear p x l ς e = do
   (a, lΓ) <- augmentTypeEnvironment x p l ς e
-  case (count x lΓ, l) of
-    (Single, _) -> pure ()
-    (_, Unrestricted) -> pure ()
-    (_, _) -> quit $ InvalidUsage p x
+  case l of
+    Unrestricted -> pure ()
+    Linear -> case count x lΓ of
+      Single -> pure ()
+      _ -> quit $ InvalidUsage p x
+    Automatic σ -> case count x lΓ of
+      Single -> pure ()
+      _ -> constrain p Copy σ []
   pure (a, Remove x lΓ)
 
-augmentMetaTermPattern l pm = go l pm
+augmentMetaTermPattern pm = go Linear pm
   where
-    go l (CoreTermPattern p (PatternCommon (PatternVariable x σ))) = augmentVariableLinear p x l (CoreTypeScheme Internal $ MonoType σ)
+    go l (CoreTermPattern p (PatternVariable x σ)) = augmentVariableLinear p x l (CoreTypeScheme Internal $ MonoType σ)
     go _ (CoreTermPattern _ (PatternOfCourse pm)) = go Unrestricted pm
-    go _ _ = error "invalid meta pattern"
 
 polyEffect padding σ = CoreTypeScheme Internal $ Forall (Bound (Pattern Internal freshVar (CoreKind Internal Region)) bounded) Map.empty
   where
     bounded = CoreTypeScheme Internal $ MonoType $ padding $ CoreType Internal $ Effect σ (CoreType Internal $ TypeVariable freshVar)
     freshVar = fresh (Map.keysSet $ freeVariablesInternal σ) (TypeIdentifier "R")
 
-augmentRuntimeTermPattern l pm = go l pm
+augmentRuntimeTermPattern pm = go pm
   where
-    go l (CoreTermPattern p (PatternCommon (PatternVariable x σ))) = augmentVariableLinear p x l (polyEffect id σ)
-    go _ (CoreTermPattern _ (PatternCommon (PatternPair pm pm'))) = go Linear pm . go Linear pm'
-    go _ (CoreTermPattern _ (PatternOfCourse pm)) = go Unrestricted pm
-    go _ _ = error "invalid runtime pattern"
+    go (CoreTermRuntimePattern p (RuntimePatternVariable x σ)) = augmentVariableLinear p x (Automatic σ) (polyEffect id σ)
+    go (CoreTermRuntimePattern _ (RuntimePatternPair pm pm')) = go pm . go pm'
 
 capture p lΓ = do
   let captures = variablesUsed lΓ
@@ -162,6 +163,7 @@ capture p lΓ = do
     case l of
       Unrestricted -> pure ()
       Linear -> quit $ CaptureLinear p x
+      Automatic σ -> constrain p Copy σ []
   pure ()
 
 typeCheckConstraints :: p -> Map.Map Constraint [Type (KindAuto p) Void p] -> KindUnify -> Core p (Map.Map Constraint [TypeUnify])
@@ -171,36 +173,30 @@ typeCheckConstraints p c κ = flip Map.traverseWithKey c $ \c σs -> do
   pure σs
 
 typeCheckAnnotateMetaPattern = \case
-  (CoreTermPattern p (PatternCommon (PatternVariable x σ))) -> do
+  (CoreTermPattern p (PatternVariable x σ)) -> do
     σ' <- case σ of
       Nothing -> freshMetaTypeVariable p
       Just σ -> do
         (σ', κ) <- typeCheckValidateType σ
         checkType p κ
         pure σ'
-    pure (CoreTermPattern p $ PatternCommon $ (PatternVariable x σ'), σ')
+    pure (CoreTermPattern p $ (PatternVariable x σ'), σ')
   (CoreTermPattern p (PatternOfCourse pm)) -> do
     (pm', σ) <- typeCheckAnnotateMetaPattern pm
     pure (CoreTermPattern p (PatternOfCourse pm'), CoreType Internal (OfCourse σ))
-  (CoreTermPattern p _) -> quit $ ExpectedMetaPattern p
 
-typeCheckAnnotateLinearPatternRuntime = \case
-  (CoreTermPattern p (PatternCommon (PatternVariable x σ))) -> do
+typeCheckAnnotateRuntimePattern = \case
+  (CoreTermRuntimePattern p (RuntimePatternVariable x σ)) -> do
     σ' <- case σ of
       Nothing -> freshPretypeRealTypeVariable p
       Just σ -> do
         σ' <- fst <$> typeCheckValidateType σ
         enforcePretypeReal p σ'
-    pure ((CoreTermPattern p $ PatternCommon $ PatternVariable x σ', σ'), useNothing)
-  (CoreTermPattern p (PatternCommon (PatternPair pm1 pm2))) -> do
-    ((pm1', σ1), lΓ1) <- typeCheckAnnotateLinearPatternRuntime pm1
-    ((pm2', σ2), lΓ2) <- typeCheckAnnotateLinearPatternRuntime pm2
-    pure ((CoreTermPattern p $ PatternCommon $ PatternPair pm1' pm2', CoreType Internal $ Pair σ1 σ2), combine lΓ1 lΓ2)
-  (CoreTermPattern p (PatternOfCourse pm)) -> do
-    ((pm', σ), lΓ) <- typeCheckAnnotateLinearPatternRuntime pm
-    constrain p Copy σ []
-    pure ((CoreTermPattern p $ PatternOfCourse pm', σ), lΓ)
-  (CoreTermPattern p _) -> quit $ ExpectedRuntimePattern p
+    pure ((CoreTermRuntimePattern p $ RuntimePatternVariable x σ', σ'))
+  (CoreTermRuntimePattern p (RuntimePatternPair pm1 pm2)) -> do
+    (pm1', σ1) <- typeCheckAnnotateRuntimePattern pm1
+    (pm2', σ2) <- typeCheckAnnotateRuntimePattern pm2
+    pure ((CoreTermRuntimePattern p $ RuntimePatternPair pm1' pm2', CoreType Internal $ Pair σ1 σ2))
 
 typeCheckAnnotateKindPattern :: Pattern KindIdentifier Sort p -> Core p (Pattern KindIdentifier Sort p, Sort)
 typeCheckAnnotateKindPattern pm@(Pattern _ _ μ) = pure (pm, μ)
@@ -214,7 +210,7 @@ typeCheckValidateKind =
           case μ of
             Just (_, μ, _) -> pure (CoreKind Internal $ KindVariable x, μ)
             Nothing -> quit $ UnknownKindIdentifier p x
-        (CoreKind p Type) -> do
+        (CoreKind _ Type) -> do
           pure (CoreKind Internal $ Type, Kind)
         (CoreKind _ Region) -> pure (CoreKind Internal Region, Kind)
         (CoreKind _ Imaginary) -> pure (CoreKind Internal Imaginary, Existance)
@@ -344,7 +340,7 @@ typeCheckAnnotateLinearTerm =
             Nothing -> quit $ UnknownIdentifier p x
         (CoreTerm p (MacroAbstraction (Bound pm e))) -> do
           (pm', σ) <- typeCheckAnnotateMetaPattern pm
-          ((e', τ), lΓ) <- augmentMetaTermPattern Linear pm' (recurse e)
+          ((e', τ), lΓ) <- augmentMetaTermPattern pm' (recurse e)
           pure ((CoreTerm p (MacroAbstraction (Bound pm' e')), CoreType Internal $ Macro σ τ), lΓ)
         (CoreTerm p (MacroApplication e1 e2 σ'')) -> do
           ((e1', (σ, τ)), lΓ1) <- firstM (secondM (checkMacro p)) =<< recurse e1
@@ -360,7 +356,7 @@ typeCheckAnnotateLinearTerm =
           ((e1', τ), lΓ1) <- recurse e1
           (pm', τ') <- typeCheckAnnotateMetaPattern pm
           matchType p τ τ'
-          ((e2', σ), lΓ2) <- augmentMetaTermPattern Linear pm' $ recurse e2
+          ((e2', σ), lΓ2) <- augmentMetaTermPattern pm' $ recurse e2
           pure ((CoreTerm p (Bind e1' (Bound pm' e2')), σ), lΓ1 `combine` lΓ2)
         (CoreTerm p (OfCourseIntroduction e)) -> do
           ((e', σ), lΓ) <- recurse e
@@ -403,12 +399,12 @@ typeCheckAnnotateLinearTerm =
             matchType p (CoreType Internal $ ExplicitForall (Bound (Internal <$ pm') τ) c') ς
             pure (((CoreTerm p (TypeApplication e σ (Bound pm' τ) c')), substitute σ α τ), lΓ)
         CoreTerm p (TermRuntime (Alias e1 (Bound pm e2))) -> do
-          ((pm', τ), lΓ1) <- typeCheckAnnotateLinearPatternRuntime pm
-          ((e1', (τ', π)), lΓ2) <- firstM (secondM $ checkEffect p) =<< recurse e1
+          (pm', τ) <- typeCheckAnnotateRuntimePattern pm
+          ((e1', (τ', π)), lΓ1) <- firstM (secondM $ checkEffect p) =<< recurse e1
           matchType p τ τ'
-          ((e2', (σ, π')), lΓ3) <- firstM (secondM $ checkEffect p) =<< augmentRuntimeTermPattern Linear pm' (recurse e2)
+          ((e2', (σ, π')), lΓ2) <- firstM (secondM $ checkEffect p) =<< augmentRuntimeTermPattern pm' (recurse e2)
           matchType p π π'
-          pure ((CoreTerm p $ TermRuntime $ Alias e1' (Bound pm' e2'), CoreType Internal $ Effect σ π), lΓ1 `combine` lΓ2 `combine` lΓ3)
+          pure ((CoreTerm p $ TermRuntime $ Alias e1' (Bound pm' e2'), CoreType Internal $ Effect σ π), lΓ1 `combine` lΓ2)
         CoreTerm p (TermRuntime (Extern sym σ π τ)) -> do
           σ' <- case σ of
             Nothing -> freshPretypeRealTypeVariable p
@@ -463,9 +459,9 @@ typeCheckAnnotateLinearTerm =
               matchKind p ρ1 s
           pure ((CoreTerm p $ TermRuntime $ Arithmatic o e1' e2' ρ1, CoreType Internal $ Effect (CoreType Internal $ Number ρ1 ρ2) π), lΓ1 `combine` lΓ2)
         CoreTerm p (FunctionLiteral (Bound pm e)) -> do
-          ((pm', σ), lΓ1) <- typeCheckAnnotateLinearPatternRuntime pm
-          ((e', (τ, π)), lΓ2) <- firstM (secondM $ checkEffect p) =<< augmentRuntimeTermPattern Linear pm' (recurse e)
-          pure ((CoreTerm p $ FunctionLiteral (Bound pm' e'), CoreType Internal $ FunctionLiteralType σ π τ), lΓ1 `combine` lΓ2)
+          (pm', σ) <- typeCheckAnnotateRuntimePattern pm
+          ((e', (τ, π)), lΓ) <- firstM (secondM $ checkEffect p) =<< augmentRuntimeTermPattern pm' (recurse e)
+          pure ((CoreTerm p $ FunctionLiteral (Bound pm' e'), CoreType Internal $ FunctionLiteralType σ π τ), lΓ)
 
 attachRigidType :: [String] -> [TypeLogicalRaw] -> Core p ([(Pattern TypeIdentifier KindUnify Internal, Map Constraint [TypeUnify])], Substitution)
 attachRigidType (x : xs) (α : αs) = do
