@@ -249,26 +249,19 @@ typeCheckModule (Ordering ((path@(Path heading _), item) : nodes)) = do
       inject search (path, search path') e
 
 convertFunctionLiteral ς = case ς of
-  CoreTypeScheme _ (MonoType σ) -> go id σ
-    where
-      go padding (CoreType _ (ExplicitForall (Bound pm σ) c)) = go (\τ -> padding $ CoreType Internal $ ExplicitForall (Bound pm τ) c) σ
-      go padding (CoreType p (FunctionLiteralType σ π τ)) = polyEffect padding (CoreType p $ FunctionPointer σ π τ)
-      go _ _ = error "unexpected literal"
-  CoreTypeScheme p (Forall (Bound pm ς) c) -> CoreTypeScheme p $ Forall (Bound pm $ convertFunctionLiteral ς) c
-  CoreTypeScheme p (KindForall (Bound pm ς)) -> CoreTypeScheme p $ KindForall $ Bound pm (convertFunctionLiteral ς)
+  CoreTypeScheme _ (MonoType (CoreType p (FunctionLiteralType σ π τ))) -> polyEffect id (CoreType p $ FunctionPointer σ π τ)
+  CoreTypeScheme p (ImplicitForall (Bound pm ς) c) -> CoreTypeScheme p $ ImplicitForall (Bound pm $ convertFunctionLiteral ς) c
+  _ -> error "not function literal"
 
 makeExtern ::
   Path ->
   p ->
   TypeSchemeInfer ->
   Term InstantiationInfer KindInfer TypeInfer p
-makeExtern path p (CoreTypeScheme _ (MonoType σ)) = go σ
-  where
-    go (CoreType _ (ExplicitForall (Bound pm σ) c)) = CoreTerm p $ TypeAbstraction (Bound (p <$ pm) $ go σ) c
-    go (CoreType _ (FunctionLiteralType σ π τ)) = CoreTerm p (TermRuntime $ Extern (mangle path) σ π τ)
-    go _ = error "extern of non function pointer"
-makeExtern _ _ (CoreTypeScheme _ (KindForall _)) = error "extern of kind forall"
-makeExtern path p (CoreTypeScheme _ (Forall (Bound _ σ) _)) = makeExtern path p σ
+makeExtern path p ς = case ς of
+  CoreTypeScheme _ (MonoType (CoreType _ (FunctionLiteralType σ π τ))) -> CoreTerm p (TermRuntime $ Extern (mangle path) σ π τ)
+  CoreTypeScheme _ (ImplicitForall (Bound _ σ) _) -> makeExtern path p σ
+  _ -> error "not function literal"
 
 reduceModule ::
   ModuleOrder TypeSchemeInfer InstantiationInfer KindInfer TypeInfer p ->

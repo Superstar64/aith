@@ -57,7 +57,7 @@ reconstruct = reconstructType indexVariable absurd augment
 
 convertType σ = convertKind <$> reconstruct σ
 
-convertFunctionType (CoreType _ (ExplicitForall (Bound (Pattern _ x κ) σ) _)) = withReaderT (Map.insert x κ) $ convertFunctionType σ
+convertFunctionType (CoreType _ (Forall (Bound (Pattern _ x κ) σ) _)) = withReaderT (Map.insert x κ) $ convertFunctionType σ
 convertFunctionType (CoreType _ (FunctionLiteralType σ _ τ)) = do
   σ' <- convertType σ
   τ' <- convertType τ
@@ -109,8 +109,8 @@ convertTerm (CoreTerm p (TermRuntime (Arithmatic o e1 e2 κ))) = do
       CoreKind Internal (KindSignedness Signed) -> Signed
       CoreKind Internal (KindSignedness Unsigned) -> Unsigned
       _ -> error "bad sign"
-convertTerm (CoreTerm _ (TypeAbstraction (Bound (Pattern _ x κ) e) _)) = withReaderT (Map.insert x κ) $ convertTerm e
-convertTerm (CoreTerm _ (TypeApplication e _ _ _)) = convertTerm e
+convertTerm (CoreTerm _ (TypeAbstraction _ _)) = simpleFailTerm
+convertTerm (CoreTerm _ (TypeApplication _ _ _ _)) = simpleFailPattern
 convertTerm (CoreTerm _ (MacroAbstraction _)) = simpleFailTerm
 convertTerm (CoreTerm _ (MacroApplication _ _ _)) = simpleFailTerm
 convertTerm (CoreTerm _ (OfCourseIntroduction _)) = simpleFailTerm
@@ -131,8 +131,8 @@ convertTermAnnotate e (CoreTypeScheme _ (MonoType σ)) = do
   e' <- convertFunction e
   σ' <- convertFunctionType σ
   pure (e', σ')
-convertTermAnnotate e (CoreTypeScheme _ (Forall (Bound (Pattern _ x κ) σ) _)) = withReaderT (Map.insert x κ) $ convertTermAnnotate e σ
-convertTermAnnotate _ (CoreTypeScheme _ (KindForall _)) = error "kind forall in simple term"
+convertTermAnnotate e (CoreTypeScheme _ (ImplicitForall (Bound (Pattern _ x κ) σ) _)) = withReaderT (Map.insert x κ) $ convertTermAnnotate e σ
+convertTermAnnotate _ (CoreTypeScheme _ (ImplicitKindForall _)) = error "kind forall in simple term"
 
 simplePatternType :: SimplePattern p -> SimpleType
 simplePatternType (SimplePattern _ (RuntimePatternVariable _ σ)) = σ

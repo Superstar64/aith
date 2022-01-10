@@ -14,8 +14,8 @@ import Misc.Prism
 
 data TypeSchemeF λκ λσ σ
   = MonoType σ
-  | Forall λσ (Map Constraint [σ])
-  | KindForall λκ
+  | ImplicitForall λσ (Map Constraint [σ])
+  | ImplicitKindForall λκ
   deriving (Show)
 
 data TypeScheme κ vσ p' p
@@ -55,7 +55,7 @@ data TypeF v λ κ σ
   = TypeVariable TypeIdentifier
   | TypeLogical v
   | Macro σ σ
-  | ExplicitForall λ (Map Constraint [σ])
+  | Forall λ (Map Constraint [σ])
   | OfCourse σ
   | FunctionPointer σ σ σ
   | FunctionLiteralType σ σ σ
@@ -89,8 +89,8 @@ traverseTypeSchemeF ::
 traverseTypeSchemeF f g h σ =
   case σ of
     MonoType σ -> pure MonoType <*> h σ
-    Forall λ c -> pure Forall <*> g λ <*> (traverse . traverse) h c
-    KindForall λ -> pure KindForall <*> f λ
+    ImplicitForall λ c -> pure ImplicitForall <*> g λ <*> (traverse . traverse) h c
+    ImplicitKindForall λ -> pure ImplicitKindForall <*> f λ
 
 mapTypeSchemeF f g h = runIdentity . traverseTypeSchemeF (Identity . f) (Identity . g) (Identity . h)
 
@@ -122,7 +122,7 @@ traverseTypeF f i h g σ = case σ of
   TypeVariable x -> pure TypeVariable <*> pure x
   TypeLogical v -> pure TypeLogical <*> f v
   Macro σ τ -> pure Macro <*> g σ <*> g τ
-  ExplicitForall λ c -> pure ExplicitForall <*> i λ <*> (traverse . traverse) g c
+  Forall λ c -> pure Forall <*> i λ <*> (traverse . traverse) g c
   OfCourse σ -> pure OfCourse <*> g σ
   FunctionPointer σ π τ -> pure FunctionPointer <*> g σ <*> g π <*> g τ
   FunctionLiteralType σ π τ -> pure FunctionLiteralType <*> g σ <*> g π <*> g τ
@@ -148,12 +148,12 @@ monoType = Prism MonoType $ \case
   (MonoType σ) -> Just σ
   _ -> Nothing
 
-forallx = Prism (uncurry Forall) $ \case
-  (Forall λ c) -> Just (λ, c)
+forallx = Prism (uncurry ImplicitForall) $ \case
+  (ImplicitForall λ c) -> Just (λ, c)
   _ -> Nothing
 
-kindForall = Prism KindForall $ \case
-  (KindForall λ) -> Just λ
+kindForall = Prism ImplicitKindForall $ \case
+  (ImplicitKindForall λ) -> Just λ
   _ -> Nothing
 
 coreType = Isomorph (uncurry CoreType) $ \(CoreType p σ) -> (p, σ)
@@ -170,8 +170,8 @@ macro = Prism (uncurry Macro) $ \case
   (Macro σ τ) -> Just (σ, τ)
   _ -> Nothing
 
-explicitForall = Prism (uncurry ExplicitForall) $ \case
-  (ExplicitForall λ c) -> Just (λ, c)
+explicitForall = Prism (uncurry Forall) $ \case
+  (Forall λ c) -> Just (λ, c)
   _ -> Nothing
 
 ofCourse = Prism OfCourse $ \case

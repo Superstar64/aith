@@ -46,7 +46,7 @@ reconstructType indexVariable indexLogical augment = reconstruct
       indexLogical v
     reconstruct (CoreType _ (Macro _ _)) = do
       pure $ CoreKind Internal $ Type
-    reconstruct (CoreType _ (ExplicitForall (Bound pm σ) c)) = do
+    reconstruct (CoreType _ (Forall (Bound pm σ) c)) = do
       augment pm c $ reconstruct σ
       reconstruct σ
     reconstruct (CoreType _ (OfCourse _)) = do
@@ -118,7 +118,7 @@ typeOccursCheck p x σ = go σ p x σ
             Macro σ τ -> do
               recurse σ
               recurse τ
-            ExplicitForall (Bound (Pattern _ α κ) σ) c -> do
+            Forall (Bound (Pattern _ α κ) σ) c -> do
               augmentKindEnvironment α p κ c minBound $ recurse σ
             OfCourse σ -> recurse σ
             FunctionPointer σ π τ -> do
@@ -212,7 +212,7 @@ unifyType = unify
     unify p (CoreType _ (Macro σ τ)) (CoreType _ (Macro σ' τ')) = do
       match p σ σ'
       match p τ τ'
-    unify p (CoreType _ (ExplicitForall (Bound pm@(Pattern _ α κ) σ) c)) (CoreType _ (ExplicitForall (Bound (Pattern _ α' κ') σ') c'))
+    unify p (CoreType _ (Forall (Bound pm@(Pattern _ α κ) σ) c)) (CoreType _ (Forall (Bound (Pattern _ α' κ') σ') c'))
       | Map.keysSet c == Map.keysSet c' = do
         lift $ matchKind p κ κ'
         let σ'' = substitute @TypeUnify (CoreType Internal $ TypeVariable α) α' σ'

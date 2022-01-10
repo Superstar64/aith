@@ -22,11 +22,11 @@ module run = {
 		(x1 * x2 + y1 * y2 + z1 * z2)
 	};
   
-	symbol fstSysF = /\A : +[#pointer#] => /\B : +[#pointer#] + copy => \((x : A), (y : B)) => x;
+	inline fstSysF = /\A : +[#pointer#] => /\B : +[#pointer#] + copy => \((x : A), (y : B)) => x;
   
   
 	symbol _ :: <A : +[#pointer#], B : +[#pointer#] + copy, R : region> (A, B) -> R A;
-	symbol fst = \x => fstSysF[[\/A => \/B => (A,B) -*> R A @ R]]<_>[[\/B => (A,B) -*> R A @ R]]<_> $ x;
+	symbol fst = fstSysF[[\/A => \/B => (A,B) -> R A]]<_>[[\/B => (A,B) -> R A]]<_>;
 	
 	symbol _ :: <A : +[#pointer#] + copy, B : +[#pointer#], R : region> (A, B) -> R B;
 	symbol snd = \(x, y) => y;

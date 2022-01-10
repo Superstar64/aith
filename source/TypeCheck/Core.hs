@@ -42,6 +42,7 @@ data TypeError p
   | ExpectedTypeAnnotation p
   | ConstraintMismatch p Constraint TypeUnify [TypeUnify]
   | ConstraintKindError p Constraint KindUnify [KindUnify]
+  | ExpectedFunctionLiteral p
   deriving (Show)
 
 lookupTypeEnviroment :: TermIdentifier -> Core p (Maybe (p, Multiplicity, TypeSchemeUnify))

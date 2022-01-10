@@ -146,7 +146,7 @@ augmentMetaTermPattern pm = go Linear pm
     go l (CoreTermPattern p (PatternVariable x σ)) = augmentVariableLinear p x l (CoreTypeScheme Internal $ MonoType σ)
     go _ (CoreTermPattern _ (PatternOfCourse pm)) = go Unrestricted pm
 
-polyEffect padding σ = CoreTypeScheme Internal $ Forall (Bound (Pattern Internal freshVar (CoreKind Internal Region)) bounded) Map.empty
+polyEffect padding σ = CoreTypeScheme Internal $ ImplicitForall (Bound (Pattern Internal freshVar (CoreKind Internal Region)) bounded) Map.empty
   where
     bounded = CoreTypeScheme Internal $ MonoType $ padding $ CoreType Internal $ Effect σ (CoreType Internal $ TypeVariable freshVar)
     freshVar = fresh (Map.keysSet $ freeVariablesInternal σ) (TypeIdentifier "R")
@@ -238,15 +238,15 @@ typeCheckValidateTypeScheme =
         (CoreTypeScheme p (MonoType σ)) -> do
           (σ', κ) <- typeCheckValidateType σ
           pure (CoreTypeScheme p (MonoType σ'), κ)
-        (CoreTypeScheme p (Forall (Bound pm σ) c)) -> do
+        (CoreTypeScheme p (ImplicitForall (Bound pm σ) c)) -> do
           (pm', κ2) <- typeCheckAnnotateTypePattern pm
           c' <- typeCheckConstraints p c κ2
           (σ', κ) <- augmentTypePatternBottom pm' $ recurse σ
-          pure $ (CoreTypeScheme p $ Forall (Bound pm' σ') c', κ)
-        (CoreTypeScheme p (KindForall (Bound pm σ))) -> do
+          pure $ (CoreTypeScheme p $ ImplicitForall (Bound pm' σ') c', κ)
+        (CoreTypeScheme p (ImplicitKindForall (Bound pm σ))) -> do
           pm' <- fst <$> typeCheckAnnotateKindPattern pm
           (σ', _) <- augmentKindPatternBottom pm' $ recurse σ
-          pure (CoreTypeScheme p $ KindForall $ Bound pm' σ', CoreKind Internal $ Type)
+          pure (CoreTypeScheme p $ ImplicitKindForall $ Bound pm' σ', CoreKind Internal $ Type)
 
 typeCheckAnnotateTypePattern :: Pattern TypeIdentifier (KindAuto p) p -> Core p (Pattern TypeIdentifier KindUnify p, KindUnify)
 typeCheckAnnotateTypePattern = \case
@@ -271,11 +271,11 @@ typeCheckValidateType =
           (σ', _) <- secondM (checkType p) =<< recurse σ
           (τ', _) <- secondM (checkType p) =<< recurse τ
           pure (CoreType Internal $ Macro σ' τ', CoreKind Internal $ Type)
-        (CoreType p (ExplicitForall (Bound pm σ) c)) -> do
+        (CoreType p (Forall (Bound pm σ) c)) -> do
           (pm', κ2) <- typeCheckAnnotateTypePattern pm
           c' <- typeCheckConstraints p c κ2
           (σ', κ) <- augmentTypePatternBottom pm' $ recurse σ
-          pure $ (CoreType Internal $ ExplicitForall (Bound (Internal <$ pm') σ') c', κ)
+          pure $ (CoreType Internal $ Forall (Bound (Internal <$ pm') σ') c', κ)
         (CoreType p (OfCourse σ)) -> do
           (σ', _) <- secondM (checkType p) =<< recurse σ
           pure (CoreType Internal $ OfCourse σ', CoreKind Internal $ Type)
@@ -313,13 +313,13 @@ typeCheckValidateType =
 
 instantiateTypeScheme p = \case
   (CoreTypeScheme _ (MonoType σ)) -> pure (σ, InstantiateEmpty)
-  (CoreTypeScheme _ (Forall (Bound (Pattern _ x κ) σ) c)) -> do
+  (CoreTypeScheme _ (ImplicitForall (Bound (Pattern _ x κ) σ) c)) -> do
     τ <- freshTypeVariable p κ
     flip Map.traverseWithKey c $ \k c -> do
       constrain p k τ c
     (ς, θ) <- instantiateTypeScheme p $ substitute τ x σ
     pure (ς, InstantiateType x τ θ)
-  (CoreTypeScheme _ (KindForall (Bound (Pattern _ x μ) σ))) -> do
+  (CoreTypeScheme _ (ImplicitKindForall (Bound (Pattern _ x μ) σ))) -> do
     κ <- freshKindVariable p μ
     (ς, θ) <- instantiateTypeScheme p $ substitute κ x σ
     pure (ς, InstantiateKind x κ θ)
@@ -380,7 +380,7 @@ typeCheckAnnotateLinearTerm =
             ambigousTypeCheck (Map.keysSet $ freeVariablesInternal @TypeLogicalRaw σ'')
             ambigousKindCheck (Map.keysSet $ freeVariablesInternal @KindLogicalRaw σ'')
 
-            pure ((CoreTerm p (TypeAbstraction (Bound pm' e'') c'), CoreType Internal $ ExplicitForall (Bound (Internal <$ pm') σ'') Map.empty), lΓ)
+            pure ((CoreTerm p (TypeAbstraction (Bound pm' e'') c'), CoreType Internal $ Forall (Bound (Internal <$ pm') σ'') Map.empty), lΓ)
         (CoreTerm p (TypeApplication e σ (Bound pm@(Pattern _ α _) τ) c)) -> do
           ((e, ς), lΓ) <- typeCheckAnnotateLinearTerm e
           (pm', κ) <- typeCheckAnnotateTypePattern pm
@@ -396,7 +396,7 @@ typeCheckAnnotateLinearTerm =
           matchKind p κ κ'
           augmentTypePatternBottom pm' $ do
             τ <- fst <$> typeCheckValidateType τ
-            matchType p (CoreType Internal $ ExplicitForall (Bound (Internal <$ pm') τ) c') ς
+            matchType p (CoreType Internal $ Forall (Bound (Internal <$ pm') τ) c') ς
             pure (((CoreTerm p (TypeApplication e σ (Bound pm' τ) c')), substitute σ α τ), lΓ)
         CoreTerm p (TermRuntime (Alias e1 (Bound pm e2))) -> do
           (pm', τ) <- typeCheckAnnotateRuntimePattern pm
@@ -516,8 +516,8 @@ typeTemporaries = temporaries' $ (: []) <$> ['A', 'B', 'C']
 kindTemporaries = temporaries' $ (: []) <$> ['X', 'Y', 'Z']
 
 augmentScheme (CoreTypeScheme _ (MonoType σ)) e = e σ
-augmentScheme (CoreTypeScheme _ (Forall (Bound pm σ) c)) e = augmentTypePatternLevel pm c (augmentScheme σ e)
-augmentScheme (CoreTypeScheme _ (KindForall (Bound pm σ))) e = augmentKindPatternLevel pm (augmentScheme σ e)
+augmentScheme (CoreTypeScheme _ (ImplicitForall (Bound pm σ) c)) e = augmentTypePatternLevel pm c (augmentScheme σ e)
+augmentScheme (CoreTypeScheme _ (ImplicitKindForall (Bound pm σ))) e = augmentKindPatternLevel pm (augmentScheme σ e)
 
 reunifyEquations p (Substitution σθ κθ) = do
   for (Map.toList σθ) $ \(x, τ) ->
@@ -587,8 +587,8 @@ generalize (e, σ) = do
   let ς = foldr prependKindPattern (foldr prependPattern (CoreTypeScheme Internal $ MonoType σ) pm) pm2
   pure (e, ς)
   where
-    prependKindPattern pm e = CoreTypeScheme Internal $ KindForall (Bound pm e)
-    prependPattern (pm, c) e = CoreTypeScheme Internal $ Forall (Bound pm e) c
+    prependKindPattern pm e = CoreTypeScheme Internal $ ImplicitKindForall (Bound pm e)
+    prependPattern (pm, c) e = CoreTypeScheme Internal $ ImplicitForall (Bound pm e) c
 
 typeCheckGlobal ::
   TermAuto p ->
@@ -600,18 +600,19 @@ typeCheckGlobal e = do
   (e, ς) <- generalize (e, σ)
   pure (stripUnifier e, stripUnifier ς)
 
--- todo check function
--- todo check for ambigous kind variables
 typeCheckGlobalText ::
   TermAuto p ->
   Core p (TermInfer p, TypeSchemeInfer)
-typeCheckGlobalText = typeCheckGlobal
+typeCheckGlobalText e@(CoreTerm p _) = do
+  (e, ς) <- typeCheckGlobal e
+  syntaticFunctionCheck p ς
+  pure (e, ς)
 
-typeCheckGlobalAnnotateImpl ::
+typeCheckGlobalAnnotate ::
   TermAuto p ->
   TypeScheme (KindAuto p) Void p p ->
   Core p (TermInfer p, TypeSchemeInfer)
-typeCheckGlobalAnnotateImpl e@(CoreTerm p _) ς = do
+typeCheckGlobalAnnotate e@(CoreTerm p _) ς = do
   enterLevel
   ς' <- fst <$> typeCheckValidateTypeScheme ς
   augmentScheme ς' $ \σ -> do
@@ -628,23 +629,22 @@ typeCheckGlobalAnnotateImpl e@(CoreTerm p _) ς = do
   where
     substituteAll = flip . foldr $ \(x, κ) -> substitute κ x
     applyQSubstitution (Substitution _ κs) (CoreTypeScheme p (MonoType σ)) = CoreTypeScheme p $ MonoType $ substituteAll (Map.toList κs) σ
-    applyQSubstitution θ@(Substitution _ κs) (CoreTypeScheme p (Forall (Bound pm ς) c)) =
+    applyQSubstitution θ@(Substitution _ κs) (CoreTypeScheme p (ImplicitForall (Bound pm ς) c)) =
       CoreTypeScheme p $
-        Forall
+        ImplicitForall
           (Bound (substituteAll (Map.toList κs) pm) (applyQSubstitution θ ς))
           (substituteAll (Map.toList κs) c)
-    applyQSubstitution θ (CoreTypeScheme p (KindForall (Bound pm ς))) = CoreTypeScheme p (KindForall (Bound pm $ applyQSubstitution θ ς))
-
-typeCheckGlobalAnnotate ::
-  TermAuto p ->
-  TypeScheme (KindAuto p) Void p p ->
-  Core p (TermInfer p, TypeSchemeInfer)
-typeCheckGlobalAnnotate = typeCheckGlobalAnnotateImpl
-
--- todo check function
+    applyQSubstitution θ (CoreTypeScheme p (ImplicitKindForall (Bound pm ς))) = CoreTypeScheme p (ImplicitKindForall (Bound pm $ applyQSubstitution θ ς))
 
 typeCheckGlobalAnnotateText ::
   TermAuto p ->
   TypeScheme (KindAuto p) Void p p ->
   Core p (TermInfer p, TypeSchemeInfer)
-typeCheckGlobalAnnotateText = typeCheckGlobalAnnotateImpl
+typeCheckGlobalAnnotateText e ς@(CoreTypeScheme p _) = do
+  (e, ς) <- typeCheckGlobalAnnotate e ς
+  syntaticFunctionCheck p ς
+  pure (e, ς)
+
+syntaticFunctionCheck _ (CoreTypeScheme _ (MonoType (CoreType _ (FunctionLiteralType _ _ _)))) = pure ()
+syntaticFunctionCheck p (CoreTypeScheme _ (ImplicitForall (Bound _ ς) _)) = syntaticFunctionCheck p ς
+syntaticFunctionCheck p _ = quit $ ExpectedFunctionLiteral p
