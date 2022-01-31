@@ -152,7 +152,7 @@ See ``/rules`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Type | ``*]`` |
+| Type | ``*`` |
 | Pretype | ``+[s]`` |
 | Region | ``region`` |
 | Real | ``#ρ#``|
