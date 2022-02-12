@@ -26,7 +26,7 @@ module run = {
   
   
 	symbol _ :: <A : +[#pointer#], B : +[#pointer#] + copy, R : region> (A, B) -> R A;
-	symbol fst = fstSysF[[\/A => \/B => (A,B) -> R A]]<_>[[\/B => (A,B) -> R A]]<_>;
+	symbol fst = fstSysF[[\/A => \/B + copy => (A,B) -> R A]]<_>[[\/B + copy => (A,B) -> R A]]<_>;
 	
 	symbol _ :: <A : +[#pointer#] + copy, B : +[#pointer#], R : region> (A, B) -> R B;
 	symbol snd = \(x, y) => y;
