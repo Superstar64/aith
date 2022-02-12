@@ -9,7 +9,6 @@ import Control.Monad.Writer (WriterT, runWriterT, tell)
 import Data.Maybe (fromJust)
 import qualified Data.Set as Set
 import Data.Traversable
-import qualified Misc.MonoidMap as Map
 import TypeCheck.Core
 import TypeCheck.Substitute
 
@@ -19,7 +18,7 @@ matchKind p κ κ' = insertEquation (KindEquation p κ κ')
 
 kindIsMember p σ κ = insertEquation (KindMember p σ κ)
 
-constrain p c σ σs = insertEquation (TypePredicate p c σ σs)
+constrain p c σ = insertEquation (TypePredicate p c σ)
 
 matchSort _ Kind Kind = pure ()
 matchSort _ Existance Existance = pure ()
@@ -180,8 +179,8 @@ unifyTypeVariable p x σ = do
   typeOccursCheck p x σ
   (_, κ, c, _) <- indexTypeVariableMap x
   kindIsMember p σ κ
-  flip Map.traverseWithKey c $ \c σs -> do
-    constrain p c σ σs
+  for (Set.toList c) $ \c -> do
+    constrain p c σ
   apply σ x
   pure $ singleTypeSubstitution x σ
   where
@@ -197,7 +196,7 @@ unifyKindVariable p x κ = do
   where
     apply κ x = do
       modifyEquations (substitute κ x)
-      modifyTypeVariableMap (fmap $ \(p, κ', c, lev) -> (p, substitute κ x κ', substitute κ x c, lev))
+      modifyTypeVariableMap (fmap $ \(p, κ', c, lev) -> (p, substitute κ x κ', c, lev))
 
 unifyType :: p -> TypeUnify -> TypeUnify -> WriterT Substitution (Core p) ()
 unifyType = unify
@@ -213,12 +212,10 @@ unifyType = unify
       match p σ σ'
       match p τ τ'
     unify p (CoreType _ (Forall (Bound pm@(Pattern _ α κ) σ) c)) (CoreType _ (Forall (Bound (Pattern _ α' κ') σ') c'))
-      | Map.keysSet c == Map.keysSet c' = do
+      | c == c' = do
         lift $ matchKind p κ κ'
         let σ'' = substitute @TypeUnify (CoreType Internal $ TypeVariable α) α' σ'
         lift $ insertEquation (TypeSkolemBound p (Bound pm [TypeEquation p σ σ'']) c)
-        for (Set.toList $ Map.keysSet c) $ \k -> do
-          sequence $ zipWith (match p) (c Map.! k) (c' Map.! k)
         pure ()
     unify p (CoreType _ (OfCourse σ)) (CoreType _ (OfCourse σ')) = do
       match p σ σ'
@@ -273,11 +270,10 @@ unifyKind = unify
     unify _ (CoreKind _ (KindSignedness Unsigned)) (CoreKind _ (KindSignedness Unsigned)) = pure ()
     unify p κ κ' = lift $ quit $ KindMismatch p κ κ'
 
-predicateKindCheck :: p -> Constraint -> KindUnify -> [KindUnify] -> Core p ()
-predicateKindCheck p Copy κ [] = do
+predicateKindCheck :: p -> Constraint -> KindUnify -> Core p ()
+predicateKindCheck p Copy κ = do
   β <- CoreKind Internal <$> KindLogical <$> freshKindVariableRaw p Representation maxBound
   matchKind p κ (CoreKind Internal $ Pretype $ CoreKind Internal $ Real $ β)
-predicateKindCheck p c κ κs = quit $ ConstraintKindError p c κ κs
 
 -- todo use this to replace old reconstruct
 reconstruct2 :: p -> TypeUnify -> Core p KindUnify
@@ -286,29 +282,26 @@ reconstruct2 p σ = do
   kindIsMember p σ β
   pure β
 
-unifyPredicate :: p -> Constraint -> TypeUnify -> [TypeUnify] -> Core p ()
-unifyPredicate p c (CoreType _ (TypeLogical x)) σs = do
-  traverse (typeOccursCheck p x) σs
+unifyPredicate :: p -> Constraint -> TypeUnify -> Core p ()
+unifyPredicate p c (CoreType _ (TypeLogical x)) = do
   (_, κ, cs, _) <- indexTypeVariableMap x
-  κs <- traverse (reconstruct2 p) σs
-  predicateKindCheck p c κ κs
-  case Map.lookup c cs of
-    Nothing -> insertTypeVariableMapConstraint x c σs
-    Just σs' -> sequence_ $ zipWith (matchType p) σs σs'
-unifyPredicate p c σ@(CoreType _ (TypeVariable x)) σs = do
+  predicateKindCheck p c κ
+  case Set.member c cs of
+    False -> insertTypeVariableMapConstraint x c
+    True -> pure ()
+unifyPredicate p c σ@(CoreType _ (TypeVariable x)) = do
   (_, κ, cs, _) <- fromJust <$> lookupKindEnvironment x
-  κs <- traverse (reconstruct2 p) σs
-  predicateKindCheck p c κ κs
-  case Map.lookup c cs of
-    Nothing -> quit $ ConstraintMismatch p c σ σs
-    Just σs' -> sequence_ $ zipWith (matchType p) σs σs'
-unifyPredicate _ Copy (CoreType _ (Number _ _)) [] = pure ()
-unifyPredicate _ Copy (CoreType _ (FunctionPointer _ _ _)) [] = pure ()
-unifyPredicate p Copy (CoreType _ (Pair σ τ)) [] = do
-  constrain p Copy σ []
-  constrain p Copy τ []
-unifyPredicate _ Copy (CoreType _ (Reference _ _)) [] = pure ()
-unifyPredicate p c σ σs = quit $ ConstraintMismatch p c σ σs
+  predicateKindCheck p c κ
+  case Set.member c cs of
+    False -> quit $ ConstraintMismatch p c σ
+    True -> pure ()
+unifyPredicate _ Copy (CoreType _ (Number _ _)) = pure ()
+unifyPredicate _ Copy (CoreType _ (FunctionPointer _ _ _)) = pure ()
+unifyPredicate p Copy (CoreType _ (Pair σ τ)) = do
+  constrain p Copy σ
+  constrain p Copy τ
+unifyPredicate _ Copy (CoreType _ (Reference _ _)) = pure ()
+unifyPredicate p c σ = quit $ ConstraintMismatch p c σ
 
 solve = do
   equations <- getEquations
@@ -350,7 +343,7 @@ solve = do
         indexVariableMap x = snd <$> indexTypeVariableMap x
         augment (Pattern p x κ) c = augmentKindEnvironment x p κ c (error "level usage during kind checking")
         snd (_, x, _, _) = x
-    TypePredicate p c σ σs : remaining -> do
+    TypePredicate p c σ : remaining -> do
       modifyEquations (const remaining)
-      unifyPredicate p c σ σs
+      unifyPredicate p c σ
       solve

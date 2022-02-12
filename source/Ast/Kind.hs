@@ -4,9 +4,9 @@ import Ast.Common
 import Control.Category ((.))
 import Data.Functor.Const (Const (..), getConst)
 import Data.Functor.Identity (Identity (..), runIdentity)
+import qualified Data.Set as Set
 import Data.Void (Void, absurd)
 import Misc.Isomorph
-import qualified Misc.MonoidMap as Map
 import Misc.Prism
 import Prelude hiding ((.))
 
@@ -172,12 +172,12 @@ mapKind f g = runIdentity . traverseKind (Identity . f) (Identity . g)
 instance Functor (Kind v) where
   fmap f = runIdentity . traverseKind pure (Identity . f)
 
-instance Semigroup p => FreeVariables KindIdentifier p (Kind vκ p) where
-  freeVariables (CoreKind p (KindVariable x)) = Map.singleton x p
+instance FreeVariables KindIdentifier (Kind vκ p) where
+  freeVariables (CoreKind _ (KindVariable x)) = Set.singleton x
   freeVariables (CoreKind _ κ) = foldKindF mempty freeVariables κ
 
-instance FreeVariables KindLogicalRaw Internal KindUnify where
-  freeVariables (CoreKind _ (KindLogical x)) = Map.singleton x Internal
+instance FreeVariables KindLogicalRaw KindUnify where
+  freeVariables (CoreKind _ (KindLogical x)) = Set.singleton x
   freeVariables (CoreKind _ κ) = foldKindF mempty freeVariables κ
 
 instance Convert KindIdentifier (Kind v p) where
@@ -197,12 +197,6 @@ instance Substitute KindUnify KindLogicalRaw KindUnify where
   substitute ux x (CoreKind p κ) = CoreKind p $ mapKindF id go κ
     where
       go = substitute ux x
-
-instance FreeVariablesInternal KindIdentifier (Kind v p) where
-  freeVariablesInternal = freeVariables . fmap (const Internal)
-
-instance FreeVariablesInternal KindLogicalRaw KindUnify where
-  freeVariablesInternal = freeVariables
 
 instance Reduce (Kind v p) where
   reduce = id

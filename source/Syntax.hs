@@ -12,10 +12,10 @@ import Control.Monad (MonadPlus, guard, liftM2)
 import Control.Monad.State.Strict (State, get, put, runState)
 import Control.Monad.Writer.Strict (WriterT, runWriterT, tell)
 import Data.Maybe (fromJust)
+import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Void (Void)
 import Misc.Isomorph
-import Misc.MonoidMap (Map)
 import qualified Misc.Path as Path
 import Misc.Prism
 import qualified Misc.Symbol as Symbol
@@ -190,10 +190,10 @@ kindAuto = just ⊣ kind ∥ nothing ⊣ token "_"
 
 constraint = Language.copy ⊣ keyword "copy" ≫ always
 
-constraints :: Syntax δ => δ σ -> δ (Map Language.Constraint [σ])
-constraints σ = orderless ⊣ (items ∥ nil ⊣ always)
+constraints :: Syntax δ => δ (Set Language.Constraint)
+constraints = orderlessSet ⊣ (items ∥ nil ⊣ always)
   where
-    items = cons ⊣ inverse nonEmpty ⊣ binaryToken "+" ≫ seperatedSome (constraint ⊗ many σ) (binaryToken "&")
+    items = cons ⊣ inverse nonEmpty ⊣ binaryToken "+" ≫ seperatedSome (constraint) (binaryToken "&")
 
 typePattern = Language.pattern ⊣ position ⊗ typeIdentifier ⊗ (just ⊣ token ":" ≫ kind ∥ nothing ⊣ always)
 
@@ -230,7 +230,7 @@ typeCore = Language.coreType ⊣ position ⊗ (choice options) ∥ betweenParens
     options =
       [ Language.typeVariable ⊣ typeIdentifier,
         Language.number ⊣ betweenDoubleBraces kindAuto ⊗ space ≫ kindCoreAuto,
-        Language.explicitForall ⊣ constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints typeCore ⊗ lambdaInline typex,
+        Language.explicitForall ⊣ constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lambdaInline typex,
         Language.ofCourse ⊣ betweenBangSquares typex
       ]
 
@@ -241,7 +241,7 @@ typeCoreAuto = just ⊣ typeCore ∥ nothing ⊣ token "_"
 typeScheme = mono ∥ foldrP applyScheme ⊣ scheme
   where
     mono = Language.coreTypeScheme ⊣ position ⊗ (Language.monoType ⊣ typex)
-    schemeCore = typePattern ⊗ constraints typeCore ⊕ token "'" ≫ kindPattern
+    schemeCore = typePattern ⊗ constraints ⊕ token "'" ≫ kindPattern
     scheme = betweenAngle (commaSeperatedMany (position ⊗ schemeCore)) ⊗ space ≫ mono
     applyScheme = toPrism Language.coreTypeScheme . secondP inner . toPrism associate
       where
@@ -315,7 +315,7 @@ term = termBinding
         applySyntax = space ≫ token "`" ≫ optionalAnnotate termCore
         typeApplySyntax =
           associate' ⊣ swap ⊣ space
-            ≫ betweenDoubleSquares (constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints typeCoreAuto ⊗ lambdaInline typeAuto) ⊗ betweenAngle typeAuto
+            ≫ betweenDoubleSquares (constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lambdaInline typeAuto) ⊗ betweenAngle typeAuto
         options =
           [ Language.readReference ⊣ token "*" ≫ termCore
           ]
@@ -329,7 +329,7 @@ termCore = Language.coreTerm ⊣ position ⊗ choice options ∥ betweenParens t
         Language.extern ⊣ prefixKeyword "extern" ≫ symbol ≪ space ⊗ typeCoreAuto ≪ binaryToken "->" ⊗ typeCoreAuto ≪ space ⊗ typeCoreAuto,
         Language.ofCourseIntroduction ⊣ betweenBangSquares term,
         Language.numberLiteral ⊣ number,
-        Language.typeLambda ⊣ constraintBound ⊣ token "/\\" ≫ typePattern ⊗ constraints typeCoreAuto ⊗ lambdaMajor term
+        Language.typeLambda ⊣ constraintBound ⊣ token "/\\" ≫ typePattern ⊗ constraints ⊗ lambdaMajor term
       ]
 
 modulex ::

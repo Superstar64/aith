@@ -5,10 +5,10 @@ import Control.Monad.Trans (lift)
 import Data.Bitraversable (bitraverse)
 import Data.Foldable (toList)
 import Data.List (find)
+import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import qualified Data.Set as Set
 import Data.Traversable (for)
-import qualified Misc.MonoidMap as Map
 
 firstM f = bitraverse f pure
 

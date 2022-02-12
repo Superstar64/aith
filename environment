@@ -3,8 +3,8 @@
 # macros i use for testing
 
 # load with `source ./environment`
-# limit to 4 GB to stop exploding processes
-ulimit -Sv 4000000
+# limit to 2 GB to stop exploding processes
+ulimit -Sv 2000000
 
 aith() {
   cabal run aith -- $@

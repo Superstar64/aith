@@ -6,15 +6,15 @@ import Ast.Sort
 import Data.Bitraversable (bitraverse)
 import Data.Functor.Const (Const (..), getConst)
 import Data.Functor.Identity (Identity (..), runIdentity)
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Data.Void (Void, absurd)
 import Misc.Isomorph
-import Misc.MonoidMap (Map)
-import qualified Misc.MonoidMap as Map
 import Misc.Prism
 
 data TypeSchemeF λκ λσ σ
   = MonoType σ
-  | ImplicitForall λσ (Map Constraint [σ])
+  | ImplicitForall λσ (Set Constraint)
   | ImplicitKindForall λκ
   deriving (Show)
 
@@ -55,7 +55,7 @@ data TypeF v λ κ σ
   = TypeVariable TypeIdentifier
   | TypeLogical v
   | Macro σ σ
-  | Forall λ (Map Constraint [σ])
+  | Forall λ (Set Constraint)
   | OfCourse σ
   | FunctionPointer σ σ σ
   | FunctionLiteralType σ σ σ
@@ -89,7 +89,7 @@ traverseTypeSchemeF ::
 traverseTypeSchemeF f g h σ =
   case σ of
     MonoType σ -> pure MonoType <*> h σ
-    ImplicitForall λ c -> pure ImplicitForall <*> g λ <*> (traverse . traverse) h c
+    ImplicitForall λ c -> pure ImplicitForall <*> g λ <*> pure c
     ImplicitKindForall λ -> pure ImplicitKindForall <*> f λ
 
 mapTypeSchemeF f g h = runIdentity . traverseTypeSchemeF (Identity . f) (Identity . g) (Identity . h)
@@ -122,7 +122,7 @@ traverseTypeF f i h g σ = case σ of
   TypeVariable x -> pure TypeVariable <*> pure x
   TypeLogical v -> pure TypeLogical <*> f v
   Macro σ τ -> pure Macro <*> g σ <*> g τ
-  Forall λ c -> pure Forall <*> i λ <*> (traverse . traverse) g c
+  Forall λ c -> pure Forall <*> i λ <*> pure c
   OfCourse σ -> pure OfCourse <*> g σ
   FunctionPointer σ π τ -> pure FunctionPointer <*> g σ <*> g π <*> g τ
   FunctionLiteralType σ π τ -> pure FunctionLiteralType <*> g σ <*> g π <*> g τ
@@ -208,7 +208,7 @@ number = Prism (uncurry Number) $ \case
 instance Functor (Type κ vσ) where
   fmap f = runIdentity . traverseType pure pure (Identity . f)
 
-instance Semigroup p => FreeVariables TypeIdentifier p (TypeScheme κ vσ p p) where
+instance FreeVariables TypeIdentifier (TypeScheme κ vσ p p) where
   freeVariables (CoreTypeScheme _ σ) = foldTypeSchemeF go go go σ
     where
       go = freeVariables
@@ -224,8 +224,7 @@ instance
 
 instance
   ( Convert KindIdentifier κ,
-    FreeVariablesInternal KindIdentifier κ,
-    FreeVariables KindIdentifier Internal κ
+    FreeVariables KindIdentifier κ
   ) =>
   Substitute (Type κ vσ p) TypeIdentifier (TypeScheme κ vσ p p)
   where
@@ -243,7 +242,7 @@ instance
       go = convert ux x
 
 instance
-  ( FreeVariablesInternal KindIdentifier κ,
+  ( FreeVariables KindIdentifier κ,
     Substitute κ KindIdentifier κ,
     Convert KindIdentifier κ
   ) =>
@@ -253,12 +252,12 @@ instance
     where
       go = substitute ux x
 
-instance Semigroup p => FreeVariables TypeIdentifier p (Type κ vσ p) where
-  freeVariables (CoreType p (TypeVariable x)) = Map.singleton x p
+instance FreeVariables TypeIdentifier (Type κ vσ p) where
+  freeVariables (CoreType _ (TypeVariable x)) = Set.singleton x
   freeVariables (CoreType _ σ) = foldTypeF mempty freeVariables mempty freeVariables σ
 
-instance FreeVariables TypeLogicalRaw Internal TypeUnify where
-  freeVariables (CoreType _ (TypeLogical x)) = Map.singleton x Internal
+instance FreeVariables TypeLogicalRaw TypeUnify where
+  freeVariables (CoreType _ (TypeLogical x)) = Set.singleton x
   freeVariables (CoreType _ σ) = foldTypeF mempty go mempty go σ
     where
       go = freeVariables
@@ -282,10 +281,9 @@ instance Substitute TypeUnify TypeLogicalRaw TypeUnify where
       go = substitute ux x
 
 instance
-  ( FreeVariables TypeIdentifier p σ,
-    Semigroup p
+  ( FreeVariables TypeIdentifier σ
   ) =>
-  FreeVariables TypeIdentifier p (Instantiation κ σ p)
+  FreeVariables TypeIdentifier (Instantiation κ σ p)
   where
   freeVariables InstantiateEmpty = mempty
   freeVariables (InstantiateType _ σ θ) = freeVariables σ <> freeVariables θ
@@ -338,15 +336,15 @@ instance Substitute KindUnify KindLogicalRaw InstantiationUnify where
   substitute ux x (InstantiateKind x' κ θ) = InstantiateKind x' (substitute ux x κ) (substitute ux x θ)
   substitute _ _ InstantiateEmpty = InstantiateEmpty
 
-instance BindingsInternal TypeIdentifier (Instantiation κ σ p) where
-  bindingsInternal InstantiateEmpty = mempty
-  bindingsInternal (InstantiateType x _ θ) = Map.singleton x Internal <> bindingsInternal θ
-  bindingsInternal (InstantiateKind _ _ θ) = bindingsInternal θ
+instance Bindings TypeIdentifier (Instantiation κ σ p) where
+  bindings InstantiateEmpty = mempty
+  bindings (InstantiateType x _ θ) = Set.singleton x <> bindings θ
+  bindings (InstantiateKind _ _ θ) = bindings θ
 
-instance BindingsInternal KindIdentifier (Instantiation κ σ p) where
-  bindingsInternal InstantiateEmpty = mempty
-  bindingsInternal (InstantiateType _ _ θ) = bindingsInternal θ
-  bindingsInternal (InstantiateKind x _ θ) = Map.singleton x Internal <> bindingsInternal θ
+instance Bindings KindIdentifier (Instantiation κ σ p) where
+  bindings InstantiateEmpty = mempty
+  bindings (InstantiateType _ _ θ) = bindings θ
+  bindings (InstantiateKind x _ θ) = Set.singleton x <> bindings θ
 
 instance Rename TypeIdentifier (Instantiation κ σ p) where
   rename _ _ InstantiateEmpty = InstantiateEmpty
@@ -360,29 +358,16 @@ instance Rename KindIdentifier (Instantiation κ σ p) where
   rename ux x (InstantiateKind x' κ θ) | x == x' = InstantiateKind ux κ (rename ux x θ)
   rename ux x (InstantiateKind x' κ θ) = InstantiateKind x' κ (rename ux x θ)
 
-instance FreeVariablesInternal TypeIdentifier (Type κ vσ p) where
-  freeVariablesInternal = freeVariables . fmap (const Internal)
-
-instance FreeVariablesInternal TypeLogicalRaw TypeUnify where
-  freeVariablesInternal = freeVariables
-
-instance FreeVariables KindIdentifier Internal κ => FreeVariablesInternal KindIdentifier (Type κ vσ p) where
-  freeVariablesInternal = freeVariables . fmap (const Internal)
-
-instance FreeVariablesInternal KindLogicalRaw TypeUnify where
-  freeVariablesInternal = freeVariables
-
 instance
-  ( FreeVariables KindIdentifier p κ,
-    Semigroup p
+  ( FreeVariables KindIdentifier κ
   ) =>
-  FreeVariables KindIdentifier p (Type κ vσ p)
+  FreeVariables KindIdentifier (Type κ vσ p)
   where
   freeVariables (CoreType _ σ) = foldTypeF mempty go go go σ
     where
       go = freeVariables
 
-instance FreeVariables KindLogicalRaw Internal TypeUnify where
+instance FreeVariables KindLogicalRaw TypeUnify where
   freeVariables (CoreType _ σ) = foldTypeF mempty go go go σ
     where
       go = freeVariables
@@ -410,8 +395,11 @@ instance Substitute KindUnify KindLogicalRaw TypeUnify where
     where
       go = substitute ux x
 
-instance Semigroup p => FreeVariables TermIdentifier p (Type κ v p') where
-  freeVariables _ = mempty
+instance FreeVariables TermIdentifier (Type κ v p) where
+  freeVariables = mempty
+
+instance Semigroup p => FreeVariablesPositioned TermIdentifier p (Type κ v p') where
+  freeVariablesPositioned _ = mempty
 
 instance Convert TermIdentifier (Type κ v p) where
   convert _ _ = id
@@ -424,6 +412,9 @@ instance Reduce (Type κ vσ p) where
 
 instance Reduce (Instantiation κ vσ p) where
   reduce = id
+
+instance Substitute σ x (Set Constraint) where
+  substitute _ _ = id
 
 instance Location (Type κ vσ) where
   location (CoreType p _) = p

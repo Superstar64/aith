@@ -9,9 +9,9 @@ import qualified C.Print as C
 import Codegen
 import Control.Monad.Reader
 import Data.Bifunctor
+import qualified Data.Map as Map
 import Data.Traversable (for)
 import Data.Void
-import qualified Misc.MonoidMap as Map
 import Misc.Path hiding (path)
 import Module hiding (modulex)
 import Simple
@@ -59,9 +59,7 @@ prettyError :: TypeError [SourcePos] -> String
 prettyError (UnknownIdentifier p (TermIdentifier x)) = "Unknown identifer " ++ x ++ positions p
 prettyError (TypeMismatch p σ σ') = "Type mismatch between ``" ++ pretty typex (nameType σ) ++ "`` and ``" ++ pretty typex (nameType σ') ++ "``" ++ positions p
 prettyError (KindMismatch p κ κ') = "Kind mismatch between ``" ++ pretty kind (nameKind κ) ++ "`` and ``" ++ pretty kind (nameKind κ') ++ "``" ++ positions p
-prettyError (ConstraintMismatch p c σ σs) = "Unable to proof ``" ++ pretty constraint c ++ "(" ++ pretty typex (nameType σ) ++ (σs >>= argument) ++ ")``" ++ positions p
-  where
-    argument σ = ", " ++ pretty typex (nameType σ)
+prettyError (ConstraintMismatch p c σ) = "Unable to proof ``" ++ pretty constraint c ++ "(" ++ pretty typex (nameType σ) ++ ")``" ++ positions p
 prettyError e = show e
 
 newtype PrettyIO a = PrettyIO {runPrettyIO :: IO a} deriving (Functor, Applicative, Monad)

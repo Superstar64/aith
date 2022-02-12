@@ -9,11 +9,12 @@ import Control.Monad.Trans (lift)
 import Data.Bifunctor (second)
 import Data.Functor.Identity
 import Data.List (find)
+import Data.Map (Map, (!))
+import qualified Data.Map as Map
+import qualified Data.Set as Set
 import Data.Traversable (for)
 import Data.Void
 import Misc.Isomorph
-import Misc.MonoidMap (Map, (!))
-import qualified Misc.MonoidMap as Map
 import Misc.Path
 import Misc.Prism
 import Misc.Symbol
@@ -123,18 +124,12 @@ extractTerm (TermIdentifier x) = x
 extractType (TypeIdentifier x) = x
 
 depend :: forall p. Semigroup p => GlobalAuto p -> Path -> Map Path p
-depend (Inline σ e) (Path location _) = Map.mapKeysMonotonic (Path location) (annotation <> freeTerm)
+depend (Inline _ e) (Path location _) = Map.mapKeysMonotonic (Path location) (freeTerm)
   where
-    annotation = Map.mapKeysMonotonic extractType $ case σ of
-      Nothing -> mempty
-      Just σ -> freeVariables @TypeIdentifier σ
-    freeTerm = Map.mapKeysMonotonic extractTerm $ freeVariables @TermIdentifier e
-depend (Text σ e) (Path location _) = Map.mapKeysMonotonic (Path location) (annotation <> freeTerm)
+    freeTerm = Map.mapKeysMonotonic extractTerm $ runVariables $ freeVariablesPositioned @TermIdentifier e
+depend (Text _ e) (Path location _) = Map.mapKeysMonotonic (Path location) (freeTerm)
   where
-    annotation = Map.mapKeysMonotonic extractType $ case σ of
-      Nothing -> mempty
-      Just σ -> freeVariables @TypeIdentifier σ
-    freeTerm = Map.mapKeysMonotonic extractTerm $ freeVariables @TermIdentifier e
+    freeTerm = Map.mapKeysMonotonic extractTerm $ runVariables $ freeVariablesPositioned @TermIdentifier e
 depend (Import p path) _ = Map.singleton path p
 
 -- nodes without dependencies are at the end of the list
@@ -279,9 +274,9 @@ reduceModule (Ordering ((path@(Path heading _), item) : nodes)) = case item of
     Ordering nodes' = reduceModule $ Ordering nodes
     inject (Path heading' _, _) e | heading /= heading' = e
     inject (Path _ x, Inline _ ex) e
-      | (TermIdentifier x) `Map.member` freeVariablesInternal @TermIdentifier e = substitute ex (TermIdentifier x) e
+      | (TermIdentifier x) `Set.member` freeVariables @TermIdentifier e = substitute ex (TermIdentifier x) e
     inject (_, Inline _ _) e = e
     inject (path@(Path _ x), Text σ (CoreTerm p _)) e
-      | (TermIdentifier x) `Map.member` freeVariablesInternal @TermIdentifier e = substitute (makeExtern path p σ) (TermIdentifier x) e
+      | (TermIdentifier x) `Set.member` freeVariables @TermIdentifier e = substitute (makeExtern path p σ) (TermIdentifier x) e
     inject (_, Text _ _) e = e
     inject (_, Import _ _) _ = error "import in reduction results"

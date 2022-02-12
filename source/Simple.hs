@@ -5,10 +5,10 @@ import Ast.Kind
 import Ast.Term
 import Ast.Type
 import Control.Monad.Reader (ReaderT, ask, withReaderT)
+import Data.Map (Map)
+import qualified Data.Map as Map
 import Data.Set (Set, singleton)
 import Data.Void (Void, absurd)
-import Misc.MonoidMap (Map)
-import qualified Misc.MonoidMap as Map
 import Misc.Symbol
 import TypeCheck.Unify
 

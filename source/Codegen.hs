@@ -7,10 +7,10 @@ import qualified C.Ast as C
 import Control.Monad.State.Strict (State, evalState, get, put)
 import Control.Monad.Trans (lift)
 import Control.Monad.Writer.Strict (WriterT (..), runWriterT, tell)
+import Data.Map (Map, (!))
+import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Misc.MonoidMap (Map, (!))
-import qualified Misc.MonoidMap as Map
 import Misc.Symbol
 import Misc.Util
 import Simple

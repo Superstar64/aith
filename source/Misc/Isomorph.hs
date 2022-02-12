@@ -2,8 +2,10 @@ module Misc.Isomorph where
 
 import Control.Category (Category, id, (.))
 import Data.List.NonEmpty (NonEmpty (..))
-import Misc.MonoidMap (Map)
-import qualified Misc.MonoidMap as Map
+import Data.Map (Map)
+import qualified Data.Map as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Prelude hiding (id, (.))
 
 data Isomorph a b = Isomorph (a -> b) (b -> a)
@@ -114,3 +116,6 @@ swapNonEmpty = Isomorph f g
 
 orderless :: Ord k => Isomorph [(k, v)] (Map k v)
 orderless = Isomorph Map.fromList Map.toList
+
+orderlessSet :: Ord k => Isomorph [k] (Set k)
+orderlessSet = Isomorph Set.fromList Set.toList

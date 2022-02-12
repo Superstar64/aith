@@ -22,7 +22,6 @@ common aith-base
         Ast.Term
         Ast.Sort
         Module
-        Misc.MonoidMap
         Misc.Symbol
         Misc.Prism
         Misc.Isomorph

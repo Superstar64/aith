@@ -7,9 +7,10 @@ import Control.Category (id, (.))
 import Data.Bitraversable (bitraverse)
 import Data.Functor.Const (Const (..), getConst)
 import Data.Functor.Identity (Identity (..), runIdentity)
+import qualified Data.Map as Map
+import Data.Set (Set)
+import qualified Data.Set as Set
 import Misc.Isomorph
-import Misc.MonoidMap (Map)
-import qualified Misc.MonoidMap as Map
 import Misc.Prism
 import Misc.Symbol
 import Prelude hiding (id, (.))
@@ -65,8 +66,8 @@ data TermF λtl λt θ κ σ λ λr e
   | MacroApplication e e σ
   | OfCourseIntroduction e
   | Bind e λ
-  | TypeAbstraction λtl (Map Constraint [σ])
-  | TypeApplication e σ λt (Map Constraint [σ])
+  | TypeAbstraction λtl (Set Constraint)
+  | TypeApplication e σ λt (Set Constraint)
   deriving (Show)
 
 data Term θ κ σ p
@@ -287,8 +288,8 @@ traverseTermF k l d j f h m i e =
     MacroApplication e1 e2 σ -> pure MacroApplication <*> i e1 <*> i e2 <*> f σ
     OfCourseIntroduction e -> pure OfCourseIntroduction <*> i e
     Bind e λ -> pure Bind <*> i e <*> h λ
-    TypeAbstraction λ c -> pure TypeAbstraction <*> k λ <*> (traverse . traverse) f c
-    TypeApplication e σ λ c -> pure TypeApplication <*> i e <*> f σ <*> l λ <*> (traverse . traverse) f c
+    TypeAbstraction λ c -> pure TypeAbstraction <*> k λ <*> pure c
+    TypeApplication e σ λ c -> pure TypeApplication <*> i e <*> f σ <*> l λ <*> pure c
 
 foldTermF l k d j f h m i = getConst . traverseTermF (Const . l) (Const . k) (Const . d) (Const . j) (Const . f) (Const . h) (Const . m) (Const . i)
 
@@ -331,14 +332,23 @@ instance Functor (TermPattern θ κ σ) where
   fmap f = mapTermPattern id id id f
 
 instance
-  ( Semigroup p,
-    FreeVariables TermIdentifier p σ
+  ( FreeVariables TermIdentifier σ
   ) =>
-  FreeVariables TermIdentifier p (TermPattern θ κ σ p)
+  FreeVariables TermIdentifier (TermPattern θ κ σ p)
   where
   freeVariables (CoreTermPattern _ pm) = foldTermPatternF mempty go pm
     where
       go = freeVariables
+
+instance
+  ( Semigroup p,
+    FreeVariablesPositioned TermIdentifier p σ
+  ) =>
+  FreeVariablesPositioned TermIdentifier p (TermPattern θ κ σ p)
+  where
+  freeVariablesPositioned (CoreTermPattern _ pm) = foldTermPatternF mempty go pm
+    where
+      go = freeVariablesPositioned
 
 instance
   ( Convert TypeIdentifier θ,
@@ -354,10 +364,7 @@ instance
   ( Correct θ (Term θ κ σ p),
     Convert TermIdentifier σ,
     Convert TypeIdentifier σ,
-    Convert TypeIdentifier θ,
-    FreeVariables TypeIdentifier Internal σ,
-    FreeVariables TypeIdentifier Internal θ,
-    FreeVariables TermIdentifier Internal σ
+    Convert TypeIdentifier θ
   ) =>
   Substitute (Term θ κ σ p) TermIdentifier (TermPattern θ κ σ p)
   where
@@ -366,11 +373,10 @@ instance
       go = substitute ux x
 
 instance
-  ( FreeVariables TypeIdentifier p θ,
-    FreeVariables TypeIdentifier p σ,
-    Semigroup p
+  ( FreeVariables TypeIdentifier θ,
+    FreeVariables TypeIdentifier σ
   ) =>
-  FreeVariables TypeIdentifier p (TermPattern θ κ σ p)
+  FreeVariables TypeIdentifier (TermPattern θ κ σ p)
   where
   freeVariables (CoreTermPattern _ pm) = foldTermPatternF go go pm
     where
@@ -389,10 +395,9 @@ instance
 instance
   ( Substitute σ TypeIdentifier θ,
     Substitute σ TypeIdentifier σ',
-    FreeVariablesInternal TypeIdentifier σ,
+    FreeVariables TypeIdentifier σ,
     Convert TypeIdentifier σ',
-    Convert TypeIdentifier θ,
-    FreeVariables TermIdentifier Internal σ
+    Convert TypeIdentifier θ
   ) =>
   Substitute σ TypeIdentifier (TermPattern θ κ σ' p)
   where
@@ -443,9 +448,9 @@ instance
 
 instance
   () =>
-  Bindings TermIdentifier Internal (TermPattern θ κ σ Internal)
+  Bindings TermIdentifier (TermPattern θ κ σ p)
   where
-  bindings (CoreTermPattern p (PatternVariable x _)) = Map.singleton x p
+  bindings (CoreTermPattern _ (PatternVariable x _)) = Set.singleton x
   bindings (CoreTermPattern _ pm) = foldTermPatternF mempty go pm
     where
       go = bindings
@@ -456,14 +461,23 @@ instance Reduce (TermPattern InstantiationInfer KindInfer TypeInfer p) where
       go = reduce
 
 instance
-  ( Semigroup p,
-    FreeVariables TermIdentifier p σ
+  ( FreeVariables TermIdentifier σ
   ) =>
-  FreeVariables TermIdentifier p (TermRuntimePattern θ κ σ p)
+  FreeVariables TermIdentifier (TermRuntimePattern θ κ σ p)
   where
   freeVariables (CoreTermRuntimePattern _ pm) = foldTermRuntimePatternF mempty go pm
     where
       go = freeVariables
+
+instance
+  ( Semigroup p,
+    FreeVariablesPositioned TermIdentifier p σ
+  ) =>
+  FreeVariablesPositioned TermIdentifier p (TermRuntimePattern θ κ σ p)
+  where
+  freeVariablesPositioned (CoreTermRuntimePattern _ pm) = foldTermRuntimePatternF mempty go pm
+    where
+      go = freeVariablesPositioned
 
 instance
   ( Convert TypeIdentifier θ,
@@ -479,10 +493,7 @@ instance
   ( Correct θ (Term θ κ σ p),
     Convert TermIdentifier σ,
     Convert TypeIdentifier σ,
-    Convert TypeIdentifier θ,
-    FreeVariables TypeIdentifier Internal σ,
-    FreeVariables TypeIdentifier Internal θ,
-    FreeVariables TermIdentifier Internal σ
+    Convert TypeIdentifier θ
   ) =>
   Substitute (Term θ κ σ p) TermIdentifier (TermRuntimePattern θ κ σ p)
   where
@@ -491,11 +502,10 @@ instance
       go = substitute ux x
 
 instance
-  ( FreeVariables TypeIdentifier p θ,
-    FreeVariables TypeIdentifier p σ,
-    Semigroup p
+  ( FreeVariables TypeIdentifier θ,
+    FreeVariables TypeIdentifier σ
   ) =>
-  FreeVariables TypeIdentifier p (TermRuntimePattern θ κ σ p)
+  FreeVariables TypeIdentifier (TermRuntimePattern θ κ σ p)
   where
   freeVariables (CoreTermRuntimePattern _ pm) = foldTermRuntimePatternF go go pm
     where
@@ -514,10 +524,9 @@ instance
 instance
   ( Substitute σ TypeIdentifier θ,
     Substitute σ TypeIdentifier σ',
-    FreeVariablesInternal TypeIdentifier σ,
+    FreeVariables TypeIdentifier σ,
     Convert TypeIdentifier σ',
-    Convert TypeIdentifier θ,
-    FreeVariables TermIdentifier Internal σ
+    Convert TypeIdentifier θ
   ) =>
   Substitute σ TypeIdentifier (TermRuntimePattern θ κ σ' p)
   where
@@ -568,9 +577,9 @@ instance
 
 instance
   () =>
-  Bindings TermIdentifier Internal (TermRuntimePattern θ κ σ Internal)
+  Bindings TermIdentifier (TermRuntimePattern θ κ σ p)
   where
-  bindings (CoreTermRuntimePattern p (RuntimePatternVariable x _)) = Map.singleton x p
+  bindings (CoreTermRuntimePattern _ (RuntimePatternVariable x _)) = Set.singleton x
   bindings (CoreTermRuntimePattern _ pm) = foldTermRuntimePatternF mempty go pm
     where
       go = bindings
@@ -581,15 +590,25 @@ instance Reduce (TermRuntimePattern InstantiationInfer KindInfer TypeInfer p) wh
       go = reduce
 
 instance
-  ( Semigroup p,
-    FreeVariables TermIdentifier p σ
+  ( FreeVariables TermIdentifier σ
   ) =>
-  FreeVariables TermIdentifier p (Term θ κ σ p)
+  FreeVariables TermIdentifier (Term θ κ σ p)
   where
-  freeVariables (CoreTerm p (TermRuntime (Variable x _))) = Map.singleton x p
+  freeVariables (CoreTerm _ (TermRuntime (Variable x _))) = Set.singleton x
   freeVariables (CoreTerm _ e) = foldTermF go go mempty mempty mempty go go go e
     where
       go = freeVariables
+
+instance
+  ( Semigroup p,
+    FreeVariablesPositioned TermIdentifier p σ
+  ) =>
+  FreeVariablesPositioned TermIdentifier p (Term θ κ σ p)
+  where
+  freeVariablesPositioned (CoreTerm p (TermRuntime (Variable x _))) = Variables $ Map.singleton x p
+  freeVariablesPositioned (CoreTerm _ e) = foldTermF go go mempty mempty mempty go go go e
+    where
+      go = freeVariablesPositioned
 
 instance
   ( Convert TermIdentifier σ,
@@ -604,12 +623,12 @@ instance
 
 instance
   ( Correct θ (Term θ κ σ p),
-    FreeVariables TypeIdentifier Internal σ,
-    FreeVariables TypeIdentifier Internal θ,
     Convert TermIdentifier σ,
     Convert TypeIdentifier σ,
     Convert TypeIdentifier θ,
-    FreeVariables TermIdentifier Internal σ
+    FreeVariables TypeIdentifier σ,
+    FreeVariables TypeIdentifier θ,
+    FreeVariables TermIdentifier σ
   ) =>
   Substitute (Term θ κ σ p) TermIdentifier (Term θ κ σ p)
   where
@@ -619,11 +638,10 @@ instance
       go = substitute ux x
 
 instance
-  ( Semigroup p,
-    FreeVariables TypeIdentifier p σ,
-    FreeVariables TypeIdentifier p θ
+  ( FreeVariables TypeIdentifier σ,
+    FreeVariables TypeIdentifier θ
   ) =>
-  FreeVariables TypeIdentifier p (Term θ κ σ p)
+  FreeVariables TypeIdentifier (Term θ κ σ p)
   where
   freeVariables (CoreTerm _ e) = foldTermF go go go mempty go go go go e
     where
@@ -643,9 +661,8 @@ instance
   ( Substitute σ TypeIdentifier θ,
     Substitute σ TypeIdentifier σ',
     Convert TypeIdentifier σ',
-    FreeVariablesInternal TypeIdentifier σ,
-    Convert TypeIdentifier θ,
-    FreeVariables TermIdentifier Internal σ
+    FreeVariables TypeIdentifier σ,
+    Convert TypeIdentifier θ
   ) =>
   Substitute σ TypeIdentifier (Term θ κ σ' p)
   where
@@ -726,13 +743,21 @@ instance
   apply (Bound (Pattern _ α _) e) σ = reduce $ substitute σ α e
 
 instance
-  ( FreeVariables TermIdentifier p u,
-    Semigroup p,
-    FreeVariables TermIdentifier p σ
+  ( FreeVariables TermIdentifier u,
+    FreeVariables TermIdentifier σ
   ) =>
-  FreeVariables TermIdentifier p (Bound (TermPattern θ κ σ p) u)
+  FreeVariables TermIdentifier (Bound (TermPattern θ κ σ p) u)
   where
   freeVariables = freeVariablesBoundDependent
+
+instance
+  ( FreeVariablesPositioned TermIdentifier p u,
+    Semigroup p,
+    FreeVariablesPositioned TermIdentifier p σ
+  ) =>
+  FreeVariablesPositioned TermIdentifier p (Bound (TermPattern θ κ σ p) u)
+  where
+  freeVariablesPositioned = freeVariablesBoundDependentPositioned
 
 instance
   ( Convert TermIdentifier u,
@@ -747,24 +772,21 @@ instance
   ( Substitute (Term θ κ σ p) TermIdentifier u,
     Correct θ (Term θ κ σ p),
     Convert TermIdentifier u,
-    FreeVariables TermIdentifier Internal σ,
     Convert TermIdentifier σ,
     Convert TypeIdentifier σ,
     Convert TypeIdentifier θ,
-    FreeVariables TypeIdentifier Internal σ,
-    FreeVariables TypeIdentifier Internal θ
+    FreeVariables TermIdentifier σ
   ) =>
   Substitute (Term θ κ σ p) TermIdentifier (Bound (TermPattern θ κ σ p) u)
   where
   substitute = substituteDependent substitute substitute (avoidCapture @TermIdentifier)
 
 instance
-  ( FreeVariables TypeIdentifier p u,
-    FreeVariables TypeIdentifier p σ,
-    FreeVariables TypeIdentifier p θ,
-    Semigroup p
+  ( FreeVariables TypeIdentifier u,
+    FreeVariables TypeIdentifier σ,
+    FreeVariables TypeIdentifier θ
   ) =>
-  FreeVariables TypeIdentifier p (Bound (TermPattern θ κ σ p) u)
+  FreeVariables TypeIdentifier (Bound (TermPattern θ κ σ p) u)
   where
   freeVariables (Bound pm e) = freeVariables pm <> freeVariables e
 
@@ -781,10 +803,9 @@ instance
   ( Substitute σ TypeIdentifier σ',
     Substitute σ TypeIdentifier u,
     Substitute σ TypeIdentifier θ,
-    FreeVariablesInternal TypeIdentifier σ,
+    FreeVariables TypeIdentifier σ,
     Convert TypeIdentifier σ',
-    Convert TypeIdentifier θ,
-    FreeVariables TermIdentifier Internal σ
+    Convert TypeIdentifier θ
   ) =>
   Substitute σ TypeIdentifier (Bound (TermPattern θ κ' σ' p) u)
   where
@@ -823,13 +844,21 @@ instance
   substitute = substituteHigher substitute substitute
 
 instance
-  ( FreeVariables TermIdentifier p u,
-    Semigroup p,
-    FreeVariables TermIdentifier p σ
+  ( FreeVariables TermIdentifier u,
+    FreeVariables TermIdentifier σ
   ) =>
-  FreeVariables TermIdentifier p (Bound (TermRuntimePattern θ κ σ p) u)
+  FreeVariables TermIdentifier (Bound (TermRuntimePattern θ κ σ p) u)
   where
   freeVariables = freeVariablesBoundDependent
+
+instance
+  ( FreeVariablesPositioned TermIdentifier p u,
+    Semigroup p,
+    FreeVariablesPositioned TermIdentifier p σ
+  ) =>
+  FreeVariablesPositioned TermIdentifier p (Bound (TermRuntimePattern θ κ σ p) u)
+  where
+  freeVariablesPositioned = freeVariablesBoundDependentPositioned
 
 instance
   ( Convert TermIdentifier u,
@@ -844,24 +873,21 @@ instance
   ( Substitute (Term θ κ σ p) TermIdentifier u,
     Correct θ (Term θ κ σ p),
     Convert TermIdentifier u,
-    FreeVariables TermIdentifier Internal σ,
     Convert TermIdentifier σ,
     Convert TypeIdentifier σ,
     Convert TypeIdentifier θ,
-    FreeVariables TypeIdentifier Internal σ,
-    FreeVariables TypeIdentifier Internal θ
+    FreeVariables TermIdentifier σ
   ) =>
   Substitute (Term θ κ σ p) TermIdentifier (Bound (TermRuntimePattern θ κ σ p) u)
   where
   substitute = substituteDependent substitute substitute (avoidCapture @TermIdentifier)
 
 instance
-  ( FreeVariables TypeIdentifier p u,
-    FreeVariables TypeIdentifier p σ,
-    FreeVariables TypeIdentifier p θ,
-    Semigroup p
+  ( FreeVariables TypeIdentifier u,
+    FreeVariables TypeIdentifier σ,
+    FreeVariables TypeIdentifier θ
   ) =>
-  FreeVariables TypeIdentifier p (Bound (TermRuntimePattern θ κ σ p) u)
+  FreeVariables TypeIdentifier (Bound (TermRuntimePattern θ κ σ p) u)
   where
   freeVariables (Bound pm e) = freeVariables pm <> freeVariables e
 
@@ -878,10 +904,9 @@ instance
   ( Substitute σ TypeIdentifier σ',
     Substitute σ TypeIdentifier u,
     Substitute σ TypeIdentifier θ,
-    FreeVariablesInternal TypeIdentifier σ,
+    FreeVariables TypeIdentifier σ,
     Convert TypeIdentifier σ',
-    Convert TypeIdentifier θ,
-    FreeVariables TermIdentifier Internal σ
+    Convert TypeIdentifier θ
   ) =>
   Substitute σ TypeIdentifier (Bound (TermRuntimePattern θ κ' σ' p) u)
   where
@@ -908,37 +933,18 @@ instance
   substitute = substituteHigher substitute substitute
 
 instance
-  (Substitute TypeUnify TypeLogicalRaw u) =>
+  ( Substitute TypeUnify TypeLogicalRaw u
+  ) =>
   Substitute TypeUnify TypeLogicalRaw (Bound (TermRuntimePattern InstantiationUnify KindUnify TypeUnify p) u)
   where
   substitute = substituteHigher substitute substitute
 
 instance
-  (Substitute KindUnify KindLogicalRaw u) =>
+  ( Substitute KindUnify KindLogicalRaw u
+  ) =>
   Substitute KindUnify KindLogicalRaw (Bound (TermRuntimePattern InstantiationUnify KindUnify TypeUnify p) u)
   where
   substitute = substituteHigher substitute substitute
-
-instance
-  ( FreeVariables TypeIdentifier Internal σ,
-    FreeVariables TypeIdentifier Internal θ
-  ) =>
-  FreeVariablesInternal TypeIdentifier (Term θ κ σ p)
-  where
-  freeVariablesInternal = freeVariables . (Internal <$)
-
-instance
-  ( FreeVariables TermIdentifier Internal σ
-  ) =>
-  FreeVariablesInternal TermIdentifier (Term θ κ σ p)
-  where
-  freeVariablesInternal = freeVariables . (Internal <$)
-
-instance BindingsInternal TermIdentifier (TermPattern θ κ σ p) where
-  bindingsInternal = bindings . (Internal <$)
-
-instance BindingsInternal TermIdentifier (TermRuntimePattern θ κ σ p) where
-  bindingsInternal = bindings . (Internal <$)
 
 instance Location (Term θ κ σ) where
   location (CoreTerm p _) = p

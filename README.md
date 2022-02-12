@@ -221,7 +221,9 @@ Useful / Inspirational papers:
     * Mix of single effect region calculus and monadic regions is in progress 
   * [Monadic Regions](https://www.cs.cornell.edu/people/fluet/research/rgn-monad/JFP06/jfp06.pdf)
   * [Linear Regions Are All You Need](https://www.cs.cornell.edu/people/fluet/research/substruct-regions/ESOP06/esop06.pdf)
-
+### Type Inference (Subtyping)
+* [The Simple Essence of Algebraic Subtyping](https://lptk.github.io/files/%5Bv1.8%5D%20simple-essence-algebraic-subtyping.pdf)
+  * A tiny subset is planned for type checking regions. See my [var sub](https://github.com/Superstar64/var_sub/) repo.
 ## Related / Unused
 
 ### General Introductions
@@ -233,11 +235,13 @@ Useful / Inspirational papers:
   * [Making Uniqueness Typing Less Unique](http://edsko.net/pubs/thesis.pdf)
   * [Uniqueness Typing Simplified](http://www.edsko.net/pubs/ifl07-paper.pdf)
   * [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
-### Type Inference
+### Type Inference (First Class Polymorphism)
 *
   * [HMF: Simple type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2007-118.pdf)
   * [Flexible types: robust type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2008-55.pdf)
 * [FreezeML : Complete and Easy Type Inference for First-Class Polymorphism](https://export.arxiv.org/pdf/2004.00396)
+## Type Inference (Subtyping)
+* [Algebraic Subtyping](https://www.cs.tufts.edu/~nr/cs257/archive/stephen-dolan/thesis.pdf)
 ### Unification
 * [Unification Under a Mixed Prefix](https://www.lix.polytechnique.fr/~dale/papers/jsc92.pdf)
 ### Internals

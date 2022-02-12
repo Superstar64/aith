@@ -20,18 +20,18 @@ This binding converts a function literal into an extern and a function literal t
 Terms with a type $ \sigma^\pi $ are runtime terms and can't be reduced.
 They should be treated as if they are already in $ \beta $ normal form. \\
 \\
-After $ \beta $ reduction, terms not of type $ \sigma^\pi $ must either be a free variable or corrispond to these $ \beta $ normal forms. \\
+Overlines are used to mean 0 or more. \\
 \\
-
+After $ \beta $ reduction, terms not of type $ \sigma^\pi $ must either be a free variable or corrispond to these $ \beta $ normal forms. \\
 \begin{gather*}
 \begin{array}{c | c}
 \text{Type} & \text{Term} \\
 \hline
-\sigma \to \tau & \lambda x : \sigma. e \\
+\sigma \to \tau & \lambda x. e \\
 !\sigma & !e \\
-\forall \alpha. \sigma & \Lambda \alpha : \kappa + \{ c, c', \dots \} . e  \\
-\forall \beta. \sigma & \Lambda \beta : \mu. e \\
-\sigma \xrightarrow{\text{text}} \tau & \text{function}(x : \sigma). e \\
+\forall \alpha : \kappa + \{ \overline c \} \succeq \{ \overline \pi \}. \sigma & \Lambda \alpha. e  \\
+\forall \beta : \mu. \sigma & \Lambda \beta. e \\
+\sigma \xrightarrow{\text{text}} \tau & \text{function}(x). e \\
 \end{array}
 \\
 \end{gather*}
@@ -62,7 +62,8 @@ Type and Kind checking uses synthesis mode.
 \Phi \vdash \, & \sigma : \kappa \tag{\text{Type Validation}} \\
 \Phi \vdash \, & \kappa : \mu \tag{Kind Validation} \\
 \Phi \vdash \, &c (\sigma) \tag{Constraint Instantiation} \\
-\Phi \vdash \, &c : \kappa \to \diamond \tag{Constraint Validation} 
+\Phi \vdash \, &c : \kappa \to \diamond \tag{Constraint Validation} \\
+\Phi \vdash \, & \sigma \succeq \tau \tag{Subtyping}
 \end{align*}
 
 \subsection{Typing Environments}
@@ -72,7 +73,7 @@ Type and Kind checking uses synthesis mode.
 & \Gamma, \langle x : \sigma \rangle \\
 & \emptyset \\
 \Phi \Coloneqq & \\
-& \Phi, \alpha : \kappa + \{ c, c', \dots \} \\
+& \Phi, \alpha : \kappa + \{ \overline c \} \succeq \{ \overline \pi \} \\
 & \Phi, \beta : \mu \\
 & \emptyset \\
 \end{align*}
@@ -125,7 +126,7 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{(\alpha : \kappa + \{ c, c', \dots \}) \in \Phi}
+{(\alpha : \kappa + \{ \overline c \} \succeq \{ \overline \pi \} ) \in \Phi}
 {\Phi \vdash \alpha : \kappa}
 \end{gather*}
 
@@ -182,24 +183,25 @@ e \Coloneqq & \\
 \begin{align*}
 e \Coloneqq & \\
 & \Lambda \alpha. e \tag{Type Lambda} \\
-& (e : \forall \alpha + \{ c, c', \dots \}. \tau) \sigma \tag{Type Application} \\
+& (e : \forall \alpha + \{ \overline c \} \succeq \{ \overline \pi \}. \tau) \sigma \tag{Type Application} \\
 & \Lambda \beta. e \tag{Kind Lambda} \\
 & (e : \forall \beta. \tau) \kappa \tag{Kind Application} \\
 & \dots \\
 \sigma, \tau, \pi \Coloneqq & \\
-& \forall \alpha : \kappa + \{ c, c', \dots \}. \sigma \tag{Type Forall}\\ 
+& \forall \alpha : \kappa + \{ \overline c \} \succeq \{ \overline \pi \}. \sigma \tag{Type Forall}\\ 
 & \forall \beta : \mu. \sigma \tag{Kind Forall}\\
 & \dots
 \end{align*}
 
 \begin{gather*}
 \frac
-{\Phi, \alpha : \kappa + \{ c, c', \dots \} | \Gamma \vdash e : \sigma \quad \Phi \vdash c : \kappa \to \diamond \quad \Phi \vdash c' : \kappa \to \diamond \quad \dots}
-{\Phi | \Gamma \vdash \Lambda \alpha. e : \forall \alpha : \kappa + \{ c, c', \dots \} . \sigma } \\
+{\Phi, \alpha : \kappa + \{ \overline c \} \succeq \{ \overline \pi \} | \Gamma \vdash e : \sigma \quad \overline {\Phi \vdash c : \kappa \to \diamond} \quad
+\overline { \Phi \vdash \pi : \kappa }}
+{\Phi | \Gamma \vdash \Lambda \alpha. e : \forall \alpha : \kappa + \{ \overline c\} \succeq \{ \overline \pi \} . \sigma } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \forall \alpha + \{ c, c', \dots \} : \kappa. \sigma \quad \Phi \vdash \tau : \kappa \quad \Phi \vdash c \tau \quad \Phi \vdash c' \tau \quad \dots }
-{\Phi | \Gamma \vdash (e : \forall \alpha. \sigma) \tau : \sigma [\tau/\alpha] } \\
+{\Phi | \Gamma \vdash e : \forall \alpha + \{ \overline c \} \succeq \{ \overline \pi \} : \kappa. \sigma \quad \Phi \vdash \tau : \kappa \quad \overline {\Phi \vdash c \tau} \quad \overline { \Phi \vdash \tau \succeq \pi }}
+{\Phi | \Gamma \vdash (e : \forall \alpha + \{ \overline c \} \succeq \{ \overline \pi \}. \sigma) \tau : \sigma [\tau/\alpha] } \\
 \\
 \frac
 {\Phi, \beta : \mu | \Gamma \vdash e : \sigma}
@@ -212,8 +214,8 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi, \alpha : \kappa + \{ c, c', \dots \} \vdash \sigma : * \quad \Phi \vdash \kappa : \boxvoid \quad \Phi \vdash c : \kappa \to \diamond \quad \Phi \vdash c' : \kappa \to \diamond \quad \dots}
-{\Phi \vdash \forall \alpha : \kappa + \{ c, c', \dots \}. \sigma : * } \\
+{\Phi, \alpha : \kappa + \{ \overline c \} \vdash \sigma : * \quad \Phi \vdash \kappa : \boxvoid \quad \overline { \Phi \vdash c : \kappa \to \diamond} \quad \overline { \Phi \vdash \pi : \kappa }}
+{\Phi \vdash \forall \alpha : \kappa + \{ \overline c \}. \sigma : * } \\
 \\
 \frac
 {\Phi, \beta : \mu \vdash \sigma : * \quad \Phi \vdash \mu}
@@ -254,7 +256,7 @@ e \Coloneqq & \\
 {\Phi \vdash \text{Pointer} : \text{Representation}} \\
 \end{gather*}
 
-\subsubsection{Single Effect Region Calculus}
+\subsubsection{Single Effect Regions}
 \begin{align*}
 e \Coloneqq & \\
 & \text{letRGN} \, (\Lambda \alpha e) \tag{Create Region} \\
@@ -272,12 +274,12 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi , \alpha : \text{Region} \, +  (\preceq \pi) | \Gamma \vdash e : \sigma^\alpha \quad \alpha \notin \text{Free}(\sigma, \pi)}
+{\Phi , \alpha : \text{Region} \, \succeq \{ \pi \} | \Gamma \vdash e : \sigma^\alpha \quad \alpha \notin \text{Free}(\sigma, \pi)}
 {\Phi | \Gamma \vdash \text{letRGN} \, (\Lambda \alpha. e) : \sigma^\pi} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \sigma^\pi \quad \Phi \vdash \pi : \text{Region} \quad \Phi \vdash (\preceq \pi') \pi }
-{\Phi | \Gamma \vdash \text{subRGN} \pi \, e : \sigma^{\pi'} } \\
+{\Phi | \Gamma \vdash e : \sigma^{\pi'} \quad \Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \pi \succeq \pi' }
+{\Phi | \Gamma \vdash \text{subRGN} \pi' \, e : \sigma^{\pi} } \\
 \\
 \frac
 {\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi | \Gamma', \langle x : \forall \alpha. \tau^\alpha \rangle \vdash e : \sigma^\pi \quad \Phi \vdash \tau : +^{\text{Real}(\rho)}}
@@ -304,23 +306,23 @@ e \Coloneqq & \\
 \subsubsection{References}
 \begin{align*}
 e \Coloneqq & \\
-& \text{readRGNLoc} \, e \tag{Dereference Pointer} \\
+& *e \tag{Dereference Pointer} \\
 & \dots \\
 \sigma, \tau, \pi \Coloneqq & \\
-& \text{RGNLoc} \pi \sigma \tag{Reference} \\
+& \sigma *^\pi \tag{Reference} \\
 & \dots \\
 \end{align*}
 
 \begin{gather*}
 \frac
-{\Phi | \Gamma \vdash e : (\text{RGNLoc} \pi \sigma)^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \Phi \vdash \sigma : +^{\text{Real}(\rho)} }
-{\Phi | \Gamma \vdash \text{readRGNLoc} \, e : \sigma^\pi} \\
+{\Phi | \Gamma \vdash e : (\sigma *^\pi)^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \Phi \vdash \sigma : +^{\text{Real}(\rho)}}
+{\Phi | \Gamma \vdash * \, e : \sigma^\pi} \\
 \end{gather*}
 
 \begin{gather*}
 \frac
 {\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \sigma : +^{\text{Real}(\rho)}}
-{\Phi \vdash \text{RGNLoc} \pi \sigma : +^{\text{Real}(\text{Pointer})}}
+{\Phi \vdash \sigma *^\pi : +^{\text{Real}(\text{Pointer})}}
 \end{gather*}
 
 \subsubsection{Functions}
@@ -371,7 +373,7 @@ e \Coloneqq & \\
 & (\sigma, \tau) \tag{Runtime Pair} \\
 & \dots \\
 \kappa, s, \rho \Coloneqq & \\
-& \text{Structure} \{ \rho, \rho', \dots \} \tag{Structure Representation} \\
+& \text{Struct} \{ \rho, \rho', \dots \} \tag{Struct Representation} \\
 & \dots
 \end{align*}
 
@@ -389,14 +391,14 @@ e \Coloneqq & \\
 \begin{gather*}
 \frac
 {\Phi \vdash \tau : +^{\text{Real} (\kappa)} \quad \Phi \vdash \tau : +^{\text{Real} (\kappa')} }
-{\Phi \vdash (\sigma, \tau) : +^{\text{Real} (\text{Structure} \{ \kappa,\kappa'\} )}} \\
+{\Phi \vdash (\sigma, \tau) : +^{\text{Real} (\text{Struct} \{ \kappa,\kappa'\} )}} \\
 \end{gather*}
 
 
 \begin{gather*}
 \frac
 {\Phi \vdash \rho : \text{Representation} \quad \Phi \vdash \rho' : \text{Representation} \quad \dots}
-{\Phi \vdash \text{Structure} \{ \rho, \rho', \dots \} : \text{Representation} } \\
+{\Phi \vdash \text{Struct} \{ \rho, \rho', \dots \} : \text{Representation} } \\
 \end{gather*}
 
 \subsubsection{Integer Arithmatic}
@@ -506,18 +508,8 @@ c \Coloneqq & \\
 {\Phi \vdash \text{Copy} : \text{Pretype}(\text{Real}(\rho)) \to \diamond} \\
 \end{gather*}
 
+\subsection{Subtyping}
 
-\subsubsection{Region}
-\begin{align*}
-c \Coloneqq & \\
-& \preceq \sigma
-\end{align*}
-
-\begin{gather*}
-\frac
-{\Phi \vdash \sigma : \text{Region}}
-{\Phi \vdash (\preceq \sigma) : \text{Region} \to \diamond}
-\end{gather*}
 
 \section{Simple Language}
 The is the internal intermediate language used before C code generation.
