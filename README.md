@@ -209,10 +209,6 @@ Useful / Inspirational papers:
 ### Compiler Design
 * [How OCaml type checker works -- or what polymorphism and garbage collection have in common](https://okmij.org/ftp/ML/generalization.html)
   * Only implemented for checking escaping skolem variables. Still need to implement let generalization.
-### Type Inference
-* [QML : Explicit First-Class Polymorphism for ML](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/QML-Explicit-First-Class-Polymorphism-for-ML.pdf)
-
-
 
 ## Planned
 
