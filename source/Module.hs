@@ -3,7 +3,7 @@ module Module where
 import Ast.Common
 import Ast.Kind (KindAuto, KindInfer, mapKind)
 import Ast.Term
-import Ast.Type
+import Ast.Type hiding (Inline)
 import Control.Monad.State.Strict (StateT, evalStateT, execStateT, get)
 import Control.Monad.Trans (lift)
 import Data.Bifunctor (second)

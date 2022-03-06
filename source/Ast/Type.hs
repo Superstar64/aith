@@ -54,7 +54,7 @@ data Constraint
 data TypeF v λ κ σ
   = TypeVariable TypeIdentifier
   | TypeLogical v
-  | Macro σ σ
+  | Inline σ σ
   | Forall λ (Set Constraint)
   | OfCourse σ
   | FunctionPointer σ σ σ
@@ -121,7 +121,7 @@ traverseTypeF ::
 traverseTypeF f i h g σ = case σ of
   TypeVariable x -> pure TypeVariable <*> pure x
   TypeLogical v -> pure TypeLogical <*> f v
-  Macro σ τ -> pure Macro <*> g σ <*> g τ
+  Inline σ τ -> pure Inline <*> g σ <*> g τ
   Forall λ c -> pure Forall <*> i λ <*> pure c
   OfCourse σ -> pure OfCourse <*> g σ
   FunctionPointer σ π τ -> pure FunctionPointer <*> g σ <*> g π <*> g τ
@@ -166,8 +166,8 @@ typeExtra = Prism TypeLogical $ \case
   (TypeLogical v) -> Just v
   _ -> Nothing
 
-macro = Prism (uncurry Macro) $ \case
-  (Macro σ τ) -> Just (σ, τ)
+inline = Prism (uncurry Inline) $ \case
+  (Inline σ τ) -> Just (σ, τ)
   _ -> Nothing
 
 explicitForall = Prism (uncurry Forall) $ \case

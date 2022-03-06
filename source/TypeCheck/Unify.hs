@@ -43,7 +43,7 @@ reconstructType indexVariable indexLogical augment = reconstruct
       indexVariable x
     reconstruct (CoreType _ (TypeLogical v)) = do
       indexLogical v
-    reconstruct (CoreType _ (Macro _ _)) = do
+    reconstruct (CoreType _ (Inline _ _)) = do
       pure $ CoreKind Internal $ Type
     reconstruct (CoreType _ (Forall (Bound pm σ) c)) = do
       augment pm c $ reconstruct σ
@@ -114,7 +114,7 @@ typeOccursCheck p x σ = go σ p x σ
               if lev' > lev
                 then updateTypeLevel x' lev
                 else pure ()
-            Macro σ τ -> do
+            Inline σ τ -> do
               recurse σ
               recurse τ
             Forall (Bound (Pattern _ α κ) σ) c -> do
@@ -208,7 +208,7 @@ unifyType = unify
       tell θ
     unify p σ σ'@(CoreType _ (TypeLogical _)) = unify p σ' σ
     unify _ (CoreType _ (TypeVariable x)) (CoreType _ (TypeVariable x')) | x == x' = pure ()
-    unify p (CoreType _ (Macro σ τ)) (CoreType _ (Macro σ' τ')) = do
+    unify p (CoreType _ (Inline σ τ)) (CoreType _ (Inline σ' τ')) = do
       match p σ σ'
       match p τ τ'
     unify p (CoreType _ (Forall (Bound pm@(Pattern _ α κ) σ) c)) (CoreType _ (Forall (Bound (Pattern _ α' κ') σ') c'))

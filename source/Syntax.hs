@@ -206,8 +206,8 @@ typex = typeArrow
   where
     typeArrow = applyBinary ⊣ typeEffect ⊗ (binaryToken "-`>" ≫ typeArrow ⊕ always)
       where
-        applyBinary = macro `branchDistribute` unit'
-        macro = withInnerPosition Language.coreType Language.macro
+        applyBinary = inline `branchDistribute` unit'
+        inline = withInnerPosition Language.coreType Language.inline
     typeEffect = effect `branchDistribute` unit' ⊣ typeRTArrow ⊗ (binaryToken "@" ≫ typeCore ⊕ always)
       where
         effect = withInnerPosition Language.coreType Language.effect
@@ -310,7 +310,7 @@ term = termBinding
     termApply = Language.coreTerm ⊣ position ⊗ choice options ∥ foldlP applyBinary ⊣ termCore ⊗ many (applySyntax ⊕ typeApplySyntax)
       where
         applyBinary = application `branchDistribute` typeApplication
-        application = withInnerPosition3 Language.coreTerm Language.macroApplication . toPrism associate'
+        application = withInnerPosition3 Language.coreTerm Language.inlineApplication . toPrism associate'
         typeApplication = withInnerPosition4 Language.coreTerm Language.typeApplication . toPrism (firstI associate' . associate')
         applySyntax = space ≫ token "`" ≫ optionalAnnotate termCore
         typeApplySyntax =
@@ -324,7 +324,7 @@ termCore = Language.coreTerm ⊣ position ⊗ choice options ∥ betweenParens t
   where
     options =
       [ Language.variable ⊣ termIdentifier ⊗ always,
-        Language.macroAbstraction ⊣ Language.bound ⊣ token "`\\" ≫ termPattern ⊗ lambdaMajor term,
+        Language.inlineAbstraction ⊣ Language.bound ⊣ token "`\\" ≫ termPattern ⊗ lambdaMajor term,
         Language.functionLiteral ⊣ Language.bound ⊣ token "\\" ≫ termRuntimePattern ⊗ lambdaMajor term,
         Language.extern ⊣ prefixKeyword "extern" ≫ symbol ≪ space ⊗ typeCoreAuto ≪ binaryToken "->" ⊗ typeCoreAuto ≪ space ⊗ typeCoreAuto,
         Language.ofCourseIntroduction ⊣ betweenBangSquares term,

@@ -111,8 +111,8 @@ convertTerm (CoreTerm p (TermRuntime (Arithmatic o e1 e2 κ))) = do
       _ -> error "bad sign"
 convertTerm (CoreTerm _ (TypeAbstraction _ _)) = simpleFailTerm
 convertTerm (CoreTerm _ (TypeApplication _ _ _ _)) = simpleFailPattern
-convertTerm (CoreTerm _ (MacroAbstraction _)) = simpleFailTerm
-convertTerm (CoreTerm _ (MacroApplication _ _ _)) = simpleFailTerm
+convertTerm (CoreTerm _ (InlineAbstraction _)) = simpleFailTerm
+convertTerm (CoreTerm _ (InlineApplication _ _ _)) = simpleFailTerm
 convertTerm (CoreTerm _ (OfCourseIntroduction _)) = simpleFailTerm
 convertTerm (CoreTerm _ (Bind _ _)) = simpleFailTerm
 convertTerm (CoreTerm _ (FunctionLiteral _)) = simpleFailTerm

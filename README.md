@@ -1,12 +1,12 @@
 
-Aith is a low level functional programming language with linear types, kind based staging / macros, levity polymorphism, and effectful regions.
+Aith is a low level functional programming language with linear types, generalized inline functions, levity polymorphism, and effectful regions.
 As of now aith is very early stages and very little is implemented.
 See ``/rules`` for typing rules.
 
 # Road Map
 
-* [x] Macro Lambda Calculus
-* [x] Macro Beta Reduction
+* [x] Inline Lambda Calculus
+* [x] Inline Beta Reduction
 * [ ] System-F
   * [x] Type Lambda / Application
   * [ ] Kind Lambda / Application
@@ -61,12 +61,12 @@ See ``/rules`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Macro Abstraction | `` `\pm { e }`` |
-| Macro Abstraction | `` `\pm => e`` |
-| Macro Application | ``e `e'``|
-| Macro Application Ascribe | ``e `(e : σ)``|
+| Inline Abstraction | `` `\pm { e }`` |
+| Inline Abstraction | `` `\pm => e`` |
+| Inline Application | ``e `e'``|
+| Inline Application Ascribe | ``e `(e : σ)``|
 | Of Course Introduction | ``![e]`` |
-| Macro Binding | ``inline pm = e; e'``|
+| Inline Binding | ``inline pm = e; e'``|
 | Extern | ``extern "x" σa -> σa σa'`` |
 | Function Application | ``e $ e'``|
 | Function Application Ascribe | ``e $ (e' : σ)``|
@@ -117,7 +117,7 @@ See ``/rules`` for typing rules.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Macro | ``σ -`> τ``|
+| Inline Function | ``σ -`> τ``|
 | Forall | ``\/x : κ => σ`` |
 | Forall | ``\/x : κ { σ }`` |
 | Of Course | ``![σ]`` |

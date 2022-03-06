@@ -3,7 +3,7 @@ module BaseMain where
 import Ast.Common
 import Ast.Kind hiding (typex)
 import Ast.Term
-import Ast.Type (Type (..), TypeF (..), TypeInfer, TypeSchemeInfer, TypeUnify, mapTypeF)
+import Ast.Type hiding (Inline)
 import qualified C.Ast as C
 import qualified C.Print as C
 import Codegen

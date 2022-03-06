@@ -92,10 +92,10 @@ enforcePretypeReal p σt = do
   matchType p σt σ
   pure σ
 
-checkMacro p σt = do
+checkInline p σt = do
   σ <- freshMetaTypeVariable p
   τ <- freshMetaTypeVariable p
-  matchType p σt (CoreType Internal (Macro σ τ))
+  matchType p σt (CoreType Internal (Inline σ τ))
   pure (σ, τ)
 
 checkFunctionPointer p σt = do
@@ -266,10 +266,10 @@ typeCheckValidateType =
           case κ of
             Just (_, κ, _, _) -> pure (CoreType Internal (TypeVariable x), κ)
             Nothing -> quit $ UnknownTypeIdentifier p x
-        (CoreType p (Macro σ τ)) -> do
+        (CoreType p (Inline σ τ)) -> do
           (σ', _) <- secondM (checkType p) =<< recurse σ
           (τ', _) <- secondM (checkType p) =<< recurse τ
-          pure (CoreType Internal $ Macro σ' τ', CoreKind Internal $ Type)
+          pure (CoreType Internal $ Inline σ' τ', CoreKind Internal $ Type)
         (CoreType p (Forall (Bound pm σ) c)) -> do
           (pm', κ2) <- typeCheckAnnotateTypePattern pm
           typeCheckConstraints p c κ2
@@ -337,12 +337,12 @@ typeCheckAnnotateLinearTerm =
               (τ, θ) <- instantiateTypeScheme p σ
               pure ((CoreTerm p $ TermRuntime $ Variable x θ, τ), Use x)
             Nothing -> quit $ UnknownIdentifier p x
-        (CoreTerm p (MacroAbstraction (Bound pm e))) -> do
+        (CoreTerm p (InlineAbstraction (Bound pm e))) -> do
           (pm', σ) <- typeCheckAnnotateMetaPattern pm
           ((e', τ), lΓ) <- augmentMetaTermPattern pm' (recurse e)
-          pure ((CoreTerm p (MacroAbstraction (Bound pm' e')), CoreType Internal $ Macro σ τ), lΓ)
-        (CoreTerm p (MacroApplication e1 e2 σ'')) -> do
-          ((e1', (σ, τ)), lΓ1) <- firstM (secondM (checkMacro p)) =<< recurse e1
+          pure ((CoreTerm p (InlineAbstraction (Bound pm' e')), CoreType Internal $ Inline σ τ), lΓ)
+        (CoreTerm p (InlineApplication e1 e2 σ'')) -> do
+          ((e1', (σ, τ)), lΓ1) <- firstM (secondM (checkInline p)) =<< recurse e1
           ((e2', σ'), lΓ2) <- recurse e2
           matchType p σ σ'
           case σ'' of
@@ -350,7 +350,7 @@ typeCheckAnnotateLinearTerm =
             Just σ'' -> do
               σ'' <- fst <$> typeCheckValidateType σ''
               matchType p σ σ''
-          pure ((CoreTerm p (MacroApplication e1' e2' σ), τ), lΓ1 `combine` lΓ2)
+          pure ((CoreTerm p (InlineApplication e1' e2' σ), τ), lΓ1 `combine` lΓ2)
         (CoreTerm p (Bind e1 (Bound pm e2))) -> do
           ((e1', τ), lΓ1) <- recurse e1
           (pm', τ') <- typeCheckAnnotateMetaPattern pm
