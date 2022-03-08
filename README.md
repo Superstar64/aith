@@ -1,5 +1,5 @@
 
-Aith is a low level functional programming language with linear types, generalized inline functions, levity polymorphism, and effectful regions.
+Aith is a low level functional programming language with linear types, generalized inline functions (staging), levity polymorphism, and effectful regions.
 As of now aith is very early stages and very little is implemented.
 See ``/rules`` for typing rules.
 
@@ -233,6 +233,8 @@ Useful / Inspirational papers:
 * [Linear Haskell](https://arxiv.org/pdf/1710.09756.pdf) [(video)](https://youtu.be/t0mhvd3-60Y)
 *
   * [Making Uniqueness Typing Less Unique](http://edsko.net/pubs/thesis.pdf)
+  * [Uniqueness Typing Redefined](http://www.edsko.net/pubs/ifl06-paper.pdf)
+  * [Uniqueness Typing Redefined](http://www.edsko.net/pubs/tfp07-paper.pdf)
   * [Uniqueness Typing Simplified](http://www.edsko.net/pubs/ifl07-paper.pdf)
   * [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
 ### Type Inference (First Class Polymorphism)
@@ -240,7 +242,7 @@ Useful / Inspirational papers:
   * [HMF: Simple type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2007-118.pdf)
   * [Flexible types: robust type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2008-55.pdf)
 * [FreezeML : Complete and Easy Type Inference for First-Class Polymorphism](https://export.arxiv.org/pdf/2004.00396)
-## Type Inference (Subtyping)
+### Type Inference (Subtyping)
 * [Algebraic Subtyping](https://www.cs.tufts.edu/~nr/cs257/archive/stephen-dolan/thesis.pdf)
 ### Unification
 * [Unification Under a Mixed Prefix](https://www.lix.polytechnique.fr/~dale/papers/jsc92.pdf)
