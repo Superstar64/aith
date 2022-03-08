@@ -234,7 +234,7 @@ Useful / Inspirational papers:
 *
   * [Making Uniqueness Typing Less Unique](http://edsko.net/pubs/thesis.pdf)
   * [Uniqueness Typing Redefined](http://www.edsko.net/pubs/ifl06-paper.pdf)
-  * [Uniqueness Typing Redefined](http://www.edsko.net/pubs/tfp07-paper.pdf)
+  * [Equality-Based Uniqueness Typing](http://www.edsko.net/pubs/tfp07-paper.pdf)
   * [Uniqueness Typing Simplified](http://www.edsko.net/pubs/ifl07-paper.pdf)
   * [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
 ### Type Inference (First Class Polymorphism)
