@@ -1,6 +1,10 @@
-dist-newstyle/
-cabal.project.local
-build
+# executable
+aith
+# test files
 test.c
 test.o
-
+# build directory
+dist-newstyle
+# build configuration
+cabal.project.local
+cabal.project.local~

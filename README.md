@@ -46,6 +46,10 @@ See ``/rules`` for typing rules.
 * [x] C Code Generation
 * [ ] Javascript Code Generation
 
+# Building and Running Tests
+Install ghc, cabal and make.
+Run `make` to build aith, `make tests` to run the tests and `make test.c` to generate the test c source file.
+
 # Syntax
 
 ## Modules(code)

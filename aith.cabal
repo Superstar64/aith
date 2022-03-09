@@ -6,7 +6,7 @@ license-file:  LICENSE
 maintainer:    Hexagonalstar64@gmail.com
 author:        Superstar64
 
-common aith-base
+executable aith
     hs-source-dirs:     source
     other-modules:
         Misc.Path
@@ -31,7 +31,6 @@ common aith-base
         Codegen
         C.Print
         Simple
-        BaseMain
 
     default-language:   Haskell2010
     default-extensions:
@@ -41,6 +40,7 @@ common aith-base
         GeneralizedNewtypeDeriving LambdaCase TypeOperators
 
     ghc-options:        -W -Worphans -Wcompat -Wincomplete-uni-patterns -interactive-print=Text.Pretty.Simple.pPrint
+                        -rtsopts=all
     build-depends:
         base,
         containers,
@@ -49,13 +49,4 @@ common aith-base
         directory,
         filepath,
         pretty-simple
-    
-
-
-executable aith
-    import: aith-base
     main-is:            Main.hs
-test-suite idempotency
-    import: aith-base
-    type:               exitcode-stdio-1.0
-    main-is:            Test.hs
