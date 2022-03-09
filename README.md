@@ -39,6 +39,7 @@ See ``/rules`` for typing rules.
     * [x] Read
     * [ ] Write
   * [ ] Let Region
+  * [x] Region Subtyping
 * [x] Hindley Milner
   * [x] Builtin typeclasses
   * [ ] User defined typeclasses
@@ -125,17 +126,16 @@ See ``/rules`` for typing rules.
 | Function Literal Type | `` τ -> π σ `` |
 | Runtime Pair | ``σ, σ'`` |
 | Effect | ``σ @ π`` |
-| Region Reference | ``reference π σ`` |
+| Pointer | ``σ* @ π`` |
 | Number | ``{{ρ}} ρ'`` |
 
 
 ## Type Pattern(pmσ)
 | Description | Syntax |
 |-|-|
-| Variable | ``x`` |
-| Variable Ascribe | ``x : κ``|
-| Variable Constrained | ``x + c & c' & ...`` |
-| Variable Ascribe Constrained | ``x : κ + c & c' & ...`` |
+| Variable | ``x + c & c' & ... >= π & π' & ...`` |
+| Variable Ascribe | ``x : κ + c & c' & ... >= π & π' & ...`` |
+
 
 ## Constraints (c)
 | Description | Syntax |
@@ -206,6 +206,9 @@ Useful / Inspirational papers:
 ### Type Inference
 * [QML : Explicit First-Class Polymorphism for ML](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/QML-Explicit-First-Class-Polymorphism-for-ML.pdf)
   * Implemented with scoped type variables
+### Type Inference (Subtyping)
+* [The Simple Essence of Algebraic Subtyping](https://lptk.github.io/files/%5Bv1.8%5D%20simple-essence-algebraic-subtyping.pdf)
+  * A tiny subset is implemented for type checking regions. See my [var sub](https://github.com/Superstar64/var_sub/) repo.
 ### Compiler Design
 * [How OCaml type checker works -- or what polymorphism and garbage collection have in common](https://okmij.org/ftp/ML/generalization.html)
   * Only implemented for checking escaping skolem variables. Still need to implement let generalization.
@@ -221,9 +224,6 @@ Useful / Inspirational papers:
     * Mix of single effect region calculus and monadic regions is in progress 
   * [Monadic Regions](https://www.cs.cornell.edu/people/fluet/research/rgn-monad/JFP06/jfp06.pdf)
   * [Linear Regions Are All You Need](https://www.cs.cornell.edu/people/fluet/research/substruct-regions/ESOP06/esop06.pdf)
-### Type Inference (Subtyping)
-* [The Simple Essence of Algebraic Subtyping](https://lptk.github.io/files/%5Bv1.8%5D%20simple-essence-algebraic-subtyping.pdf)
-  * A tiny subset is planned for type checking regions. See my [var sub](https://github.com/Superstar64/var_sub/) repo.
 ## Related / Unused
 
 ### General Introductions

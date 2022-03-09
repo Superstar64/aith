@@ -9,8 +9,10 @@ import Ast.Type
 import Control.Monad.Reader (ReaderT, ask, runReaderT, withReaderT)
 import Control.Monad.State.Strict (StateT, get, put, runStateT)
 import Control.Monad.Trans (lift)
+import Data.Foldable (fold)
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
+import Data.Maybe (fromJust)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import TypeCheck.Substitute
@@ -45,7 +47,31 @@ data TypeError p
   | ConstraintMismatch p Constraint TypeUnify
   | ConstraintKindError p Constraint KindUnify
   | ExpectedFunctionLiteral p
+  | ExpectedTypeVariable p
+  | TypeVariableOnlySuported p
+  | NoCommonMeet p TypeIdentifier TypeIdentifier
   deriving (Show)
+
+newtype Core p a = Core {runCore' :: ReaderT (CoreEnvironment p) (StateT (CoreState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
+
+-- todo define new types for environments and variable maps
+
+data CoreEnvironment p = CoreEnvironment
+  { typeEnvironment :: Map TermIdentifier (p, Multiplicity, TypeSchemeUnify),
+    kindEnvironment :: Map TypeIdentifier (p, KindUnify, Set Constraint, Set TypeIdentifier, Level),
+    sortEnvironment :: Map KindIdentifier (p, Sort, Level)
+  }
+  deriving (Functor, Show)
+
+data CoreState p = CoreState
+  { typeVariableMap :: Map TypeLogicalRaw (p, KindUnify, Set Constraint, [TypeUnify], Maybe TypeIdentifier, Level),
+    kindVariableMap :: Map KindLogicalRaw (p, Sort, Level),
+    freshTypeCounter :: Int,
+    freshKindCounter :: Int,
+    equations :: [Equation p],
+    levelCounter :: Int
+  }
+  deriving (Functor, Show)
 
 lookupTypeEnviroment :: TermIdentifier -> Core p (Maybe (p, Multiplicity, TypeSchemeUnify))
 lookupTypeEnviroment x = do
@@ -57,7 +83,7 @@ augmentTypeEnvironment x p l σ = modifyTypeEnvironment (Map.insert x (p, l, σ)
   where
     modifyTypeEnvironment f (Core r) = Core $ withReaderT (\env -> env {typeEnvironment = f (typeEnvironment env)}) r
 
-lookupKindEnvironment :: TypeIdentifier -> Core p (Maybe (p, KindUnify, Set Constraint, Level))
+lookupKindEnvironment :: TypeIdentifier -> Core p (Maybe (p, KindUnify, Set Constraint, Set TypeIdentifier, Level))
 lookupKindEnvironment x = do
   xΓ <- Core ask
   pure $ Map.lookup x (kindEnvironment xΓ)
@@ -67,10 +93,34 @@ lookupSortEnvironment x = do
   xΓ <- Core ask
   pure $ Map.lookup x (sortEnvironment xΓ)
 
-augmentKindEnvironment :: TypeIdentifier -> p -> KindUnify -> Set Constraint -> Level -> Core p a -> Core p a
-augmentKindEnvironment x p κ c sk = modifyKindEnvironment (Map.insert x (p, κ, c, sk))
+modifyKindEnvironment f (Core r) = Core $ withReaderT (\env -> env {kindEnvironment = f (kindEnvironment env)}) r
+
+augmentKindEnvironment x p κ c π lev e = do
+  πs <- Set.insert x <$> closure π
+  modifyKindEnvironment (Map.insert x (p, κ, c, πs, lev)) e
   where
-    modifyKindEnvironment f (Core r) = Core $ withReaderT (\env -> env {kindEnvironment = f (kindEnvironment env)}) r
+    closure :: Set TypeIdentifier -> Core p (Set TypeIdentifier)
+    closure x = do
+      fold <$> traverse lookup (Set.toList x)
+      where
+    lookup x = do
+      (_, _, _, x, _) <- fromJust <$> lookupKindEnvironment x
+      pure x
+
+augmentKindOccurs p x κ = modifyKindEnvironment (Map.insert x (p, κ, c, π, minBound))
+  where
+    c = error "constraints used during kind checking"
+    π = error "bottom used during kind checking"
+
+augmentTypePatternLevel (Pattern p x κ) c π e = do
+  lev <- Level <$> currentLevel
+  augmentKindEnvironment x p κ c π lev e
+
+augmentTypePatternBottom (Pattern p x κ) = modifyKindEnvironment (Map.insert x (p, κ, c, π, sk))
+  where
+    c = error "constraints used during kind checking"
+    π = error "bottom used during kind checking"
+    sk = error "level usage during kind checking"
 
 augmentSortEnvironment :: KindIdentifier -> p -> Sort -> Level -> Core p a -> Core p a
 augmentSortEnvironment x p μ sk = modifySortEnvironment (Map.insert x (p, μ, sk))
@@ -80,8 +130,8 @@ augmentSortEnvironment x p μ sk = modifySortEnvironment (Map.insert x (p, μ, s
 insertEquation :: Equation p -> Core p ()
 insertEquation eq = modifyEquations (eq :)
 
-freshTypeVariableRaw :: p -> KindUnify -> Set Constraint -> Level -> Core p TypeLogicalRaw
-freshTypeVariableRaw p κ c lev = do
+freshTypeVariableRaw :: p -> KindUnify -> Set Constraint -> [TypeUnify] -> Maybe TypeIdentifier -> Level -> Core p TypeLogicalRaw
+freshTypeVariableRaw p κ c lower upper lev = do
   v <- TypeLogicalRaw <$> newFreshType
   insertTypeVariableMap v
   pure $ v
@@ -93,7 +143,7 @@ freshTypeVariableRaw p κ c lev = do
       pure i
     insertTypeVariableMap x = do
       state <- getState
-      putState state {typeVariableMap = Map.insert x (p, κ, c, lev) $ typeVariableMap state}
+      putState state {typeVariableMap = Map.insert x (p, κ, c, lower, upper, lev) $ typeVariableMap state}
 
 freshKindVariableRaw :: p -> Sort -> Level -> Core p KindLogicalRaw
 freshKindVariableRaw p μ lev = do
@@ -112,28 +162,9 @@ freshKindVariableRaw p μ lev = do
 
 quit e = Core $ lift $ lift $ Left e
 
-data CoreEnvironment p = CoreEnvironment
-  { typeEnvironment :: Map TermIdentifier (p, Multiplicity, TypeSchemeUnify),
-    kindEnvironment :: Map TypeIdentifier (p, KindUnify, Set Constraint, Level),
-    sortEnvironment :: Map KindIdentifier (p, Sort, Level)
-  }
-  deriving (Functor, Show)
-
 emptyEnvironment = CoreEnvironment Map.empty Map.empty Map.empty
 
-data CoreState p = CoreState
-  { typeVariableMap :: Map TypeLogicalRaw (p, KindUnify, Set Constraint, Level),
-    kindVariableMap :: Map KindLogicalRaw (p, Sort, Level),
-    freshTypeCounter :: Int,
-    freshKindCounter :: Int,
-    equations :: [Equation p],
-    levelCounter :: Int
-  }
-  deriving (Functor, Show)
-
 emptyState = CoreState Map.empty Map.empty 0 0 [] 0
-
-newtype Core p a = Core {runCore' :: ReaderT (CoreEnvironment p) (StateT (CoreState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
 
 runCore c = runStateT . runReaderT (runCore' c)
 
@@ -167,11 +198,19 @@ indexTypeVariableMap x = (! x) <$> typeVariableMap <$> getState
 
 insertTypeVariableMapConstraint x c = do
   state <- getState
-  putState $ state {typeVariableMap = Map.adjust (\(p, κ, cs, lev) -> (p, κ, Set.insert c cs, lev)) x $ typeVariableMap state}
+  putState $ state {typeVariableMap = Map.adjust (\(p, κ, cs, lower, upper, lev) -> (p, κ, Set.insert c cs, lower, upper, lev)) x $ typeVariableMap state}
+
+insertTypeVariableMapLowerBound x π = do
+  state <- getState
+  putState $ state {typeVariableMap = Map.adjust (\(p, κ, c, lower, upper, lev) -> (p, κ, c, π : lower, upper, lev)) x $ typeVariableMap state}
+
+setTypeVariableMapUpperBound x x' = do
+  state <- getState
+  putState $ state {typeVariableMap = Map.adjust (\(p, κ, c, lower, _, lev) -> (p, κ, c, lower, Just x', lev)) x $ typeVariableMap state}
 
 updateTypeLevel x lev = do
   state <- getState
-  putState state {typeVariableMap = Map.adjust (\(p, κ, c, _) -> (p, κ, c, lev)) x $ typeVariableMap state}
+  putState state {typeVariableMap = Map.adjust (\(p, κ, c, lower, upper, _) -> (p, κ, c, lower, upper, lev)) x $ typeVariableMap state}
 
 indexKindVariableMap x = (! x) <$> kindVariableMap <$> getState
 

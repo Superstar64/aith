@@ -158,6 +158,9 @@ instance Convert x e => Convert x [e] where
 instance Convert x e => Convert x (Map k e) where
   convert ux x = fmap (convert ux x)
 
+instance Substitute u x e => Substitute u x (Maybe e) where
+  substitute ux x = fmap (substitute ux x)
+
 instance Substitute u x e => Substitute u x [e] where
   substitute ux x = map (substitute ux x)
 

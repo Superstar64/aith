@@ -15,6 +15,11 @@ module combinators = {
 module run = {
 	import call = /test/runtimeCall;
 	
+	symbol _ :: <RA : region, RB : region >= RA, T : +[#pointer#] + copy > T* @ RA -> RB T;
+	symbol deref = \x {
+		*x
+	};
+
 	
 	symbol dotProduct = \(vector1P, vector2P) {
 		let (x1,y1,(z1 : {{signed}} int)) = *vector1P;

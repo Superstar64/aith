@@ -6,7 +6,9 @@ import Ast.Sort
 import Ast.Term
 import Ast.Type
 import Control.Monad ((<=<))
+import Control.Monad.State.Strict (StateT, evalStateT, execStateT)
 import Data.Foldable (for_)
+import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import Data.Set (Set)
@@ -14,16 +16,10 @@ import qualified Data.Set as Set
 import Data.Traversable (for)
 import Data.Void
 import Environment
-import Misc.Util (firstM, secondM, temporaries')
+import Misc.Util (Mark (..), firstM, secondM, sortTopological, temporaries')
 import TypeCheck.Core
 import TypeCheck.Substitute
 import TypeCheck.Unify
-
-augmentTypePatternBottom (Pattern p x κ) = augmentKindEnvironment x p κ (error "constraints used during kind checking") (error "level usage during kind checking")
-
-augmentTypePatternLevel (Pattern p x κ) c e = do
-  lev <- Level <$> currentLevel
-  augmentKindEnvironment x p κ c lev e
 
 augmentKindPatternBottom (Pattern p x μ) = augmentSortEnvironment x p μ (error "level usage during sort checking")
 
@@ -31,7 +27,7 @@ augmentKindPatternLevel (Pattern p x μ) e = do
   lev <- Level <$> currentLevel
   augmentSortEnvironment x p μ lev e
 
-freshTypeVariable p κ = (CoreType Internal . TypeLogical) <$> (Level <$> levelCounter <$> getState >>= freshTypeVariableRaw p κ Set.empty)
+freshTypeVariable p κ = (CoreType Internal . TypeLogical) <$> (Level <$> levelCounter <$> getState >>= freshTypeVariableRaw p κ Set.empty [] Nothing)
 
 freshKindVariable p μ = (CoreKind Internal . KindLogical) <$> (Level <$> levelCounter <$> getState >>= freshKindVariableRaw p μ)
 
@@ -147,7 +143,7 @@ augmentMetaTermPattern pm = go Linear pm
     go l (CoreTermPattern p (PatternVariable x σ)) = augmentVariableLinear p x l (CoreTypeScheme Internal $ MonoType σ)
     go _ (CoreTermPattern _ (PatternOfCourse pm)) = go Unrestricted pm
 
-polyEffect padding σ = CoreTypeScheme Internal $ ImplicitForall (Bound (Pattern Internal freshVar (CoreKind Internal Region)) bounded) Set.empty
+polyEffect padding σ = CoreTypeScheme Internal $ ImplicitForall (Bound (Pattern Internal freshVar (CoreKind Internal Region)) bounded) Set.empty []
   where
     bounded = CoreTypeScheme Internal $ MonoType $ padding $ CoreType Internal $ Effect σ (CoreType Internal $ TypeVariable freshVar)
     freshVar = fresh (freeVariables σ) (TypeIdentifier "R")
@@ -237,11 +233,13 @@ typeCheckValidateTypeScheme =
         (CoreTypeScheme p (MonoType σ)) -> do
           (σ', κ) <- typeCheckValidateType σ
           pure (CoreTypeScheme p (MonoType σ'), κ)
-        (CoreTypeScheme p (ImplicitForall (Bound pm σ) c)) -> do
+        (CoreTypeScheme p (ImplicitForall (Bound pm σ) c π)) -> do
           (pm', κ2) <- typeCheckAnnotateTypePattern pm
           typeCheckConstraints p c κ2
+          (π, κ2') <- unzip <$> traverse typeCheckValidateType π
+          traverse (matchKind p κ2) κ2'
           (σ', κ) <- augmentTypePatternBottom pm' $ recurse σ
-          pure $ (CoreTypeScheme p $ ImplicitForall (Bound pm' σ') c, κ)
+          pure $ (CoreTypeScheme p $ ImplicitForall (Bound pm' σ') c π, κ)
         (CoreTypeScheme p (ImplicitKindForall (Bound pm σ))) -> do
           pm' <- fst <$> typeCheckAnnotateKindPattern pm
           (σ', _) <- augmentKindPatternBottom pm' $ recurse σ
@@ -264,17 +262,19 @@ typeCheckValidateType =
         (CoreType p (TypeVariable x)) -> do
           κ <- lookupKindEnvironment x
           case κ of
-            Just (_, κ, _, _) -> pure (CoreType Internal (TypeVariable x), κ)
+            Just (_, κ, _, _, _) -> pure (CoreType Internal (TypeVariable x), κ)
             Nothing -> quit $ UnknownTypeIdentifier p x
         (CoreType p (Inline σ τ)) -> do
           (σ', _) <- secondM (checkType p) =<< recurse σ
           (τ', _) <- secondM (checkType p) =<< recurse τ
           pure (CoreType Internal $ Inline σ' τ', CoreKind Internal $ Type)
-        (CoreType p (Forall (Bound pm σ) c)) -> do
+        (CoreType p (Forall (Bound pm σ) c π)) -> do
           (pm', κ2) <- typeCheckAnnotateTypePattern pm
+          (π, κ2') <- unzip <$> traverse recurse π
+          traverse (matchKind p κ2) κ2'
           typeCheckConstraints p c κ2
           (σ', κ) <- augmentTypePatternBottom pm' $ recurse σ
-          pure $ (CoreType Internal $ Forall (Bound (Internal <$ pm') σ') c, κ)
+          pure $ (CoreType Internal $ Forall (Bound (Internal <$ pm') σ') c π, κ)
         (CoreType p (OfCourse σ)) -> do
           (σ', _) <- secondM (checkType p) =<< recurse σ
           pure (CoreType Internal $ OfCourse σ', CoreKind Internal $ Type)
@@ -312,10 +312,13 @@ typeCheckValidateType =
 
 instantiateTypeScheme p = \case
   (CoreTypeScheme _ (MonoType σ)) -> pure (σ, InstantiateEmpty)
-  (CoreTypeScheme _ (ImplicitForall (Bound (Pattern _ x κ) σ) c)) -> do
+  (CoreTypeScheme _ (ImplicitForall (Bound (Pattern _ x κ) σ) c π)) -> do
     τ <- freshTypeVariable p κ
+    -- todo constrain with π
     for (Set.toList c) $ \c -> do
       constrain p c τ
+    for π $ \π -> do
+      lessThen p π τ
     (ς, θ) <- instantiateTypeScheme p $ substitute τ x σ
     pure (ς, InstantiateType x τ θ)
   (CoreTypeScheme _ (ImplicitKindForall (Bound (Pattern _ x μ) σ))) -> do
@@ -325,6 +328,13 @@ instantiateTypeScheme p = \case
 
 expectTypeAnnotation p Nothing = quit $ ExpectedTypeAnnotation p
 expectTypeAnnotation _ (Just σ) = pure σ
+
+validateType σ = fst <$> typeCheckValidateType σ
+
+validateStrictlyVariables π = Set.fromList <$> traverse get π
+  where
+    get (CoreType _ (TypeVariable x)) = pure x
+    get (CoreType p _) = quit $ ExpectedTypeVariable p
 
 typeCheckAnnotateLinearTerm :: TermAuto p -> Core p ((TermUnify p, TypeUnify), Use TermIdentifier)
 typeCheckAnnotateLinearTerm =
@@ -361,10 +371,15 @@ typeCheckAnnotateLinearTerm =
           ((e', σ), lΓ) <- recurse e
           capture p lΓ
           pure ((CoreTerm p (OfCourseIntroduction e'), CoreType Internal $ OfCourse $ σ), lΓ)
-        (CoreTerm p (TypeAbstraction (Bound pm e) c)) -> do
+        (CoreTerm p (TypeAbstraction (Bound pm e) c π)) -> do
           (pm', κ) <- typeCheckAnnotateTypePattern pm
           typeCheckConstraints p c κ
-          augmentTypePatternLevel pm' c $ do
+          π <- traverse (expectTypeAnnotation p) π
+          πx <- validateStrictlyVariables π
+          -- todo match bound's kind with var's kind
+          (π, κ') <- unzip <$> traverse typeCheckValidateType π
+          traverse (matchKind p κ) κ'
+          augmentTypePatternLevel pm' c πx $ do
             enterLevel
             ((e', σ'), lΓ) <- typeCheckAnnotateLinearTerm e
             leaveLevel
@@ -378,12 +393,13 @@ typeCheckAnnotateLinearTerm =
             ambigousTypeCheck (freeVariables @TypeLogicalRaw σ'')
             ambigousKindCheck (freeVariables @KindLogicalRaw σ'')
 
-            pure ((CoreTerm p (TypeAbstraction (Bound pm' e'') c), CoreType Internal $ Forall (Bound (Internal <$ pm') σ'') c), lΓ)
-        (CoreTerm p (TypeApplication e σ (Bound pm@(Pattern _ α _) τ) c)) -> do
+            pure ((CoreTerm p (TypeAbstraction (Bound pm' e'') c π), CoreType Internal $ Forall (Bound (Internal <$ pm') σ'') c π), lΓ)
+        (CoreTerm p (TypeApplication e σ (Bound pm@(Pattern _ α _) τ) c π)) -> do
+          -- todo constrain with π
           ((e, ς), lΓ) <- typeCheckAnnotateLinearTerm e
           (pm', κ) <- typeCheckAnnotateTypePattern pm
           typeCheckConstraints p c κ
-          τ <- expectTypeAnnotation p τ
+          π <- traverse (validateType <=< expectTypeAnnotation p) π
           (σ, κ') <- case σ of
             Just σ -> typeCheckValidateType σ
             Nothing -> do
@@ -392,9 +408,9 @@ typeCheckAnnotateLinearTerm =
               pure (σ, κ)
           matchKind p κ κ'
           augmentTypePatternBottom pm' $ do
-            τ <- fst <$> typeCheckValidateType τ
-            matchType p (CoreType Internal $ Forall (Bound (Internal <$ pm') τ) c) ς
-            pure (((CoreTerm p (TypeApplication e σ (Bound pm' τ) c)), substitute σ α τ), lΓ)
+            τ <- validateType =<< expectTypeAnnotation p τ
+            matchType p (CoreType Internal $ Forall (Bound (Internal <$ pm') τ) c π) ς
+            pure (((CoreTerm p (TypeApplication e σ (Bound pm' τ) c π)), substitute σ α τ), lΓ)
         CoreTerm p (TermRuntime (Alias e1 (Bound pm e2))) -> do
           (pm', τ) <- typeCheckAnnotateRuntimePattern pm
           ((e1', (τ', π)), lΓ1) <- firstM (secondM $ checkEffect p) =<< recurse e1
@@ -434,9 +450,9 @@ typeCheckAnnotateLinearTerm =
           τ <- enforcePretypeReal p τ
           pure ((CoreTerm p $ TermRuntime $ PairIntroduction e1' e2', CoreType Internal $ Effect (CoreType Internal $ Pair σ τ) π), lΓ1 `combine` lΓ2)
         CoreTerm p (TermRuntime (ReadReference e)) -> do
-          ((e', ((π, σ), π')), lΓ) <- firstM (secondM $ firstM (checkReference p) <=< checkEffect p) =<< recurse e
+          ((e', ((π', σ), π)), lΓ) <- firstM (secondM $ firstM (checkReference p) <=< checkEffect p) =<< recurse e
           constrain p Copy σ
-          matchType p π π'
+          lessThen p π' π
           pure ((CoreTerm p $ TermRuntime $ ReadReference e', CoreType Internal $ Effect σ π), lΓ)
         CoreTerm p (TermRuntime (NumberLiteral v)) -> do
           π <- freshRegionTypeVariable p
@@ -460,11 +476,13 @@ typeCheckAnnotateLinearTerm =
           ((e', (τ, π)), lΓ) <- firstM (secondM $ checkEffect p) =<< augmentRuntimeTermPattern pm' (recurse e)
           pure ((CoreTerm p $ FunctionLiteral (Bound pm' e'), CoreType Internal $ FunctionLiteralType σ π τ), lΓ)
 
-attachRigidType :: [String] -> [TypeLogicalRaw] -> Core p ([(Pattern TypeIdentifier KindUnify Internal, Set Constraint)], Substitution)
+attachRigidType :: [String] -> [TypeLogicalRaw] -> Core p ([((Pattern TypeIdentifier KindUnify Internal, Set Constraint), [TypeUnify])], Substitution)
 attachRigidType (x : xs) (α : αs) = do
-  (_, κ, c, _) <- indexTypeVariableMap α
+  (_, κ, c, lower, upper, _) <- indexTypeVariableMap α
   (pms, θ) <- attachRigidType xs αs
-  pure ((Pattern Internal (TypeIdentifier x) κ, c) : pms, singleTypeSubstitution α (CoreType Internal $ TypeVariable $ TypeIdentifier x) <> θ)
+  case upper of
+    Nothing -> pure (((Pattern Internal (TypeIdentifier x) κ, c), lower) : pms, singleTypeSubstitution α (CoreType Internal $ TypeVariable $ TypeIdentifier x) <> θ)
+    Just _ -> error "todo: support bounded generalization under type variables"
 attachRigidType _ [] = pure ([], identitySubstitution)
 attachRigidType _ _ = error "empty name generator"
 
@@ -513,7 +531,7 @@ typeTemporaries = temporaries' $ (: []) <$> ['A', 'B', 'C']
 kindTemporaries = temporaries' $ (: []) <$> ['X', 'Y', 'Z']
 
 augmentScheme (CoreTypeScheme _ (MonoType σ)) e = e σ
-augmentScheme (CoreTypeScheme _ (ImplicitForall (Bound pm σ) c)) e = augmentTypePatternLevel pm c (augmentScheme σ e)
+augmentScheme (CoreTypeScheme _ (ImplicitForall (Bound pm σ) c π)) e = augmentTypePatternLevel pm c (strictlyVariables π) (augmentScheme σ e)
 augmentScheme (CoreTypeScheme _ (ImplicitKindForall (Bound pm σ))) e = augmentKindPatternLevel pm (augmentScheme σ e)
 
 reunifyEquations p (Substitution σθ κθ) = do
@@ -525,7 +543,7 @@ reunifyEquations p (Substitution σθ κθ) = do
 removeDeadVariables (Substitution σθ κθ) = do
   lev <- Level <$> currentLevel
   σθ' <- for (Map.toList σθ) $ \(x, τ) -> do
-    (_, _, _, lev') <- indexTypeVariableMap x
+    (_, _, _, _, _, lev') <- indexTypeVariableMap x
     if lev' > lev
       then do
         removeTypeVariable x
@@ -543,7 +561,7 @@ removeDeadVariables (Substitution σθ κθ) = do
 ambigousTypeCheck variables = do
   lev <- Level <$> currentLevel
   vars <- getTypeVariableMap
-  for (Map.toList vars) $ \(x, (p, _, _, lev')) -> do
+  for (Map.toList vars) $ \(x, (p, _, _, _, _, lev')) -> do
     if lev' > lev
       then do
         if x `Set.notMember` variables
@@ -564,6 +582,17 @@ ambigousKindCheck variables = do
           else pure ()
       else pure ()
 
+topologicalBoundsSort' :: StateT (Map TypeLogicalRaw Mark) (StateT [TypeLogicalRaw] (Core p)) ()
+topologicalBoundsSort' = sortTopological id id id quit children
+  where
+    quit x = error $ "unexpected cycle: " ++ show x
+    children x = do
+      (_, _, _, vars, _, _) <- indexTypeVariableMap x
+      pure $ Set.toList $ freeVariables vars
+
+topologicalBoundsSort :: [TypeLogicalRaw] -> Core p [TypeLogicalRaw]
+topologicalBoundsSort vars = execStateT (evalStateT topologicalBoundsSort' $ Map.fromList $ zip vars $ repeat Unmarked) []
+
 generalize :: (TermUnify p, TypeUnify) -> Core p (TermUnify p, TypeSchemeUnify)
 generalize (e, σ) = do
   θ <- solve
@@ -572,19 +601,20 @@ generalize (e, σ) = do
 
   ambigousTypeCheck (freeVariables @TypeLogicalRaw σ)
   typeVars <- getTypeVariableMap
-  let α = Set.toList $ Map.keysSet typeVars
+  let α = reverse $ Map.keys typeVars
+  α <- reverse <$> topologicalBoundsSort α
   (pm, θσ) <- attachRigidType typeTemporaries α
 
-  ambigousKindCheck (freeVariables @KindLogicalRaw σ <> freeVariables @KindLogicalRaw (map fst pm))
+  ambigousKindCheck (freeVariables @KindLogicalRaw σ <> freeVariables @KindLogicalRaw (map (fst . fst) pm))
   kindVars <- getKindVariableMap
-  let κα = Set.toList $ Map.keysSet kindVars
+  let κα = Map.keys kindVars
   (pm2, θκ) <- attachRigidKind kindTemporaries κα
   (((e, σ), pm), pm2) <- pure $ applySubstitution θκ $ applySubstitution θσ (((e, σ), pm), pm2)
   let ς = foldr prependKindPattern (foldr prependPattern (CoreTypeScheme Internal $ MonoType σ) pm) pm2
   pure (e, ς)
   where
     prependKindPattern pm e = CoreTypeScheme Internal $ ImplicitKindForall (Bound pm e)
-    prependPattern (pm, c) e = CoreTypeScheme Internal $ ImplicitForall (Bound pm e) c
+    prependPattern ((pm, c), π) e = CoreTypeScheme Internal $ ImplicitForall (Bound pm e) c π
 
 typeCheckGlobal ::
   TermAuto p ->
@@ -625,11 +655,12 @@ typeCheckGlobalAnnotate e@(CoreTerm p _) ς = do
   where
     substituteAll = flip . foldr $ \(x, κ) -> substitute κ x
     applyQSubstitution (Substitution _ κs) (CoreTypeScheme p (MonoType σ)) = CoreTypeScheme p $ MonoType $ substituteAll (Map.toList κs) σ
-    applyQSubstitution θ@(Substitution _ κs) (CoreTypeScheme p (ImplicitForall (Bound pm ς) c)) =
+    applyQSubstitution θ@(Substitution _ κs) (CoreTypeScheme p (ImplicitForall (Bound pm ς) c π)) =
       CoreTypeScheme p $
         ImplicitForall
           (Bound (substituteAll (Map.toList κs) pm) (applyQSubstitution θ ς))
           c
+          (substituteAll (Map.toList κs) π)
     applyQSubstitution θ (CoreTypeScheme p (ImplicitKindForall (Bound pm ς))) = CoreTypeScheme p (ImplicitKindForall (Bound pm $ applyQSubstitution θ ς))
 
 typeCheckGlobalAnnotateText ::
@@ -642,5 +673,5 @@ typeCheckGlobalAnnotateText e ς@(CoreTypeScheme p _) = do
   pure (e, ς)
 
 syntaticFunctionCheck _ (CoreTypeScheme _ (MonoType (CoreType _ (FunctionLiteralType _ _ _)))) = pure ()
-syntaticFunctionCheck p (CoreTypeScheme _ (ImplicitForall (Bound _ ς) _)) = syntaticFunctionCheck p ς
+syntaticFunctionCheck p (CoreTypeScheme _ (ImplicitForall (Bound _ ς) _ _)) = syntaticFunctionCheck p ς
 syntaticFunctionCheck p _ = quit $ ExpectedFunctionLiteral p

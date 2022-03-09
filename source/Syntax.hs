@@ -47,7 +47,6 @@ keywords =
       "long",
       "signed",
       "unsigned",
-      "reference",
       "inline",
       "let",
       "extern",
@@ -131,6 +130,8 @@ withInnerPosition3 core app = toPrism core . secondP app . toPrism (extractInfo 
 
 withInnerPosition4 core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst . fst . fst)
 
+withInnerPosition5 core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst . fst . fst . fst)
+
 path = (Path.path . swapNonEmpty) ⊣ token "/" ≫ identifer ⊗ pathTail
   where
     pathTail = cons ⊣ token "/" ≫ identifer ⊗ pathTail ∥ nil ⊣ always
@@ -195,11 +196,17 @@ constraints = orderlessSet ⊣ (items ∥ nil ⊣ always)
   where
     items = cons ⊣ inverse nonEmpty ⊣ binaryToken "+" ≫ seperatedSome (constraint) (binaryToken "&")
 
+lowerBounds σ = items ∥ nil ⊣ always
+  where
+    items = cons ⊣ inverse nonEmpty ⊣ binaryToken ">=" ≫ seperatedSome σ (binaryToken "&")
+
 typePattern = Language.pattern ⊣ position ⊗ typeIdentifier ⊗ (just ⊣ token ":" ≫ kind ∥ nothing ⊣ always)
 
-constraintBound = firstP (toPrism Language.bound) . toPrism transform
+constraintBound :: Prism (((pm, c), π), σ) ((Language.Bound pm σ, c), π)
+constraintBound = firstP (firstP (toPrism Language.bound)) . toPrism transform
   where
-    transform = associate' . secondI swap . associate
+    transform :: Isomorph (((pm, c), π), σ) (((pm, σ), c), π)
+    transform = Isomorph (\(((pm, c), π), σ) -> (((pm, σ), c), π)) (\(((pm, σ), c), π) -> (((pm, c), π), σ))
 
 typex :: (Position δ p, Syntax δ) => δ (Language.Type (Language.KindAuto p) Void p)
 typex = typeArrow
@@ -216,21 +223,19 @@ typex = typeArrow
         applyBinary = functionPointer `branchDistribute` functionLiteralType `branchDistribute` unit'
         functionPointer = withInnerPosition3 Language.coreType Language.functionPointer . toPrism associate'
         functionLiteralType = withInnerPosition3 Language.coreType Language.functionLiteralType . toPrism associate'
-    typePair = foldlP pair ⊣ typeApply ⊗ many (token "," ≫ space ≫ typeApply)
+    typePair = foldlP pair ⊣ typePtr ⊗ many (token "," ≫ space ≫ typePtr)
       where
         pair = withInnerPosition Language.coreType Language.runtimePair
-    typeApply = Language.coreType ⊣ position ⊗ choice options ∥ typeCore
+    typePtr = foldlP ptr ⊣ typeCore ⊗ many (token "*" ≫ binaryToken "@" ≫ typeCore)
       where
-        options =
-          [ Language.reference ⊣ prefixKeyword "reference" ≫ typeCore ⊗ space ≫ typeCore
-          ]
+        ptr = withInnerPosition Language.coreType Language.reference . toPrism swap
 
 typeCore = Language.coreType ⊣ position ⊗ (choice options) ∥ betweenParens typex
   where
     options =
       [ Language.typeVariable ⊣ typeIdentifier,
         Language.number ⊣ betweenDoubleBraces kindAuto ⊗ space ≫ kindCoreAuto,
-        Language.explicitForall ⊣ constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lambdaInline typex,
+        Language.explicitForall ⊣ constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊗ lambdaInline typex,
         Language.ofCourse ⊣ betweenBangSquares typex
       ]
 
@@ -241,7 +246,7 @@ typeCoreAuto = just ⊣ typeCore ∥ nothing ⊣ token "_"
 typeScheme = mono ∥ foldrP applyScheme ⊣ scheme
   where
     mono = Language.coreTypeScheme ⊣ position ⊗ (Language.monoType ⊣ typex)
-    schemeCore = typePattern ⊗ constraints ⊕ token "'" ≫ kindPattern
+    schemeCore = typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊕ token "'" ≫ kindPattern
     scheme = betweenAngle (commaSeperatedMany (position ⊗ schemeCore)) ⊗ space ≫ mono
     applyScheme = toPrism Language.coreTypeScheme . secondP inner . toPrism associate
       where
@@ -311,13 +316,15 @@ term = termBinding
       where
         applyBinary = application `branchDistribute` typeApplication
         application = withInnerPosition3 Language.coreTerm Language.inlineApplication . toPrism associate'
-        typeApplication = withInnerPosition4 Language.coreTerm Language.typeApplication . toPrism (firstI associate' . associate')
+        typeApplication = withInnerPosition5 Language.coreTerm Language.typeApplication . toPrism transform
+          where
+            transform = Isomorph (\(e, (((pm, c), π), σ)) -> ((((e, σ), pm), c), π)) (\((((e, σ), pm), c), π) -> (e, (((pm, c), π), σ)))
         applySyntax = space ≫ token "`" ≫ optionalAnnotate termCore
         typeApplySyntax =
-          associate' ⊣ swap ⊣ space
-            ≫ betweenDoubleSquares (constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lambdaInline typeAuto) ⊗ betweenAngle typeAuto
+          space
+            ≫ betweenDoubleSquares (constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCoreAuto ⊗ lambdaInline typeAuto) ⊗ betweenAngle typeAuto
         options =
-          [ Language.readReference ⊣ token "*" ≫ termCore
+          [ Language.readReference ⊣ token "*" ≫ termApply
           ]
 
 termCore = Language.coreTerm ⊣ position ⊗ choice options ∥ betweenParens term
@@ -329,7 +336,7 @@ termCore = Language.coreTerm ⊣ position ⊗ choice options ∥ betweenParens t
         Language.extern ⊣ prefixKeyword "extern" ≫ symbol ≪ space ⊗ typeCoreAuto ≪ binaryToken "->" ⊗ typeCoreAuto ≪ space ⊗ typeCoreAuto,
         Language.ofCourseIntroduction ⊣ betweenBangSquares term,
         Language.numberLiteral ⊣ number,
-        Language.typeLambda ⊣ constraintBound ⊣ token "/\\" ≫ typePattern ⊗ constraints ⊗ lambdaMajor term
+        Language.typeLambda ⊣ constraintBound ⊣ token "/\\" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCoreAuto ⊗ lambdaMajor term
       ]
 
 modulex ::

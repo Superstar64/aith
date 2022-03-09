@@ -66,8 +66,8 @@ data TermF λtl λt θ κ σ λ λr e
   | InlineApplication e e σ
   | OfCourseIntroduction e
   | Bind e λ
-  | TypeAbstraction λtl (Set Constraint)
-  | TypeApplication e σ λt (Set Constraint)
+  | TypeAbstraction λtl (Set Constraint) [σ]
+  | TypeApplication e σ λt (Set Constraint) [σ]
   deriving (Show)
 
 data Term θ κ σ p
@@ -181,12 +181,12 @@ arithmatic o = (termRuntime .) $
     Arithmatic o' e e' κ | o == o' -> Just ((e, e'), κ)
     _ -> Nothing
 
-typeLambda = Prism (uncurry TypeAbstraction) $ \case
-  TypeAbstraction pm c -> Just (pm, c)
+typeLambda = Prism (uncurry $ uncurry TypeAbstraction) $ \case
+  TypeAbstraction pm c π -> Just ((pm, c), π)
   _ -> Nothing
 
-typeApplication = Prism (uncurry $ uncurry $ uncurry TypeApplication) $ \case
-  TypeApplication e σ λ c -> Just (((e, σ), λ), c)
+typeApplication = Prism (uncurry $ uncurry $ uncurry $ uncurry TypeApplication) $ \case
+  TypeApplication e σ λ c π -> Just ((((e, σ), λ), c), π)
   _ -> Nothing
 
 traverseTermPatternF ::
@@ -288,8 +288,8 @@ traverseTermF k l d j f h m i e =
     InlineApplication e1 e2 σ -> pure InlineApplication <*> i e1 <*> i e2 <*> f σ
     OfCourseIntroduction e -> pure OfCourseIntroduction <*> i e
     Bind e λ -> pure Bind <*> i e <*> h λ
-    TypeAbstraction λ c -> pure TypeAbstraction <*> k λ <*> pure c
-    TypeApplication e σ λ c -> pure TypeApplication <*> i e <*> f σ <*> l λ <*> pure c
+    TypeAbstraction λ c π -> pure TypeAbstraction <*> k λ <*> pure c <*> traverse f π
+    TypeApplication e σ λ c π -> pure TypeApplication <*> i e <*> f σ <*> l λ <*> pure c <*> traverse f π
 
 foldTermF l k d j f h m i = getConst . traverseTermF (Const . l) (Const . k) (Const . d) (Const . j) (Const . f) (Const . h) (Const . m) (Const . i)
 
@@ -715,7 +715,7 @@ instance Correct InstantiationInfer (Term InstantiationInfer KindInfer TypeInfer
 instance Reduce (Term InstantiationInfer KindInfer TypeInfer p) where
   reduce (CoreTerm _ (Bind e λ)) = apply (reduce λ) (reduce e)
   reduce (CoreTerm _ (InlineApplication e1 e2 _)) | (CoreTerm _ (InlineAbstraction λ)) <- reduce e1 = apply λ (reduce e2)
-  reduce (CoreTerm _ (TypeApplication e1 σ _ _)) | (CoreTerm _ (TypeAbstraction (Bound pm e) _)) <- reduce e1 = apply (Bound pm e) σ
+  reduce (CoreTerm _ (TypeApplication e1 σ _ _ _)) | (CoreTerm _ (TypeAbstraction (Bound pm e) _ _)) <- reduce e1 = apply (Bound pm e) σ
   reduce (CoreTerm p e) = CoreTerm p (mapTermF go go go go go go go go e)
     where
       go = reduce

@@ -195,8 +195,7 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi, \alpha : \kappa + \{ \overline c \} \succeq \{ \overline \pi \} | \Gamma \vdash e : \sigma \quad \overline {\Phi \vdash c : \kappa \to \diamond} \quad
-\overline { \Phi \vdash \pi : \kappa }}
+{\Phi, \alpha : \kappa + \{ \overline c \} \succeq \{ \overline \pi \} | \Gamma \vdash e : \sigma}
 {\Phi | \Gamma \vdash \Lambda \alpha. e : \forall \alpha : \kappa + \{ \overline c\} \succeq \{ \overline \pi \} . \sigma } \\
 \\
 \frac
@@ -306,7 +305,7 @@ e \Coloneqq & \\
 \subsubsection{References}
 \begin{align*}
 e \Coloneqq & \\
-& *e \tag{Dereference Pointer} \\
+& *^\pi e \tag{Dereference Pointer} \\
 & \dots \\
 \sigma, \tau, \pi \Coloneqq & \\
 & \sigma *^\pi \tag{Reference} \\
@@ -315,8 +314,8 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi | \Gamma \vdash e : (\sigma *^\pi)^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \Phi \vdash \sigma : +^{\text{Real}(\rho)}}
-{\Phi | \Gamma \vdash * \, e : \sigma^\pi} \\
+{\Phi | \Gamma \vdash e : (\sigma *^{\pi'})^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \Phi \vdash \sigma : +^{\text{Real}(\rho)} \quad \pi \succeq \pi'}
+{\Phi | \Gamma \vdash *^{\pi'} \, e : \sigma^\pi} \\
 \end{gather*}
 
 \begin{gather*}

@@ -6,28 +6,32 @@ import Ast.Type
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
+import qualified Data.Set as Set
 
 data Equation p
   = TypeEquation p TypeUnify TypeUnify
-  | TypeSkolemBound p (Bound (Pattern TypeIdentifier KindUnify Internal) [Equation p]) (Set Constraint)
+  | TypeSkolemBound p (Bound (Pattern TypeIdentifier KindUnify Internal) [Equation p]) (Set Constraint) (Set TypeIdentifier)
   | KindEquation p KindUnify KindUnify
   | KindMember p TypeUnify KindUnify
   | TypePredicate p Constraint TypeUnify
+  | LessThen p TypeUnify TypeUnify
   deriving (Show)
 
 instance Functor Equation where
   fmap f (TypeEquation p σ σ') = TypeEquation (f p) σ σ'
-  fmap f (TypeSkolemBound p (Bound pm eqs) c) = TypeSkolemBound (f p) (Bound pm $ (fmap . fmap) f eqs) c
+  fmap f (TypeSkolemBound p (Bound pm eqs) c π) = TypeSkolemBound (f p) (Bound pm $ (fmap . fmap) f eqs) c π
   fmap f (KindEquation p κ κ') = KindEquation (f p) κ κ'
   fmap f (KindMember p σ κ) = KindMember (f p) σ κ
   fmap f (TypePredicate p c σ) = TypePredicate (f p) c σ
+  fmap f (LessThen p σ σ') = LessThen (f p) σ σ'
 
 instance Convert TypeIdentifier (Equation p) where
   convert σ x (TypeEquation p σ1 σ2) = TypeEquation p (convert σ x σ1) (convert σ x σ2)
-  convert σ x (TypeSkolemBound p λ c) = TypeSkolemBound p (convert σ x λ) c
+  convert σ x (TypeSkolemBound p λ c π) = TypeSkolemBound p (convert σ x λ) c (Set.insert x $ Set.delete σ π)
   convert _ _ eq@(KindEquation _ _ _) = eq
   convert σ x (KindMember p σ' κ) = KindMember p (convert σ x σ') κ
   convert σ x (TypePredicate p c τ) = TypePredicate p c (convert σ x τ)
+  convert σ x (LessThen p τ τ') = LessThen p (convert σ x τ) (convert σ x τ')
 
 instance
   Substitute
@@ -36,17 +40,19 @@ instance
     (Equation p)
   where
   substitute σ x (TypeEquation p σ1 σ2) = TypeEquation p (substitute σ x σ1) (substitute σ x σ2)
-  substitute σ x (TypeSkolemBound p λ c) = TypeSkolemBound p (substitute σ x λ) c
+  substitute σ x (TypeSkolemBound p λ c π) = TypeSkolemBound p (substitute σ x λ) c π
   substitute _ _ eq@(KindEquation _ _ _) = eq
   substitute σ x (KindMember p σ' κ) = KindMember p (substitute σ x σ') κ
   substitute σ x (TypePredicate p c τ) = TypePredicate p c (substitute σ x τ)
+  substitute σ x (LessThen p τ τ') = LessThen p (substitute σ x τ) (substitute σ x τ')
 
 instance Substitute KindUnify KindLogicalRaw (Equation p) where
   substitute κ x (TypeEquation p σ1 σ2) = TypeEquation p (substitute κ x σ1) (substitute κ x σ2)
-  substitute κ x (TypeSkolemBound p λ c) = TypeSkolemBound p (substitute κ x λ) c
+  substitute κ x (TypeSkolemBound p λ c π) = TypeSkolemBound p (substitute κ x λ) c π
   substitute κ x (KindEquation p κ1 κ2) = KindEquation p (substitute κ x κ1) (substitute κ x κ2)
   substitute κ x (KindMember p σ κ') = KindMember p (substitute κ x σ) (substitute κ x κ')
   substitute κ x (TypePredicate p c τ) = TypePredicate p c (substitute κ x τ)
+  substitute κ x (LessThen p τ τ') = LessThen p (substitute κ x τ) (substitute κ x τ')
 
 data Substitution = Substitution
   { typeSubstitution :: Map TypeLogicalRaw TypeUnify,

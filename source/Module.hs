@@ -4,11 +4,10 @@ import Ast.Common
 import Ast.Kind (KindAuto, KindInfer, mapKind)
 import Ast.Term
 import Ast.Type hiding (Inline)
-import Control.Monad.State.Strict (StateT, evalStateT, execStateT, get)
+import Control.Monad.State.Strict (StateT, evalStateT, execStateT)
 import Control.Monad.Trans (lift)
 import Data.Bifunctor (second)
 import Data.Functor.Identity
-import Data.List (find)
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import qualified Data.Set as Set
@@ -163,27 +162,20 @@ items heading (CoreModule code) = do
     Module inner -> items (heading ++ [name]) inner
     Global global -> pure $ (Path heading name, global)
 
-visit code = visitTopological quit children
-  where
-    quit p path = case p of
-      Just p -> moduleQuit $ Cycle p path
-      Nothing -> error "temporary mark on top level"
-    children global path = for (Map.toList $ depend global path) $ \(path, p) -> do
-      global <- resolve p code path
-      pure (Just p, path, global)
-
 order code = Ordering <$> execStateT (evalStateT go (const Unmarked <$> globals)) []
   where
-    globals = Map.fromList $ (\(path, global) -> (path, global)) <$> items [] code
-    go = do
-      this <- get
-      let item = find (\(_, mark) -> mark /= Permanent) (Map.toList this)
-      case item of
-        Nothing -> pure ()
-        Just (path, _) -> do
-          let global = globals ! path
-          visit code (mempty, path, global)
-          go
+    globals = Map.fromList $ items [] code
+    go = sortTopological index finish view quit children
+      where
+        index path = (mempty, path, globals ! path)
+        finish (_, path, global) = (path, global)
+        view (_, path, _) = path
+        quit (p, path, _) = case p of
+          Just p -> moduleQuit $ Cycle p path
+          Nothing -> error "temporary mark on top level"
+        children (_, path, global) = for (Map.toList $ depend global path) $ \(path, p) -> do
+          global <- resolve p code path
+          pure (Just p, path, global)
 
 unorder (Ordering []) = CoreModule Map.empty
 unorder (Ordering (item : remaining)) = insert item (unorder $ Ordering remaining)
@@ -245,7 +237,7 @@ typeCheckModule (Ordering ((path@(Path heading _), item) : nodes)) = do
 
 convertFunctionLiteral ς = case ς of
   CoreTypeScheme _ (MonoType (CoreType p (FunctionLiteralType σ π τ))) -> polyEffect id (CoreType p $ FunctionPointer σ π τ)
-  CoreTypeScheme p (ImplicitForall (Bound pm ς) c) -> CoreTypeScheme p $ ImplicitForall (Bound pm $ convertFunctionLiteral ς) c
+  CoreTypeScheme p (ImplicitForall (Bound pm ς) c π) -> CoreTypeScheme p $ ImplicitForall (Bound pm $ convertFunctionLiteral ς) c π
   _ -> error "not function literal"
 
 makeExtern ::
@@ -255,7 +247,7 @@ makeExtern ::
   Term InstantiationInfer KindInfer TypeInfer p
 makeExtern path p ς = case ς of
   CoreTypeScheme _ (MonoType (CoreType _ (FunctionLiteralType σ π τ))) -> CoreTerm p (TermRuntime $ Extern (mangle path) σ π τ)
-  CoreTypeScheme _ (ImplicitForall (Bound _ σ) _) -> makeExtern path p σ
+  CoreTypeScheme _ (ImplicitForall (Bound _ σ) _ _) -> makeExtern path p σ
   _ -> error "not function literal"
 
 reduceModule ::

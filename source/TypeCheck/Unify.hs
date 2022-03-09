@@ -4,6 +4,7 @@ import Ast.Common
 import Ast.Kind
 import Ast.Sort
 import Ast.Type
+import Control.Monad
 import Control.Monad.Trans (lift)
 import Control.Monad.Writer (WriterT, runWriterT, tell)
 import Data.Maybe (fromJust)
@@ -20,6 +21,8 @@ kindIsMember p σ κ = insertEquation (KindMember p σ κ)
 
 constrain p c σ = insertEquation (TypePredicate p c σ)
 
+lessThen p σ σ' = insertEquation (LessThen p σ σ')
+
 matchSort _ Kind Kind = pure ()
 matchSort _ Existance Existance = pure ()
 matchSort _ Representation Representation = pure ()
@@ -35,6 +38,11 @@ sortIsMember p κ μ' = do
     mid (_, x, _) = x
     indexVariableMap x = mid <$> indexKindVariableMap x
 
+strictlyVariables π = Set.fromList $ map get π
+  where
+    get (CoreType _ (TypeVariable x)) = x
+    get _ = error "non variable"
+
 -- todo this is ugly, find a better way to do this
 
 reconstructType indexVariable indexLogical augment = reconstruct
@@ -45,9 +53,8 @@ reconstructType indexVariable indexLogical augment = reconstruct
       indexLogical v
     reconstruct (CoreType _ (Inline _ _)) = do
       pure $ CoreKind Internal $ Type
-    reconstruct (CoreType _ (Forall (Bound pm σ) c)) = do
-      augment pm c $ reconstruct σ
-      reconstruct σ
+    reconstruct (CoreType _ (Forall (Bound pm σ) c πs)) = do
+      augment pm c (strictlyVariables πs) $ reconstruct σ
     reconstruct (CoreType _ (OfCourse _)) = do
       pure $ CoreKind Internal $ Type
     reconstruct (CoreType _ (FunctionPointer _ _ _)) = do
@@ -102,23 +109,25 @@ typeOccursCheck p x σ = go σ p x σ
       let recurse = go σ' p x
        in case σ of
             TypeVariable x' -> do
-              (_, _, _, lev) <- indexTypeVariableMap x
-              (_, _, _, lev') <- fromJust <$> lookupKindEnvironment x'
+              (_, _, _, _, _, lev) <- indexTypeVariableMap x
+              (_, _, _, _, lev') <- fromJust <$> lookupKindEnvironment x'
               if lev' > lev
                 then quit $ EscapingSkolemType p x' σ'
                 else pure ()
             TypeLogical x' | x == x' -> quit $ TypeOccursCheck p x σ'
             TypeLogical x' -> do
-              (_, _, _, lev) <- indexTypeVariableMap x
-              (_, _, _, lev') <- indexTypeVariableMap x'
+              (_, _, _, _, _, lev) <- indexTypeVariableMap x
+              (_, _, _, _, _, lev') <- indexTypeVariableMap x'
               if lev' > lev
                 then updateTypeLevel x' lev
                 else pure ()
             Inline σ τ -> do
               recurse σ
               recurse τ
-            Forall (Bound (Pattern _ α κ) σ) c -> do
-              augmentKindEnvironment α p κ c minBound $ recurse σ
+            Forall (Bound (Pattern _ x κ) σ) _ π -> do
+              augmentKindOccurs p x κ $ recurse σ
+              traverse recurse π
+              pure ()
             OfCourse σ -> recurse σ
             FunctionPointer σ π τ -> do
               recurse σ
@@ -177,10 +186,12 @@ unifyTypeVariable ::
   Core p Substitution
 unifyTypeVariable p x σ = do
   typeOccursCheck p x σ
-  (_, κ, c, _) <- indexTypeVariableMap x
+  (_, κ, c, lower, upper, _) <- indexTypeVariableMap x
   kindIsMember p σ κ
   for (Set.toList c) $ \c -> do
     constrain p c σ
+  for lower (\π -> lessThen p π σ)
+  for upper (\x -> lessThen p σ (CoreType Internal $ TypeVariable x))
   apply σ x
   pure $ singleTypeSubstitution x σ
   where
@@ -196,7 +207,7 @@ unifyKindVariable p x κ = do
   where
     apply κ x = do
       modifyEquations (substitute κ x)
-      modifyTypeVariableMap (fmap $ \(p, κ', c, lev) -> (p, substitute κ x κ', c, lev))
+      modifyTypeVariableMap (fmap $ \(p, κ', c, lower, upper, lev) -> (p, substitute κ x κ', c, substitute κ x lower, upper, lev))
 
 unifyType :: p -> TypeUnify -> TypeUnify -> WriterT Substitution (Core p) ()
 unifyType = unify
@@ -211,11 +222,13 @@ unifyType = unify
     unify p (CoreType _ (Inline σ τ)) (CoreType _ (Inline σ' τ')) = do
       match p σ σ'
       match p τ τ'
-    unify p (CoreType _ (Forall (Bound pm@(Pattern _ α κ) σ) c)) (CoreType _ (Forall (Bound (Pattern _ α' κ') σ') c'))
-      | c == c' = do
+    unify p (CoreType _ (Forall (Bound pm@(Pattern _ α κ) σ) c π)) (CoreType _ (Forall (Bound (Pattern _ α' κ') σ') c' π'))
+      | c == c',
+        length π == length π' = do
         lift $ matchKind p κ κ'
         let σ'' = substitute @TypeUnify (CoreType Internal $ TypeVariable α) α' σ'
-        lift $ insertEquation (TypeSkolemBound p (Bound pm [TypeEquation p σ σ'']) c)
+        lift $ insertEquation (TypeSkolemBound p (Bound pm [TypeEquation p σ σ'']) c (strictlyVariables π))
+        sequence $ zipWith (match p) π π'
         pure ()
     unify p (CoreType _ (OfCourse σ)) (CoreType _ (OfCourse σ')) = do
       match p σ σ'
@@ -284,13 +297,13 @@ reconstruct2 p σ = do
 
 unifyPredicate :: p -> Constraint -> TypeUnify -> Core p ()
 unifyPredicate p c (CoreType _ (TypeLogical x)) = do
-  (_, κ, cs, _) <- indexTypeVariableMap x
+  (_, κ, cs, _, _, _) <- indexTypeVariableMap x
   predicateKindCheck p c κ
   case Set.member c cs of
     False -> insertTypeVariableMapConstraint x c
     True -> pure ()
 unifyPredicate p c σ@(CoreType _ (TypeVariable x)) = do
-  (_, κ, cs, _) <- fromJust <$> lookupKindEnvironment x
+  (_, κ, cs, _, _) <- fromJust <$> lookupKindEnvironment x
   predicateKindCheck p c κ
   case Set.member c cs of
     False -> quit $ ConstraintMismatch p c σ
@@ -303,6 +316,56 @@ unifyPredicate p Copy (CoreType _ (Pair σ τ)) = do
 unifyPredicate _ Copy (CoreType _ (Reference _ _)) = pure ()
 unifyPredicate p c σ = quit $ ConstraintMismatch p c σ
 
+reachLogical x (CoreType _ (TypeLogical x')) | x == x' = pure True
+reachLogical x (CoreType _ (TypeLogical x')) = do
+  (_, _, _, lower, _, _) <- indexTypeVariableMap x'
+  or <$> traverse (reachLogical x) lower
+reachLogical _ _ = pure False
+
+maximal _ _ [] [max] = pure max
+maximal p e (x : xs) candidates = do
+  candidates <- flip filterM candidates $ \x' -> do
+    (_, _, _, lower, _) <- fromJust <$> lookupKindEnvironment x'
+    pure (x `Set.member` lower)
+  maximal p e xs candidates
+maximal p (x, x') _ _ = quit $ NoCommonMeet p x x'
+
+meet p x x' = do
+  (_, _, _, lower1, _) <- fromJust <$> lookupKindEnvironment x
+  (_, _, _, lower2, _) <- fromJust <$> lookupKindEnvironment x'
+  maximal p (x, x') (Set.toList $ lower1 <> lower2) (Set.toList $ lower1 <> lower2)
+
+unifyBound p σ (CoreType _ (TypeLogical x))
+  | (CoreType _ (TypeVariable _)) <- σ = unifyBoundVariable
+  | (CoreType _ (TypeLogical _)) <- σ = unifyBoundVariable
+  where
+    unifyBoundVariable = do
+      reachable <- reachLogical x σ
+      if reachable
+        then matchType p (CoreType Internal (TypeLogical x)) σ
+        else do
+          -- todo occurance here maybe?
+          insertTypeVariableMapLowerBound x σ
+          (_, _, _, _, upper, _) <- indexTypeVariableMap x
+          for upper $ \πx -> lessThen p σ (CoreType Internal $ TypeVariable πx)
+          pure ()
+unifyBound p (CoreType _ (TypeLogical x)) (CoreType _ (TypeVariable x')) = do
+  (_, _, _, lower, upper, _) <- indexTypeVariableMap x
+  case upper of
+    Nothing -> setTypeVariableMapUpperBound x x'
+    Just x'' -> do
+      bound <- meet p x' x''
+      setTypeVariableMapUpperBound x bound
+  for lower $ \σ -> lessThen p σ (CoreType Internal $ TypeVariable x')
+  pure ()
+unifyBound p σ@(CoreType _ (TypeVariable x)) σ'@(CoreType _ (TypeVariable x')) = do
+  (_, _, _, lower, _) <- fromJust <$> lookupKindEnvironment x'
+  if x `Set.notMember` lower
+    then -- todo use different error message
+      quit $ TypeMismatch p σ σ'
+    else pure ()
+unifyBound p _ _ = quit $ TypeVariableOnlySuported p
+
 solve = do
   equations <- getEquations
   case equations of
@@ -312,8 +375,8 @@ solve = do
       ((), θ) <- runWriterT $ unifyType p σ σ'
       θ' <- solve
       pure $ θ <> θ'
-    (TypeSkolemBound p (Bound (Pattern _ x κ) eqs) c : remaining) -> do
-      θ <- augmentKindEnvironment x p κ c maxBound $ do
+    (TypeSkolemBound p (Bound (Pattern _ x κ) eqs) c π : remaining) -> do
+      θ <- augmentKindEnvironment x p κ c π maxBound $ do
         modifyEquations (const eqs)
         solve
       modifyEquations (const (applySubstitution θ remaining))
@@ -335,15 +398,19 @@ solve = do
       solve
     (KindMember p σ κ : remaining) -> do
       modifyEquations (const remaining)
-      κ' <- effectless $ reconstructType indexKindEnvironment indexVariableMap augment σ
+      κ' <- effectless $ reconstructType indexKindEnvironment indexVariableMap augmentTypePatternLevel σ
       matchKind p κ κ'
       solve
       where
-        indexKindEnvironment x = snd <$> fromJust <$> lookupKindEnvironment x
+        indexKindEnvironment x = snd' <$> fromJust <$> lookupKindEnvironment x
         indexVariableMap x = snd <$> indexTypeVariableMap x
-        augment (Pattern p x κ) c = augmentKindEnvironment x p κ c (error "level usage during kind checking")
-        snd (_, x, _, _) = x
+        snd (_, x, _, _, _, _) = x
+        snd' (_, x, _, _, _) = x
     TypePredicate p c σ : remaining -> do
       modifyEquations (const remaining)
       unifyPredicate p c σ
+      solve
+    LessThen p σ σ' : remaining -> do
+      modifyEquations (const remaining)
+      unifyBound p σ σ'
       solve
