@@ -57,7 +57,7 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 |-|-|
 | Module | ``module x = { code };`` |
 | Inline Term | ``inline x = e; ``|
-| Inline Term Ascribe | ```inline _ :: ς σ; inline x ς = e; ``|
+| Inline Term Ascribe | ``inline _ :: ς σ; inline x ς = e; ``|
 | Function | ``function x = e;`` |
 | Function Ascribe | ``function _ :: ς σ; function x ς = e;``|
 | Import | ``import x = /x'/x''/...;``|
