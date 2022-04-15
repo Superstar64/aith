@@ -246,7 +246,7 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenPare
   where
     options =
       [ Language.typeVariable ⊣ typeIdentifier,
-        Language.number ⊣ betweenDoubleBraces kindAuto ⊗ space ≫ kindCoreAuto,
+        Language.number ⊣ token "#" ≫ kindCoreAuto ⊗ space ≫ kindCoreAuto,
         Language.explicitForall ⊣ constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊗ lambdaInline typex,
         Language.ofCourse ⊣ betweenBangSquares typex
       ]

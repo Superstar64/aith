@@ -131,7 +131,7 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 | Runtime Pair | ``σ, σ'`` |
 | Effect | ``σ @ π`` |
 | Pointer | ``σ* @ π`` |
-| Number | ``{{ρ}} ρ'`` |
+| Number | ``#ρ ρ'`` |
 
 
 ## Type Pattern(pmσ)

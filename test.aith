@@ -22,7 +22,7 @@ module run = {
 
 	
 	symbol dotProduct = \(vector1P, vector2P) {
-		let (x1,y1,(z1 : {{signed}} int)) = *vector1P;
+		let (x1,y1,(z1 : #signed int)) = *vector1P;
 		let (x2,y2,z2) = *vector2P;
 		(x1 * x2 + y1 * y2 + z1 * z2)
 	};
@@ -40,12 +40,12 @@ module run = {
 		(fst $ pair), (snd $ pair)
 	};
   
-	symbol _ :: <R : region> {{unsigned}} int, {{unsigned}} int -> R {{unsigned}} int; 
+	symbol _ :: <R : region> #unsigned int, #unsigned int -> R #unsigned int; 
 	symbol mid <R> = \(x,y) {
 		(x + y) / 2
 	};
   
-	symbol _ :: <R : region> {{unsigned}} int, {{unsigned}} int -> R {{unsigned}} int;
+	symbol _ :: <R : region> #unsigned int, #unsigned int -> R #unsigned int;
 	symbol div <R> = \(x,y) {
 		(x + y - 1) / y
 	};
