@@ -447,17 +447,12 @@ typeCheck (TermSource p e) = case e of
     ρ1 <- freshKindVariable p Signedness
     ρ2 <- freshKindVariable p Size
     pure ((TermCore p (TermRuntime (NumberLiteral v)), TypeCore $ Effect (TypeCore $ Number ρ1 ρ2) π), useNothing)
-  TermRuntime (Arithmatic o e1 e2 s) -> do
+  TermRuntime (Arithmatic o e1 e2 ()) -> do
     ((e1', ((ρ1, ρ2), π)), lΓ1) <- firstM (secondM $ firstM (checkNumber p) <=< checkEffect p) =<< typeCheck e1
     ((e2', ((ρ1', ρ2'), π')), lΓ2) <- firstM (secondM $ firstM (checkNumber p) <=< checkEffect p) =<< typeCheck e2
     matchType p π π'
     matchKind p ρ1 ρ1'
     matchKind p ρ2 ρ2'
-    case s of
-      Nothing -> pure ()
-      Just s -> do
-        s <- fmap fst $ sortCheck s
-        matchKind p ρ1 s
     pure ((TermCore p $ TermRuntime $ Arithmatic o e1' e2' ρ1, TypeCore $ Effect (TypeCore $ Number ρ1 ρ2) π), lΓ1 `combine` lΓ2)
   FunctionLiteral (Bound pm e) -> do
     (pm', σ) <- typeCheckRuntimePattern pm

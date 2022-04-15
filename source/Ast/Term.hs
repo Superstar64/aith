@@ -179,7 +179,7 @@ data TermSource p
       ( TermF
           (Bound (Pattern TypeIdentifier (KindAuto p) p))
           ()
-          (KindAuto p)
+          ()
           (TypeAuto p)
           (Bound (TermPatternSource p))
           (Bound (TermRuntimePatternSource p))
@@ -317,8 +317,8 @@ numberLiteral = (termRuntime .) $
     _ -> Nothing
 
 arithmatic o = (termRuntime .) $
-  Prism (uncurry $ uncurry $ Arithmatic o) $ \case
-    Arithmatic o' e e' κ | o == o' -> Just ((e, e'), κ)
+  Prism (\(e, e') -> Arithmatic o e e' ()) $ \case
+    Arithmatic o' e e' () | o == o' -> Just (e, e')
     _ -> Nothing
 
 typeLambda = Prism (uncurry $ uncurry TypeAbstraction) $ \case
@@ -399,7 +399,7 @@ instance Functor TermSource where
         (mapBound (mapPattern id (fmap (fmap f)) f) (fmap f))
         (mapBound (mapPattern id (fmap (fmap f)) f) (fmap (fmap f)))
         id
-        (fmap (fmap f))
+        id
         (fmap (fmap f))
         (mapBound (fmap f) (fmap f))
         (mapBound (fmap f) (fmap f))
@@ -797,7 +797,7 @@ sourceTerm (TermCore _ e) =
       (mapBound sourceTypePattern sourceTerm)
       (mapBound sourceTypePattern sourceTypeAuto)
       (const ())
-      sourceKindAuto
+      (const ())
       sourceTypeAuto
       (mapBound sourceTermPattern sourceTerm)
       (mapBound sourceTermRuntimePattern sourceTerm)

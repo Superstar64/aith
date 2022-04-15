@@ -321,7 +321,6 @@ term = termBinding
       where
         annotate = just ⊣ binaryToken ":" ≫ typex ∥ pass
         pass = nothing ⊣ always
-    semiBinaryToken t = space ≫ token t
     termBinding = Language.termSource ⊣ position ⊗ choice options ∥ termRTApply
       where
         options =
@@ -333,17 +332,16 @@ term = termBinding
       where
         applyBinary = apply `branchDistribute` unit'
         apply = withInnerPosition3 Language.termSource Language.functionApplication . toPrism associate'
-    signMarker = just ⊣ token "'" ≫ kindCore ≪ space ∥ nothing ⊣ space
-    termAdd = foldlP applyAdd ⊣ termMul ⊗ many (semiBinaryToken "+" ≫ (swap ⊣ signMarker ⊗ termMul) ⊕ semiBinaryToken "-" ≫ (swap ⊣ signMarker ⊗ termMul))
+    termAdd = foldlP applyAdd ⊣ termMul ⊗ many (binaryToken "+" ≫ termMul ⊕ binaryToken "-" ≫ termMul)
       where
         applyAdd = add `branchDistribute` sub
-        add = withInnerPosition3 Language.termSource (Language.arithmatic Language.Addition) . toPrism associate'
-        sub = withInnerPosition3 Language.termSource (Language.arithmatic Language.Subtraction) . toPrism associate'
-    termMul = foldlP applyMul ⊣ termPair ⊗ many (semiBinaryToken "*" ≫ (swap ⊣ signMarker ⊗ termPair) ⊕ semiBinaryToken "/" ≫ (swap ⊣ signMarker ⊗ termPair))
+        add = withInnerPosition Language.termSource (Language.arithmatic Language.Addition)
+        sub = withInnerPosition Language.termSource (Language.arithmatic Language.Subtraction)
+    termMul = foldlP applyMul ⊣ termPair ⊗ many (binaryToken "*" ≫ termPair ⊕ binaryToken "/" ≫ termPair)
       where
         applyMul = mul `branchDistribute` div
-        mul = withInnerPosition3 Language.termSource (Language.arithmatic Language.Multiplication) . toPrism associate'
-        div = withInnerPosition3 Language.termSource (Language.arithmatic Language.Division) . toPrism associate'
+        mul = withInnerPosition Language.termSource (Language.arithmatic Language.Multiplication)
+        div = withInnerPosition Language.termSource (Language.arithmatic Language.Division)
     termPair = foldlP pair ⊣ termApply ⊗ many (token "," ≫ space ≫ termApply)
       where
         pair = withInnerPosition Language.termSource Language.runtimePairIntrouction

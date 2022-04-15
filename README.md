@@ -82,13 +82,9 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 | Read Reference | ``*e`` |
 | Number Literal | ``n`` |
 | Addition | ``e + e'`` |
-| Addition with Sign | ``e +'ρ e'`` |
 | Subtraction | ``e - e'`` |
-| Subtraction with Sign | ``e -'ρ e'`` |
 | Multiplication | ``e * e'`` |
-| Multiplication with Sign | ``e *'ρ e'`` |
 | Divsion | ``e / e'`` |
-| Division with Sign | ``e /'ρ e'`` |
 | Type Abstraction | ``/\pmσ => e`` |
 | Type Abstraction | ``/\pmσ { e }`` |
 | Type Application | ``e [[\/pmσ => σ]]<τ>``|
