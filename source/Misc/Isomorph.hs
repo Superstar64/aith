@@ -119,3 +119,21 @@ orderless = Isomorph Map.fromList Map.toList
 
 orderlessSet :: Ord k => Isomorph [k] (Set k)
 orderlessSet = Isomorph Set.fromList Set.toList
+
+maybe' :: Isomorph (Either () a) (Maybe a)
+maybe' = Isomorph g f
+  where
+    g (Left ()) = Nothing
+    g (Right x) = Just x
+    f Nothing = Left ()
+    f (Just x) = Right x
+
+imap (Isomorph f g) = Isomorph (fmap f) (fmap g)
+
+-- some helpers need by syntax
+
+swap_1_4_associate :: Isomorph (a, (((b, c), d), e)) ((((a, e), b), c), d)
+swap_1_4_associate = Isomorph (\(e, (((pm, c), π), σ)) -> ((((e, σ), pm), c), π)) (\((((e, σ), pm), c), π) -> (e, (((pm, c), π), σ)))
+
+rotateLast3 :: Isomorph (((a, b), c), d) (((a, d), b), c)
+rotateLast3 = Isomorph (\(((pm, c), π), σ) -> (((pm, σ), c), π)) (\(((pm, σ), c), π) -> (((pm, c), π), σ))

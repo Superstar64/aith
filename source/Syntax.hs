@@ -65,6 +65,9 @@ class SyntaxBase δ => Syntax δ where
   stringLiteral :: δ String
   number :: δ Integer
 
+  -- to make this more general
+  redundent :: Eq a => String -> δ (Maybe (a, x), (a, y)) -> δ ((a, Maybe x), y)
+
   -- parser only methods
   try :: δ a -> δ a
 
@@ -214,10 +217,7 @@ typePattern ::
 typePattern = Language.pattern ⊣ position ⊗ typeIdentifier ⊗ (just ⊣ token ":" ≫ kind ∥ nothing ⊣ always)
 
 constraintBound :: Prism (((pm, c), π), σ) ((Language.Bound pm σ, c), π)
-constraintBound = firstP (firstP (toPrism Language.bound)) . toPrism transform
-  where
-    transform :: Isomorph (((pm, c), π), σ) (((pm, σ), c), π)
-    transform = Isomorph (\(((pm, c), π), σ) -> (((pm, σ), c), π)) (\(((pm, σ), c), π) -> (((pm, c), π), σ))
+constraintBound = firstP (firstP (toPrism Language.bound)) . toPrism rotateLast3
 
 typex :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
 typex = typeArrow
@@ -257,33 +257,31 @@ typeAuto = just ⊣ typex ∥ nothing ⊣ token "_"
 typeCoreAuto :: (Position δ p, Syntax δ) => δ (Maybe (Language.TypeSource p))
 typeCoreAuto = just ⊣ typeCore ∥ nothing ⊣ token "_"
 
-scheme ::
-  (Syntax δ, Position δ p) =>
-  δ
-    [ ( p,
-        Either
-          ( ( Language.Pattern
-                Language.TypeIdentifier
-                (Maybe (Language.KindSource p))
-                p,
-              Set Language.Constraint
-            ),
-            [Language.TypeSource p]
-          )
-          (Language.Pattern Language.KindIdentifier Language.Sort p)
-      )
-    ]
-scheme = (cons ⊣ inverse nonEmpty ⊣ betweenAngle (commaSeperatedSome (position ⊗ schemeCore))) ∥ nil ⊣ always
-  where
-    schemeCore = typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊕ token "'" ≫ kindPattern
+newtype Scheme p = Scheme
+  { runScheme ::
+      [ ( p,
+          Either
+            ( ( Language.Pattern
+                  Language.TypeIdentifier
+                  (Maybe (Language.KindSource p))
+                  p,
+                Set Language.Constraint
+              ),
+              [Language.TypeSource p]
+            )
+            (Language.Pattern Language.KindIdentifier Language.Sort p)
+        )
+      ]
+  }
+  deriving (Show)
 
-typeScheme :: (Position δ p, Syntax δ) => δ (Language.TypeSchemeSource p)
-typeScheme = foldrP applyScheme ⊣ (scheme ⊗ space ≫ mono)
+isoScheme = Isomorph Scheme runScheme
+
+scheme :: (Syntax δ, Position δ p) => δ (Scheme p)
+scheme = isoScheme ⊣ schema
   where
-    mono = Language.typeSchemeSource ⊣ position ⊗ (Language.monoType ⊣ typex)
-    applyScheme = toPrism Language.typeSchemeSource . secondP inner . toPrism associate
-      where
-        inner = (Language.forallx . constraintBound) `branchDistribute'` (Language.kindForall . toPrism Language.bound)
+    schema = (cons ⊣ inverse nonEmpty ⊣ betweenAngle (commaSeperatedSome (position ⊗ schemeCore))) ∥ nil ⊣ always
+    schemeCore = typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊕ token "'" ≫ kindPattern
 
 termRuntimePattern :: (Position δ p, Syntax δ) => δ (Language.TermRuntimePatternSource p)
 termRuntimePattern = patternTop
@@ -349,9 +347,7 @@ term = termBinding
       where
         applyBinary = application `branchDistribute` typeApplication
         application = withInnerPosition3 Language.termSource Language.inlineApplication . toPrism associate'
-        typeApplication = withInnerPosition5 Language.termSource Language.typeApplication . toPrism transform
-          where
-            transform = Isomorph (\(e, (((pm, c), π), σ)) -> ((((e, σ), pm), c), π)) (\((((e, σ), pm), c), π) -> (e, (((pm, c), π), σ)))
+        typeApplication = withInnerPosition5 Language.termSource Language.typeApplication . toPrism swap_1_4_associate
         applySyntax = space ≫ token "`" ≫ optionalAnnotate termCore
         typeApplySyntax =
           space
@@ -379,18 +375,19 @@ modulex ::
 modulex =
   Module.coreModule ⊣ orderless ⊣ list
     ⊣ some
-      (item (space ≫ identifer) (binaryToken "=") (token ";" ≫ line) lambdaMajor)
+      (item (space ≫ identifer) (binaryToken "=") (token ";" ≫ line) (token ";" ≫ line) lambdaMajor)
     ⊕ never
 
 item ::
   forall a δ p.
-  (Position δ p, Syntax δ) =>
+  (Position δ p, Syntax δ, Eq a) =>
   δ a ->
   δ () ->
+  δ () -> 
   δ () ->
   (δ (Module.Module (Module.GlobalSource p)) -> δ (Module.Module (Module.GlobalSource p))) ->
   δ (a, Module.Item (Module.GlobalSource p))
-item name delimit footer lambda =
+item name delimit footer footer'  lambda =
   choice
     [ itemCore "module" (Module.modulex ⊣ lambda modulex),
       itemTerm "inline" (Module.global . Module.inline),
@@ -399,18 +396,37 @@ item name delimit footer lambda =
     ]
   where
     itemCore brand inner = keyword brand ≫ name ≪ delimit ⊗ inner ≪ footer
-    itemTerm brand wrap = keyword brand ≫ (secondP wrap ⊣ correct ⊣ (annotated ∥ (nothing ⊣ always) ⊗ binding))
+    itemTerm :: String -> Prism (Maybe (Language.TypeSchemeSource p), Language.TermSchemeSource p) b -> δ (a, b)
+    itemTerm brand wrap = secondP wrap ⊣ associate ⊣ item
       where
-        correct = associate . firstI swap . associate'
-        mono = Language.termSchemeSource ⊣ position ⊗ (Language.monoTerm ⊣ term)
-        binding :: δ (a, Language.TermSchemeSource p)
-        binding = secondI (foldrP (toPrism Language.termSchemeSource . secondP inner . toPrism associate)) . associate ⊣ name ⊗ scheme ⊗ delimit ≫ mono ≪ footer
-        inner = (Language.implicitTypeLambda . constraintBound) `branchDistribute'` (Language.implicitKindLambda . toPrism Language.bound)
-        annotated = space ≫ token "_" ≫ binaryToken "::" ≫ (just ⊣ typeScheme) ≪ token ";" ≪ line ≪ keyword brand ⊗ binding
+        item =
+          redundent "Type annotation doesn't match definition" $
+            firstI (imap $ secondI applyType . associate)
+              ⊣ secondI (secondI applyTerm . associate)
+              ⊣ declaration
+        declaration = branch applyAnnotated applyPlain ⊣ distribute ⊣ header ⊗ (annotated ⊕ plain)
+        applyAnnotated = firstP just . toPrism associate'
+        applyPlain = firstP nothing . toPrism (inverse unit)
+        annotated = annotate ≪ footer' ⊗ (header ⊗ binding ≪ footer)
+        plain = binding ≪ footer
+        header = keyword brand ≫ name ⊗ scheme
+        annotate = Language.typeSchemeSource ⊣ position ⊗ (Language.monoType ⊣ binaryToken "::" ≫ typex)
+        binding = Language.termSchemeSource ⊣ position ⊗ (Language.monoTerm ⊣ delimit ≫ term)
+
+        applyType = apply Language.typeSchemeSource Language.forallx Language.kindForall
+        applyTerm = apply Language.termSchemeSource Language.implicitTypeAbstraction Language.implicitKindAbstraction
+        apply c t k =
+          foldrP
+            ( toPrism c
+                . secondP
+                  ((t . constraintBound) `branchDistribute'` (k . toPrism Language.bound))
+                . toPrism associate
+            )
+            . firstI (inverse isoScheme)
 
 itemSingleton ::
   (Syntax δ, Position δ p) => δ (Module.Item (Module.GlobalSource p))
-itemSingleton = unit ⊣ item always (token ":" ≫ line) always id
+itemSingleton = unit ⊣ item always (token ":" ≫ line) always (token ";" ≫ line) id
 
 withSourcePos :: g (f SourcePos) -> g (f SourcePos)
 withSourcePos = id
@@ -466,6 +482,12 @@ instance Syntax Parser where
   line = Parser $ pure ()
   indent = Parser $ pure ()
   dedent = Parser $ pure ()
+  redundent message (Parser p) = Parser $ do
+    v <- p
+    case v of
+      (Nothing, (a, y)) -> pure ((a, Nothing), y)
+      (Just (a, _), (a', _)) | a /= a' -> fail message
+      (Just (a, x), (_, y)) | otherwise -> pure ((a, Just x), y)
 
 newtype Printer a = Printer (a -> Maybe (WriterT String (State Int) ()))
 
@@ -518,6 +540,9 @@ instance Syntax Printer where
     indention <- lift $ get
     lift $ put $ indention - 1
     pure ()
+  redundent _ (Printer f) = Printer $ \case
+    ((a, Nothing), y) -> f (Nothing, (a, y))
+    ((a, Just x), y) -> f (Just (a, x), (a, y))
 
 instance Position Printer Internal where
   position = Printer $ \Internal -> Just $ pure ()

@@ -15,7 +15,7 @@ module combinators = {
 module run = {
 	import call = /test/runtimeCall;
 	
-	symbol _ :: <RA : region, RB : region >= RA, T : +[#pointer#] + copy > T* @ RA -> RB T;
+	symbol deref <RA : region, RB : region >= RA, T : +[#pointer#] + copy > :: T* @ RA -> RB T;
 	symbol deref <RA, RB, T + copy> = \x {
 		*x
 	};
@@ -30,22 +30,22 @@ module run = {
 	inline fstSysF = /\A : +[#pointer#] => /\B : +[#pointer#] + copy => \((x : A), (y : B)) => x;
   
   
-	symbol _ :: <A : +[#pointer#], B : +[#pointer#] + copy, R : region> (A, B) -> R A;
+	symbol fst <A : +[#pointer#], B : +[#pointer#] + copy, R : region> ::  (A, B) -> R A;
 	symbol fst <A, B, R> = fstSysF[[\/A => \/B + copy => (A,B) -> R A]]<_>[[\/B + copy => (A,B) -> R A]]<_>;
 	
-	symbol _ :: <A : +[#pointer#] + copy, B : +[#pointer#], R : region> (A, B) -> R B;
+	symbol snd <A : +[#pointer#] + copy, B : +[#pointer#], R : region> :: (A, B) -> R B;
 	symbol snd <A,B,R> = \(x, y) => y;
 	
 	symbol pattern = \pair {
 		(fst $ pair), (snd $ pair)
 	};
   
-	symbol _ :: <R : region> #unsigned int, #unsigned int -> R #unsigned int; 
+	symbol mid <R : region> :: #unsigned int, #unsigned int -> R #unsigned int; 
 	symbol mid <R> = \(x,y) {
 		(x + y) / 2
 	};
   
-	symbol _ :: <R : region> #unsigned int, #unsigned int -> R #unsigned int;
+	symbol div <R : region> :: #unsigned int, #unsigned int -> R #unsigned int;
 	symbol div <R> = \(x,y) {
 		(x + y - 1) / y
 	};
@@ -54,7 +54,7 @@ module run = {
 
 module systemf = {
 
-	inline _ :: <B : *> \/A : * => B -`> B;
+	inline ignored <B : *> :: \/A : * => B -`> B;
 	inline ignored <B> = /\A : * => `\(x : B) => x;
 
 	inline idSysF = /\A : * => `\(x : A) => x;
@@ -67,7 +67,7 @@ module systemf = {
 
 	inline constSysF = /\A : * => /\B : * => `\![x : A] => `\![y : B] => x;
 
-	inline _ :: <A:*, B:*> ![A] -`> ![B] -`> A;
+	inline const <A:*, B:*> :: ![A] -`> ![B] -`> A;
 	inline const <A,B> = constSysF[[\/A => \/B => ![A] -`> ![B] -`> A]]<_>[[\/ B => ![A] -`> ![B] -`> A]]<_>;
 
 };

@@ -335,11 +335,11 @@ monoTerm = Prism MonoTerm $ \case
   (MonoTerm σ) -> Just σ
   _ -> Nothing
 
-implicitTypeLambda = Prism (uncurry $ uncurry ImplicitTypeAbstraction) $ \case
+implicitTypeAbstraction = Prism (uncurry $ uncurry ImplicitTypeAbstraction) $ \case
   (ImplicitTypeAbstraction λ c π) -> Just ((λ, c), π)
   _ -> Nothing
 
-implicitKindLambda = Prism ImplicitKindAbstraction $ \case
+implicitKindAbstraction = Prism ImplicitKindAbstraction $ \case
   (ImplicitKindAbstraction λ) -> Just λ
   _ -> Nothing
 
