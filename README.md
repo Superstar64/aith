@@ -57,9 +57,9 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 |-|-|
 | Module | ``module x = { code };`` |
 | Inline Term | ``inline x = e; ``|
-| Inline Term Ascribe | ``inline _ :: ς; inline x = e; ``|
+| Inline Term Ascribe | ```inline _ :: ς σ; inline x ς = e; ``|
 | Function | ``function x = e;`` |
-| Function Ascribe | ``function _ :: ς; function x = e;``|
+| Function Ascribe | ``function _ :: ς σ; function x ς = e;``|
 | Import | ``import x = /x'/x''/...;``|
 
 ## Terms(e)
@@ -113,10 +113,10 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 | Type | ``σ`` |
 | Hole | ``_`` |
 
-# Type Scheme(ς)
+# Scheme(ς)
 | Description | Syntax |
 |-|-|
-| TypeScheme | ``<'pmκ, 'pmκ', ..., pmσ, pmσ', ...> => σ`` |
+| TypeScheme | ``<'pmκ, 'pmκ', ..., pmσ, pmσ', ...>`` |
 
 ## Types(σ, τ, π)
 | Description | Syntax |
@@ -206,7 +206,10 @@ Useful / Inspirational papers:
 * [Demonstrating Lambda Calculus Reduction](https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf)
   * Applicative order reduction used for reduction.
 * [Unification Theory](https://www.cs.bu.edu/fac/snyder/publications/UnifChapter.pdf)
-  * Substitution composition algorithm taken from here
+  * Reference for Robinson unification algorithm
+### Type Inference (First Class Polymorphism)
+* [QML : Explicit First-Class Polymorphism for ML](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/QML-Explicit-First-Class-Polymorphism-for-ML.pdf)
+  * Explicit type lambdas based mostly of this, with some major changes: Scoped type variables are used rather then schematic type variables, type lambdas don't need type annotations, lastly type application have an optional slot for the type parameter.
 ### Type Inference (Subtyping)
 * [The Simple Essence of Algebraic Subtyping](https://lptk.github.io/files/%5Bv1.8%5D%20simple-essence-algebraic-subtyping.pdf)
   * A tiny subset is implemented for type checking regions. See my [var sub](https://github.com/Superstar64/var_sub/) repo.
@@ -239,8 +242,6 @@ Useful / Inspirational papers:
   * [Uniqueness Typing Simplified](http://www.edsko.net/pubs/ifl07-paper.pdf)
   * [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
 ### Type Inference (First Class Polymorphism)
-* [QML : Explicit First-Class Polymorphism for ML](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/QML-Explicit-First-Class-Polymorphism-for-ML.pdf)
-  * Explicit type lambdas based mostly of this, with some major changes: Scoped type variables are used rather then schematic type variables, type lambdas don't need type annotations, lastly type application have an optional slot for the type parameter.
 *
   * [HMF: Simple type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2007-118.pdf)
   * [Flexible types: robust type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2008-55.pdf)

@@ -13,7 +13,6 @@ executable aith
         Misc.Util
         Environment
         TypeCheck
-        TypeCheck.Substitute
         TypeCheck.Core
         TypeCheck.Unify
         Ast.Common
@@ -34,17 +33,17 @@ executable aith
 
     default-language:   Haskell2010
     default-extensions:
-        MultiParamTypeClasses FunctionalDependencies DeriveTraversable
-        FlexibleInstances FlexibleContexts NoMonomorphismRestriction
-        TypeApplications ScopedTypeVariables AllowAmbiguousTypes
-        GeneralizedNewtypeDeriving LambdaCase TypeOperators
+        MultiParamTypeClasses DeriveTraversable
+        NoMonomorphismRestriction
+        ScopedTypeVariables
+        GeneralizedNewtypeDeriving LambdaCase 
 
     ghc-options:        -W -Worphans -Wcompat -Wincomplete-uni-patterns -interactive-print=Text.Pretty.Simple.pPrint
                         -rtsopts=all
     build-depends:
         base,
         containers,
-        mtl,
+        transformers,
         megaparsec,
         directory,
         filepath,

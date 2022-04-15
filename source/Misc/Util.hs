@@ -1,11 +1,11 @@
 module Misc.Util where
 
-import Control.Monad.State.Strict (StateT, get, modify)
-import Control.Monad.Trans (lift)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (StateT, get, modify)
 import Data.Bitraversable (bitraverse)
 import Data.Foldable (toList)
 import Data.List (find)
-import Data.Map (Map)
+import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import qualified Data.Set as Set
@@ -41,7 +41,7 @@ visitTopological ::
   StateT (Map k Mark) (StateT [v] m) ()
 visitTopological finish view quit children node = do
   marks <- get
-  case marks Map.! view node of
+  case marks ! view node of
     Permanent -> pure ()
     Temporary -> lift $ lift $ quit node
     Unmarked -> do

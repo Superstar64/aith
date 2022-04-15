@@ -3,7 +3,6 @@ module Ast.Type where
 import Ast.Common
 import Ast.Kind
 import Ast.Sort
-import Data.Bitraversable (bitraverse)
 import Data.Functor.Const (Const (..), getConst)
 import Data.Functor.Identity (Identity (..), runIdentity)
 import Data.Set (Set)
@@ -11,42 +10,24 @@ import qualified Data.Set as Set
 import Data.Void (Void, absurd)
 import Misc.Isomorph
 import Misc.Prism
+import qualified Misc.Util as Util
 
-data TypeSchemeF λκ λσ σ
+newtype TypeIdentifier = TypeIdentifier {runTypeIdentifier :: String} deriving (Show, Eq, Ord)
+
+newtype TypeLogical = TypeLogicalRaw Int deriving (Eq, Ord, Show)
+
+data TypeSchemeF λκ λσ σ ς
   = MonoType σ
   | -- bounded, constraints, lower bounds
-    ImplicitForall λσ (Set Constraint) [σ]
-  | ImplicitKindForall λκ
+    ImplicitForall (λσ ς) (Set Constraint) [σ]
+  | ImplicitKindForall (λκ ς)
   deriving (Show)
 
-data TypeScheme κ vσ p' p
-  = CoreTypeScheme
-      p
-      ( TypeSchemeF
-          (Bound (Pattern KindIdentifier Sort p) (TypeScheme κ vσ p' p))
-          (Bound (Pattern TypeIdentifier κ p) (TypeScheme κ vσ p' p))
-          (Type κ vσ p')
-      )
-  deriving (Show)
-
-type TypeSchemeAuto p = Maybe (TypeScheme (KindAuto p) Void p p)
-
-type TypeSchemeUnify = TypeScheme KindUnify TypeLogicalRaw Internal Internal
-
-type TypeSchemeInfer = TypeScheme (Kind Void Internal) Void Internal Internal
-
-instance UnInfer TypeSchemeInfer (TypeSchemeAuto Internal) where
-  unInfer = Just . mapTypeScheme unInfer absurd id id
-
-data Instantiation κ σ p
-  = InstantiateType TypeIdentifier σ (Instantiation κ σ p)
-  | InstantiateKind KindIdentifier κ (Instantiation κ σ p)
+data InstantiationF κ σ θ
+  = InstantiateType σ θ
+  | InstantiateKind κ θ
   | InstantiateEmpty
   deriving (Show)
-
-type InstantiationUnify = Instantiation KindUnify TypeUnify Internal
-
-type InstantiationInfer = Instantiation KindInfer TypeInfer Internal
 
 data Constraint
   = Copy
@@ -56,7 +37,7 @@ data TypeF v λ κ σ
   = TypeVariable TypeIdentifier
   | TypeLogical v
   | Inline σ σ
-  | Forall λ (Set Constraint) [σ]
+  | Forall (λ σ) (Set Constraint) [σ]
   | OfCourse σ
   | FunctionPointer σ σ σ
   | FunctionLiteralType σ σ σ
@@ -66,27 +47,13 @@ data TypeF v λ κ σ
   | Number κ κ
   deriving (Show)
 
-data Type κ vσ p = CoreType p (TypeF vσ (Bound (Pattern TypeIdentifier κ p) (Type κ vσ p)) κ (Type κ vσ p)) deriving (Show)
-
-type TypeAuto p = Maybe (Type (KindAuto p) Void p)
-
-type TypeUnify = Type KindUnify TypeLogicalRaw Internal
-
-type TypeInfer = Type KindInfer Void Internal
-
-instance UnInfer TypeInfer (TypeAuto Internal) where
-  unInfer = Just . mapType unInfer absurd id
-
-instance Functor (TypeScheme κ vσ p') where
-  fmap f = runIdentity . traverseTypeScheme pure pure pure (Identity . f)
-
 traverseTypeSchemeF ::
   Applicative m =>
-  (λκ -> m λκ') ->
-  (λσ -> m λσ') ->
+  (λκ ς -> m (λκ' ς')) ->
+  (λσ ς -> m (λσ' ς')) ->
   (σ -> m σ') ->
-  TypeSchemeF λκ λσ σ ->
-  m (TypeSchemeF λκ' λσ' σ')
+  TypeSchemeF λκ λσ σ ς ->
+  m (TypeSchemeF λκ' λσ' σ' ς')
 traverseTypeSchemeF f g h σ =
   case σ of
     MonoType σ -> pure MonoType <*> h σ
@@ -97,24 +64,26 @@ mapTypeSchemeF f g h = runIdentity . traverseTypeSchemeF (Identity . f) (Identit
 
 foldTypeSchemeF f g h = getConst . traverseTypeSchemeF (Const . f) (Const . g) (Const . h)
 
-traverseTypeScheme ::
+traverseInstantiationF ::
   Applicative m =>
   (κ -> m κ') ->
-  (vσ -> m vσ') ->
-  (p1 -> m p1') ->
-  (p2 -> m p2') ->
-  TypeScheme κ vσ p1 p2 ->
-  m (TypeScheme κ' vσ' p1' p2')
-traverseTypeScheme f g h i (CoreTypeScheme p σ) =
-  let recurse = traverseTypeScheme f g h i
-   in pure CoreTypeScheme <*> i p <*> traverseTypeSchemeF (bitraverse (traversePattern pure pure i) recurse) (bitraverse (traversePattern pure f i) recurse) (traverseType f g h) σ
+  (σ -> m σ') ->
+  (θ -> m θ') ->
+  (InstantiationF κ σ θ) ->
+  m (InstantiationF κ' σ' θ')
+traverseInstantiationF f g h θ = case θ of
+  InstantiateEmpty -> pure InstantiateEmpty
+  InstantiateKind κ θ -> pure InstantiateKind <*> f κ <*> h θ
+  InstantiateType σ θ -> pure InstantiateType <*> g σ <*> h θ
 
-mapTypeScheme f g h i = runIdentity . traverseTypeScheme (Identity . f) (Identity . g) (Identity . h) (Identity . i)
+mapInstantiationF f g h = runIdentity . traverseInstantiationF (Identity . f) (Identity . g) (Identity . h)
+
+foldInstantiationF f g h = getConst . traverseInstantiationF (Const . f) (Const . g) (Const . h)
 
 traverseTypeF ::
   Applicative m =>
   (v -> m v') ->
-  (λ -> m λ') ->
+  (λ σ -> m (λ' σ')) ->
   (κ -> m κ') ->
   (σ -> m σ') ->
   TypeF v λ κ σ ->
@@ -136,14 +105,56 @@ mapTypeF f i h g = runIdentity . traverseTypeF (Identity . f) (Identity . i) (Id
 
 foldTypeF f i h g = getConst . traverseTypeF (Const . f) (Const . i) (Const . h) (Const . g)
 
-traverseType :: Applicative m => (κ -> m κ') -> (vσ -> m vσ') -> (p -> m p') -> Type κ vσ p -> m (Type κ' vσ' p')
-traverseType f g h (CoreType p σ) =
-  let recurse = traverseType f g h
-   in pure CoreType <*> h p <*> traverseTypeF g (bitraverse (traversePattern pure f h) recurse) f recurse σ
+data TypeSchemeSource p
+  = TypeSchemeSource
+      p
+      ( TypeSchemeF
+          (Bound (Pattern KindIdentifier Sort p))
+          (Bound (Pattern TypeIdentifier (KindAuto p) p))
+          (TypeSource p)
+          (TypeSchemeSource p)
+      )
+  deriving (Show)
 
-mapType f g h = runIdentity . traverseType (Identity . f) (Identity . g) (Identity . h)
+type TypeSchemeAuto p = Maybe (TypeSchemeSource p)
 
-coreTypeScheme = Isomorph (uncurry CoreTypeScheme) $ \(CoreTypeScheme p σ) -> (p, σ)
+data TypeScheme vσ vκ
+  = TypeSchemeCore
+      ( TypeSchemeF
+          (Bound KindPattern)
+          (Bound (TypePattern vκ))
+          (Type vσ vκ)
+          (TypeScheme vσ vκ)
+      )
+  deriving (Show)
+
+type TypeSchemeUnify = TypeScheme TypeLogical KindLogical
+
+type TypeSchemeInfer = TypeScheme Void Void
+
+data Instantiation vσ vκ = InstantiationCore (InstantiationF (Kind vκ) (Type vσ vκ) (Instantiation vσ vκ)) deriving (Show)
+
+type InstantiationUnify = Instantiation TypeLogical KindLogical
+
+type InstantiationInfer = Instantiation Void Void
+
+data TypeSource p = TypeSource p (TypeF Void (Bound (Pattern TypeIdentifier (KindAuto p) p)) (KindAuto p) (TypeSource p)) deriving (Show)
+
+type TypeAuto p = Maybe (TypeSource p)
+
+data Type vσ vκ = TypeCore (TypeF vσ (Bound (TypePattern vκ)) (Kind vκ) (Type vσ vκ)) deriving (Show)
+
+type TypeUnify = Type TypeLogical KindLogical
+
+type TypeInfer = Type Void Void
+
+data TypePattern v = TypePatternCore TypeIdentifier (Kind v) deriving (Show)
+
+type TypePatternUnify = TypePattern KindLogical
+
+type TypePatternInfer = TypePattern Void
+
+typeSchemeSource = Isomorph (uncurry TypeSchemeSource) $ \(TypeSchemeSource p σ) -> (p, σ)
 
 monoType = Prism MonoType $ \case
   (MonoType σ) -> Just σ
@@ -157,7 +168,7 @@ kindForall = Prism ImplicitKindForall $ \case
   (ImplicitKindForall λ) -> Just λ
   _ -> Nothing
 
-coreType = Isomorph (uncurry CoreType) $ \(CoreType p σ) -> (p, σ)
+typeSource = Isomorph (uncurry TypeSource) $ \(TypeSource p σ) -> (p, σ)
 
 typeVariable = Prism TypeVariable $ \case
   (TypeVariable x) -> Just x
@@ -206,216 +217,289 @@ number = Prism (uncurry Number) $ \case
   (Number ρ ρ') -> Just (ρ, ρ')
   _ -> Nothing
 
-instance Functor (Type κ vσ) where
-  fmap f = runIdentity . traverseType pure pure (Identity . f)
+typeIdentifier = Isomorph TypeIdentifier runTypeIdentifier
 
-instance FreeVariables TypeIdentifier (TypeScheme κ vσ p p) where
-  freeVariables (CoreTypeScheme _ σ) = foldTypeSchemeF go go go σ
+class FreeVariablesType u where
+  freeVariablesType :: u -> Set TypeIdentifier
+
+class ConvertType u where
+  convertType :: TypeIdentifier -> TypeIdentifier -> u -> u
+
+class SubstituteType u where
+  substituteType :: Type vσ vκ -> TypeIdentifier -> u vσ vκ -> u vσ vκ
+
+class ZonkType u where
+  zonkType :: Applicative m => (vσ -> m (Type vσ' vκ)) -> u vσ vκ -> m (u vσ' vκ)
+
+bindingsType (TypePatternCore x _) = Set.singleton x
+
+renameType ux x (TypePatternCore x' κ) | x == x' = TypePatternCore ux κ
+renameType _ _ λ@(TypePatternCore _ _) = λ
+
+freeVariablesHigherType = freeVariablesHigher' freeVariablesType freeVariablesType
+
+convertHigherType = substituteHigher' convertType convertType
+
+substituteHigherType = substituteHigher' substituteType substituteType
+
+freeVariablesSameType = freeVariablesSame' freeVariablesType bindingsType
+
+convertSameType = substituteSame' convertType avoidTypeConvert
+
+substituteSameType = substituteSame' substituteType avoidType
+
+freeVariablesLowerType = freeVariablesLower' freeVariablesType
+
+convertLowerType = convertLower' convertType
+
+substituteLowerType avoid = substituteLower' substituteType avoid
+
+avoidType = Avoid bindingsType renameType freeVariablesType convertType
+
+avoidTypeConvert = Avoid bindingsType renameType Set.singleton convertType
+
+freeVariablesSameTypeSource = freeVariablesSame' freeVariablesType bindings'
+
+convertSameTypeSource = substituteSame' convertType avoidTypeSource
+
+avoidTypeSource = Avoid bindings' rename' Set.singleton convertType
+
+toTypePattern (Pattern _ x κ) = TypePatternCore x κ
+
+instance Fresh TypeIdentifier where
+  fresh c (TypeIdentifier x) = TypeIdentifier $ Util.fresh (Set.mapMonotonic runTypeIdentifier c) x
+
+instance Functor TypeSchemeSource where
+  fmap f (TypeSchemeSource p ς) =
+    TypeSchemeSource (f p) $
+      mapTypeSchemeF
+        (mapBound (mapPattern id id f) (fmap f))
+        (mapBound (mapPattern id (fmap (fmap f)) f) (fmap f))
+        (fmap f)
+        ς
+
+instance Functor TypeSource where
+  fmap f (TypeSource p σ) =
+    TypeSource (f p) $
+      mapTypeF
+        id
+        (mapBound (mapPattern id (fmap (fmap f)) f) (fmap f))
+        (fmap (fmap f))
+        (fmap f)
+        σ
+
+instance ConvertType σ => ConvertType (Maybe σ) where
+  convertType ux x σ = fmap (convertType ux x) σ
+
+instance FreeVariablesType (TypeScheme vσ vκ) where
+  freeVariablesType (TypeSchemeCore σ) = foldTypeSchemeF go'' go' go σ
     where
-      go = freeVariables
+      go = freeVariablesType
+      go' = freeVariablesSameType
+      go'' = freeVariablesLowerType
 
-instance
-  ( Convert KindIdentifier κ
-  ) =>
-  Convert TypeIdentifier (TypeScheme κ vσ p' p)
-  where
-  convert ux x (CoreTypeScheme p σ) = CoreTypeScheme p $ mapTypeSchemeF go go go σ
+instance ConvertType (TypeScheme vσ vκ) where
+  convertType ux x (TypeSchemeCore σ) = TypeSchemeCore $ mapTypeSchemeF go'' go' go σ
     where
-      go = convert ux x
+      go = convertType ux x
+      go' = convertSameType ux x
+      go'' = convertLowerType ux x
 
-instance
-  ( Convert KindIdentifier κ,
-    FreeVariables KindIdentifier κ
-  ) =>
-  Substitute (Type κ vσ p) TypeIdentifier (TypeScheme κ vσ p p)
-  where
-  substitute ux x (CoreTypeScheme p σ) = CoreTypeScheme p $ mapTypeSchemeF go go go σ
+instance SubstituteType TypeScheme where
+  substituteType ux x (TypeSchemeCore σ) = TypeSchemeCore $ mapTypeSchemeF go'' go' go σ
     where
-      go = substitute ux x
+      go = substituteType ux x
+      go' = substituteSameType ux x
+      go'' = substituteLowerType avoidKind ux x
 
-instance
-  ( Convert KindIdentifier κ
-  ) =>
-  Convert KindIdentifier (TypeScheme κ vσ p' p)
-  where
-  convert ux x (CoreTypeScheme p σ) = CoreTypeScheme p $ mapTypeSchemeF go go go σ
+instance ConvertKind (TypeScheme vσ vκ) where
+  convertKind ux x (TypeSchemeCore σ) = TypeSchemeCore $ mapTypeSchemeF go'' go' go σ
     where
-      go = convert ux x
+      go = convertKind ux x
+      go' = convertHigherKind ux x
+      go'' = convertSameKind ux x
 
-instance
-  ( FreeVariables KindIdentifier κ,
-    Substitute κ KindIdentifier κ,
-    Convert KindIdentifier κ
-  ) =>
-  Substitute κ KindIdentifier (TypeScheme κ vσ p p)
-  where
-  substitute ux x (CoreTypeScheme p σ) = CoreTypeScheme p $ mapTypeSchemeF go go go σ
+instance SubstituteKind (TypeScheme vσ) where
+  substituteKind ux x (TypeSchemeCore σ) = TypeSchemeCore $ mapTypeSchemeF go'' go' go σ
     where
-      go = substitute ux x
+      go = substituteKind ux x
+      go' = substituteHigherKind ux x
+      go'' = substituteSameKind ux x
 
-instance FreeVariables TypeIdentifier (Type κ vσ p) where
-  freeVariables (CoreType _ (TypeVariable x)) = Set.singleton x
-  freeVariables (CoreType _ σ) = foldTypeF mempty freeVariables mempty freeVariables σ
-
-instance FreeVariables TypeLogicalRaw TypeUnify where
-  freeVariables (CoreType _ (TypeLogical x)) = Set.singleton x
-  freeVariables (CoreType _ σ) = foldTypeF mempty go mempty go σ
+instance FreeVariablesType (Type vσ vκ) where
+  freeVariablesType (TypeCore (TypeVariable x)) = Set.singleton x
+  freeVariablesType (TypeCore σ) = foldTypeF mempty go' mempty go σ
     where
-      go = freeVariables
+      go = freeVariablesType
+      go' = freeVariablesSameType
 
-instance Convert TypeIdentifier (Type κ vσ p) where
-  convert ux x (CoreType p (TypeVariable x')) | x == x' = CoreType p $ TypeVariable ux
-  convert ux x (CoreType p σ) = CoreType p $ mapTypeF id go id go σ
+instance ConvertType (TypeSource p) where
+  convertType ux x (TypeSource p (TypeVariable x')) | x == x' = TypeSource p $ TypeVariable ux
+  convertType ux x (TypeSource p σ) = TypeSource p $ mapTypeF id go' id go σ
     where
-      go = convert ux x
+      go = convertType ux x
+      go' = convertSameTypeSource ux x
 
-instance Substitute (Type κ vσ p) TypeIdentifier (Type κ vσ p) where
-  substitute ux x (CoreType _ (TypeVariable x')) | x == x' = ux
-  substitute ux x (CoreType p σ) = CoreType p $ mapTypeF id go id go σ
+instance ConvertType (Type vσ vκ) where
+  convertType ux x (TypeCore (TypeVariable x')) | x == x' = TypeCore $ TypeVariable ux
+  convertType ux x (TypeCore σ) = TypeCore $ mapTypeF id go' id go σ
     where
-      go = substitute ux x
+      go = convertType ux x
+      go' = convertSameType ux x
 
-instance Substitute TypeUnify TypeLogicalRaw TypeUnify where
-  substitute ux x (CoreType _ (TypeLogical x')) | x == x' = ux
-  substitute ux x (CoreType p σ) = CoreType p $ mapTypeF id go id go σ
+instance SubstituteType (Type) where
+  substituteType ux x (TypeCore (TypeVariable x')) | x == x' = ux
+  substituteType ux x (TypeCore σ) = TypeCore $ mapTypeF id go' id go σ
     where
-      go = substitute ux x
+      go = substituteType ux x
+      go' = substituteSameType ux x
 
-instance
-  ( FreeVariables TypeIdentifier σ
-  ) =>
-  FreeVariables TypeIdentifier (Instantiation κ σ p)
-  where
-  freeVariables InstantiateEmpty = mempty
-  freeVariables (InstantiateType _ σ θ) = freeVariables σ <> freeVariables θ
-  freeVariables (InstantiateKind _ _ θ) = freeVariables θ
-
-instance
-  (Convert TypeIdentifier σ) =>
-  Convert TypeIdentifier (Instantiation κ σ p)
-  where
-  convert _ _ InstantiateEmpty = InstantiateEmpty
-  convert ux x (InstantiateType x' σ θ) = InstantiateType x' (convert ux x σ) (convert ux x θ)
-  convert ux x (InstantiateKind x' κ θ) = InstantiateKind x' κ (convert ux x θ)
-
-instance
-  ( Substitute σ TypeIdentifier σ
-  ) =>
-  Substitute σ TypeIdentifier (Instantiation κ σ p)
-  where
-  substitute _ _ InstantiateEmpty = InstantiateEmpty
-  substitute ux x (InstantiateType x' σ θ) = InstantiateType x' (substitute ux x σ) (substitute ux x θ)
-  substitute ux x (InstantiateKind x' κ θ) = InstantiateKind x' κ (substitute ux x θ)
-
-instance
-  ( Convert KindIdentifier σ,
-    Convert KindIdentifier κ
-  ) =>
-  Convert KindIdentifier (Instantiation κ σ p)
-  where
-  convert _ _ InstantiateEmpty = InstantiateEmpty
-  convert ux x (InstantiateType x' σ θ) = InstantiateType x' (convert ux x σ) (convert ux x θ)
-  convert ux x (InstantiateKind x' κ θ) = InstantiateKind x' (convert ux x κ) (convert ux x θ)
-
-instance
-  ( Substitute κ KindIdentifier κ,
-    Substitute κ KindIdentifier σ
-  ) =>
-  Substitute κ KindIdentifier (Instantiation κ σ p)
-  where
-  substitute _ _ InstantiateEmpty = InstantiateEmpty
-  substitute ux x (InstantiateType x' σ θ) = InstantiateType x' (substitute ux x σ) (substitute ux x θ)
-  substitute ux x (InstantiateKind x' κ θ) = InstantiateKind x' (substitute ux x κ) (substitute ux x θ)
-
-instance Substitute TypeUnify TypeLogicalRaw InstantiationUnify where
-  substitute ux x (InstantiateType x' σ θ) = InstantiateType x' (substitute ux x σ) (substitute ux x θ)
-  substitute ux x (InstantiateKind x' κ θ) = InstantiateKind x' κ (substitute ux x θ)
-  substitute _ _ InstantiateEmpty = InstantiateEmpty
-
-instance Substitute KindUnify KindLogicalRaw InstantiationUnify where
-  substitute ux x (InstantiateType x' σ θ) = InstantiateType x' (substitute ux x σ) (substitute ux x θ)
-  substitute ux x (InstantiateKind x' κ θ) = InstantiateKind x' (substitute ux x κ) (substitute ux x θ)
-  substitute _ _ InstantiateEmpty = InstantiateEmpty
-
-instance Bindings TypeIdentifier (Instantiation κ σ p) where
-  bindings InstantiateEmpty = mempty
-  bindings (InstantiateType x _ θ) = Set.singleton x <> bindings θ
-  bindings (InstantiateKind _ _ θ) = bindings θ
-
-instance Bindings KindIdentifier (Instantiation κ σ p) where
-  bindings InstantiateEmpty = mempty
-  bindings (InstantiateType _ _ θ) = bindings θ
-  bindings (InstantiateKind x _ θ) = Set.singleton x <> bindings θ
-
-instance Rename TypeIdentifier (Instantiation κ σ p) where
-  rename _ _ InstantiateEmpty = InstantiateEmpty
-  rename ux x (InstantiateType x' σ θ) | x == x' = InstantiateType ux σ (rename ux x θ)
-  rename ux x (InstantiateType x' σ θ) = InstantiateType x' σ (rename ux x θ)
-  rename ux x (InstantiateKind x' κ θ) = InstantiateKind x' κ (rename ux x θ)
-
-instance Rename KindIdentifier (Instantiation κ σ p) where
-  rename _ _ InstantiateEmpty = InstantiateEmpty
-  rename ux x (InstantiateType x' σ θ) = InstantiateType x' σ (rename ux x θ)
-  rename ux x (InstantiateKind x' κ θ) | x == x' = InstantiateKind ux κ (rename ux x θ)
-  rename ux x (InstantiateKind x' κ θ) = InstantiateKind x' κ (rename ux x θ)
-
-instance
-  ( FreeVariables KindIdentifier κ
-  ) =>
-  FreeVariables KindIdentifier (Type κ vσ p)
-  where
-  freeVariables (CoreType _ σ) = foldTypeF mempty go go go σ
+instance FreeVariablesType (Instantiation vσ vκ) where
+  freeVariablesType (InstantiationCore θ) = foldInstantiationF mempty go go θ
     where
-      go = freeVariables
+      go = freeVariablesType
 
-instance FreeVariables KindLogicalRaw TypeUnify where
-  freeVariables (CoreType _ σ) = foldTypeF mempty go go go σ
+instance ConvertType (Instantiation vσ vκ) where
+  convertType ux x (InstantiationCore θ) = InstantiationCore $ mapInstantiationF id go go θ
     where
-      go = freeVariables
+      go = convertType ux x
 
-instance
-  ( Convert KindIdentifier κ
-  ) =>
-  Convert KindIdentifier (Type κ vσ p)
-  where
-  convert ux x (CoreType p σ) = CoreType p $ mapTypeF id go go go σ
+instance SubstituteType (Instantiation) where
+  substituteType ux x (InstantiationCore θ) = InstantiationCore $ mapInstantiationF id go go θ
     where
-      go = convert ux x
+      go = substituteType ux x
 
-instance
-  ( Substitute κ KindIdentifier κ
-  ) =>
-  Substitute κ KindIdentifier (Type κ vσ p)
-  where
-  substitute ux x (CoreType p σ) = CoreType p $ mapTypeF id go go go σ
+instance FreeVariablesKind (Instantiation vσ vκ) where
+  freeVariablesKind (InstantiationCore θ) = foldInstantiationF go go go θ
     where
-      go = substitute ux x
+      go = freeVariablesKind
 
-instance Substitute KindUnify KindLogicalRaw TypeUnify where
-  substitute ux x (CoreType p σ) = CoreType p $ mapTypeF id go go go σ
+instance ConvertKind (Instantiation vσ vκ) where
+  convertKind ux x (InstantiationCore θ) = InstantiationCore $ mapInstantiationF go go go θ
     where
-      go = substitute ux x
+      go = convertKind ux x
 
-instance FreeVariables TermIdentifier (Type κ v p) where
-  freeVariables = mempty
+instance SubstituteKind (Instantiation vσ) where
+  substituteKind ux x (InstantiationCore θ) = InstantiationCore $ mapInstantiationF go go go θ
+    where
+      go = substituteKind ux x
 
-instance Semigroup p => FreeVariablesPositioned TermIdentifier p (Type κ v p') where
-  freeVariablesPositioned _ = mempty
+instance FreeVariablesKind (Type vσ vκ) where
+  freeVariablesKind (TypeCore σ) = foldTypeF mempty go' go go σ
+    where
+      go = freeVariablesKind
+      go' = freeVariablesHigherKind
 
-instance Convert TermIdentifier (Type κ v p) where
-  convert _ _ = id
+instance ConvertKind (Type vσ vκ) where
+  convertKind ux x (TypeCore σ) = TypeCore $ mapTypeF id go' go go σ
+    where
+      go = convertKind ux x
+      go' = convertHigherKind ux x
 
-instance Substitute TypeUnify x KindUnify where
-  substitute _ _ = id
+instance SubstituteKind (Type vσ) where
+  substituteKind ux x (TypeCore σ) = TypeCore $ mapTypeF id go' go go σ
+    where
+      go = substituteKind ux x
+      go' = substituteHigherKind ux x
 
-instance Reduce (Type κ vσ p) where
+instance FreeVariablesKind (TypePattern vκ) where
+  freeVariablesKind (TypePatternCore _ κ) = freeVariablesKind κ
+
+instance ConvertKind (TypePattern vκ) where
+  convertKind ux x (TypePatternCore x' κ) = TypePatternCore x' (convertKind ux x κ)
+
+instance SubstituteKind TypePattern where
+  substituteKind ux x (TypePatternCore x' κ) = TypePatternCore x' (substituteKind ux x κ)
+
+instance ZonkType Type where
+  zonkType f (TypeCore (TypeLogical v)) = f v
+  zonkType f (TypeCore σ) =
+    pure TypeCore
+      <*> traverseTypeF
+        (error "handled manually")
+        (traverseBound pure (zonkType f))
+        pure
+        (zonkType f)
+        σ
+
+instance ZonkType TypeScheme where
+  zonkType f (TypeSchemeCore ς) =
+    pure TypeSchemeCore
+      <*> traverseTypeSchemeF
+        (traverseBound pure (zonkType f))
+        (traverseBound pure (zonkType f))
+        (zonkType f)
+        ς
+
+instance ZonkType Instantiation where
+  zonkType f (InstantiationCore θ) =
+    pure InstantiationCore
+      <*> traverseInstantiationF pure (zonkType f) (zonkType f) θ
+
+instance ZonkKind (Type vσ) where
+  zonkKind f (TypeCore σ) =
+    pure TypeCore
+      <*> traverseTypeF
+        pure
+        (traverseBound (zonkKind f) (zonkKind f))
+        (zonkKind f)
+        (zonkKind f)
+        σ
+
+instance ZonkKind (TypeScheme vσ) where
+  zonkKind f (TypeSchemeCore ς) =
+    pure TypeSchemeCore
+      <*> traverseTypeSchemeF
+        (traverseBound pure (zonkKind f))
+        (traverseBound (zonkKind f) (zonkKind f))
+        (zonkKind f)
+        ς
+
+instance ZonkKind (Instantiation vσ) where
+  zonkKind f (InstantiationCore θ) =
+    pure InstantiationCore
+      <*> traverseInstantiationF (zonkKind f) (zonkKind f) (zonkKind f) θ
+
+instance ZonkKind (TypePattern) where
+  zonkKind f (TypePatternCore x κ) = pure TypePatternCore <*> pure x <*> zonkKind f κ
+
+instance Reduce (Instantiation vσ vκ) where
+  reduce (InstantiationCore θ) = InstantiationCore $ mapInstantiationF reduce reduce reduce θ
+
+instance Reduce (Type vσ vκ) where
   reduce = id
 
-instance Reduce (Instantiation κ vσ p) where
-  reduce = id
+instance Location TypeSource where
+  location (TypeSource p _) = p
 
-instance Substitute σ x (Set Constraint) where
-  substitute _ _ = id
+instance Reduce (TypePattern vκ) where
+  reduce (TypePatternCore x κ) = TypePatternCore x (reduce κ)
 
-instance Location (Type κ vσ) where
-  location (CoreType p _) = p
+freeVariablesLogical :: TypeUnify -> Set TypeLogical
+freeVariablesLogical (TypeCore σ) =
+  foldTypeF Set.singleton (foldBound mempty freeVariablesLogical) mempty freeVariablesLogical σ
+
+sourceType :: Monoid p => Type Void Void -> TypeSource p
+sourceType (TypeCore σ) =
+  TypeSource mempty $
+    mapTypeF
+      id
+      (mapBound sourceTypePattern sourceType)
+      sourceKindAuto
+      sourceType
+      σ
+
+sourceTypeAuto = Just . sourceType
+
+sourceTypePattern (TypePatternCore x κ) = Pattern mempty x (sourceKindAuto κ)
+
+sourceTypeScheme :: Monoid p => TypeScheme Void Void -> TypeSchemeSource p
+sourceTypeScheme (TypeSchemeCore ς) =
+  TypeSchemeSource mempty $
+    mapTypeSchemeF
+      (mapBound sourceKindPattern sourceTypeScheme)
+      (mapBound sourceTypePattern sourceTypeScheme)
+      sourceType
+      ς
+
+flexibleType = runIdentity . zonkKind absurd . runIdentity . zonkType absurd

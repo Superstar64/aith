@@ -4,9 +4,9 @@ import Ast.Common hiding (fresh)
 import Ast.Kind (KindRuntime (..), KindSignedness (..), KindSize (..))
 import Ast.Term
 import qualified C.Ast as C
-import Control.Monad.State.Strict (State, evalState, get, put)
-import Control.Monad.Trans (lift)
-import Control.Monad.Writer.Strict (WriterT (..), runWriterT, tell)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State.Strict (State, evalState, get, put)
+import Control.Monad.Trans.Writer.Strict (WriterT (..), runWriterT, tell)
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Set (Set)

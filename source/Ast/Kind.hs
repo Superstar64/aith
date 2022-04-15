@@ -1,14 +1,21 @@
 module Ast.Kind where
 
 import Ast.Common
+import Ast.Sort
 import Control.Category ((.))
 import Data.Functor.Const (Const (..), getConst)
 import Data.Functor.Identity (Identity (..), runIdentity)
+import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Void (Void, absurd)
 import Misc.Isomorph
 import Misc.Prism
+import qualified Misc.Util as Util
 import Prelude hiding ((.))
+
+newtype KindIdentifier = KindIdentifier {runKindIdentifier :: String} deriving (Show, Eq, Ord)
+
+newtype KindLogical = KindLogicalRaw Int deriving (Eq, Ord, Show)
 
 data KindSize
   = Byte
@@ -41,18 +48,48 @@ data KindF v κ
   | KindSignedness (KindSignedness)
   deriving (Show)
 
-data Kind v p = CoreKind p (KindF v (Kind v p)) deriving (Show)
+traverseKindF ::
+  Applicative m =>
+  (v -> m v') ->
+  (κ -> m κ') ->
+  KindF v κ ->
+  m (KindF v' κ')
+traverseKindF f g κ = case κ of
+  KindVariable x -> pure KindVariable <*> pure x
+  KindLogical v -> pure KindLogical <*> f v
+  Type -> pure Type
+  Region -> pure Region
+  Pretype κ -> pure Pretype <*> g κ
+  Imaginary -> pure Imaginary
+  Real κ -> pure Real <*> g κ
+  KindRuntime PointerRep -> KindRuntime <$> (pure PointerRep)
+  KindRuntime (StructRep κs) -> KindRuntime <$> (pure StructRep <*> traverse g κs)
+  KindRuntime (WordRep κ) -> KindRuntime <$> (pure WordRep <*> g κ)
+  (KindSize κ) -> pure (KindSize κ)
+  (KindSignedness κ) -> pure (KindSignedness κ)
 
-type KindAuto p = Maybe (Kind Void p)
+foldKindF f g = getConst . traverseKindF (Const . f) (Const . g)
 
-type KindUnify = Kind KindLogicalRaw Internal
+mapKindF f g = runIdentity . traverseKindF (Identity . f) (Identity . g)
 
-type KindInfer = Kind Void Internal
+data KindSource p = KindSource p (KindF Void (KindSource p)) deriving (Show)
 
-instance UnInfer KindInfer (KindAuto Internal) where
-  unInfer = Just . mapKind absurd id
+type KindAuto p = Maybe (KindSource p)
 
-coreKind = Isomorph (uncurry CoreKind) $ \(CoreKind p κ) -> (p, κ)
+data Kind v = KindCore (KindF v (Kind v)) deriving (Show)
+
+type KindUnify = Kind KindLogical
+
+type KindInfer = Kind Void
+
+data KindPattern = KindPatternCore KindIdentifier Sort deriving (Show)
+
+instance Functor KindSource where
+  fmap f (KindSource p κ) = KindSource (f p) $ mapKindF id (fmap f) κ
+
+kindIdentifier = Isomorph KindIdentifier runKindIdentifier
+
+kindSource = Isomorph (uncurry KindSource) $ \(KindSource p κ) -> (p, κ)
 
 kindRuntime = Prism KindRuntime $ \case
   (KindRuntime κ) -> Just κ
@@ -139,67 +176,87 @@ unsigend = (kindSignedness .) $
     Unsigned -> Just ()
     _ -> Nothing
 
-traverseKindF ::
-  Applicative m =>
-  (v -> m v') ->
-  (κ -> m κ') ->
-  KindF v κ ->
-  m (KindF v' κ')
-traverseKindF f g κ = case κ of
-  KindVariable x -> pure KindVariable <*> pure x
-  KindLogical v -> pure KindLogical <*> f v
-  Type -> pure Type
-  Region -> pure Region
-  Pretype κ -> pure Pretype <*> g κ
-  Imaginary -> pure Imaginary
-  Real κ -> pure Real <*> g κ
-  KindRuntime PointerRep -> KindRuntime <$> (pure PointerRep)
-  KindRuntime (StructRep κs) -> KindRuntime <$> (pure StructRep <*> traverse g κs)
-  KindRuntime (WordRep κ) -> KindRuntime <$> (pure WordRep <*> g κ)
-  (KindSize κ) -> pure (KindSize κ)
-  (KindSignedness κ) -> pure (KindSignedness κ)
+class FreeVariablesKind u where
+  freeVariablesKind :: u -> Set KindIdentifier
 
-foldKindF f g = getConst . traverseKindF (Const . f) (Const . g)
+class ConvertKind u where
+  convertKind :: KindIdentifier -> KindIdentifier -> u -> u
 
-mapKindF f g = runIdentity . traverseKindF (Identity . f) (Identity . g)
+class SubstituteKind u where
+  substituteKind :: Kind v -> KindIdentifier -> u v -> u v
 
-traverseKind :: Applicative m => (v -> m v') -> (p -> m p') -> Kind v p -> m (Kind v' p')
-traverseKind f g (CoreKind p κ) =
-  pure CoreKind <*> g p <*> traverseKindF f (traverseKind f g) κ
+class ZonkKind u where
+  zonkKind :: Applicative m => (v -> m (Kind v')) -> u v -> m (u v')
 
-mapKind f g = runIdentity . traverseKind (Identity . f) (Identity . g)
+bindingsKind (KindPatternCore x _) = Set.singleton x
 
-instance Functor (Kind v) where
-  fmap f = runIdentity . traverseKind pure (Identity . f)
+renameKind ux x (KindPatternCore x' κ) | x == x' = KindPatternCore ux κ
+renameKind _ _ λ@(KindPatternCore _ _) = λ
 
-instance FreeVariables KindIdentifier (Kind vκ p) where
-  freeVariables (CoreKind _ (KindVariable x)) = Set.singleton x
-  freeVariables (CoreKind _ κ) = foldKindF mempty freeVariables κ
+freeVariablesHigherKind = freeVariablesHigher' freeVariablesKind freeVariablesKind
 
-instance FreeVariables KindLogicalRaw KindUnify where
-  freeVariables (CoreKind _ (KindLogical x)) = Set.singleton x
-  freeVariables (CoreKind _ κ) = foldKindF mempty freeVariables κ
+convertHigherKind = substituteHigher' convertKind convertKind
 
-instance Convert KindIdentifier (Kind v p) where
-  convert ux x (CoreKind p (KindVariable x')) | x == x' = CoreKind p (KindVariable ux)
-  convert ux x (CoreKind p κ) = CoreKind p $ mapKindF id go κ
+substituteHigherKind = substituteHigher' substituteKind substituteKind
+
+freeVariablesSameKind = freeVariablesSame' freeVariablesKind bindingsKind
+
+convertSameKind = substituteSame' convertKind avoidKindConvert
+
+substituteSameKind = substituteSame' substituteKind avoidKind
+
+avoidKindConvert = Avoid bindingsKind renameKind Set.singleton convertKind
+
+avoidKind = Avoid bindingsKind renameKind freeVariablesKind convertKind
+
+freeVariablesSameKindSource = freeVariablesSame' freeVariablesKind bindings'
+
+convertSameKindSource = substituteSame' convertKind avoidKindConvertSource
+
+avoidKindConvertSource = Avoid bindings' rename' Set.singleton convertKind
+
+toKindPattern (Pattern _ x μ) = KindPatternCore x μ
+
+instance Fresh KindIdentifier where
+  fresh c (KindIdentifier x) = KindIdentifier $ Util.fresh (Set.mapMonotonic runKindIdentifier c) x
+
+instance FreeVariablesKind (Kind v) where
+  freeVariablesKind (KindCore (KindVariable x)) = Set.singleton x
+  freeVariablesKind (KindCore κ) = foldKindF mempty go κ
     where
-      go = convert ux x
+      go = freeVariablesKind
 
-instance Substitute (Kind v p) KindIdentifier (Kind v p) where
-  substitute ux x (CoreKind _ (KindVariable x')) | x == x' = ux
-  substitute ux x (CoreKind p κ) = CoreKind p $ mapKindF id go κ
+instance ConvertKind (Kind v) where
+  convertKind ux x (KindCore (KindVariable x')) | x == x' = KindCore (KindVariable ux)
+  convertKind ux x (KindCore κ) = KindCore $ mapKindF id go κ
     where
-      go = substitute ux x
+      go = convertKind ux x
 
-instance Substitute KindUnify KindLogicalRaw KindUnify where
-  substitute ux x (CoreKind _ (KindLogical x')) | x == x' = ux
-  substitute ux x (CoreKind p κ) = CoreKind p $ mapKindF id go κ
+instance SubstituteKind Kind where
+  substituteKind ux x (KindCore (KindVariable x')) | x == x' = ux
+  substituteKind ux x (KindCore κ) = KindCore $ mapKindF id go κ
     where
-      go = substitute ux x
+      go = substituteKind ux x
 
-instance Reduce (Kind v p) where
+instance ZonkKind Kind where
+  zonkKind f (KindCore (KindLogical v)) = f v
+  zonkKind f (KindCore κ) =
+    pure KindCore
+      <*> traverseKindF (error "handled manually") (zonkKind f) κ
+
+instance Reduce (Kind v) where
   reduce = id
 
-instance Location (Kind v) where
-  location (CoreKind p _) = p
+instance Reduce (KindPattern) where
+  reduce = id
+
+instance Location KindSource where
+  location (KindSource p _) = p
+
+sourceKind (KindCore κ) = KindSource mempty $ mapKindF id sourceKind κ
+
+sourceKindAuto = Just . sourceKind
+
+sourceKindPattern (KindPatternCore x μ) = Pattern mempty x μ
+
+flexibleKind = runIdentity . zonkKind absurd

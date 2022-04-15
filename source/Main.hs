@@ -7,11 +7,10 @@ import Ast.Type hiding (Inline)
 import qualified C.Ast as C
 import qualified C.Print as C
 import Codegen
-import Control.Monad.Reader
-import Data.Bifunctor
+import Control.Monad.Trans.Reader
+import Data.Functor.Identity (runIdentity)
 import qualified Data.Map as Map
 import Data.Traversable (for)
-import Data.Void
 import Misc.Path hiding (path)
 import Module hiding (modulex)
 import Simple
@@ -25,15 +24,28 @@ import TypeCheck.Core
 import Prelude hiding (readFile, writeFile)
 import qualified Prelude
 
+nameTypeLogical :: Applicative m => TypeLogical -> m TypeInfer
+nameTypeLogical (TypeLogicalRaw i) = pure $ TypeCore $ TypeVariable $ TypeIdentifier $ show i
+
+nameKindLogical :: Applicative m => KindLogical -> m KindInfer
+nameKindLogical (KindLogicalRaw i) = pure $ KindCore $ KindVariable $ KindIdentifier $ show i
+
+nameType :: TypeUnify -> TypeSource Internal
+nameType = sourceType . runIdentity . zonkType nameTypeLogical . runIdentity . zonkKind nameKindLogical
+
+nameKind :: KindUnify -> KindSource Internal
+nameKind = sourceKind . runIdentity . zonkKind nameKindLogical
+
 compileFunctionLiteral ::
   [String] ->
   String ->
   TypeSchemeInfer ->
-  Term θ KindInfer TypeInfer p ->
+  TermSchemeInfer p ->
   C.Global (C.Representation C.RepresentationFix)
 compileFunctionLiteral path name σ e = fmap ctype $ runCodegen (compileFunction sym e' σ') (external e')
   where
-    (e', σ') = runReader (convertTermAnnotate e σ) Map.empty
+    e' = runReader (convertFunction e) Map.empty
+    σ' = runReader (convertFunctionType σ) Map.empty
     sym = mangle (Path path name)
 
 compileModule path (CoreModule code) = Map.toList code >>= (uncurry $ compileItem path)
@@ -41,20 +53,12 @@ compileModule path (CoreModule code) = Map.toList code >>= (uncurry $ compileIte
 compileItem ::
   [String] ->
   String ->
-  Item TypeSchemeInfer θ KindInfer TypeInfer p ->
+  Item (GlobalInfer p) ->
   [C.Global (C.Representation C.RepresentationFix)]
 compileItem path name (Module items) = compileModule (path ++ [name]) items
-compileItem path name (Global (Text σ e)) = [compileFunctionLiteral path name σ e]
-compileItem _ _ (Global (Inline _ _)) = []
-compileItem _ _ (Global (Import _ _)) = []
-
-nameType :: TypeUnify -> Type (KindAuto Internal) Void Internal
-nameType (CoreType p (TypeLogical (TypeLogicalRaw i))) = CoreType p $ TypeVariable $ TypeIdentifier $ "_" ++ show i
-nameType (CoreType p σ) = CoreType p $ mapTypeF (error "unexpected logic variable") (bimap (mapPattern id (Just . nameKind) id) nameType) (Just . nameKind) nameType σ
-
-nameKind :: KindUnify -> Kind Void Internal
-nameKind (CoreKind p (KindLogical (KindLogicalRaw i))) = CoreKind p $ KindVariable $ KindIdentifier $ "_" ++ show i
-nameKind (CoreKind p κ) = CoreKind p $ mapKindF (error "unexpected logic variable") nameKind κ
+compileItem path name (Global (GlobalInfer (Text σ e))) = [compileFunctionLiteral path name σ e]
+compileItem _ _ (Global (GlobalInfer (Inline _ _))) = []
+compileItem _ _ (Global (GlobalInfer (Import _ _))) = []
 
 prettyError :: TypeError [SourcePos] -> String
 prettyError (UnknownIdentifier p (TermIdentifier x)) = "Unknown identifer " ++ x ++ positions p
@@ -62,8 +66,6 @@ prettyError (TypeMismatch p σ σ') = "Type mismatch between ``" ++ pretty typex
 prettyError (KindMismatch p κ κ') = "Kind mismatch between ``" ++ pretty kind (nameKind κ) ++ "`` and ``" ++ pretty kind (nameKind κ') ++ "``" ++ positions p
 prettyError (ConstraintMismatch p c σ) = "Unable to proof ``" ++ pretty constraint c ++ "(" ++ pretty typex (nameType σ) ++ ")``" ++ positions p
 prettyError e = show e
-
-newtype PrettyIO a = PrettyIO {runPrettyIO :: IO a} deriving (Functor, Applicative, Monad)
 
 quoted x = "\"" ++ x ++ "\""
 
@@ -79,10 +81,6 @@ prettyModuleError (IndexingGlobal p path) = "Indexing global declaration" ++ pre
 prettyModuleError (Cycle p path) = "Global cycle" ++ prettyPath path ++ positions p
 
 positions p = " in positions: " ++ show p
-
-instance ModuleQuit [SourcePos] PrettyIO where
-  moduleQuit e = PrettyIO $ die $ prettyModuleError e
-  typeQuit e = PrettyIO $ die $ prettyError e
 
 readFile "-" = getContents
 readFile name = do
@@ -138,6 +136,7 @@ parseArguments ("--generate-c" : targetPath : filePath : xs) = parsePathPair gen
 parseArguments [] = pure $ CommandLine [] [] [] [] []
 parseArguments x = die $ "Unknown arguments" ++ show x
 
+load :: String -> IO (Item (GlobalSource SourcePos))
 load fileName = do
   isDirectory <- doesDirectoryExist fileName
   if isDirectory
@@ -175,6 +174,7 @@ pickItem (Path (first : remainder) name) (CoreModule items) = case Map.lookup fi
   Just (Module code) -> pickItem (Path remainder name) code
   _ -> die $ "unable to index module" ++ show first
 
+prettyAll :: [(Path, String)] -> Module (GlobalSource Internal) -> IO ()
 prettyAll [] _ = pure ()
 prettyAll ((path, file) : remainder) code = do
   prettyAll remainder code
@@ -188,21 +188,34 @@ generateAll ((path@(Path heading name), file) : remainder) code = do
   let (functions, structs) = C.escapeStructs $ compileItem heading name item
   writeFile file (C.emit C.globals $ structs ++ functions)
 
+uninfer :: ModuleOrder (GlobalInfer [SourcePos]) -> ModuleOrder (GlobalSource Internal)
+uninfer = fmap nameGlobal
+  where
+    nameGlobal :: GlobalInfer [SourcePos] -> GlobalSource Internal
+    nameGlobal (GlobalInfer (Inline ς e)) = GlobalSource $ Inline (Just $ sourceTypeScheme ς) (sourceTermScheme e)
+    nameGlobal (GlobalInfer (Text ς e)) = GlobalSource $ Text (Just $ sourceTypeScheme ς) (sourceTermScheme e)
+    nameGlobal (GlobalInfer (Import _ path)) = GlobalSource $ Import Internal path
+
 baseMain arguments = do
   case arguments of
     [] -> printHelp
     _ -> pure ()
   command <- parseArguments arguments
-  code <- mapModuleAuto (: []) <$> addAll (loadItem command) :: IO (ModuleAuto [SourcePos])
-  prettyAll (prettyItem command) (mapModuleAuto (const Internal) code)
-  ordering <- runPrettyIO $ order code
-  ordering' <- runPrettyIO $ typeCheckModule ordering
-  let code' = unorder $ unInfer $ ordering'
+  code <- fmap (fmap (: [])) <$> addAll (loadItem command) :: IO (Module (GlobalSource [SourcePos]))
+  prettyAll (prettyItem command) (fmap (fmap (const Internal)) code)
+  ordering <- handleModuleError $ order code
+  ordering' <- handleTypeError $ typeCheckModule ordering
+  let code' = unorder $ uninfer $ ordering'
   prettyAll (prettyItemAnnotated command) code'
   let ordering'' = reduceModule ordering'
-  let code'' = unorder $ unInfer $ ordering''
+  let code'' = unorder $ uninfer $ ordering''
   prettyAll (prettyItemReduced command) code''
   generateAll (generateCItem command) (unorder $ ordering'')
+  where
+    handleModuleError (Left e) = die $ prettyModuleError e
+    handleModuleError (Right e) = pure e
+    handleTypeError (Left e) = die $ prettyError e
+    handleTypeError (Right e) = pure e
 
 main = do
   args <- getArgs

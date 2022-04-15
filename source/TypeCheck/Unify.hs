@@ -5,23 +5,10 @@ import Ast.Kind
 import Ast.Sort
 import Ast.Type
 import Control.Monad
-import Control.Monad.Trans (lift)
-import Control.Monad.Writer (WriterT, runWriterT, tell)
-import Data.Maybe (fromJust)
+import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Traversable
 import TypeCheck.Core
-import TypeCheck.Substitute
-
-matchType p σ σ' = insertEquation (TypeEquation p σ σ')
-
-matchKind p κ κ' = insertEquation (KindEquation p κ κ')
-
-kindIsMember p σ κ = insertEquation (KindMember p σ κ)
-
-constrain p c σ = insertEquation (TypePredicate p c σ)
-
-lessThen p σ σ' = insertEquation (LessThen p σ σ')
 
 matchSort _ Kind Kind = pure ()
 matchSort _ Existance Existance = pure ()
@@ -31,386 +18,355 @@ matchSort _ Signedness Signedness = pure ()
 matchSort p μ μ' = quit $ SortMismatch p μ μ'
 
 sortIsMember p κ μ' = do
-  μ <- effectless $ reconstructKind indexSortEnvironment indexVariableMap κ
+  μ <- effectless $ reconstructKind κ
   matchSort p μ μ'
-  where
-    indexSortEnvironment x = mid <$> fromJust <$> lookupSortEnvironment x
-    mid (_, x, _) = x
-    indexVariableMap x = mid <$> indexKindVariableMap x
 
 strictlyVariables π = Set.fromList $ map get π
   where
-    get (CoreType _ (TypeVariable x)) = x
+    get (TypeCore (TypeVariable x)) = x
     get _ = error "non variable"
 
--- todo this is ugly, find a better way to do this
+reconstructTypeF strictlyVariables indexVariable indexLogical augment make checkRuntime reconstruct = \case
+  TypeVariable x -> do
+    indexVariable x
+  TypeLogical v -> do
+    indexLogical v
+  Inline _ _ -> do
+    pure $ make $ Type
+  Forall (Bound pm σ) c πs -> do
+    augment pm c (strictlyVariables πs) $ reconstruct σ
+  OfCourse _ -> do
+    pure $ make $ Type
+  FunctionPointer _ _ _ -> do
+    pure $ make $ Pretype $ make $ Real $ make $ KindRuntime PointerRep
+  FunctionLiteralType _ _ _ -> do
+    pure $ make $ Type
+  Pair σ σ' -> do
+    κ <- reconstruct σ
+    κ' <- reconstruct σ'
+    checkRuntime κ $ \κ -> do
+      checkRuntime κ' $ \κ' -> do
+        pure $ make $ Pretype $ make $ Real $ make $ KindRuntime $ StructRep [κ, κ']
+  Effect _ _ -> pure $ make $ Type
+  Number _ ρ -> do
+    pure $ make $ Pretype $ make $ Real $ make $ KindRuntime $ WordRep ρ
+  Reference _ _ ->
+    pure $ make $ Pretype $ make $ Real $ make $ KindRuntime $ PointerRep
 
-reconstructType indexVariable indexLogical augment = reconstruct
-  where
-    reconstruct (CoreType _ (TypeVariable x)) = do
-      indexVariable x
-    reconstruct (CoreType _ (TypeLogical v)) = do
-      indexLogical v
-    reconstruct (CoreType _ (Inline _ _)) = do
-      pure $ CoreKind Internal $ Type
-    reconstruct (CoreType _ (Forall (Bound pm σ) c πs)) = do
-      augment pm c (strictlyVariables πs) $ reconstruct σ
-    reconstruct (CoreType _ (OfCourse _)) = do
-      pure $ CoreKind Internal $ Type
-    reconstruct (CoreType _ (FunctionPointer _ _ _)) = do
-      pure $ CoreKind Internal $ Pretype $ CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime PointerRep
-    reconstruct (CoreType _ (FunctionLiteralType _ _ _)) = do
-      pure $ CoreKind Internal $ Type
-    reconstruct (CoreType _ (Pair σ σ')) = do
-      κ <- reconstruct σ
-      κ' <- reconstruct σ'
-      case (κ, κ') of
-        ( CoreKind _ (Pretype (CoreKind _ (Real κ))),
-          CoreKind _ (Pretype (CoreKind _ (Real κ')))
-          ) -> do
-            pure $
-              CoreKind Internal $ Pretype $ CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime $ StructRep [κ, κ']
-        _ -> error $ "reconstruction of pair didn't return pretype" ++ show (σ, σ', κ, κ')
-    reconstruct (CoreType _ (Effect _ _)) = pure $ CoreKind Internal $ Type
-    reconstruct (CoreType _ (Number _ ρ)) = do
-      pure $ CoreKind Internal $ Pretype $ CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime $ WordRep ρ
-    reconstruct (CoreType _ (Reference _ _)) =
-      pure $ CoreKind Internal $ Pretype $ CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime $ PointerRep
+reconstructKindF indexVariable indexLogical = \case
+  KindVariable x -> do
+    indexVariable x
+  KindLogical v -> do
+    indexLogical v
+  Type -> pure $ Kind
+  Region -> pure $ Kind
+  Pretype _ -> pure $ Kind
+  Imaginary -> pure $ Existance
+  Real _ -> pure $ Existance
+  KindRuntime _ -> pure $ Representation
+  KindSize _ -> pure $ Size
+  KindSignedness _ -> pure $ Signedness
 
-reconstructKind indexVariable indexLogical = reconstruct
+reconstructKind :: KindUnify -> Core Internal Sort
+reconstructKind (KindCore κ) = reconstructKindF indexEnvironment indexLogicalMap κ
   where
-    reconstruct (CoreKind _ (KindVariable x)) = do
-      indexVariable x
-    reconstruct (CoreKind _ (KindLogical v)) = do
-      indexLogical v
-    reconstruct (CoreKind _ Type) = pure $ Kind
-    reconstruct (CoreKind _ Region) = pure $ Kind
-    reconstruct (CoreKind _ (Pretype _)) = pure $ Kind
-    reconstruct (CoreKind _ Imaginary) = pure $ Existance
-    reconstruct (CoreKind _ (Real _)) = pure $ Existance
-    reconstruct (CoreKind _ (KindRuntime _)) = pure $ Representation
-    reconstruct (CoreKind _ (KindSize _)) = pure $ Size
-    reconstruct (CoreKind _ (KindSignedness _)) = pure $ Signedness
+    indexEnvironment x = mid <$> indexSortEnvironment x
+    mid (_, x, _) = x
+    index (UnboundKindLogical _ x _) = pure x
+    index (LinkKindLogical κ) = reconstructKind κ
+    indexLogicalMap x = indexKindLogicalMap x >>= index
 
 effectless :: Core Internal e -> Core p e
 effectless e = do
   env <- askEnvironment
   state <- getState
   case runCore e (Internal <$ env) (Internal <$ state) of
-    Right (e, _) -> pure e
+    Right e -> pure e
     Left _ -> error "error in effectless"
 
 -- also changes logic type variable levels and check for escaping skolem variables
-typeOccursCheck :: p -> TypeLogicalRaw -> TypeUnify -> Core p ()
-typeOccursCheck p x σ = go σ p x σ
+typeOccursCheck :: forall p. p -> TypeLogical -> Level -> TypeUnify -> Core p ()
+typeOccursCheck p x lev σ' = go σ'
   where
-    go :: TypeUnify -> p -> TypeLogicalRaw -> TypeUnify -> Core p ()
-    go σ' p x (CoreType _ σ) =
-      let recurse = go σ' p x
-       in case σ of
-            TypeVariable x' -> do
-              (_, _, _, _, _, lev) <- indexTypeVariableMap x
-              (_, _, _, _, lev') <- fromJust <$> lookupKindEnvironment x'
+    recurse = go
+    go :: TypeUnify -> Core p ()
+    go (TypeCore σ) = do
+      case σ of
+        TypeVariable x' -> do
+          (_, _, _, _, lev') <- indexKindEnvironment x'
+          if lev' > lev
+            then quit $ EscapingSkolemType p x' σ'
+            else pure ()
+        TypeLogical x' | x == x' -> quit $ TypeOccursCheck p x σ'
+        TypeLogical x' ->
+          indexTypeLogicalMap x' >>= \case
+            (UnboundTypeLogical p' κ c lower upper lev') ->
               if lev' > lev
-                then quit $ EscapingSkolemType p x' σ'
+                then do
+                  modifyState $ \state -> state {typeLogicalMap = Map.insert x' (UnboundTypeLogical p' κ c lower upper lev) $ typeLogicalMap state}
                 else pure ()
-            TypeLogical x' | x == x' -> quit $ TypeOccursCheck p x σ'
-            TypeLogical x' -> do
-              (_, _, _, _, _, lev) <- indexTypeVariableMap x
-              (_, _, _, _, _, lev') <- indexTypeVariableMap x'
+            (LinkTypeLogical σ) -> recurse σ
+        Inline σ τ -> do
+          recurse σ
+          recurse τ
+        Forall (Bound (TypePatternCore x κ) σ) _ π -> do
+          augmentKindOccurs p x κ $ recurse σ
+          traverse recurse π
+          pure ()
+        OfCourse σ -> recurse σ
+        FunctionPointer σ π τ -> do
+          recurse σ
+          recurse π
+          recurse τ
+        FunctionLiteralType σ π τ -> do
+          recurse σ
+          recurse π
+          recurse τ
+        Pair σ τ -> do
+          recurse σ
+          recurse τ
+        Effect σ τ -> do
+          recurse σ
+          recurse τ
+        Reference σ τ -> do
+          recurse σ
+          recurse τ
+        Number _ _ -> pure ()
+
+kindOccursCheck :: forall p. p -> KindLogical -> Level -> KindUnify -> Core p ()
+kindOccursCheck p x lev κ' = go κ'
+  where
+    recurse = go
+    go :: KindUnify -> Core p ()
+    go (KindCore κ) =
+      case κ of
+        KindVariable x' -> do
+          (_, _, lev') <- indexSortEnvironment x'
+          if lev' > lev
+            then quit $ EscapingSkolemKind p x' κ'
+            else pure ()
+        KindLogical x' | x == x' -> quit $ KindOccursCheck p x κ'
+        KindLogical x' ->
+          indexKindLogicalMap x' >>= \case
+            (UnboundKindLogical p' μ lev') ->
               if lev' > lev
-                then updateTypeLevel x' lev
+                then do
+                  modifyState $ \state -> state {kindLogicalMap = Map.insert x' (UnboundKindLogical p' μ lev) $ kindLogicalMap state}
                 else pure ()
-            Inline σ τ -> do
-              recurse σ
-              recurse τ
-            Forall (Bound (Pattern _ x κ) σ) _ π -> do
-              augmentKindOccurs p x κ $ recurse σ
-              traverse recurse π
-              pure ()
-            OfCourse σ -> recurse σ
-            FunctionPointer σ π τ -> do
-              recurse σ
-              recurse π
-              recurse τ
-            FunctionLiteralType σ π τ -> do
-              recurse σ
-              recurse π
-              recurse τ
-            Pair σ τ -> do
-              recurse σ
-              recurse τ
-            Effect σ τ -> do
-              recurse σ
-              recurse τ
-            Reference σ τ -> do
-              recurse σ
-              recurse τ
-            Number _ _ -> pure ()
+            (LinkKindLogical κ) -> recurse κ
+        Type -> pure ()
+        Region -> pure ()
+        Pretype κ -> recurse κ
+        Imaginary -> pure ()
+        (Real κ) -> recurse κ
+        (KindRuntime PointerRep) -> pure ()
+        (KindRuntime (StructRep κs)) -> traverse recurse κs >> pure ()
+        (KindRuntime (WordRep κ)) -> recurse κ
+        (KindSize _) -> pure ()
+        (KindSignedness _) -> pure ()
 
-kindOccursCheck :: p -> KindLogicalRaw -> KindUnify -> Core p ()
-kindOccursCheck p x κ = go κ p x κ
+matchType :: p -> TypeUnify -> TypeUnify -> Core p ()
+matchType p σ σ' = unify σ σ'
   where
-    go :: KindUnify -> p -> KindLogicalRaw -> KindUnify -> Core p ()
-    go κ' p x (CoreKind _ κ) =
-      let recurse = go κ' p x
-       in case κ of
-            KindVariable x' -> do
-              (_, _, lev) <- indexKindVariableMap x
-              (_, _, lev') <- fromJust <$> lookupSortEnvironment x'
-              if lev' > lev
-                then quit $ EscapingSkolemKind p x' κ'
-                else pure ()
-            KindLogical x' | x == x' -> quit $ KindOccursCheck p x κ'
-            KindLogical x' -> do
-              (_, _, lev) <- indexKindVariableMap x
-              (_, _, lev') <- indexKindVariableMap x'
-              if lev' > lev
-                then updateKindLevel x' lev
-                else pure ()
-            Type -> pure ()
-            Region -> pure ()
-            Pretype κ -> recurse κ
-            Imaginary -> pure ()
-            (Real κ) -> recurse κ
-            (KindRuntime PointerRep) -> pure ()
-            (KindRuntime (StructRep κs)) -> traverse recurse κs >> pure ()
-            (KindRuntime (WordRep κ)) -> recurse κ
-            (KindSize _) -> pure ()
-            (KindSignedness _) -> pure ()
-
-unifyTypeVariable ::
-  p ->
-  TypeLogicalRaw ->
-  TypeUnify ->
-  Core p Substitution
-unifyTypeVariable p x σ = do
-  typeOccursCheck p x σ
-  (_, κ, c, lower, upper, _) <- indexTypeVariableMap x
-  kindIsMember p σ κ
-  for (Set.toList c) $ \c -> do
-    constrain p c σ
-  for lower (\π -> lessThen p π σ)
-  for upper (\x -> lessThen p σ (CoreType Internal $ TypeVariable x))
-  apply σ x
-  pure $ singleTypeSubstitution x σ
-  where
-    apply σ x = do
-      modifyEquations (substitute σ x)
-
-unifyKindVariable p x κ = do
-  kindOccursCheck p x κ
-  (_, μ, _) <- indexKindVariableMap x
-  sortIsMember p κ μ
-  apply κ x
-  pure $ singleKindSubstitution x κ
-  where
-    apply κ x = do
-      modifyEquations (substitute κ x)
-      modifyTypeVariableMap (fmap $ \(p, κ', c, lower, upper, lev) -> (p, substitute κ x κ', c, substitute κ x lower, upper, lev))
-
-unifyType :: p -> TypeUnify -> TypeUnify -> WriterT Substitution (Core p) ()
-unifyType = unify
-  where
-    match p σ σ' = lift $ matchType p σ σ'
-    unify _ (CoreType _ (TypeLogical x)) (CoreType _ (TypeLogical x')) | x == x' = pure ()
-    unify p (CoreType _ (TypeLogical x)) σ = do
-      θ <- lift $ unifyTypeVariable p x σ
-      tell θ
-    unify p σ σ'@(CoreType _ (TypeLogical _)) = unify p σ' σ
-    unify _ (CoreType _ (TypeVariable x)) (CoreType _ (TypeVariable x')) | x == x' = pure ()
-    unify p (CoreType _ (Inline σ τ)) (CoreType _ (Inline σ' τ')) = do
+    match p σ σ' = matchType p σ σ'
+    unify (TypeCore (TypeLogical x)) (TypeCore (TypeLogical x')) | x == x' = pure ()
+    -- Big rule: Unifing a logic type variable does not avoid captures
+    -- Rigid type variable scopes cannot shadow other rigid type variables
+    unify (TypeCore (TypeLogical x)) σ =
+      indexTypeLogicalMap x >>= \case
+        (UnboundTypeLogical _ κ c lower upper lev) -> do
+          typeOccursCheck p x lev σ
+          kindIsMember p σ κ
+          for (Set.toList c) $ \c -> do
+            constrain p c σ
+          for lower (\π -> lessThen p π σ)
+          for upper (\x -> lessThen p σ (TypeCore $ TypeVariable x))
+          modifyState $ \state -> state {typeLogicalMap = Map.insert x (LinkTypeLogical σ) $ typeLogicalMap state}
+        (LinkTypeLogical σ') -> unify σ' σ
+    unify σ σ'@(TypeCore (TypeLogical _)) = unify σ' σ
+    unify (TypeCore (TypeVariable x)) (TypeCore (TypeVariable x')) | x == x' = pure ()
+    unify (TypeCore (Inline σ τ)) (TypeCore (Inline σ' τ')) = do
       match p σ σ'
       match p τ τ'
-    unify p (CoreType _ (Forall (Bound pm@(Pattern _ α κ) σ) c π)) (CoreType _ (Forall (Bound (Pattern _ α' κ') σ') c' π'))
+    unify (TypeCore (Forall (Bound (TypePatternCore α κ) σ) c π)) (TypeCore (Forall (Bound (TypePatternCore α' κ') σ') c' π'))
       | c == c',
         length π == length π' = do
-        lift $ matchKind p κ κ'
-        let σ'' = substitute @TypeUnify (CoreType Internal $ TypeVariable α) α' σ'
-        lift $ insertEquation (TypeSkolemBound p (Bound pm [TypeEquation p σ σ'']) c (strictlyVariables π))
+        matchKind p κ κ'
+        -- A logical variable inside of this forall may have been equated with a type that contains this forall's binding.
+        -- To prevent a capture, this forall is alpha converted to  new rigid variable that doesn't exist in the current environment.
+        -- This alpha renaming does not convert under logic variables.
+        vars <- Map.keysSet <$> kindEnvironment <$> askEnvironment
+        let αf = fresh vars α
+        let σ2 = convertType αf α σ
+        let σ'2 = convertType αf α' σ'
+        augmentKindEnvironment αf p κ c (strictlyVariables π) maxBound $ match p σ2 σ'2
         sequence $ zipWith (match p) π π'
         pure ()
-    unify p (CoreType _ (OfCourse σ)) (CoreType _ (OfCourse σ')) = do
+    unify (TypeCore (OfCourse σ)) (TypeCore (OfCourse σ')) = do
       match p σ σ'
-    unify p (CoreType _ (FunctionPointer σ π τ)) (CoreType _ (FunctionPointer σ' π' τ')) = do
-      match p σ σ'
-      match p π π'
-      match p τ τ'
-    unify p (CoreType _ (FunctionLiteralType σ π τ)) (CoreType _ (FunctionLiteralType σ' π' τ')) = do
+    unify (TypeCore (FunctionPointer σ π τ)) (TypeCore (FunctionPointer σ' π' τ')) = do
       match p σ σ'
       match p π π'
       match p τ τ'
-    unify p (CoreType _ (Pair σ τ)) (CoreType _ (Pair σ' τ')) = do
+    unify (TypeCore (FunctionLiteralType σ π τ)) (TypeCore (FunctionLiteralType σ' π' τ')) = do
+      match p σ σ'
+      match p π π'
+      match p τ τ'
+    unify (TypeCore (Pair σ τ)) (TypeCore (Pair σ' τ')) = do
       match p σ σ'
       match p τ τ'
-    unify p (CoreType _ (Effect σ π)) (CoreType _ (Effect σ' π')) = do
+    unify (TypeCore (Effect σ π)) (TypeCore (Effect σ' π')) = do
       match p σ σ'
       match p π π'
-    unify p (CoreType _ (Reference π σ)) (CoreType _ (Reference π' σ')) = do
+    unify (TypeCore (Reference π σ)) (TypeCore (Reference π' σ')) = do
       match p π π'
       match p σ σ'
-    unify p (CoreType _ (Number ρ1 ρ2)) (CoreType _ (Number ρ1' ρ2')) = do
-      lift $ matchKind p ρ1 ρ1'
-      lift $ matchKind p ρ2 ρ2'
-    unify p σ σ' = lift $ quit $ TypeMismatch p σ σ'
+    unify (TypeCore (Number ρ1 ρ2)) (TypeCore (Number ρ1' ρ2')) = do
+      matchKind p ρ1 ρ1'
+      matchKind p ρ2 ρ2'
+    unify σ σ' = quit $ TypeMismatch p σ σ'
 
-unifyKind :: p -> KindUnify -> KindUnify -> WriterT Substitution (Core p) ()
-unifyKind = unify
+matchKind :: p -> KindUnify -> KindUnify -> Core p ()
+matchKind p κ κ' = unify κ κ'
   where
-    match p κ κ' = lift $ matchKind p κ κ'
-    unify _ (CoreKind _ (KindLogical x)) (CoreKind _ (KindLogical x')) | x == x' = pure ()
-    unify p (CoreKind _ (KindLogical x)) κ = do
-      θ <- lift $ unifyKindVariable p x κ
-      tell θ
-    unify p κ κ'@(CoreKind _ (KindLogical _)) = unify p κ' κ
-    unify _ (CoreKind _ (KindVariable x)) (CoreKind _ (KindVariable x')) | x == x' = pure ()
-    unify _ (CoreKind _ Type) (CoreKind _ Type) = pure ()
-    unify _ (CoreKind _ Region) (CoreKind _ Region) = pure ()
-    unify p (CoreKind _ (Pretype κ)) (CoreKind _ (Pretype κ')) = do
+    match p κ κ' = matchKind p κ κ'
+    -- todo substitute variable if exist first
+    unify (KindCore (KindLogical x)) (KindCore (KindLogical x')) | x == x' = pure ()
+    unify (KindCore (KindLogical x)) κ =
+      indexKindLogicalMap x >>= \case
+        (UnboundKindLogical _ μ lev) -> do
+          kindOccursCheck p x lev κ
+          sortIsMember p κ μ
+          modifyState $ \state -> state {kindLogicalMap = Map.insert x (LinkKindLogical κ) $ kindLogicalMap state}
+        (LinkKindLogical κ') ->
+          unify κ' κ
+    unify κ κ'@(KindCore (KindLogical _)) = unify κ' κ
+    unify (KindCore (KindVariable x)) (KindCore (KindVariable x')) | x == x' = pure ()
+    unify (KindCore Type) (KindCore Type) = pure ()
+    unify (KindCore Region) (KindCore Region) = pure ()
+    unify (KindCore (Pretype κ)) (KindCore (Pretype κ')) = do
       match p κ κ'
-    unify _ (CoreKind _ Imaginary) (CoreKind _ Imaginary) = pure ()
-    unify p (CoreKind _ (Real κ)) (CoreKind _ (Real κ')) = do
+    unify (KindCore Imaginary) (KindCore Imaginary) = pure ()
+    unify (KindCore (Real κ)) (KindCore (Real κ')) = do
       match p κ κ'
-    unify _ (CoreKind _ (KindRuntime PointerRep)) (CoreKind _ (KindRuntime PointerRep)) = pure ()
-    unify p (CoreKind _ (KindRuntime (StructRep κs))) (CoreKind _ (KindRuntime (StructRep κs'))) | length κs == length κs' = do
+    unify (KindCore (KindRuntime PointerRep)) (KindCore (KindRuntime PointerRep)) = pure ()
+    unify (KindCore (KindRuntime (StructRep κs))) (KindCore (KindRuntime (StructRep κs'))) | length κs == length κs' = do
       sequence_ $ zipWith (match p) κs κs'
-    unify p (CoreKind _ (KindRuntime (WordRep κ))) (CoreKind _ (KindRuntime (WordRep κ'))) = match p κ κ'
-    unify _ (CoreKind _ (KindSize Byte)) (CoreKind _ (KindSize Byte)) = pure ()
-    unify _ (CoreKind _ (KindSize Short)) (CoreKind _ (KindSize Short)) = pure ()
-    unify _ (CoreKind _ (KindSize Int)) (CoreKind _ (KindSize Int)) = pure ()
-    unify _ (CoreKind _ (KindSize Long)) (CoreKind _ (KindSize Long)) = pure ()
-    unify _ (CoreKind _ (KindSignedness Signed)) (CoreKind _ (KindSignedness Signed)) = pure ()
-    unify _ (CoreKind _ (KindSignedness Unsigned)) (CoreKind _ (KindSignedness Unsigned)) = pure ()
-    unify p κ κ' = lift $ quit $ KindMismatch p κ κ'
+    unify (KindCore (KindRuntime (WordRep κ))) (KindCore (KindRuntime (WordRep κ'))) = match p κ κ'
+    unify (KindCore (KindSize Byte)) (KindCore (KindSize Byte)) = pure ()
+    unify (KindCore (KindSize Short)) (KindCore (KindSize Short)) = pure ()
+    unify (KindCore (KindSize Int)) (KindCore (KindSize Int)) = pure ()
+    unify (KindCore (KindSize Long)) (KindCore (KindSize Long)) = pure ()
+    unify (KindCore (KindSignedness Signed)) (KindCore (KindSignedness Signed)) = pure ()
+    unify (KindCore (KindSignedness Unsigned)) (KindCore (KindSignedness Unsigned)) = pure ()
+    unify κ κ' = quit $ KindMismatch p κ κ'
 
 predicateKindCheck :: p -> Constraint -> KindUnify -> Core p ()
 predicateKindCheck p Copy κ = do
-  β <- CoreKind Internal <$> KindLogical <$> freshKindVariableRaw p Representation maxBound
-  matchKind p κ (CoreKind Internal $ Pretype $ CoreKind Internal $ Real $ β)
+  β <- KindCore <$> KindLogical <$> freshKindVariableRaw p Representation maxBound
+  matchKind p κ (KindCore $ Pretype $ KindCore $ Real $ β)
 
--- todo use this to replace old reconstruct
-reconstruct2 :: p -> TypeUnify -> Core p KindUnify
-reconstruct2 p σ = do
-  β <- CoreKind Internal <$> KindLogical <$> freshKindVariableRaw p Kind maxBound
-  kindIsMember p σ β
-  pure β
+constrain :: p -> Constraint -> TypeUnify -> Core p ()
+constrain p c σ = predicate c σ
+  where
+    predicate c (TypeCore (TypeLogical x)) =
+      indexTypeLogicalMap x >>= \case
+        LinkTypeLogical σ -> predicate c σ
+        UnboundTypeLogical p' κ cs lower upper lev -> do
+          predicateKindCheck p c κ
+          case Set.member c cs of
+            False -> do
+              modifyState $ \state -> state {typeLogicalMap = Map.insert x (UnboundTypeLogical p' κ (Set.insert c cs) lower upper lev) $ typeLogicalMap state}
+            True -> pure ()
+    predicate c σ@(TypeCore (TypeVariable x)) = do
+      (_, κ, cs, _, _) <- indexKindEnvironment x
+      predicateKindCheck p c κ
+      case Set.member c cs of
+        False -> quit $ ConstraintMismatch p c σ
+        True -> pure ()
+    predicate Copy (TypeCore (Number _ _)) = pure ()
+    predicate Copy (TypeCore (FunctionPointer _ _ _)) = pure ()
+    predicate Copy (TypeCore (Pair σ τ)) = do
+      constrain p Copy σ
+      constrain p Copy τ
+    predicate Copy (TypeCore (Reference _ _)) = pure ()
+    predicate c σ = quit $ ConstraintMismatch p c σ
 
-unifyPredicate :: p -> Constraint -> TypeUnify -> Core p ()
-unifyPredicate p c (CoreType _ (TypeLogical x)) = do
-  (_, κ, cs, _, _, _) <- indexTypeVariableMap x
-  predicateKindCheck p c κ
-  case Set.member c cs of
-    False -> insertTypeVariableMapConstraint x c
-    True -> pure ()
-unifyPredicate p c σ@(CoreType _ (TypeVariable x)) = do
-  (_, κ, cs, _, _) <- fromJust <$> lookupKindEnvironment x
-  predicateKindCheck p c κ
-  case Set.member c cs of
-    False -> quit $ ConstraintMismatch p c σ
-    True -> pure ()
-unifyPredicate _ Copy (CoreType _ (Number _ _)) = pure ()
-unifyPredicate _ Copy (CoreType _ (FunctionPointer _ _ _)) = pure ()
-unifyPredicate p Copy (CoreType _ (Pair σ τ)) = do
-  constrain p Copy σ
-  constrain p Copy τ
-unifyPredicate _ Copy (CoreType _ (Reference _ _)) = pure ()
-unifyPredicate p c σ = quit $ ConstraintMismatch p c σ
-
-reachLogical x (CoreType _ (TypeLogical x')) | x == x' = pure True
-reachLogical x (CoreType _ (TypeLogical x')) = do
-  (_, _, _, lower, _, _) <- indexTypeVariableMap x'
-  or <$> traverse (reachLogical x) lower
+reachLogical x (TypeCore (TypeLogical x')) | x == x' = pure True
+reachLogical x (TypeCore (TypeLogical x')) =
+  indexTypeLogicalMap x' >>= \case
+    (UnboundTypeLogical _ _ _ lower _ _) -> do
+      or <$> traverse (reachLogical x) lower
+    (LinkTypeLogical σ) -> reachLogical x σ
 reachLogical _ _ = pure False
 
 maximal _ _ [] [max] = pure max
 maximal p e (x : xs) candidates = do
   candidates <- flip filterM candidates $ \x' -> do
-    (_, _, _, lower, _) <- fromJust <$> lookupKindEnvironment x'
+    (_, _, _, lower, _) <- indexKindEnvironment x'
     pure (x `Set.member` lower)
   maximal p e xs candidates
 maximal p (x, x') _ _ = quit $ NoCommonMeet p x x'
 
 meet p x x' = do
-  (_, _, _, lower1, _) <- fromJust <$> lookupKindEnvironment x
-  (_, _, _, lower2, _) <- fromJust <$> lookupKindEnvironment x'
+  (_, _, _, lower1, _) <- indexKindEnvironment x
+  (_, _, _, lower2, _) <- indexKindEnvironment x'
   maximal p (x, x') (Set.toList $ lower1 <> lower2) (Set.toList $ lower1 <> lower2)
 
-unifyBound p σ (CoreType _ (TypeLogical x))
-  | (CoreType _ (TypeVariable _)) <- σ = unifyBoundVariable
-  | (CoreType _ (TypeLogical _)) <- σ = unifyBoundVariable
+lessThen :: p -> TypeUnify -> TypeUnify -> Core p ()
+lessThen p σ (TypeCore (TypeLogical x))
+  | (TypeCore (TypeVariable _)) <- σ = unifyBoundVariable
+  | (TypeCore (TypeLogical x')) <- σ =
+    indexTypeLogicalMap x' >>= \case
+      (LinkTypeLogical σ) -> lessThen p σ (TypeCore $ TypeLogical x)
+      _ -> unifyBoundVariable
   where
-    unifyBoundVariable = do
-      reachable <- reachLogical x σ
-      if reachable
-        then matchType p (CoreType Internal (TypeLogical x)) σ
-        else do
-          -- todo occurance here maybe?
-          insertTypeVariableMapLowerBound x σ
-          (_, _, _, _, upper, _) <- indexTypeVariableMap x
-          for upper $ \πx -> lessThen p σ (CoreType Internal $ TypeVariable πx)
-          pure ()
-unifyBound p (CoreType _ (TypeLogical x)) (CoreType _ (TypeVariable x')) = do
-  (_, _, _, lower, upper, _) <- indexTypeVariableMap x
-  case upper of
-    Nothing -> setTypeVariableMapUpperBound x x'
-    Just x'' -> do
-      bound <- meet p x' x''
-      setTypeVariableMapUpperBound x bound
-  for lower $ \σ -> lessThen p σ (CoreType Internal $ TypeVariable x')
-  pure ()
-unifyBound p σ@(CoreType _ (TypeVariable x)) σ'@(CoreType _ (TypeVariable x')) = do
-  (_, _, _, lower, _) <- fromJust <$> lookupKindEnvironment x'
+    unifyBoundVariable =
+      indexTypeLogicalMap x >>= \case
+        (LinkTypeLogical σ') -> lessThen p σ σ'
+        (UnboundTypeLogical p' κ c lower upper lev) -> do
+          reachable <- reachLogical x σ
+          if reachable
+            then matchType p σ (TypeCore (TypeLogical x))
+            else do
+              -- todo occurance here maybe?
+              modifyState $ \state -> state {typeLogicalMap = Map.insert x (UnboundTypeLogical p' κ c (σ : lower) upper lev) $ typeLogicalMap state}
+              for upper $ \πx -> lessThen p σ (TypeCore $ TypeVariable πx)
+              pure ()
+lessThen p (TypeCore (TypeLogical x)) (TypeCore (TypeVariable x')) =
+  indexTypeLogicalMap x >>= \case
+    (LinkTypeLogical σ) -> lessThen p σ (TypeCore $ TypeVariable x')
+    (UnboundTypeLogical p' κ c lower upper lev) -> do
+      bound <- case upper of
+        Nothing -> pure x'
+        Just x'' -> meet p x' x''
+      modifyState $ \state -> state {typeLogicalMap = Map.insert x (UnboundTypeLogical p' κ c lower (Just bound) lev) $ typeLogicalMap state}
+      for lower $ \σ -> lessThen p σ (TypeCore $ TypeVariable x')
+      pure ()
+lessThen p σ@(TypeCore (TypeVariable x)) σ'@(TypeCore (TypeVariable x')) = do
+  (_, _, _, lower, _) <- indexKindEnvironment x'
   if x `Set.notMember` lower
     then -- todo use different error message
       quit $ TypeMismatch p σ σ'
     else pure ()
-unifyBound p _ _ = quit $ TypeVariableOnlySuported p
+lessThen p _ _ = quit $ TypeVariableOnlySuported p
 
-solve = do
-  equations <- getEquations
-  case equations of
-    [] -> pure mempty
-    ((TypeEquation p σ σ') : remaining) -> do
-      modifyEquations (const remaining)
-      ((), θ) <- runWriterT $ unifyType p σ σ'
-      θ' <- solve
-      pure $ θ <> θ'
-    (TypeSkolemBound p (Bound (Pattern _ x κ) eqs) c π : remaining) -> do
-      θ <- augmentKindEnvironment x p κ c π maxBound $ do
-        modifyEquations (const eqs)
-        solve
-      modifyEquations (const (applySubstitution θ remaining))
-      θ' <- solve
-      pure $ θ <> θ'
-    (KindEquation p κ κ' : remaining) -> do
-      modifyEquations (const remaining)
-      ((), θ) <- runWriterT $ unifyKind p κ κ'
-      θ' <- solve
-      pure $ θ <> θ'
-    -- todo figure out how to remove corner case
-    (KindMember p (CoreType Internal (Pair σ σ')) κ : remaining) -> do
-      modifyEquations (const remaining)
-      α <- (CoreKind Internal . KindLogical) <$> freshKindVariableRaw p Representation maxBound
-      α' <- (CoreKind Internal . KindLogical) <$> freshKindVariableRaw p Representation maxBound
-      kindIsMember p σ (CoreKind Internal $ Pretype $ CoreKind Internal $ Real α)
-      kindIsMember p σ' (CoreKind Internal $ Pretype $ CoreKind Internal $ Real α')
-      matchKind p κ (CoreKind Internal $ Pretype $ CoreKind Internal $ Real $ CoreKind Internal $ KindRuntime $ StructRep [α, α'])
-      solve
-    (KindMember p σ κ : remaining) -> do
-      modifyEquations (const remaining)
-      κ' <- effectless $ reconstructType indexKindEnvironment indexVariableMap augmentTypePatternLevel σ
-      matchKind p κ κ'
-      solve
+kindIsMember :: forall p. p -> TypeUnify -> KindUnify -> Core p ()
+kindIsMember p σ κ = do
+  κ' <- reconstructType σ
+  matchKind p κ κ'
+  where
+    reconstructType :: TypeUnify -> Core p KindUnify
+    reconstructType (TypeCore σ) = reconstructTypeF strictlyVariables indexEnvironment indexLogicalMap augment KindCore checkRuntime reconstructType σ
       where
-        indexKindEnvironment x = snd' <$> fromJust <$> lookupKindEnvironment x
-        indexVariableMap x = snd <$> indexTypeVariableMap x
-        snd (_, x, _, _, _, _) = x
+        augment (TypePatternCore x κ) c π = augmentKindEnvironment x p κ c π minBound
+        indexEnvironment x = snd' <$> indexKindEnvironment x
+        indexLogicalMap x = indexTypeLogicalMap x >>= index
+        index (UnboundTypeLogical _ x _ _ _ _) = pure x
+        index (LinkTypeLogical σ) = reconstructType σ
         snd' (_, x, _, _, _) = x
-    TypePredicate p c σ : remaining -> do
-      modifyEquations (const remaining)
-      unifyPredicate p c σ
-      solve
-    LessThen p σ σ' : remaining -> do
-      modifyEquations (const remaining)
-      unifyBound p σ σ'
-      solve
+        checkRuntime :: KindUnify -> (KindUnify -> Core p KindUnify) -> Core p KindUnify
+        checkRuntime κ f = do
+          α <- (KindCore . KindLogical) <$> freshKindVariableRaw p Representation maxBound
+          matchKind p κ (KindCore $ Pretype $ KindCore $ Real $ α)
+          f α

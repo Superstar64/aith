@@ -16,7 +16,7 @@ module run = {
 	import call = /test/runtimeCall;
 	
 	symbol _ :: <RA : region, RB : region >= RA, T : +[#pointer#] + copy > T* @ RA -> RB T;
-	symbol deref = \x {
+	symbol deref <RA, RB, T + copy> = \x {
 		*x
 	};
 
@@ -31,22 +31,22 @@ module run = {
   
   
 	symbol _ :: <A : +[#pointer#], B : +[#pointer#] + copy, R : region> (A, B) -> R A;
-	symbol fst = fstSysF[[\/A => \/B + copy => (A,B) -> R A]]<_>[[\/B + copy => (A,B) -> R A]]<_>;
+	symbol fst <A, B, R> = fstSysF[[\/A => \/B + copy => (A,B) -> R A]]<_>[[\/B + copy => (A,B) -> R A]]<_>;
 	
 	symbol _ :: <A : +[#pointer#] + copy, B : +[#pointer#], R : region> (A, B) -> R B;
-	symbol snd = \(x, y) => y;
+	symbol snd <A,B,R> = \(x, y) => y;
 	
 	symbol pattern = \pair {
 		(fst $ pair), (snd $ pair)
 	};
   
 	symbol _ :: <R : region> {{unsigned}} int, {{unsigned}} int -> R {{unsigned}} int; 
-	symbol mid = \(x,y) {
+	symbol mid <R> = \(x,y) {
 		(x + y) / 2
 	};
   
 	symbol _ :: <R : region> {{unsigned}} int, {{unsigned}} int -> R {{unsigned}} int;
-	symbol div = \(x,y) {
+	symbol div <R> = \(x,y) {
 		(x + y - 1) / y
 	};
 };
@@ -54,10 +54,10 @@ module run = {
 
 module systemf = {
 
-	inline _ :: <B : *> \/A => B -`> B;
-	inline ignored = /\A : * => `\(x : B) => x;
+	inline _ :: <B : *> \/A : * => B -`> B;
+	inline ignored <B> = /\A : * => `\(x : B) => x;
 
-	inline idSysF = /\A => `\(x : A) => x;
+	inline idSysF = /\A : * => `\(x : A) => x;
 
 	inline runIdSysF = `\f {
 		f[[\/A => A -`> A]]<_>
@@ -65,9 +65,9 @@ module systemf = {
 
 	inline id = runIdSysF `idSysF;
 
-	inline constSysF = /\A => /\B => `\![x : A] => `\![y : B] => x;
+	inline constSysF = /\A : * => /\B : * => `\![x : A] => `\![y : B] => x;
 
 	inline _ :: <A:*, B:*> ![A] -`> ![B] -`> A;
-	inline const = constSysF[[\/A => \/B => ![A] -`> ![B] -`> A]]<_>[[\/ B => ![A] -`> ![B] -`> A]]<_>;
+	inline const <A,B> = constSysF[[\/A => \/B => ![A] -`> ![B] -`> A]]<_>[[\/ B => ![A] -`> ![B] -`> A]]<_>;
 
 };

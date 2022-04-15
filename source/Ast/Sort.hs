@@ -25,5 +25,5 @@ signedness = Prism (const Signedness) $ \case
   Signedness -> Just ()
   _ -> Nothing
 
-instance Substitute e x Sort where
-  substitute _ _ = id
+instance Reduce Sort where
+  reduce = id

@@ -17,6 +17,7 @@ source:=$(call find,source,hs)
 
 aith: $(source) cabal.project cabal.project.local aith.cabal
 	cabal build aith
+	rm -f aith
 	$(cp) "$$(cabal exec which aith)" aith
 	touch aith
 
@@ -35,7 +36,6 @@ tests: $(build)/test/idempotency
 
 $(build)/test/format1.aith: test.aith aith | $$(dir $$@)
 	./aith $(aith_flags) --load $< /test --format /test $@
-$(build)/test/format1.aith: test.aith aith
 $(build)/test/annotate1.aith: test.aith aith | $$(dir $$@)
 	./aith $(aith_flags) --load $< /test --annotate /test $@
 $(build)/test/reduce1.aith: test.aith aith | $$(dir $$@)
