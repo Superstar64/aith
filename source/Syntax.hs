@@ -375,7 +375,7 @@ modulex ::
 modulex =
   Module.coreModule ⊣ orderless ⊣ list
     ⊣ some
-      (item (space ≫ identifer) (binaryToken "=") (token ";" ≫ line) (token ";" ≫ line) lambdaMajor)
+      (item identifer (binaryToken "=") (token ";" ≫ line) (token ";" ≫ line) lambdaMajor)
     ⊕ never
 
 item ::
@@ -389,14 +389,14 @@ item ::
   δ (a, Module.Item (Module.GlobalSource p))
 item name delimit footer footer'  lambda =
   choice
-    [ itemCore "module" (Module.modulex ⊣ lambda modulex),
-      itemTerm "inline" (Module.global . Module.inline),
-      itemCore "import" (Module.global . Module.importx ⊣ position ⊗ path),
-      itemTerm "symbol" (Module.global . Module.text)
+    [ itemCore (keyword "module" ≫ space) (Module.modulex ⊣ lambda modulex),
+      itemTerm (keyword "inline" ≫ space) (Module.global . Module.inline),
+      itemCore (keyword "import" ≫ space) (Module.global . Module.importx ⊣ position ⊗ path),
+      itemTerm always (Module.global . Module.text)
     ]
   where
-    itemCore brand inner = keyword brand ≫ name ≪ delimit ⊗ inner ≪ footer
-    itemTerm :: String -> Prism (Maybe (Language.TypeSchemeSource p), Language.TermSchemeSource p) b -> δ (a, b)
+    itemCore brand inner = brand ≫ name ≪ delimit ⊗ inner ≪ footer
+    itemTerm :: δ () -> Prism (Maybe (Language.TypeSchemeSource p), Language.TermSchemeSource p) b -> δ (a, b)
     itemTerm brand wrap = secondP wrap ⊣ associate ⊣ item
       where
         item =
@@ -409,7 +409,7 @@ item name delimit footer footer'  lambda =
         applyPlain = firstP nothing . toPrism (inverse unit)
         annotated = annotate ≪ footer' ⊗ (header ⊗ binding ≪ footer)
         plain = binding ≪ footer
-        header = keyword brand ≫ name ⊗ scheme
+        header = brand ≫ name ⊗ scheme
         annotate = Language.typeSchemeSource ⊣ position ⊗ (Language.monoType ⊣ binaryToken "::" ≫ typex)
         binding = Language.termSchemeSource ⊣ position ⊗ (Language.monoTerm ⊣ delimit ≫ term)
 
