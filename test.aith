@@ -1,73 +1,75 @@
-module:
+module:::
 
-inline runtimeCall = `\f => `\x => f $ x;
+inline runtimeCall = \f => \x => f $ x;
 
 module combinators = {
-	inline flip = `\f => `\x => `\y => f `y `x;
-	inline compose = `\f => `\g => `\x => f `(g `x);
+	inline flip = \f => \x => \y => f `y `x;
+	inline compose = \f => \g => \x => f `(g `x);
 	
-	inline readerPure = `\x => `\![r] => x;
-	inline readerBind = `\m => `\f => `\![r] => f `(m `![r]) `![r];
-	inline readerMap = `\f => `\m => readerBind `m `(compose `readerPure `f);
+	inline readerPure = \x => \![r] => x;
+	inline readerBind = \m => \f => \![r] => f `(m `![r]) `![r];
+	inline readerMap = \f => \m => readerBind `m `(compose `readerPure `f);
 };
 
 
 module run = {
 	import call = /test/runtimeCall;
 	
-	deref <RA : region, RB : region >= RA, T : +[#pointer#] + copy > :: T* @ RA -> RB T;
-	deref <RA, RB, T + copy> = \x {
+	deref <RA : region, RB : region >= RA, T : +[#pointer#] if copy > : function (T* @ RA) => T uses RB;
+	deref <RA, RB, T if copy> = function (x) {
 		*x
 	};
 
 	
-	dotProduct = \(vector1P, vector2P) {
+	dotProduct = function(vector1P, vector2P) {
 		let (x1,y1,(z1 : #signed int)) = *vector1P;
 		let (x2,y2,z2) = *vector2P;
 		(x1 * x2 + y1 * y2 + z1 * z2)
 	};
   
-	inline fstSysF = /\A : +[#pointer#] => /\B : +[#pointer#] + copy => \((x : A), (y : B)) => x;
+	inline fstSysF = /\A : +[#pointer#] => /\B : +[#pointer#] if copy => function((x : A), (y : B)) => x;
   
   
-	fst <A : +[#pointer#], B : +[#pointer#] + copy, R : region> ::  (A, B) -> R A;
-	fst <A, B, R> = fstSysF[[\/A => \/B + copy => (A,B) -> R A]]<_>[[\/B + copy => (A,B) -> R A]]<_>;
+	fst <A : +[#pointer#], B : +[#pointer#] if copy, R : region> :  function (A, B) => A uses R;
+	fst <A, B, R> = fstSysF[[\/A => \/B if copy => function (A,B) => A uses R]]<_>[[\/B if copy => function(A,B) => A uses R]]<_>;
 	
-	snd <A : +[#pointer#] + copy, B : +[#pointer#], R : region> :: (A, B) -> R B;
-	snd <A,B,R> = \(x, y) => y;
+	snd <A : +[#pointer#] if copy, B : +[#pointer#], R : region> : function (A, B) => B uses R;
+	snd <A,B,R> = function(x, y) => y;
 	
-	pattern = \pair {
+	pattern = function (pair) {
 		(fst $ pair), (snd $ pair)
 	};
-  
-	mid <R : region> :: #unsigned int, #unsigned int -> R #unsigned int; 
-	mid <R> = \(x,y) {
+ 
+	mid <R : region> : function(#unsigned int, #unsigned int) => #unsigned int uses R; 
+	mid <R> = function(x,y) {
 		(x + y) / 2
 	};
-  
-	div <R : region> :: #unsigned int, #unsigned int -> R #unsigned int;
-	div <R> = \(x,y) {
+
+	inline divGen = function(x,y) {
 		(x + y - 1) / y
 	};
+  
+	div <R : region> : function (#unsigned int, #unsigned int) => #unsigned int uses R;
+	div <R> = divGen;
 };
 
 
 module systemf = {
 
-	inline ignored <B : *> :: \/A : * => B -`> B;
-	inline ignored <B> = /\A : * => `\(x : B) => x;
+	inline ignored <B : *> : \/A : * => B -> B;
+	inline ignored <B> = /\A : * => \(x : B) => x;
 
-	inline idSysF = /\A : * => `\(x : A) => x;
+	inline idSysF = /\A : * => \(x : A) => x;
 
-	inline runIdSysF = `\f {
-		f[[\/A => A -`> A]]<_>
+	inline runIdSysF = \f {
+		f[[\/A => A -> A]]<_>
 	};
 
 	inline id = runIdSysF `idSysF;
 
-	inline constSysF = /\A : * => /\B : * => `\![x : A] => `\![y : B] => x;
+	inline constSysF = /\A : * => /\B : * => \![x : A] => \![y : B] => x;
 
-	inline const <A:*, B:*> :: ![A] -`> ![B] -`> A;
-	inline const <A,B> = constSysF[[\/A => \/B => ![A] -`> ![B] -`> A]]<_>[[\/ B => ![A] -`> ![B] -`> A]]<_>;
+	inline const <A:*, B:*> : ![A] -> ![B] -> A;
+	inline const <A,B> = constSysF[[\/A => \/B => ![A] -> ![B] -> A]]<_>[[\/ B => ![A] -> ![B] -> A]]<_>;
 
 };

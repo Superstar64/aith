@@ -52,14 +52,16 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 
 # Syntax
 
+File start with `module item` `:::`.
+
 ## Modules(code)
 | Description | Syntax |
 |-|-|
 | Module | ``module x = { code };`` |
 | Inline Term | ``inline x = e; ``|
-| Inline Term Ascribe | ``inline x ς :: σ; x ς = e; ``|
+| Inline Term Ascribe | ``inline x ς : σ; x ς = e; ``|
 | Function | ``x = e;`` |
-| Function Ascribe | ``x ς :: σ; x ς = e;``|
+| Function Ascribe | ``x ς : σ; x ς = e;``|
 | Import | ``import x = /x'/x''/...;``|
 
 ## Terms(e)
@@ -72,11 +74,11 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 | Inline Application Ascribe | ``e `(e : σ)``|
 | Of Course Introduction | ``![e]`` |
 | Inline Binding | ``inline pm = e; e'``|
-| Extern | ``extern "x" σa -> σa σa'`` |
+| Extern | ``extern "x" function (σa) => σa uses σa'`` |
 | Function Application | ``e $ e'``|
 | Function Application Ascribe | ``e $ (e' : σ)``|
-| Function Literal | ``\pm => e`` |
-| Function Literal | ``\pm { e }`` |
+| Function Literal | ``function(pm) => e`` |
+| Function Literal | ``function(pm) { e }`` |
 | Runtime Binding | ``let pm = e; e'`` |
 | Runtime Pair Construction | ``e, e'`` |
 | Read Reference | ``*e`` |
@@ -118,12 +120,12 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Inline Function | ``σ -`> τ``|
+| Inline Function | ``σ -> τ``|
 | Forall | ``\/x : κ => σ`` |
 | Forall | ``\/x : κ { σ }`` |
 | Of Course | ``![σ]`` |
-| Function Pointer | `` τ -*> π σ `` |
-| Function Literal Type | `` τ -> π σ `` |
+| Function Pointer | ``function*(σ) => τ uses π`` |
+| Function Literal Type | ``function(σ) => τ uses π`` |
 | Runtime Pair | ``σ, σ'`` |
 | Effect | ``σ @ π`` |
 | Pointer | ``σ* @ π`` |
@@ -133,8 +135,8 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 ## Type Pattern(pmσ)
 | Description | Syntax |
 |-|-|
-| Variable | ``x + c & c' & ... >= π & π' & ...`` |
-| Variable Ascribe | ``x : κ + c & c' & ... >= π & π' & ...`` |
+| Variable | ``x if c & c' & ... >= π & π' & ...`` |
+| Variable Ascribe | ``x : κ if c & c' & ... >= π & π' & ...`` |
 
 
 ## Constraints (c)

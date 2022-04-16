@@ -137,3 +137,6 @@ swap_1_4_associate = Isomorph (\(e, (((pm, c), π), σ)) -> ((((e, σ), pm), c),
 
 rotateLast3 :: Isomorph (((a, b), c), d) (((a, d), b), c)
 rotateLast3 = Isomorph (\(((pm, c), π), σ) -> (((pm, σ), c), π)) (\(((pm, σ), c), π) -> (((pm, c), π), σ))
+
+swapLast2 :: Isomorph (((a, b), c), d) (((a, b), d), c)
+swapLast2 = associate' . secondI swap . associate
