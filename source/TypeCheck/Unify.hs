@@ -169,19 +169,33 @@ matchType :: p -> TypeUnify -> TypeUnify -> Core p ()
 matchType p σ σ' = unify σ σ'
   where
     match p σ σ' = matchType p σ σ'
+    reunifyBounds p (TypeCore (TypeLogical x)) =
+      indexTypeLogicalMap x >>= \case
+        LinkTypeLogical σ -> reunifyBounds p σ
+        UnboundTypeLogical p' κ c lower upper lev -> do
+          modifyState $ \state -> state {typeLogicalMap = Map.insert x (UnboundTypeLogical p' κ c [] upper lev) $ typeLogicalMap state}
+          for lower $ \π -> lessThen p π (TypeCore (TypeLogical x))
+          pure ()
+    reunifyBounds _ _ = pure ()
     unify (TypeCore (TypeLogical x)) (TypeCore (TypeLogical x')) | x == x' = pure ()
     -- Big rule: Unifing a logic type variable does not avoid captures
     -- Rigid type variable scopes cannot shadow other rigid type variables
     unify (TypeCore (TypeLogical x)) σ =
       indexTypeLogicalMap x >>= \case
         (UnboundTypeLogical _ κ c lower upper lev) -> do
+          modifyState $ \state -> state {typeLogicalMap = Map.insert x (LinkTypeLogical σ) $ typeLogicalMap state}
           typeOccursCheck p x lev σ
           kindIsMember p σ κ
+          -- state modification above may have created a cycle
+          -- and if a cycle was created, then it must contain σ
+          -- so convert e's solutions back to problems
+          -- and let induction take care of it
+          reunifyBounds p σ
           for (Set.toList c) $ \c -> do
             constrain p c σ
           for lower (\π -> lessThen p π σ)
           for upper (\x -> lessThen p σ (TypeCore $ TypeVariable x))
-          modifyState $ \state -> state {typeLogicalMap = Map.insert x (LinkTypeLogical σ) $ typeLogicalMap state}
+          pure ()
         (LinkTypeLogical σ') -> unify σ' σ
     unify σ σ'@(TypeCore (TypeLogical _)) = unify σ' σ
     unify (TypeCore (TypeVariable x)) (TypeCore (TypeVariable x')) | x == x' = pure ()
@@ -235,9 +249,9 @@ matchKind p κ κ' = unify κ κ'
     unify (KindCore (KindLogical x)) κ =
       indexKindLogicalMap x >>= \case
         (UnboundKindLogical _ μ lev) -> do
+          modifyState $ \state -> state {kindLogicalMap = Map.insert x (LinkKindLogical κ) $ kindLogicalMap state}
           kindOccursCheck p x lev κ
           sortIsMember p κ μ
-          modifyState $ \state -> state {kindLogicalMap = Map.insert x (LinkKindLogical κ) $ kindLogicalMap state}
         (LinkKindLogical κ') ->
           unify κ' κ
     unify κ κ'@(KindCore (KindLogical _)) = unify κ' κ
@@ -327,7 +341,7 @@ lessThen p σ (TypeCore (TypeLogical x))
         (UnboundTypeLogical p' κ c lower upper lev) -> do
           reachable <- reachLogical x σ
           if reachable
-            then matchType p σ (TypeCore (TypeLogical x))
+            then matchType p (TypeCore (TypeLogical x)) σ
             else do
               -- todo occurance here maybe?
               modifyState $ \state -> state {typeLogicalMap = Map.insert x (UnboundTypeLogical p' κ c (σ : lower) upper lev) $ typeLogicalMap state}

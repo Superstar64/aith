@@ -54,7 +54,12 @@ data TypeError p
   | ExpectedFullAnnotation p
   deriving (Show)
 
-newtype Core p a = Core {runCore' :: ReaderT (CoreEnvironment p) (StateT (CoreState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
+newtype Core p a = Core {runCore'' :: ReaderT (CoreEnvironment p) (StateT (CoreState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
+
+runCore' c = runStateT . runReaderT (runCore'' c)
+
+runCore :: Core p a -> CoreEnvironment p -> CoreState p -> Either (TypeError p) a
+runCore c = (fmap fst .) . runCore' c
 
 -- todo define new types for environments
 
@@ -202,9 +207,6 @@ quit e = Core $ lift $ lift $ Left e
 emptyEnvironment = CoreEnvironment Map.empty Map.empty Map.empty
 
 emptyState = CoreState Map.empty Map.empty 0 0 0 Set.empty
-
-runCore :: Core p a -> CoreEnvironment p -> CoreState p -> Either (TypeError p) a
-runCore c = (fmap fst .) . runStateT . runReaderT (runCore' c)
 
 askEnvironment = Core $ ask
 

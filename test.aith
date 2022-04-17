@@ -73,3 +73,19 @@ module systemf = {
 	inline const <A,B> = constSysF[[\/A => \/B => ![A] -> ![B] -> A]]<_>[[\/ B => ![A] -> ![B] -> A]]<_>;
 
 };
+
+module cycle = {
+	inline sub<A : *, B : * >= A, C:*> : ![A] -> ![B] -> C -> C;
+	inline sub<A,B,C> = \![a : A] => \![b : B] => \x => x;
+
+
+	inline cycle = \![a] => \![b] => \![c] {
+		sub `![a] `![b] `(
+			sub `![b] `![c] `(
+				sub `![c] `![a] `(
+					\x => x
+				)
+			)
+		)
+	};
+};
