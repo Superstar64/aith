@@ -1,37 +1,80 @@
 
-Aith is a low level functional programming language with linear types, generalized inline functions (staging), levity polymorphism, and effectful regions.
-As of now aith is very early stages and very little is implemented.
+Aith is a perfomant systems programming language with am empathises on type systems.
+As of now Aith is very early stages and very little is implemented.
 See ``/rules`` for typing rules.
 
-# Road Map
+# Features
 
+(todo: expand on all of these)
+
+## Levity Polymorphic System-F
+In languages like in C++ or Rust, generics perform monomorphization.
+When a generic is used in these languages they will generate code for each instante of type they use.
+
+Rather then do this, Aith uses levity polymorphism, which can be seen as a generalization of Java's type erasure generics.
+In Aith, a type's kind, which is the type of a type, determines how (and if) it will be represented at runtime.
+
+## Generalized Inline Functions (staging)
+Aith has first class inline functions, a unique (as far as I can tell) take on staging.
+In Aith, inline functions can take inline functions as argument and return inline functions,
+all of which is completely erased at runtime.
+
+Inline functions that type check always generate valid code
+and inline functions are prevent from appear at runtime though kind checking.
+
+## Linear / Unique Types
+Aith supports linear types and unique types.
+These are types that limit how copying of variables.
+Linear types promise that a variable of a linear type will be used exactly once.
+Unique types promise that a variable of a unique type will has not been aliased.
+
+Aith has classical linear types (`!σ`) at the meta level and qualified unique types(unique type though type clasess) at the runtime level.
+
+## Effectful Regions
+Aith has support for effectful regions, similar to Rust's lifetimes.
+Regions allow programs to reason about borrowing and scoping resources (like memory).
+Conceptually, an executing program has a stack of regions that it accessing at any given time (think stack frames).
+If a region is alive, then that region and all it's parent regions are valid.
+
+In Aith, regions are effectful, meaning that all runtime expressions are attached to a region that they live in.
+These expressions can only access memory in their region or regions proven to be parents of said region. 
+
+# Building and Running Tests
+Install ghc, cabal and make.
+Run `make` to build aith, `make tests` to run the tests and `make test.c` to generate the test c source file.
+
+
+# Road Map (subject to change)
+
+* [ ] Essentials
+  * [ ] Runtime Primitives
+    * [ ] Booleans
+    * [x] Integers
+    * [x] Pointers
+    * [ ] Arrays
+    * [x] Function Pointers
+    * [x] Pairs
+    * [ ] Records
+    * [ ] Tagged Unions
+  * [ ] New Types
+  * [x] Modules
+  * [ ] Hindley Milner
+    * [x] Syntatical Unification
+    * [ ] Higher Order Unification (System-F ω)
+    * [x] Builtin Typeclasses (evidence only)
+    * [ ] User Defined Typeclasses
+  * [x] Pattern Matching
 * [x] Inline Lambda Calculus
-* [x] Inline Beta Reduction
 * [ ] System-F
+  * [x] Levity Polymorphism
   * [x] Type Lambda / Application
   * [ ] Kind Lambda / Application
-  * [ ] Type Lambda / Application for Effects
-* [ ] System-F ω
-* [ ] New Types
-* [ ] Builtin Typeclasses
-* [ ] User Defined Typeclasses
-* [x] Pattern Matching
-* [x] Basic Linear Types
-* [ ] Multiplicity Polymorphism
-* [ ] Multiplicity Predicates
-* [x] Levity Polymorphism
-* [x] Stage Polymorphism
-* [x] Modules
-* [ ] Runtime Primitives
-  * [ ] Booleans
-  * [x] Integers
-  * [x] Pointers
-  * [ ] Arrays
-  * [x] Function Pointers
-  * [x] Pairs
-  * [ ] Records
-  * [ ] Tagged Unions 
-  * [ ] Recursive Types
+  * [ ] Type Lambda / Application for Runtime Terms
+  * [ ] Higher Order Unification (System-F ω)
+* [ ] Linear / Unique Types
+  * [x] Basic Linear Types (at meta level)
+  * [ ] Multiplicity Polymorphism
+  * [x] Qualified Unique Types
 * [ ] Effectful Regions
   * [x] Effects
   * [ ] References
@@ -40,15 +83,7 @@ See ``/rules`` for typing rules.
     * [ ] Write
   * [ ] Let Region
   * [x] Region Subtyping
-* [x] Hindley Milner
-  * [x] Builtin typeclasses
-  * [ ] User defined typeclasses
 * [x] C Code Generation
-* [ ] Javascript Code Generation
-
-# Building and Running Tests
-Install ghc, cabal and make.
-Run `make` to build aith, `make tests` to run the tests and `make test.c` to generate the test c source file.
 
 # Syntax
 
