@@ -171,7 +171,7 @@ signed = (kindSignedness .) $
     Signed -> Just ()
     _ -> Nothing
 
-unsigend = (kindSignedness .) $
+unsigned = (kindSignedness .) $
   Prism (const Unsigned) $ \case
     Unsigned -> Just ()
     _ -> Nothing

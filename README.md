@@ -131,6 +131,21 @@ File start with `module item` `:::`.
 | Pointer | ``σ* @ π`` |
 | Number | ``#ρ ρ'`` |
 
+# Types (Syntax Sugar) (σ, τ, π)
+| Description | Syntax | Meaning|
+|-|-|-|
+| Byte | ``byte`` | ``#signed byte`` |
+| Short | ``short`` | ``#signed short`` |
+| Int | ``int`` | ``#signed int`` |
+| Long | ``long`` | ``#signed long`` |
+| UByte | ``ubyte`` | ``#unsigned byte`` |
+| UShort | ``ushort`` | ``#unsigned short`` |
+| UInt | ``uint`` | ``#unsigned int`` |
+| ULong | ``ulong`` | ``#unsigned long`` |
+
+
+
+
 
 ## Type Pattern(pmσ)
 | Description | Syntax |

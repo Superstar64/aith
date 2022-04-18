@@ -46,6 +46,10 @@ keywords =
       "short",
       "int",
       "long",
+      "ubyte",
+      "ushort",
+      "uint",
+      "ulong",
       "signed",
       "unsigned",
       "inline",
@@ -195,7 +199,7 @@ kindCore = Language.kindSource ⊣ position ⊗ choice options ∥ betweenParens
         Language.int ⊣ keyword "int",
         Language.long ⊣ keyword "long",
         Language.signed ⊣ keyword "signed",
-        Language.unsigend ⊣ keyword "unsigned"
+        Language.unsigned ⊣ keyword "unsigned"
       ]
 
 kindCoreAuto :: (Position δ p, Syntax δ) => δ (Maybe (Language.KindSource p))
@@ -247,8 +251,19 @@ typex = typeArrow
 typeCore :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
 typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenParens typeFull
   where
+    shortcut name signed size = Language.number ⊣ keyword name ≫ lit signed ⊗ lit size
+      where
+        lit x = just ⊣ Language.kindSource ⊣ position ⊗ (x ⊣ always)
     options =
       [ Language.typeVariable ⊣ typeIdentifier,
+        shortcut "byte" Language.signed Language.byte,
+        shortcut "short" Language.signed Language.short,
+        shortcut "int" Language.signed Language.int,
+        shortcut "long" Language.signed Language.long,
+        shortcut "ubyte" Language.unsigned Language.byte,
+        shortcut "ushort" Language.unsigned Language.short,
+        shortcut "uint" Language.unsigned Language.int,
+        shortcut "ulong" Language.unsigned Language.long,
         Language.number ⊣ token "#" ≫ kindCoreAuto ⊗ space ≫ kindCoreAuto,
         Language.explicitForall ⊣ constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊗ lambdaInline typex,
         Language.ofCourse ⊣ betweenBangSquares typeFull,
