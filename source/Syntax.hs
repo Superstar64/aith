@@ -154,6 +154,8 @@ typeIdentifier = Language.typeIdentifier ⊣ identifer
 
 kindIdentifier = Language.kindIdentifier ⊣ identifer
 
+auto e = just ⊣ e ∥ nothing ⊣ token "_"
+
 sort :: Syntax δ => δ Language.Sort
 sort =
   choice
@@ -197,10 +199,10 @@ kindCore = Language.kindSource ⊣ position ⊗ choice options ∥ betweenParens
       ]
 
 kindCoreAuto :: (Position δ p, Syntax δ) => δ (Maybe (Language.KindSource p))
-kindCoreAuto = just ⊣ kindCore ∥ nothing ⊣ token "_"
+kindCoreAuto = auto kindCore
 
 kindAuto :: (Position δ p, Syntax δ) => δ (Maybe (Language.KindSource p))
-kindAuto = just ⊣ kind ∥ nothing ⊣ token "_"
+kindAuto = auto kind
 
 constraint :: Syntax δ => δ Language.Constraint
 constraint = Language.copy ⊣ keyword "copy" ≫ always
@@ -223,6 +225,10 @@ typePattern = Language.pattern ⊣ position ⊗ typeIdentifier ⊗ (just ⊣ tok
 constraintBound :: Prism (((pm, c), π), σ) ((Language.Bound pm σ, c), π)
 constraintBound = firstP (firstP (toPrism Language.bound)) . toPrism rotateLast3
 
+typeFull = foldlP pair ⊣ typex ⊗ many (token "," ≫ space ≫ typex)
+  where
+    pair = withInnerPosition Language.typeSource Language.runtimePair
+
 typex :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
 typex = typeArrow
   where
@@ -230,35 +236,33 @@ typex = typeArrow
       where
         applyBinary = inline `branchDistribute` unit'
         inline = withInnerPosition Language.typeSource Language.inline
-    typeEffect = effect `branchDistribute` unit' ⊣ typePair ⊗ (binaryToken "@" ≫ typeCore ⊕ always)
+    typeEffect = effect `branchDistribute` unit' ⊣ typePtr ⊗ (binaryToken "@" ≫ typeCore ⊕ always)
       where
         effect = withInnerPosition Language.typeSource Language.effect
-    typePair = foldlP pair ⊣ typePtr ⊗ many (token "," ≫ space ≫ typePtr)
-      where
-        pair = withInnerPosition Language.typeSource Language.runtimePair
+
     typePtr = foldlP ptr ⊣ typeCore ⊗ many (token "*" ≫ binaryToken "@" ≫ typeCore)
       where
         ptr = withInnerPosition Language.typeSource Language.reference . toPrism swap
 
 typeCore :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
-typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenParens typex
+typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenParens typeFull
   where
     options =
       [ Language.typeVariable ⊣ typeIdentifier,
         Language.number ⊣ token "#" ≫ kindCoreAuto ⊗ space ≫ kindCoreAuto,
         Language.explicitForall ⊣ constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊗ lambdaInline typex,
-        Language.ofCourse ⊣ betweenBangSquares typex,
+        Language.ofCourse ⊣ betweenBangSquares typeFull,
         keyword "function" ≫ (funLiteral ∥ funPointer)
       ]
     rotate = associate' . secondI swap . associate
-    funLiteral = Language.functionLiteralType ⊣ rotate ⊣ betweenParens typex ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
-    funPointer = Language.functionPointer ⊣ rotate ⊣ token "*" ≫ betweenParens typex ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
+    funLiteral = Language.functionLiteralType ⊣ rotate ⊣ betweenParens typeFull ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
+    funPointer = Language.functionPointer ⊣ rotate ⊣ token "*" ≫ betweenParens typeFull ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
 
-typeAuto :: (Position δ p, Syntax δ) => δ (Maybe (Language.TypeSource p))
-typeAuto = just ⊣ typex ∥ nothing ⊣ token "_"
+typeFullAuto = auto typeFull
 
-typeCoreAuto :: (Position δ p, Syntax δ) => δ (Maybe (Language.TypeSource p))
-typeCoreAuto = just ⊣ typeCore ∥ nothing ⊣ token "_"
+typeAuto = auto typex
+
+typeCoreAuto = auto typeCore
 
 newtype Scheme p = Scheme
   { runScheme ::
@@ -286,34 +290,34 @@ scheme = isoScheme ⊣ schema
     schema = (cons ⊣ inverse nonEmpty ⊣ betweenAngle (commaSeperatedSome (position ⊗ schemeCore))) ∥ nil ⊣ always
     schemeCore = typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊕ token "'" ≫ kindPattern
 
+typeAnnotate = just ⊣ binaryToken ":" ≫ typex ∥ nothing ⊣ always
+
 termRuntimePattern :: (Position δ p, Syntax δ) => δ (Language.TermRuntimePatternSource p)
-termRuntimePattern = patternTop
+termRuntimePattern = patternPair
   where
-    patternTop = Language.termRuntimePatternSource ⊣ position ⊗ variableLong ∥ patternPair
-      where
-        variableLong = try $ Language.runtimePatternVariable ⊣ termIdentifier ⊗ (just ⊣ binaryToken ":" ≫ typex)
     patternPair = foldlP pair ⊣ patternCore ⊗ many (token "," ≫ space ≫ patternCore)
       where
         pair = withInnerPosition Language.termRuntimePatternSource Language.runtimePatternPair
-    patternCore = Language.termRuntimePatternSource ⊣ position ⊗ choice options ∥ betweenParens patternTop
+    patternCore = Language.termRuntimePatternSource ⊣ position ⊗ choice options ∥ betweenParens termRuntimePattern
       where
         options =
-          [ Language.runtimePatternVariable ⊣ termIdentifier ⊗ (nothing ⊣ always)
+          [ Language.runtimePatternVariable ⊣ termIdentifier ⊗ typeAnnotate
           ]
 
 termPattern :: (Position δ p, Syntax δ) => δ (Language.TermPatternSource p)
-termPattern = patternTop
+termPattern = patternPair
   where
-    patternTop = Language.termPatternSource ⊣ position ⊗ variableLong ∥ patternPair
-      where
-        variableLong = try $ Language.patternVariable ⊣ termIdentifier ⊗ (just ⊣ binaryToken ":" ≫ typex)
     patternPair = patternCore
-    patternCore = Language.termPatternSource ⊣ position ⊗ choice options ∥ betweenParens patternTop
+    patternCore = Language.termPatternSource ⊣ position ⊗ choice options ∥ betweenParens termPattern
       where
         options =
-          [ Language.patternVariable ⊣ termIdentifier ⊗ (nothing ⊣ always),
-            Language.patternOfCourse ⊣ betweenBangSquares patternTop
+          [ Language.patternVariable ⊣ termIdentifier ⊗ typeAnnotate,
+            Language.patternOfCourse ⊣ betweenBangSquares termPattern
           ]
+
+termFull = foldlP pair ⊣ term ⊗ many (token "," ≫ space ≫ term)
+  where
+    pair = withInnerPosition Language.termSource Language.runtimePairIntrouction
 
 term :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
 term = termBinding
@@ -338,14 +342,11 @@ term = termBinding
         applyAdd = add `branchDistribute` sub
         add = withInnerPosition Language.termSource (Language.arithmatic Language.Addition)
         sub = withInnerPosition Language.termSource (Language.arithmatic Language.Subtraction)
-    termMul = foldlP applyMul ⊣ termPair ⊗ many (binaryToken "*" ≫ termPair ⊕ binaryToken "/" ≫ termPair)
+    termMul = foldlP applyMul ⊣ termApply ⊗ many (binaryToken "*" ≫ termApply ⊕ binaryToken "/" ≫ termApply)
       where
         applyMul = mul `branchDistribute` div
         mul = withInnerPosition Language.termSource (Language.arithmatic Language.Multiplication)
         div = withInnerPosition Language.termSource (Language.arithmatic Language.Division)
-    termPair = foldlP pair ⊣ termApply ⊗ many (token "," ≫ space ≫ termApply)
-      where
-        pair = withInnerPosition Language.termSource Language.runtimePairIntrouction
     termApply = Language.termSource ⊣ position ⊗ choice options ∥ foldlP applyBinary ⊣ termCore ⊗ many (applySyntax ⊕ typeApplySyntax)
       where
         applyBinary = application `branchDistribute` typeApplication
@@ -354,25 +355,25 @@ term = termBinding
         applySyntax = space ≫ token "`" ≫ optionalAnnotate termCore
         typeApplySyntax =
           space
-            ≫ betweenDoubleSquares (constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCoreAuto ⊗ lambdaInline typeAuto) ⊗ betweenAngle typeAuto
+            ≫ betweenDoubleSquares (constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCoreAuto ⊗ lambdaInline typeAuto) ⊗ betweenAngle typeFullAuto
         options =
           [ Language.readReference ⊣ token "*" ≫ termApply
           ]
 
 termCore :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
-termCore = Language.termSource ⊣ position ⊗ choice options ∥ betweenParens term
+termCore = Language.termSource ⊣ position ⊗ choice options ∥ betweenParens termFull
   where
     options =
       [ Language.variable ⊣ termIdentifier ⊗ always,
         Language.inlineAbstraction ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ lambdaMajor term,
         Language.functionLiteral ⊣ Language.bound ⊣ keyword "function" ≫ betweenParens termRuntimePattern ⊗ lambdaMajor term,
         Language.extern ⊣ extern,
-        Language.ofCourseIntroduction ⊣ betweenBangSquares term,
+        Language.ofCourseIntroduction ⊣ betweenBangSquares termFull,
         Language.numberLiteral ⊣ number,
         Language.typeLambda ⊣ constraintBound ⊣ token "/\\" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCoreAuto ⊗ lambdaMajor term
       ]
     externHeader = prefixKeyword "extern" ≫ symbol ≪ space ≪ keyword "function"
-    extern = swapLast2 ⊣ externHeader ⊗ betweenParens typeAuto ≪ binaryToken "=>" ⊗ typeAuto ≪ binaryKeyword "uses" ⊗ typeCoreAuto
+    extern = swapLast2 ⊣ externHeader ⊗ betweenParens typeFullAuto ≪ binaryToken "=>" ⊗ typeAuto ≪ binaryKeyword "uses" ⊗ typeCoreAuto
 
 modulex ::
   (Syntax δ, Position δ p) =>

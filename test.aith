@@ -37,7 +37,7 @@ module run = {
 	snd <A,B,R> = function(x, y) => y;
 	
 	pattern = function (pair) {
-		(fst $ pair), (snd $ pair)
+		(fst $ pair, snd $ pair)
 	};
  
 	mid <R : region> : function(#unsigned int, #unsigned int) => #unsigned int uses R; 
