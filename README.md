@@ -103,8 +103,8 @@ Files start with `code` `:::`.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Inline Abstraction | `` `\pm { e }`` |
-| Inline Abstraction | `` `\pm => e`` |
+| Inline Abstraction | `` \pm { e }`` |
+| Inline Abstraction | `` \pm => e`` |
 | Inline Application | ``e `e'``|
 | Inline Application Ascribe | ``e `(e : σ)``|
 | Of Course Introduction | ``![e]`` |
