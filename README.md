@@ -28,7 +28,7 @@ These are types that limit how copying of variables.
 Linear types promise that a variable of a linear type will be used exactly once.
 Unique types promise that a variable of a unique type will has not been aliased.
 
-Aith has classical linear types (`!σ`) at the meta level and qualified unique types(unique type though type clasess) at the runtime level.
+Aith has classical linear types (`!σ`) at the inline level and qualified unique types(unique type though type clasess) at the runtime level.
 
 ## Effectful Regions
 Aith has support for effectful regions, similar to Rust's lifetimes.
