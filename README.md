@@ -275,6 +275,7 @@ Useful / Inspirational papers:
   * [Monadic and Substructural Type Systems for Region-Based Memory Management](https://www.cs.rit.edu/~mtf/research/thesis/fluet-thesis.single.pdf)
     * Mix of single effect region calculus and monadic regions is in progress 
   * [Monadic Regions](https://www.cs.cornell.edu/people/fluet/research/rgn-monad/JFP06/jfp06.pdf)
+  * [A Step-Indexed Model of Substructural State](https://www.cs.cornell.edu/people/fluet/research/substruct-state/ICFP05/icfp05.pdf)
   * [Linear Regions Are All You Need](https://www.cs.cornell.edu/people/fluet/research/substruct-regions/ESOP06/esop06.pdf)
 ## Related / Unused
 
