@@ -21,6 +21,9 @@ aith: $(source) cabal.project cabal.project.local aith.cabal
 	$(cp) "$$(cabal exec which aith)" aith
 	touch aith
 
+cabal.project.local:
+	touch $@
+
 format:=$(source:%.hs=$(build)/format/%.format) 
 .PHONY: format
 format : $(format)
