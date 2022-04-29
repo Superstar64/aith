@@ -52,6 +52,7 @@ data TypeError p
   | NoCommonMeet p TypeIdentifier TypeIdentifier
   | MismatchedTypeLambdas p
   | ExpectedFullAnnotation p
+  | ExpectedTypeAbstraction p
   deriving (Show)
 
 newtype Core p a = Core {runCore'' :: ReaderT (CoreEnvironment p) (StateT (CoreState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)

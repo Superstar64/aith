@@ -170,9 +170,15 @@ typeCheckModule (Ordering ((path@(Path heading _), item) : nodes)) = do
       CoreEnvironment p
     inject _ (Path heading' _, _) e | heading /= heading' = e
     inject _ (Path _ name, (GlobalInfer (Inline σ (TermSchemeCore p _)))) env =
-      env {typeEnvironment = Map.insert (TermIdentifier name) (p, Unrestricted, flexibleType σ) $ typeEnvironment env}
+      env
+        { typeEnvironment =
+            Map.insert (TermIdentifier name) (p, Unrestricted, flexibleType $ flexibleKind σ) $ typeEnvironment env
+        }
     inject _ (Path _ name, (GlobalInfer (Text σ (TermSchemeCore p _)))) env =
-      env {typeEnvironment = Map.insert (TermIdentifier name) (p, Unrestricted, convertFunctionLiteral $ flexibleType σ) $ typeEnvironment env}
+      env
+        { typeEnvironment =
+            Map.insert (TermIdentifier name) (p, Unrestricted, convertFunctionLiteral $ flexibleType $ flexibleKind σ) $ typeEnvironment env
+        }
     inject search (path, (GlobalInfer (Import _ path'))) e =
       inject search (path, search path') e
 

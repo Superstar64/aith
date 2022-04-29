@@ -185,6 +185,7 @@ class ConvertKind u where
 class SubstituteKind u where
   substituteKind :: Kind v -> KindIdentifier -> u v -> u v
 
+-- traverse and monadic bind
 class ZonkKind u where
   zonkKind :: Applicative m => (v -> m (Kind v')) -> u v -> m (u v')
 

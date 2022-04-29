@@ -228,6 +228,7 @@ class ConvertType u where
 class SubstituteType u where
   substituteType :: Type vσ vκ -> TypeIdentifier -> u vσ vκ -> u vσ vκ
 
+-- traverse and monadic bind
 class ZonkType u where
   zonkType :: Applicative m => (vσ -> m (Type vσ' vκ)) -> u vσ vκ -> m (u vσ' vκ)
 
@@ -476,8 +477,7 @@ instance Reduce (TypePattern vκ) where
   reduce (TypePatternCore x κ) = TypePatternCore x (reduce κ)
 
 freeVariablesLogical :: TypeUnify -> Set TypeLogical
-freeVariablesLogical (TypeCore σ) =
-  foldTypeF Set.singleton (foldBound mempty freeVariablesLogical) mempty freeVariablesLogical σ
+freeVariablesLogical = getConst . zonkType (Const . Set.singleton)
 
 sourceType :: Monoid p => Type Void Void -> TypeSource p
 sourceType (TypeCore σ) =
@@ -502,4 +502,4 @@ sourceTypeScheme (TypeSchemeCore ς) =
       sourceType
       ς
 
-flexibleType = runIdentity . zonkKind absurd . runIdentity . zonkType absurd
+flexibleType = runIdentity . zonkType absurd

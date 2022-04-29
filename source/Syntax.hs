@@ -305,7 +305,7 @@ scheme = isoScheme ⊣ schema
     schema = (cons ⊣ inverse nonEmpty ⊣ betweenAngle (commaSeperatedSome (position ⊗ schemeCore))) ∥ nil ⊣ always
     schemeCore = typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊕ token "'" ≫ kindPattern
 
-typeAnnotate = just ⊣ binaryToken ":" ≫ typex ∥ nothing ⊣ always
+typeAnnotate op = just ⊣ binaryToken op ≫ typex ∥ nothing ⊣ always
 
 termRuntimePattern :: (Position δ p, Syntax δ) => δ (Language.TermRuntimePatternSource p)
 termRuntimePattern = patternPair
@@ -316,7 +316,7 @@ termRuntimePattern = patternPair
     patternCore = Language.termRuntimePatternSource ⊣ position ⊗ choice options ∥ betweenParens termRuntimePattern
       where
         options =
-          [ Language.runtimePatternVariable ⊣ termIdentifier ⊗ typeAnnotate
+          [ Language.runtimePatternVariable ⊣ termIdentifier ⊗ typeAnnotate "::"
           ]
 
 termPattern :: (Position δ p, Syntax δ) => δ (Language.TermPatternSource p)
@@ -326,21 +326,24 @@ termPattern = patternPair
     patternCore = Language.termPatternSource ⊣ position ⊗ choice options ∥ betweenParens termPattern
       where
         options =
-          [ Language.patternVariable ⊣ termIdentifier ⊗ typeAnnotate,
+          [ Language.patternVariable ⊣ termIdentifier ⊗ typeAnnotate ":",
             Language.patternOfCourse ⊣ betweenBangSquares termPattern
           ]
 
-termFull = foldlP pair ⊣ term ⊗ many (token "," ≫ space ≫ term)
+termFull = termPair
   where
-    pair = withInnerPosition Language.termSource Language.runtimePairIntrouction
+    termPair = foldlP pair ⊣ termAnnotate ⊗ many (token "," ≫ space ≫ termAnnotate)
+      where
+        pair = withInnerPosition Language.termSource Language.runtimePairIntrouction
+    termAnnotate = apply ⊣ term ⊗ (binaryToken "::" ≫ typeAuto ⊕ binaryToken ":" ≫ typeAuto ⊕ always)
+      where
+        apply = preAnnotate `branchDistribute` annotate `branchDistribute` unit'
+        annotate = withInnerPosition Language.termSource Language.typeAnnotation
+        preAnnotate = withInnerPosition Language.termSource Language.preTypeAnnotation
 
 term :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
 term = termBinding
   where
-    optionalAnnotate e = e ⊗ pass ∥# betweenParens (term ⊗ annotate) ∥ e ⊗ pass
-      where
-        annotate = just ⊣ binaryToken ":" ≫ typex ∥ pass
-        pass = nothing ⊣ always
     termBinding = Language.termSource ⊣ position ⊗ choice options ∥ termRTApply
       where
         options =
@@ -348,10 +351,10 @@ term = termBinding
             Language.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ termRuntimePattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ term
           ]
         rotateBind = secondI Language.bound . associate . firstI swap
-    termRTApply = applyBinary ⊣ termAdd ⊗ (binaryToken "$" ≫ optionalAnnotate termRTApply ⊕ always)
+    termRTApply = applyBinary ⊣ termAdd ⊗ (binaryToken "$" ≫ termRTApply ⊕ always)
       where
         applyBinary = apply `branchDistribute` unit'
-        apply = withInnerPosition3 Language.termSource Language.functionApplication . toPrism associate'
+        apply = withInnerPosition Language.termSource Language.functionApplication
     termAdd = foldlP applyAdd ⊣ termMul ⊗ many (binaryToken "+" ≫ termMul ⊕ binaryToken "-" ≫ termMul)
       where
         applyAdd = add `branchDistribute` sub
@@ -365,12 +368,10 @@ term = termBinding
     termApply = Language.termSource ⊣ position ⊗ choice options ∥ foldlP applyBinary ⊣ termCore ⊗ many (applySyntax ⊕ typeApplySyntax)
       where
         applyBinary = application `branchDistribute` typeApplication
-        application = withInnerPosition3 Language.termSource Language.inlineApplication . toPrism associate'
-        typeApplication = withInnerPosition5 Language.termSource Language.typeApplication . toPrism swap_1_4_associate
-        applySyntax = space ≫ token "`" ≫ optionalAnnotate termCore
-        typeApplySyntax =
-          space
-            ≫ betweenDoubleSquares (constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCoreAuto ⊗ lambdaInline typeAuto) ⊗ betweenAngle typeFullAuto
+        application = withInnerPosition Language.termSource Language.inlineApplication
+        typeApplication = withInnerPosition Language.termSource Language.typeApplication
+        applySyntax = space ≫ token "`" ≫ termCore
+        typeApplySyntax = space ≫ betweenAngle typeAuto
         options =
           [ Language.readReference ⊣ token "*" ≫ termApply
           ]

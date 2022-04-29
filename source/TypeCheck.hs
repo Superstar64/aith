@@ -119,8 +119,8 @@ checkNumber p σt = do
   matchType p σt (TypeCore $ Number ρ1 ρ2)
   pure (ρ1, ρ2)
 
-augmentVariableLinear p x l ς e = do
-  (a, lΓ) <- augmentTypeEnvironment x p l ς e
+augmentVariableLinear p x l ς check = do
+  Checked e σ lΓ <- augmentTypeEnvironment x p l ς check
   case l of
     Unrestricted -> pure ()
     Linear -> case count x lΓ of
@@ -129,7 +129,7 @@ augmentVariableLinear p x l ς e = do
     Automatic σ -> case count x lΓ of
       Single -> pure ()
       _ -> constrain p Copy σ
-  pure (a, Remove x lΓ)
+  pure $ Checked e σ (Remove x lΓ)
 
 augmentMetaTermPattern pm = go Linear pm
   where
@@ -251,7 +251,7 @@ kindCheckPattern (Pattern p x κ) = case κ of
     κ <- freshKindVariable p Kind
     pure (Pattern p x κ, κ)
 
-kindCheck :: TypeSource p -> Core p (TypeUnify, KindUnify)
+kindCheck :: TypeSource p -> Core p ((Type vσ KindLogical), KindUnify)
 kindCheck (TypeSource p σ) = case σ of
   TypeVariable x -> do
     κ <- lookupKindEnvironment x
@@ -330,39 +330,47 @@ validateStrictlyVariables π = Set.fromList <$> traverse get π
     get (TypeSource _ (TypeVariable x)) = pure x
     get (TypeSource p _) = quit $ ExpectedTypeVariable p
 
-typeCheck :: TermSource p -> Core p ((TermUnify p, TypeUnify), Use TermIdentifier)
+data Checked p σ = Checked (TermUnify p) σ (Use TermIdentifier)
+  deriving (Functor, Foldable, Traversable)
+
+typeCheckPlain :: TermSource p -> Core p (Checked p (Type vσ KindLogical))
+typeCheckPlain (TermSource p e) = case e of
+  TypeAnnotation e σ' () -> do
+    Checked e σ lΓ <- typeCheck e
+    σ' <- fst <$> (expectTypeAnnotation p σ' >>= kindCheck)
+    let σ'' = flexibleType σ'
+    matchType p σ σ''
+    pure $ Checked e σ'' lΓ
+  _ -> quit $ ExpectedTypeAnnotation p
+
+typeCheck :: TermSource p -> Core p (Checked p TypeUnify)
 typeCheck (TermSource p e) = case e of
   TermRuntime (Variable x ()) -> do
     mσ <- lookupTypeEnviroment x
     case mσ of
       Just (_, _, σ) -> do
         (τ, θ) <- instantiate p σ
-        pure ((TermCore p $ TermRuntime $ Variable x θ, τ), Use x)
+        pure $ Checked (TermCore p $ TermRuntime $ Variable x θ) τ (Use x)
       Nothing -> quit $ UnknownIdentifier p x
   InlineAbstraction (Bound pm e) -> do
     (pm', σ) <- typeCheckMetaPattern pm
-    ((e', τ), lΓ) <- augmentMetaTermPattern pm' (typeCheck e)
-    pure ((TermCore p (InlineAbstraction (Bound pm' e')), TypeCore $ Inline σ τ), lΓ)
-  InlineApplication e1 e2 σ'' -> do
-    ((e1', (σ, τ)), lΓ1) <- firstM (secondM (checkInline p)) =<< typeCheck e1
-    ((e2', σ'), lΓ2) <- typeCheck e2
+    Checked e' τ lΓ <- augmentMetaTermPattern pm' (typeCheck e)
+    pure $ Checked (TermCore p $ InlineAbstraction $ Bound pm' e') (TypeCore $ Inline σ τ) lΓ
+  InlineApplication e1 e2 () -> do
+    Checked e1' (σ, τ) lΓ1 <- traverse (checkInline p) =<< typeCheck e1
+    Checked e2' σ' lΓ2 <- typeCheck e2
     matchType p σ σ'
-    case σ'' of
-      Nothing -> pure ()
-      Just σ'' -> do
-        σ'' <- fst <$> kindCheck σ''
-        matchType p σ σ''
-    pure ((TermCore p (InlineApplication e1' e2' σ), τ), lΓ1 `combine` lΓ2)
+    pure $ Checked (TermCore p $ InlineApplication e1' e2' σ) τ (lΓ1 `combine` lΓ2)
   Bind e1 (Bound pm e2) -> do
-    ((e1', τ), lΓ1) <- typeCheck e1
+    Checked e1' τ lΓ1 <- typeCheck e1
     (pm', τ') <- typeCheckMetaPattern pm
     matchType p τ τ'
-    ((e2', σ), lΓ2) <- augmentMetaTermPattern pm' $ typeCheck e2
-    pure ((TermCore p (Bind e1' (Bound pm' e2')), σ), lΓ1 `combine` lΓ2)
+    Checked e2' σ lΓ2 <- augmentMetaTermPattern pm' $ typeCheck e2
+    pure $ Checked (TermCore p $ Bind e1' $ Bound pm' e2') σ (lΓ1 `combine` lΓ2)
   OfCourseIntroduction e -> do
-    ((e', σ), lΓ) <- typeCheck e
+    Checked e' σ lΓ <- typeCheck e
     capture p lΓ
-    pure ((TermCore p (OfCourseIntroduction e'), TypeCore $ OfCourse $ σ), lΓ)
+    pure $ Checked (TermCore p $ OfCourseIntroduction e') (TypeCore $ OfCourse $ σ) lΓ
   TypeAbstraction (Bound (Pattern p' α κpm) e) c π -> do
     -- Shadowing type variables is prohibited
     vars <- Map.keysSet <$> kindEnvironment <$> askEnvironment
@@ -379,33 +387,37 @@ typeCheck (TermSource p e) = case e of
     traverse (matchKind p κ) κ'
     augmentTypePatternLevel pm' c πx $ do
       enterLevel
-      ((e', σ'), lΓ) <- typeCheck e
+      Checked e' σ' lΓ <- typeCheck e
       leaveLevel
-      pure ((TermCore p (TypeAbstraction (Bound (toTypePattern pm') e') c π), TypeCore $ Forall (Bound (toTypePattern pm') σ') c π), lΓ)
-  TypeApplication e σ (Bound pm@(Pattern _ α _) τ) c π -> do
+      pure $
+        Checked
+          (TermCore p $ TypeAbstraction (Bound (toTypePattern pm') e') c π)
+          (TypeCore $ Forall (Bound (toTypePattern pm') σ') c π)
+          lΓ
+  TypeApplication e τ () -> do
     -- todo constrain with π
-    ((e, ς), lΓ) <- typeCheck e
-    (pm', κ) <- kindCheckPattern pm
-    checkConstraints p c κ
-    π <- traverse (validateType <=< expectTypeAnnotation p) π
-    (σ, κ') <- case σ of
-      Just σ -> kindCheck σ
+    (τ, κ) <- case τ of
+      Just τ -> kindCheck τ
       Nothing -> do
         κ <- freshKindVariable p Kind
         σ <- freshTypeVariable p κ
         pure (σ, κ)
-    matchKind p κ κ'
-    augmentTypePatternBottom pm' $ do
-      τ <- validateType =<< expectTypeAnnotation p τ
-      matchType p (TypeCore $ Forall (Bound (toTypePattern pm') τ) c π) ς
-      pure (((TermCore p (TypeApplication e σ (Bound (toTypePattern pm') τ) c π)), substituteType σ α τ), lΓ)
+
+    Checked e ς lΓ <- typeCheckPlain e
+    case ς of
+      (TypeCore (Forall (Bound (TypePatternCore α κ') σ) c π)) -> do
+        for π $ \π -> lessThen p π τ
+        for (Set.toList c) $ \c -> constrain p c τ
+        matchKind p κ κ'
+        pure $ Checked (TermCore p $ TypeApplication e τ ς) (substituteType τ α σ) lΓ
+      _ -> quit $ ExpectedTypeAbstraction p
   TermRuntime (Alias e1 (Bound pm e2)) -> do
     (pm', τ) <- typeCheckRuntimePattern pm
-    ((e1', (τ', π)), lΓ1) <- firstM (secondM $ checkEffect p) =<< typeCheck e1
+    Checked e1' (τ', π) lΓ1 <- traverse (checkEffect p) =<< typeCheck e1
     matchType p τ τ'
-    ((e2', (σ, π')), lΓ2) <- firstM (secondM $ checkEffect p) =<< augmentRuntimeTermPattern pm' (typeCheck e2)
+    Checked e2' (σ, π') lΓ2 <- traverse (checkEffect p) =<< augmentRuntimeTermPattern pm' (typeCheck e2)
     matchType p π π'
-    pure ((TermCore p $ TermRuntime $ Alias e1' (Bound pm' e2'), TypeCore $ Effect σ π), lΓ1 `combine` lΓ2)
+    pure $ Checked (TermCore p $ TermRuntime $ Alias e1' $ Bound pm' e2') (TypeCore $ Effect σ π) (lΓ1 `combine` lΓ2)
   TermRuntime (Extern sym σ π τ) -> do
     σ' <- case σ of
       Nothing -> freshPretypeRealTypeVariable p
@@ -417,47 +429,71 @@ typeCheck (TermSource p e) = case e of
       Nothing -> freshPretypeTypeVariable p
       Just τ -> fmap fst $ secondM (checkPretype p) =<< kindCheck τ
     r <- freshRegionTypeVariable p
-    pure (((TermCore p $ TermRuntime $ Extern sym σ' π' τ'), TypeCore $ Effect (TypeCore $ FunctionPointer σ' π' τ') r), useNothing)
-  TermRuntime (FunctionApplication e1 e2 σ'') -> do
-    ((e1', ((σ, π, τ), π')), lΓ1) <- firstM (secondM $ firstM (checkFunctionPointer p) <=< checkEffect p) =<< typeCheck e1
+    pure $
+      Checked
+        (TermCore p $ TermRuntime $ Extern sym σ' π' τ')
+        (TypeCore $ Effect (TypeCore $ FunctionPointer σ' π' τ') r)
+        useNothing
+  TermRuntime (FunctionApplication e1 e2 ()) -> do
+    Checked e1' ((σ, π, τ), π') lΓ1 <- traverse (firstM (checkFunctionPointer p) <=< checkEffect p) =<< typeCheck e1
     matchType p π π'
-    ((e2', (σ', π'')), lΓ2) <- firstM (secondM $ checkEffect p) =<< typeCheck e2
+    Checked e2' (σ', π'') lΓ2 <- traverse (checkEffect p) =<< typeCheck e2
     matchType p π π''
     matchType p σ σ'
-    case σ'' of
-      Nothing -> pure ()
-      Just σ' -> do
-        σ' <- fmap fst $ kindCheck σ'
-        matchType p σ σ'
-    pure ((TermCore p $ TermRuntime $ FunctionApplication e1' e2' σ, TypeCore $ Effect τ π), lΓ1 `combine` lΓ2)
+    pure $ Checked (TermCore p $ TermRuntime $ FunctionApplication e1' e2' σ) (TypeCore $ Effect τ π) (lΓ1 `combine` lΓ2)
   TermRuntime (PairIntroduction e1 e2) -> do
-    ((e1', (σ, π)), lΓ1) <- firstM (secondM $ checkEffect p) =<< typeCheck e1
-    ((e2', (τ, π')), lΓ2) <- firstM (secondM $ checkEffect p) =<< typeCheck e2
+    Checked e1' (σ, π) lΓ1 <- traverse (checkEffect p) =<< typeCheck e1
+    Checked e2' (τ, π') lΓ2 <- traverse (checkEffect p) =<< typeCheck e2
     matchType p π π'
     σ <- enforcePretypeReal p σ
     τ <- enforcePretypeReal p τ
-    pure ((TermCore p $ TermRuntime $ PairIntroduction e1' e2', TypeCore $ Effect (TypeCore $ Pair σ τ) π), lΓ1 `combine` lΓ2)
+    pure $
+      Checked
+        (TermCore p $ TermRuntime $ PairIntroduction e1' e2')
+        (TypeCore $ Effect (TypeCore $ Pair σ τ) π)
+        (lΓ1 `combine` lΓ2)
   TermRuntime (ReadReference e) -> do
-    ((e', ((π', σ), π)), lΓ) <- firstM (secondM $ firstM (checkReference p) <=< checkEffect p) =<< typeCheck e
+    Checked e' ((π', σ), π) lΓ <- traverse (firstM (checkReference p) <=< checkEffect p) =<< typeCheck e
     constrain p Copy σ
     lessThen p π' π
-    pure ((TermCore p $ TermRuntime $ ReadReference e', TypeCore $ Effect σ π), lΓ)
+    pure $ Checked (TermCore p $ TermRuntime $ ReadReference e') (TypeCore $ Effect σ π) lΓ
   TermRuntime (NumberLiteral v) -> do
     π <- freshRegionTypeVariable p
     ρ1 <- freshKindVariable p Signedness
     ρ2 <- freshKindVariable p Size
-    pure ((TermCore p (TermRuntime (NumberLiteral v)), TypeCore $ Effect (TypeCore $ Number ρ1 ρ2) π), useNothing)
+    pure $
+      Checked
+        (TermCore p $ TermRuntime (NumberLiteral v))
+        (TypeCore $ Effect (TypeCore $ Number ρ1 ρ2) π)
+        useNothing
   TermRuntime (Arithmatic o e1 e2 ()) -> do
-    ((e1', ((ρ1, ρ2), π)), lΓ1) <- firstM (secondM $ firstM (checkNumber p) <=< checkEffect p) =<< typeCheck e1
-    ((e2', ((ρ1', ρ2'), π')), lΓ2) <- firstM (secondM $ firstM (checkNumber p) <=< checkEffect p) =<< typeCheck e2
+    Checked e1' ((ρ1, ρ2), π) lΓ1 <- traverse (firstM (checkNumber p) <=< checkEffect p) =<< typeCheck e1
+    Checked e2' ((ρ1', ρ2'), π') lΓ2 <- traverse (firstM (checkNumber p) <=< checkEffect p) =<< typeCheck e2
     matchType p π π'
     matchKind p ρ1 ρ1'
     matchKind p ρ2 ρ2'
-    pure ((TermCore p $ TermRuntime $ Arithmatic o e1' e2' ρ1, TypeCore $ Effect (TypeCore $ Number ρ1 ρ2) π), lΓ1 `combine` lΓ2)
+    pure $
+      Checked
+        (TermCore p $ TermRuntime $ Arithmatic o e1' e2' ρ1)
+        (TypeCore $ Effect (TypeCore $ Number ρ1 ρ2) π)
+        (lΓ1 `combine` lΓ2)
   FunctionLiteral (Bound pm e) -> do
     (pm', σ) <- typeCheckRuntimePattern pm
-    ((e', (τ, π)), lΓ) <- firstM (secondM $ checkEffect p) =<< augmentRuntimeTermPattern pm' (typeCheck e)
-    pure ((TermCore p $ FunctionLiteral (Bound pm' e'), TypeCore $ FunctionLiteralType σ π τ), lΓ)
+    Checked e' (τ, π) lΓ <- traverse (checkEffect p) =<< augmentRuntimeTermPattern pm' (typeCheck e)
+    pure $ Checked (TermCore p $ FunctionLiteral $ Bound pm' e') (TypeCore $ FunctionLiteralType σ π τ) lΓ
+  TypeAnnotation e σ' () -> do
+    Checked e σ lΓ <- typeCheck e
+    σ' <- expectTypeAnnotation p σ'
+    σ' <- fst <$> kindCheck σ'
+    matchType p σ σ'
+    pure $ Checked e σ lΓ
+  PretypeAnnotation e σ' () -> do
+    Checked e τ lΓ <- typeCheck e
+    (σ, _) <- checkEffect p τ
+    σ' <- expectTypeAnnotation p σ'
+    σ' <- fst <$> kindCheck σ'
+    matchType p σ σ'
+    pure $ Checked e τ lΓ
 
 topologicalBoundsSort' :: StateT (Map TypeLogical Mark) (StateT [TypeLogical] (Core p)) ()
 topologicalBoundsSort' = sortTopological id id id quit children
@@ -540,7 +576,7 @@ typeCheckGlobalAuto ::
   Core p (TermSchemeInfer p, TypeSchemeInfer)
 typeCheckGlobalAuto e = do
   enterLevel
-  ((e, σ), _) <- typeCheck e
+  Checked e σ _ <- typeCheck e
   leaveLevel
   (e, ς) <- generalize (e, σ)
   e <- zonk e
@@ -564,7 +600,7 @@ typeCheckGlobalManual e@(TermSchemeSource p _) ς = case ς of
     pure (e, ς)
   where
     go (TypeSchemeCore (MonoType σ)) (TermSchemeSource p (MonoTerm e)) = do
-      ((e, σ'), _) <- typeCheck e
+      Checked e σ' _ <- typeCheck e
       matchType p σ σ'
       leaveLevel
       pure (TermSchemeCore p $ MonoTerm e)

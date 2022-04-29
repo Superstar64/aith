@@ -16,7 +16,7 @@ data SimpleType = SimpleType (KindRuntime KindSize SimpleType)
 
 data SimplePattern p = SimplePattern p (TermRuntimePatternF SimpleType (SimplePattern p))
 
-data SimpleTerm p = SimpleTerm p (TermRuntime () KindSignedness () SimpleType (Bound (SimplePattern p)) () (SimpleTerm p))
+data SimpleTerm p = SimpleTerm p (TermRuntime () KindSignedness SimpleType () SimpleType (Bound (SimplePattern p)) (SimpleTerm p))
 
 data SimpleFunction p = SimpleFunction p (Bound (SimplePattern p) (SimpleTerm p))
 
@@ -107,12 +107,14 @@ convertTerm (TermCore p (TermRuntime (Arithmatic o e1 e2 κ))) = do
       KindCore (KindSignedness Unsigned) -> Unsigned
       _ -> error "bad sign"
 convertTerm (TermCore _ (TypeAbstraction _ _ _)) = simpleFailTerm
-convertTerm (TermCore _ (TypeApplication _ _ _ _ _)) = simpleFailPattern
+convertTerm (TermCore _ (TypeApplication _ _ _)) = simpleFailPattern
 convertTerm (TermCore _ (InlineAbstraction _)) = simpleFailTerm
 convertTerm (TermCore _ (InlineApplication _ _ _)) = simpleFailTerm
 convertTerm (TermCore _ (OfCourseIntroduction _)) = simpleFailTerm
 convertTerm (TermCore _ (Bind _ _)) = simpleFailTerm
 convertTerm (TermCore _ (FunctionLiteral _)) = simpleFailTerm
+convertTerm (TermCore _ (TypeAnnotation _ _ invalid)) = absurd invalid
+convertTerm (TermCore _ (PretypeAnnotation _ _ invalid)) = absurd invalid
 
 simpleFailTerm = error "illegal simple term"
 

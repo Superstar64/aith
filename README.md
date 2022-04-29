@@ -63,7 +63,10 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
     * [ ] Higher Order Unification (System-F ω)
     * [x] Builtin Typeclasses (evidence only)
     * [ ] User Defined Typeclasses
-  * [x] Pattern Matching
+  * [ ] Pattern Matching
+    * [x] Destructure Products
+    * [ ] Literals
+    * [ ] Destructure Unions
 * [x] Inline Lambda Calculus
 * [ ] System-F
   * [x] Levity Polymorphism
@@ -106,12 +109,10 @@ Files start with `code` `:::`.
 | Inline Abstraction | `` \pm { e }`` |
 | Inline Abstraction | `` \pm => e`` |
 | Inline Application | ``e `e'``|
-| Inline Application Ascribe | ``e `(e : σ)``|
 | Of Course Introduction | ``![e]`` |
 | Inline Binding | ``inline pm = e; e'``|
 | Extern | ``extern "x" function (σa) => σa uses σa'`` |
 | Function Application | ``e $ e'``|
-| Function Application Ascribe | ``e $ (e' : σ)``|
 | Function Literal | ``function(pm) => e`` |
 | Function Literal | ``function(pm) { e }`` |
 | Runtime Binding | ``let pm = e; e'`` |
@@ -124,7 +125,9 @@ Files start with `code` `:::`.
 | Divsion | ``e / e'`` |
 | Type Abstraction | ``/\pmσ => e`` |
 | Type Abstraction | ``/\pmσ { e }`` |
-| Type Application | ``e [[\/pmσ => σ]]<τ>``|
+| Type Application | ``e <τ>``|
+| Type Annotation | ``e : σ`` |
+| Pretype Annotation | ``e :: σ`` |
 
 ## Meta Patterns(pm)
 | Description | Syntax |
