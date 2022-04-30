@@ -41,8 +41,6 @@ data KindF v κ
   | Type
   | Region
   | Pretype κ
-  | Imaginary
-  | Real κ
   | KindRuntime (KindRuntime κ κ)
   | KindSize (KindSize)
   | KindSignedness (KindSignedness)
@@ -60,8 +58,6 @@ traverseKindF f g κ = case κ of
   Type -> pure Type
   Region -> pure Region
   Pretype κ -> pure Pretype <*> g κ
-  Imaginary -> pure Imaginary
-  Real κ -> pure Real <*> g κ
   KindRuntime PointerRep -> KindRuntime <$> (pure PointerRep)
   KindRuntime (StructRep κs) -> KindRuntime <$> (pure StructRep <*> traverse g κs)
   KindRuntime (WordRep κ) -> KindRuntime <$> (pure WordRep <*> g κ)
@@ -121,14 +117,6 @@ region = Prism (const Region) $ \case
 
 pretype = Prism Pretype $ \case
   Pretype κ -> Just κ
-  _ -> Nothing
-
-imaginary = Prism (const Imaginary) $ \case
-  Imaginary -> Just ()
-  _ -> Nothing
-
-real = Prism Real $ \case
-  (Real κ) -> Just κ
   _ -> Nothing
 
 pointerRep = (kindRuntime .) $

@@ -46,7 +46,7 @@ convertKindImpl _ = simpleFailType
 simpleFailType = error "illegal simple type"
 
 convertKind :: KindInfer -> SimpleType
-convertKind (KindCore (Pretype (KindCore (Real κ)))) = convertKindImpl κ
+convertKind (KindCore (Pretype κ)) = convertKindImpl κ
 convertKind _ = simpleFailType
 
 reconstruct :: Monad m => TypeInfer -> ReaderT (Map TypeIdentifier KindInfer) m KindInfer
@@ -56,7 +56,7 @@ reconstruct (TypeCore σ) = reconstructTypeF todo index absurd todo KindCore che
     index x = do
       map <- ask
       pure $ map ! x
-    checkRuntime (KindCore (Pretype (KindCore (Real κ)))) f = f κ
+    checkRuntime (KindCore (Pretype κ)) f = f κ
     checkRuntime _ _ = error $ "reconstruction of pair didn't return pretype"
 
 convertType σ = convertKind <$> reconstruct σ

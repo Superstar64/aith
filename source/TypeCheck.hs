@@ -28,10 +28,6 @@ checkKind p μt = do
   matchSort p μt Kind
   pure ()
 
-checkExistance p μt = do
-  matchSort p μt Existance
-  pure ()
-
 checkRepresentation p μ = do
   matchSort p μ Representation
   pure ()
@@ -49,7 +45,7 @@ checkType p κt = do
   pure κt
 
 checkPretype p κt = do
-  κ <- freshKindVariable p Existance
+  κ <- freshKindVariable p Representation
   matchKind p κt (KindCore (Pretype κ))
   pure κ
 
@@ -57,27 +53,18 @@ checkRegion p κt = do
   matchKind p κt (KindCore Region)
   pure ()
 
-checkReal p κt = do
-  κ <- freshKindVariable p Representation
-  matchKind p κt (KindCore $ Real κ)
-  pure κ
-
 freshMetaTypeVariable p = do
   freshTypeVariable p (KindCore Type)
 
 freshPretypeTypeVariable p = do
-  s <- freshKindVariable p Existance
-  freshTypeVariable p (KindCore $ Pretype s)
-
-freshPretypeRealTypeVariable p = do
   s <- freshKindVariable p Representation
-  freshTypeVariable p (KindCore $ Pretype $ KindCore $ Real $ s)
+  freshTypeVariable p (KindCore $ Pretype s)
 
 freshRegionTypeVariable p = do
   freshTypeVariable p $ KindCore $ Region
 
 enforcePretypeReal p σt = do
-  σ <- freshPretypeRealTypeVariable p
+  σ <- freshPretypeTypeVariable p
   matchType p σt σ
   pure σ
 
@@ -88,14 +75,14 @@ checkInline p σt = do
   pure (σ, τ)
 
 checkFunctionPointer p σt = do
-  σ <- freshPretypeRealTypeVariable p
+  σ <- freshPretypeTypeVariable p
   π <- freshRegionTypeVariable p
   τ <- freshPretypeTypeVariable p
   matchType p σt (TypeCore $ FunctionPointer σ π τ)
   pure (σ, π, τ)
 
 checkFunctionLiteralType p σt = do
-  σ <- freshPretypeRealTypeVariable p
+  σ <- freshPretypeTypeVariable p
   π <- freshRegionTypeVariable p
   τ <- freshPretypeTypeVariable p
   matchType p σt (TypeCore $ FunctionLiteralType σ π τ)
@@ -103,7 +90,7 @@ checkFunctionLiteralType p σt = do
 
 checkReference p σt = do
   π <- freshRegionTypeVariable p
-  σ <- freshPretypeRealTypeVariable p
+  σ <- freshPretypeTypeVariable p
   matchType p σt (TypeCore $ Reference π σ)
   pure (π, σ)
 
@@ -176,7 +163,7 @@ typeCheckMetaPattern = \case
 typeCheckRuntimePattern = \case
   (TermRuntimePatternSource p (RuntimePatternVariable x σ)) -> do
     σ' <- case σ of
-      Nothing -> freshPretypeRealTypeVariable p
+      Nothing -> freshPretypeTypeVariable p
       Just σ -> do
         σ' <- fst <$> kindCheck σ
         enforcePretypeReal p σ'
@@ -199,10 +186,6 @@ sortCheck (KindSource p κ) = case κ of
   Type -> do
     pure (KindCore $ Type, Kind)
   Region -> pure (KindCore Region, Kind)
-  Imaginary -> pure (KindCore Imaginary, Existance)
-  Real κ -> do
-    (κ', _) <- secondM (checkRepresentation p) =<< sortCheck κ
-    pure (KindCore (Real κ'), Existance)
   KindRuntime PointerRep -> pure (KindCore $ KindRuntime PointerRep, Representation)
   KindRuntime (StructRep κs) -> do
     (κs', _) <- unzip <$> traverse (secondM (checkRepresentation p) <=< sortCheck) κs
@@ -213,7 +196,7 @@ sortCheck (KindSource p κ) = case κ of
   KindSize κ -> pure (KindCore (KindSize κ), Size)
   KindSignedness κ -> pure (KindCore (KindSignedness κ), Signedness)
   Pretype κ -> do
-    (κ', _) <- secondM (checkExistance p) =<< sortCheck κ
+    (κ', _) <- secondM (checkRepresentation p) =<< sortCheck κ
     pure (KindCore $ Pretype κ', Kind)
   KindLogical v -> absurd v
 
@@ -273,27 +256,27 @@ kindCheck (TypeSource p σ) = case σ of
     (σ', _) <- secondM (checkType p) =<< kindCheck σ
     pure (TypeCore $ OfCourse σ', KindCore $ Type)
   FunctionPointer σ π τ -> do
-    (σ', _) <- secondM (checkReal p <=< checkPretype p) =<< kindCheck σ
+    (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion p) =<< kindCheck π
     (τ', _) <- secondM (checkPretype p) =<< kindCheck τ
-    pure (TypeCore $ FunctionPointer σ' π' τ', KindCore $ Pretype $ KindCore $ Real $ KindCore $ KindRuntime $ PointerRep)
+    pure (TypeCore $ FunctionPointer σ' π' τ', KindCore $ Pretype $ KindCore $ KindRuntime $ PointerRep)
   FunctionLiteralType σ π τ -> do
-    (σ', _) <- secondM (checkReal p <=< checkPretype p) =<< kindCheck σ
+    (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion p) =<< kindCheck π
     (τ', _) <- secondM (checkPretype p) =<< kindCheck τ
     pure (TypeCore $ FunctionLiteralType σ' π' τ', KindCore $ Type)
   Pair σ τ -> do
-    (σ', ρ1) <- secondM (checkReal p <=< checkPretype p) =<< kindCheck σ
-    (τ', ρ2) <- secondM (checkReal p <=< checkPretype p) =<< kindCheck τ
-    pure (TypeCore $ Pair σ' τ', KindCore $ Pretype $ KindCore $ Real $ KindCore $ KindRuntime $ StructRep [ρ1, ρ2])
+    (σ', ρ1) <- secondM (checkPretype p) =<< kindCheck σ
+    (τ', ρ2) <- secondM (checkPretype p) =<< kindCheck τ
+    pure (TypeCore $ Pair σ' τ', KindCore $ Pretype $ KindCore $ KindRuntime $ StructRep [ρ1, ρ2])
   Effect σ π -> do
     (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion p) =<< kindCheck π
     pure (TypeCore $ Effect σ' π', KindCore $ Type)
   Reference π σ -> do
     (π', _) <- secondM (checkRegion p) =<< kindCheck π
-    (σ', _) <- secondM (checkReal p <=< checkPretype p) =<< kindCheck σ
-    pure (TypeCore $ Reference π' σ', KindCore $ Pretype $ KindCore $ Real $ KindCore $ KindRuntime $ PointerRep)
+    (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
+    pure (TypeCore $ Reference π' σ', KindCore $ Pretype $ KindCore $ KindRuntime $ PointerRep)
   Number ρ1 ρ2 -> do
     ρ1' <- case ρ1 of
       Nothing -> freshKindVariable p Signedness
@@ -301,7 +284,7 @@ kindCheck (TypeSource p σ) = case σ of
     ρ2' <- case ρ2 of
       Nothing -> freshKindVariable p Size
       Just ρ2 -> fmap fst $ secondM (checkSize p) =<< sortCheck ρ2
-    pure (TypeCore $ Number ρ1' ρ2', KindCore $ Pretype $ KindCore $ Real $ KindCore $ KindRuntime $ WordRep ρ2')
+    pure (TypeCore $ Number ρ1' ρ2', KindCore $ Pretype $ KindCore $ KindRuntime $ WordRep ρ2')
   TypeLogical v -> absurd v
 
 instantiate p (TypeSchemeCore ς) = case ς of
@@ -420,8 +403,8 @@ typeCheck (TermSource p e) = case e of
     pure $ Checked (TermCore p $ TermRuntime $ Alias e1' $ Bound pm' e2') (TypeCore $ Effect σ π) (lΓ1 `combine` lΓ2)
   TermRuntime (Extern sym σ π τ) -> do
     σ' <- case σ of
-      Nothing -> freshPretypeRealTypeVariable p
-      Just σ -> fmap fst $ secondM (checkReal p) =<< secondM (checkPretype p) =<< kindCheck σ
+      Nothing -> freshPretypeTypeVariable p
+      Just σ -> fmap fst $ secondM (checkPretype p) =<< kindCheck σ
     π' <- case π of
       Nothing -> freshRegionTypeVariable p
       Just π -> fmap fst $ secondM (checkRegion p) =<< kindCheck π

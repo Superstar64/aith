@@ -11,7 +11,6 @@ import Data.Traversable
 import TypeCheck.Core
 
 matchSort _ Kind Kind = pure ()
-matchSort _ Existance Existance = pure ()
 matchSort _ Representation Representation = pure ()
 matchSort _ Size Size = pure ()
 matchSort _ Signedness Signedness = pure ()
@@ -38,7 +37,7 @@ reconstructTypeF strictlyVariables indexVariable indexLogical augment make check
   OfCourse _ -> do
     pure $ make $ Type
   FunctionPointer _ _ _ -> do
-    pure $ make $ Pretype $ make $ Real $ make $ KindRuntime PointerRep
+    pure $ make $ Pretype $ make $ KindRuntime PointerRep
   FunctionLiteralType _ _ _ -> do
     pure $ make $ Type
   Pair σ σ' -> do
@@ -46,12 +45,12 @@ reconstructTypeF strictlyVariables indexVariable indexLogical augment make check
     κ' <- reconstruct σ'
     checkRuntime κ $ \κ -> do
       checkRuntime κ' $ \κ' -> do
-        pure $ make $ Pretype $ make $ Real $ make $ KindRuntime $ StructRep [κ, κ']
+        pure $ make $ Pretype $ make $ KindRuntime $ StructRep [κ, κ']
   Effect _ _ -> pure $ make $ Type
   Number _ ρ -> do
-    pure $ make $ Pretype $ make $ Real $ make $ KindRuntime $ WordRep ρ
+    pure $ make $ Pretype $ make $ KindRuntime $ WordRep ρ
   Reference _ _ ->
-    pure $ make $ Pretype $ make $ Real $ make $ KindRuntime $ PointerRep
+    pure $ make $ Pretype $ make $ KindRuntime $ PointerRep
 
 reconstructKindF indexVariable indexLogical = \case
   KindVariable x -> do
@@ -61,8 +60,6 @@ reconstructKindF indexVariable indexLogical = \case
   Type -> pure $ Kind
   Region -> pure $ Kind
   Pretype _ -> pure $ Kind
-  Imaginary -> pure $ Existance
-  Real _ -> pure $ Existance
   KindRuntime _ -> pure $ Representation
   KindSize _ -> pure $ Size
   KindSignedness _ -> pure $ Signedness
@@ -157,8 +154,6 @@ kindOccursCheck p x lev κ' = go κ'
         Type -> pure ()
         Region -> pure ()
         Pretype κ -> recurse κ
-        Imaginary -> pure ()
-        (Real κ) -> recurse κ
         (KindRuntime PointerRep) -> pure ()
         (KindRuntime (StructRep κs)) -> traverse recurse κs >> pure ()
         (KindRuntime (WordRep κ)) -> recurse κ
@@ -260,9 +255,6 @@ matchKind p κ κ' = unify κ κ'
     unify (KindCore Region) (KindCore Region) = pure ()
     unify (KindCore (Pretype κ)) (KindCore (Pretype κ')) = do
       match p κ κ'
-    unify (KindCore Imaginary) (KindCore Imaginary) = pure ()
-    unify (KindCore (Real κ)) (KindCore (Real κ')) = do
-      match p κ κ'
     unify (KindCore (KindRuntime PointerRep)) (KindCore (KindRuntime PointerRep)) = pure ()
     unify (KindCore (KindRuntime (StructRep κs))) (KindCore (KindRuntime (StructRep κs'))) | length κs == length κs' = do
       sequence_ $ zipWith (match p) κs κs'
@@ -278,7 +270,7 @@ matchKind p κ κ' = unify κ κ'
 predicateKindCheck :: p -> Constraint -> KindUnify -> Core p ()
 predicateKindCheck p Copy κ = do
   β <- KindCore <$> KindLogical <$> freshKindVariableRaw p Representation maxBound
-  matchKind p κ (KindCore $ Pretype $ KindCore $ Real $ β)
+  matchKind p κ (KindCore $ Pretype $ β)
 
 constrain :: p -> Constraint -> TypeUnify -> Core p ()
 constrain p c σ = predicate c σ
@@ -382,5 +374,5 @@ kindIsMember p σ κ = do
         checkRuntime :: KindUnify -> (KindUnify -> Core p KindUnify) -> Core p KindUnify
         checkRuntime κ f = do
           α <- (KindCore . KindLogical) <$> freshKindVariableRaw p Representation maxBound
-          matchKind p κ (KindCore $ Pretype $ KindCore $ Real $ α)
+          matchKind p κ (KindCore $ Pretype $ α)
           f α

@@ -164,7 +164,6 @@ sort :: Syntax δ => δ Language.Sort
 sort =
   choice
     [ Language.kind ⊣ token "[" ≫ space ≫ token "]",
-      Language.existance ⊣ keyword "existance",
       Language.representation ⊣ keyword "representation",
       Language.size ⊣ keyword "size",
       Language.signedness ⊣ keyword "signedness"
@@ -176,8 +175,7 @@ kindPattern = Language.pattern ⊣ position ⊗ kindIdentifier ⊗ token ":" ≫
 kind :: (Position δ p, Syntax δ) => δ (Language.KindSource p)
 kind = kindTop
   where
-    kindTop = Language.kindSource ⊣ position ⊗ (Language.real ⊣ token "#" ≫ kindPrefix ≪ token "#") ∥ kindPrefix
-    kindPrefix = Language.kindSource ⊣ position ⊗ choice options ∥ kindCore
+    kindTop = Language.kindSource ⊣ position ⊗ choice options ∥ kindCore
       where
         options =
           [ Language.wordRep ⊣ prefixKeyword "word" ≫ kindCore
@@ -190,7 +188,6 @@ kindCore = Language.kindSource ⊣ position ⊗ choice options ∥ betweenParens
       [ Language.kindVariable ⊣ kindIdentifier,
         Language.typex ⊣ token "*",
         Language.pretype ⊣ betweenPlusSquares kind,
-        Language.imaginary ⊣ keyword "imaginary",
         Language.region ⊣ keyword "region",
         Language.pointerRep ⊣ keyword "pointer",
         Language.structRep ⊣ prefixKeyword "struct" ≫ betweenParens (commaSeperatedMany kind),

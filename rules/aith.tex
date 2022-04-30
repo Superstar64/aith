@@ -226,12 +226,9 @@ e \Coloneqq & \\
 \begin{align*}
 \kappa, s, \rho \Coloneqq & \\
 & +^\rho \tag{Pretype Kind}\\
-& \text{Real} (\rho) \tag{Real Existance} \\
-& \text{Imaginary} \tag{Imaginary Existance} \\
 & \text{Pointer} \tag{Pointer Representation}\\
 & \dots \\
 \mu \Coloneqq & \\
-& \text{Existance} \\
 & \text{Representation} \\
 & \dots
 \end{align*}
@@ -239,16 +236,8 @@ e \Coloneqq & \\
 \begin{gather*}
 \\
 \frac
-{\Phi \vdash \rho : \text{Existance}}
-{\Phi \vdash +^\rho : \boxvoid} \\
-\\
-\frac
 {\Phi \vdash \rho : \text{Representation}}
-{\Phi \vdash \text{Real} (\rho) : \text{Existance}} \\
-\\
-\frac
-{}
-{\Phi \vdash \text{Imaginary} : \text{Existance}} \\
+{\Phi \vdash +^\rho : \boxvoid} \\
 \\
 \frac
 {}
@@ -281,11 +270,11 @@ e \Coloneqq & \\
 {\Phi | \Gamma \vdash \text{subRGN} \pi' \, e : \sigma^{\pi} } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi | \Gamma', \langle x : \forall \alpha. \tau^\alpha \rangle \vdash e : \sigma^\pi \quad \Phi \vdash \tau : +^{\text{Real}(\rho)}}
+{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi | \Gamma', \langle x : \forall \alpha. \tau^\alpha \rangle \vdash e : \sigma^\pi \quad \Phi \vdash \tau : +^{\rho}}
 {\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow \, (x : \tau) = e; e' : \sigma^\pi} \\
 \\
 \frac
-{\splitfrac{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi | \Gamma', [ x : \forall \alpha. \tau^\alpha ] \vdash e : \sigma^\pi \quad \Phi \vdash \tau : +^{\text{Real}(\rho)}}
+{\splitfrac{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi | \Gamma', [ x : \forall \alpha. \tau^\alpha ] \vdash e : \sigma^\pi \quad \Phi \vdash \tau : +^{\rho}}
 {\Phi \vdash \text{Copy}(\tau)}}
 {\Phi | \Gamma, \Gamma' \vdash \text{copy} \, (x : \tau) = e; e' : \sigma^\pi} \\
 \end{gather*}
@@ -314,14 +303,14 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi | \Gamma \vdash e : (\sigma *^{\pi'})^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \Phi \vdash \sigma : +^{\text{Real}(\rho)} \quad \pi \succeq \pi'}
+{\Phi | \Gamma \vdash e : (\sigma *^{\pi'})^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \Phi \vdash \sigma : +^{\rho} \quad \pi \succeq \pi'}
 {\Phi | \Gamma \vdash *^{\pi'} \, e : \sigma^\pi} \\
 \end{gather*}
 
 \begin{gather*}
 \frac
-{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \sigma : +^{\text{Real}(\rho)}}
-{\Phi \vdash \sigma *^\pi : +^{\text{Real}(\text{Pointer})}}
+{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}
+{\Phi \vdash \sigma *^\pi : +^{\text{Pointer}}}
 \end{gather*}
 
 \subsubsection{Functions}
@@ -344,7 +333,7 @@ e \Coloneqq & \\
 {\Phi | \Gamma \vdash \text{extern} \, \text{sym} : (\tau \xrightarrow{\downarrow}_{\pi'} \sigma)^\pi} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\sigma \xrightarrow{\downarrow}_\pi \tau)^\pi \quad \Phi | \Gamma' \vdash e' : \sigma^\pi \quad \Phi \vdash \sigma : +^{\text{Real}(\rho)}}
+{\Phi | \Gamma \vdash e : (\sigma \xrightarrow{\downarrow}_\pi \tau)^\pi \quad \Phi | \Gamma' \vdash e' : \sigma^\pi \quad \Phi \vdash \sigma : +^{\rho}}
 {\Phi | \Gamma, \Gamma' \vdash e(^\downarrow e' : \sigma) : \tau^\pi} \\
 \\
 \frac
@@ -354,11 +343,11 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi \vdash \sigma : +^{\text{Real} (\rho)} \quad \Phi \vdash \tau : +^{\rho'} \quad \Phi \vdash \pi : \text{Region}}
-{\Phi \vdash \sigma \xrightarrow{\downarrow}_\pi \tau : +^{\text{Real} (\text{Pointer})}} \\
+{\Phi \vdash \sigma : +^{\rho} \quad \Phi \vdash \tau : +^{\rho'} \quad \Phi \vdash \pi : \text{Region}}
+{\Phi \vdash \sigma \xrightarrow{\downarrow}_\pi \tau : +^{\text{Pointer}}} \\
 \\
 \frac
-{\Phi \vdash \sigma : +^{\text{Real} (\rho)} \quad \Phi \vdash \tau : +^{\rho'} \quad \Phi \vdash \pi : \text{Region}}
+{\Phi \vdash \sigma : +^{\rho} \quad \Phi \vdash \tau : +^{\rho'} \quad \Phi \vdash \pi : \text{Region}}
 {\Phi \vdash \sigma \xrightarrow{\text{text}}_\pi \tau : *} \\
 \end{gather*}
 
@@ -383,14 +372,14 @@ e \Coloneqq & \\
 \\
 \frac
 {\splitfrac{\Phi | \Gamma \vdash e : (\tau, \tau')^\pi \quad \Phi | \Gamma , \langle x : \forall \alpha. \tau^\alpha \rangle, \langle x' : \forall \alpha. \tau'^\alpha \rangle \vdash e : \sigma^\pi}
-{\Phi \vdash \tau : +^{\text{Real}(\rho)} \quad \Phi \vdash \tau' : +^{\text{Real}(\rho')} }}
+{\Phi \vdash \tau : +^{\rho} \quad \Phi \vdash \tau' : +^{\rho'} }}
 {\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow (x : \tau, x' : \tau') = e; e' : \sigma^\pi}
 \end{gather*}
 
 \begin{gather*}
 \frac
-{\Phi \vdash \tau : +^{\text{Real} (\kappa)} \quad \Phi \vdash \tau : +^{\text{Real} (\kappa')} }
-{\Phi \vdash (\sigma, \tau) : +^{\text{Real} (\text{Struct} \{ \kappa,\kappa'\} )}} \\
+{\Phi \vdash \tau : +^{\kappa} \quad \Phi \vdash \tau : +^{\kappa'} }
+{\Phi \vdash (\sigma, \tau) : +^{\text{Struct} \{ \kappa,\kappa'\}}} \\
 \end{gather*}
 
 
@@ -441,7 +430,7 @@ e \Coloneqq & \\
 \begin{gather*}
 \frac
 {\Phi \vdash \rho : \text{Signedness} \quad \Phi \vdash \rho' : \text{Size}}
-{\Phi \vdash \text{Number} (\rho, \rho') : \text{Pretype} (\text{Real} (\text{Word} (\rho'))) } \\
+{\Phi \vdash \text{Number} (\rho, \rho') : +^ {\text{Word} (\rho')} } \\
 \end{gather*}
 
 \begin{gather*}
@@ -504,7 +493,7 @@ c \Coloneqq & \\
 \begin{gather*}
 \frac
 {}
-{\Phi \vdash \text{Copy} : \text{Pretype}(\text{Real}(\rho)) \to \diamond} \\
+{\Phi \vdash \text{Copy} : +^{\rho} \to \diamond} \\
 \end{gather*}
 
 \subsection{Subtyping}

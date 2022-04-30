@@ -210,8 +210,6 @@ Files start with `code` `:::`.
 | Type | ``*`` |
 | Pretype | ``+[s]`` |
 | Region | ``region`` |
-| Real | ``#ρ#``|
-| Imaginary | ``imaginary`` |
 | Pointer Representation | ``pointer``|
 | Struct Representation | ``struct (ρ, ρ', ...)`` |
 | Word Representation | ``word ρ`` |
@@ -231,7 +229,6 @@ Files start with `code` `:::`.
 | Description | Syntax |
 |-|-|
 | Kind | ``[ ]`` |
-| Existance | ``existance`` |
 | Representation | ``representation`` |
 | Signedness | ``signedness`` |
 | Size | ``size`` |
