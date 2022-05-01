@@ -476,8 +476,7 @@ instance Location TypeSource where
 instance Reduce (TypePattern vκ) where
   reduce (TypePatternCore x κ) = TypePatternCore x (reduce κ)
 
-freeVariablesLogical :: TypeUnify -> Set TypeLogical
-freeVariablesLogical = getConst . zonkType (Const . Set.singleton)
+freeTypeLogical = getConst . zonkType (Const . Set.singleton)
 
 sourceType :: Monoid p => Type Void Void -> TypeSource p
 sourceType (TypeCore σ) =

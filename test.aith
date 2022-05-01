@@ -89,3 +89,13 @@ module cycle = {
 		)
 	};
 };
+
+module default = {
+	add = function(x,y) {
+		x + y
+	};
+
+	deref = function(x) {
+		***x
+	};
+};

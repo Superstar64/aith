@@ -15,7 +15,6 @@ import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
-import Data.Traversable (for)
 
 data Multiplicity = Linear | Unrestricted | Automatic TypeUnify deriving (Show)
 
@@ -38,8 +37,8 @@ data TypeError p
   | SortMismatch p Sort Sort
   | TypeOccursCheck p TypeLogical TypeUnify
   | KindOccursCheck p KindLogical KindUnify
-  | AmbiguousType p TypeLogical
-  | AmbiguousKind p KindLogical
+  | AmbiguousType p
+  | AmbiguousKind p
   | EscapingSkolemType p TypeIdentifier TypeUnify
   | EscapingSkolemKind p KindIdentifier KindUnify
   | CaptureLinear p TermIdentifier
@@ -81,6 +80,7 @@ data KindLogicalState p
   | LinkKindLogical KindUnify
   deriving (Show, Functor)
 
+-- todo use int maps here
 data CoreState p = CoreState
   { typeLogicalMap :: Map TypeLogical (TypeLogicalState p),
     kindLogicalMap :: Map KindLogical (KindLogicalState p),
@@ -223,26 +223,6 @@ modifyState f = Core $ lift $ modify f
 modifyLevelCounter :: (Int -> Int) -> Core p ()
 modifyLevelCounter f = do
   modifyState $ \state -> state {levelCounter = f $ levelCounter state}
-
-ambigousTypeCheck variables = do
-  lev <- Level <$> currentLevel
-  vars <- getTypeLogicalMap
-  for (Map.toList vars) $ \case
-    (x, (UnboundTypeLogical p _ _ _ _ lev')) -> do
-      if lev' > lev && x `Set.notMember` variables
-        then quit $ AmbiguousType p x
-        else pure ()
-    (_, LinkTypeLogical _) -> pure ()
-
-ambigousKindCheck variables = do
-  lev <- Level <$> currentLevel
-  vars <- getKindLogicalMap
-  for (Map.toList vars) $ \case
-    (x, (UnboundKindLogical p _ lev')) -> do
-      if lev' > lev && x `Set.notMember` variables
-        then quit $ AmbiguousKind p x
-        else pure ()
-    (_, LinkKindLogical _) -> pure ()
 
 enterLevel = modifyLevelCounter (+ 1)
 

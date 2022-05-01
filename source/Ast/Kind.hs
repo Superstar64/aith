@@ -242,6 +242,8 @@ instance Reduce (KindPattern) where
 instance Location KindSource where
   location (KindSource p _) = p
 
+freeKindLogical = getConst . zonkKind (Const . Set.singleton)
+
 sourceKind (KindCore κ) = KindSource mempty $ mapKindF id sourceKind κ
 
 sourceKindAuto = Just . sourceKind

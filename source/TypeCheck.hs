@@ -5,10 +5,8 @@ import Ast.Kind
 import Ast.Sort
 import Ast.Term
 import Ast.Type
-import Control.Monad ((<=<))
-import Control.Monad.Trans.State.Strict (StateT, evalStateT, execStateT)
+import Control.Monad (filterM, (<=<))
 import Data.Foldable (foldlM, for_)
-import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import Data.Set (Set)
@@ -16,7 +14,7 @@ import qualified Data.Set as Set
 import Data.Traversable (for)
 import Data.Void
 import Environment
-import Misc.Util (Mark (..), firstM, secondM, sortTopological, temporaries')
+import Misc.Util (firstM, secondM, sortTopological, temporaries')
 import TypeCheck.Core
 import TypeCheck.Unify
 
@@ -478,90 +476,106 @@ typeCheck (TermSource p e) = case e of
     matchType p σ σ'
     pure $ Checked e τ lΓ
 
-topologicalBoundsSort' :: StateT (Map TypeLogical Mark) (StateT [TypeLogical] (Core p)) ()
-topologicalBoundsSort' = sortTopological id id id quit children
+topologicalBoundsSort :: [TypeLogical] -> Core p [TypeLogical]
+topologicalBoundsSort vars = sortTopological id quit children vars
   where
     quit x = error $ "unexpected cycle: " ++ show x
     children x =
       indexTypeLogicalMap x >>= \case
         (LinkTypeLogical σ) -> do
-          pure $ Set.toList $ freeVariablesLogical $ σ
+          pure $ Set.toList $ freeTypeLogical σ
         (UnboundTypeLogical _ _ _ vars _ _) -> do
-          pure $ vars >>= (Set.toList . freeVariablesLogical)
+          pure $ vars >>= (Set.toList . freeTypeLogical)
 
-topologicalBoundsSort :: [TypeLogical] -> Core p [TypeLogical]
-topologicalBoundsSort vars = execStateT (evalStateT topologicalBoundsSort' $ Map.fromList $ zip vars $ repeat Unmarked) []
+defaultKind Kind = KindCore $ Type
+defaultKind Representation = KindCore $ KindRuntime $ PointerRep
+defaultKind Size = KindCore $ KindSize $ Int
+defaultKind Signedness = KindCore $ KindSignedness $ Signed
 
+finishType :: TypeLogical -> Core p (Type vσ' KindLogical)
 finishType x =
   indexTypeLogicalMap x >>= \case
     LinkTypeLogical σ -> zonkType finishType σ
-    _ -> error "unexpected logic type variable"
+    UnboundTypeLogical _ _ _ _ (Just upper) _ -> pure $ TypeCore $ TypeVariable upper
+    UnboundTypeLogical p _ _ _ Nothing _ -> quit $ AmbiguousType p
 
+finishKind :: KindLogical -> Core p (Kind v')
 finishKind x =
   indexKindLogicalMap x >>= \case
     LinkKindLogical κ -> zonkKind finishKind κ
-    _ -> error "unexpected logic kind variable"
+    UnboundKindLogical _ μ _ -> pure $ defaultKind μ
 
+zonk :: (ZonkType u, ZonkKind (u vσ')) => u TypeLogical KindLogical -> Core p (u vσ' v')
 zonk e = do
   e <- zonkType finishType e
   e <- zonkKind finishKind e
   pure e
 
-generalize :: (TermUnify p, TypeUnify) -> Core p (TermSchemeUnify p, TypeSchemeUnify)
-generalize (e@(TermCore p _), σ) = do
-  α <- (Map.keys <$> getTypeLogicalMap) >>= topologicalBoundsSort
-  κα <- (Map.keys <$> getKindLogicalMap)
+generalize :: Bool -> (TermUnify p, TypeUnify) -> Core p (TermSchemeUnify p, TypeSchemeUnify)
+generalize generalizeKinds (e@(TermCore p _), σ) = do
+  used <- usedVars <$> getState
+  let typeNames = filter (`Set.notMember` used) $ temporaries' $ (: []) <$> ['A' .. 'M']
+  let kindNames = filter (`Set.notMember` used) $ temporaries' $ (: []) <$> ['N' .. 'Z']
+
   e <- pure $ TermSchemeCore p $ MonoTerm e
   σ <- pure $ TypeSchemeCore $ MonoType σ
-  used <- usedVars <$> getState
-  typeNames <- pure $ filter (`Set.notMember` used) typeNames
-  kindNames <- pure $ filter (`Set.notMember` used) kindNames
+
+  let α = Set.toList $ freeTypeLogical σ
+  α <- topologicalBoundsSort α
+  α <- filterM unsolvedType α
   -- todo actually use levels for generalization
-  (e, σ, _) <- (flip . flip foldlM) (e, σ, typeNames) α $ \(e, σ, names) α ->
+  (e, σ) <- foldlMFlip (e, σ) (attachNames α typeNames) $ \(e, σ) (α, name') ->
     indexTypeLogicalMap α >>= \case
-      (LinkTypeLogical _) -> pure (e, σ, names)
-      (UnboundTypeLogical p κ c lower upper _) -> do
-        case upper of
-          Nothing -> pure ()
-          _ -> error "todo deal with non global generalization"
-        let name = TypeIdentifier $ head names
+      (UnboundTypeLogical p κ c lower Nothing _) -> do
+        let name = TypeIdentifier name'
         modifyState $ \state ->
           state
             { typeLogicalMap = Map.insert α (LinkTypeLogical (TypeCore $ TypeVariable $ name)) $ typeLogicalMap $ state
             }
         pure
           ( TermSchemeCore p $ ImplicitTypeAbstraction (Bound (TypePatternCore name κ) e) c lower,
-            TypeSchemeCore $ ImplicitForall (Bound (TypePatternCore name κ) σ) c lower,
-            tail names
+            TypeSchemeCore $ ImplicitForall (Bound (TypePatternCore name κ) σ) c lower
           )
-  (e, σ, _) <- (flip . flip foldlM) (e, σ, kindNames) κα $ \(e, σ, names) α ->
+      _ -> error "unhandled type logical"
+
+  κα <- if generalizeKinds then Map.keys <$> getKindLogicalMap else pure []
+  κα <- filterM unsolvedKind κα
+  (e, σ) <- foldlMFlip (e, σ) (attachNames κα kindNames) $ \(e, σ) (α, name') ->
     indexKindLogicalMap α >>= \case
-      (LinkKindLogical _) -> pure (e, σ, names)
       (UnboundKindLogical p μ _) -> do
-        let name = KindIdentifier $ head names
+        let name = KindIdentifier name'
         modifyState $ \state ->
           state
             { kindLogicalMap = Map.insert α (LinkKindLogical (KindCore $ KindVariable $ name)) $ kindLogicalMap $ state
             }
         pure
           ( TermSchemeCore p $ ImplicitKindAbstraction (Bound (KindPatternCore name μ) e),
-            TypeSchemeCore $ ImplicitKindForall (Bound (KindPatternCore name μ) σ),
-            tail names
+            TypeSchemeCore $ ImplicitKindForall (Bound (KindPatternCore name μ) σ)
           )
+      _ -> error "unhandled kind logical"
   pure (e, σ)
   where
-    typeNames = temporaries' $ (: []) <$> ['A', 'B', 'C']
-    kindNames = temporaries' $ (: []) <$> ['X', 'Y', 'Z']
+    attachNames vars names = reverse $ zip (reverse vars) names
+    foldlMFlip a b f = foldlM f a b
+    unsolvedType x =
+      indexTypeLogicalMap x >>= \case
+        (UnboundTypeLogical _ _ _ _ Nothing _) -> pure True
+        _ -> pure False
+    unsolvedKind x =
+      indexKindLogicalMap x >>= \case
+        (UnboundKindLogical _ _ _) -> pure True
+        _ -> pure False
 
 -- todo readd ambigous types check
 typeCheckGlobalAuto ::
+  Bool ->
   TermSource p ->
   Core p (TermSchemeInfer p, TypeSchemeInfer)
-typeCheckGlobalAuto e = do
+typeCheckGlobalAuto generalizeKinds e = do
   enterLevel
   Checked e σ _ <- typeCheck e
   leaveLevel
-  (e, ς) <- generalize (e, σ)
+  (e, ς) <- generalize generalizeKinds (e, σ)
   e <- zonk e
   ς <- zonk ς
   pure (e, ς)

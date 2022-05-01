@@ -4,8 +4,7 @@ import Ast.Common
 import Ast.Kind
 import Ast.Term
 import Ast.Type hiding (Inline)
-import Control.Monad.Trans.State.Strict (evalStateT, execStateT)
-import Data.Map (Map, (!))
+import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Traversable (for)
@@ -44,6 +43,11 @@ data GlobalF ς p e
   deriving (Show)
 
 data GlobalSource p = GlobalSource (GlobalF (TypeSchemeAuto p) p (TermSchemeSource p))
+
+instance Location GlobalSource where
+  location (GlobalSource (Inline _ (TermSchemeSource p _))) = p
+  location (GlobalSource (Import p _)) = p
+  location (GlobalSource (Text _ (TermSchemeSource p _))) = p
 
 instance Functor GlobalSource where
   fmap f (GlobalSource (Inline ς e)) = GlobalSource $ Inline (fmap (fmap f) ς) (fmap f e)
@@ -84,7 +88,7 @@ extractTerm (TermIdentifier x) = x
 
 extractType (TypeIdentifier x) = x
 
-depend :: forall p. Semigroup p => GlobalSource p -> Path -> Map Path p
+depend :: Semigroup p => GlobalSource p -> Path -> Map Path p
 depend (GlobalSource (Inline _ e)) (Path location _) = Map.mapKeysMonotonic (Path location) (freeTerm)
   where
     freeTerm = Map.mapKeysMonotonic extractTerm $ runVariables $ freeVariablesTermSource e
@@ -104,20 +108,14 @@ items heading (CoreModule code) = do
     Global global -> pure $ (Path heading name, global)
 
 order :: Semigroup p => Module (GlobalSource p) -> Either (ModuleError p) (ModuleOrder (GlobalSource p))
-order code = Ordering <$> execStateT (evalStateT go (const Unmarked <$> globals)) []
+order code = Ordering <$> sortTopological view quit children globals
   where
-    globals = Map.fromList $ items [] code
-    go = sortTopological index finish view quit children
-      where
-        index path = (mempty, path, globals ! path)
-        finish (_, path, global) = (path, global)
-        view (_, path, _) = path
-        quit (p, path, _) = case p of
-          Just p -> Left $ Cycle p path
-          Nothing -> error "temporary mark on top level"
-        children (_, path, global) = for (Map.toList $ depend global path) $ \(path, p) -> do
-          global <- resolve p code path
-          pure (Just p, path, global)
+    globals = items [] code
+    view (path, _) = path
+    quit (path, global) = Left $ Cycle (location global) path
+    children (path, global) = for (Map.toList $ depend global path) $ \(path, p) -> do
+      global <- resolve p code path
+      pure (path, global)
 
 unorder :: ModuleOrder g -> Module g
 unorder (Ordering []) = CoreModule Map.empty
@@ -150,13 +148,13 @@ typeCheckModule (Ordering ((path@(Path heading _), item) : nodes)) = do
   let env = foldr (inject $ searchUnsafe $ Ordering nodes') emptyEnvironment nodes'
   case item of
     GlobalSource (Inline Nothing (TermSchemeSource _ (MonoTerm e))) -> do
-      (e, σ) <- runCore (typeCheckGlobalAuto e) env emptyState
+      (e, σ) <- runCore (typeCheckGlobalAuto True e) env emptyState
       pure $ Ordering ((path, GlobalInfer $ Inline σ e) : nodes')
     GlobalSource (Inline σ e) -> do
       (e, σ) <- runCore (typeCheckGlobalManual e σ) env emptyState
       pure $ Ordering ((path, GlobalInfer $ Inline σ e) : nodes')
     GlobalSource (Text Nothing (TermSchemeSource _ (MonoTerm e))) -> do
-      (e, σ) <- runCore (typeCheckGlobalAuto e >>= syntaticCheck) env emptyState
+      (e, σ) <- runCore (typeCheckGlobalAuto False e >>= syntaticCheck) env emptyState
       pure $ Ordering ((path, GlobalInfer $ Text σ e) : nodes')
     GlobalSource (Text σ e) -> do
       (e, σ) <- runCore (typeCheckGlobalManual e σ >>= syntaticCheck) env emptyState
