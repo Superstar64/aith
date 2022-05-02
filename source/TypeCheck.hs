@@ -5,7 +5,7 @@ import Ast.Kind
 import Ast.Sort
 import Ast.Term
 import Ast.Type
-import Control.Monad (filterM, (<=<))
+import Control.Monad ((<=<))
 import Data.Foldable (foldlM, for_)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
@@ -492,27 +492,48 @@ defaultKind Representation = KindCore $ KindRuntime $ PointerRep
 defaultKind Size = KindCore $ KindSize $ Int
 defaultKind Signedness = KindCore $ KindSignedness $ Signed
 
-finishType :: TypeLogical -> Core p (Type vσ' KindLogical)
-finishType x =
-  indexTypeLogicalMap x >>= \case
-    LinkTypeLogical σ -> zonkType finishType σ
-    UnboundTypeLogical _ _ _ _ (Just upper) _ -> pure $ TypeCore $ TypeVariable upper
-    UnboundTypeLogical p _ _ _ Nothing _ -> quit $ AmbiguousType p
+finishType :: (ZonkType u) => u TypeLogical KindLogical -> Core p (u v KindLogical)
+finishType σ = zonkType go σ
+  where
+    go x =
+      indexTypeLogicalMap x >>= \case
+        LinkTypeLogical σ -> finishType σ
+        UnboundTypeLogical _ _ _ _ (Just upper) _ -> pure $ TypeCore $ TypeVariable upper
+        UnboundTypeLogical p _ _ _ Nothing _ -> quit $ AmbiguousType p
 
-finishKind :: KindLogical -> Core p (Kind v')
-finishKind x =
-  indexKindLogicalMap x >>= \case
-    LinkKindLogical κ -> zonkKind finishKind κ
-    UnboundKindLogical _ μ _ -> pure $ defaultKind μ
+finishKind :: (ZonkKind u) => u KindLogical -> Core p (u v)
+finishKind κ = zonkKind go κ
+  where
+    go x =
+      indexKindLogicalMap x >>= \case
+        LinkKindLogical κ -> finishKind κ
+        UnboundKindLogical _ μ _ -> pure $ defaultKind μ
 
-zonk :: (ZonkType u, ZonkKind (u vσ')) => u TypeLogical KindLogical -> Core p (u vσ' v')
-zonk e = do
-  e <- zonkType finishType e
-  e <- zonkKind finishKind e
+finish :: (ZonkType u, ZonkKind (u vσ')) => u TypeLogical KindLogical -> Core p (u vσ' v')
+finish e = do
+  e <- finishType e
+  e <- finishKind e
   pure e
 
-generalize :: Bool -> (TermUnify p, TypeUnify) -> Core p (TermSchemeUnify p, TypeSchemeUnify)
-generalize generalizeKinds (e@(TermCore p _), σ) = do
+unsolvedTypeLogical :: (ZonkType u) => u TypeLogical vκ -> Core p (Set TypeLogical)
+unsolvedTypeLogical σ = do
+  let α = Set.toList (freeTypeLogical σ)
+  α <- for α $ \x ->
+    indexTypeLogicalMap x >>= \case
+      LinkTypeLogical σ -> unsolvedTypeLogical σ
+      _ -> pure $ Set.singleton x
+  pure $ Set.unions α
+
+unsolvedKindLogical :: ZonkKind u => u KindLogical -> Core p (Set KindLogical)
+unsolvedKindLogical σ = do
+  let α = Set.toList (freeKindLogical σ)
+  α <- for α $ \x ->
+    indexKindLogicalMap x >>= \case
+      LinkKindLogical σ -> unsolvedKindLogical σ
+      _ -> pure $ Set.singleton x
+  pure $ Set.unions α
+
+generalize inline (e@(TermCore p _), σ) = do
   used <- usedVars <$> getState
   let typeNames = filter (`Set.notMember` used) $ temporaries' $ (: []) <$> ['A' .. 'M']
   let kindNames = filter (`Set.notMember` used) $ temporaries' $ (: []) <$> ['N' .. 'Z']
@@ -520,9 +541,8 @@ generalize generalizeKinds (e@(TermCore p _), σ) = do
   e <- pure $ TermSchemeCore p $ MonoTerm e
   σ <- pure $ TypeSchemeCore $ MonoType σ
 
-  let α = Set.toList $ freeTypeLogical σ
+  α <- Set.toList <$> unsolvedTypeLogical σ
   α <- topologicalBoundsSort α
-  α <- filterM unsolvedType α
   -- todo actually use levels for generalization
   (e, σ) <- foldlMFlip (e, σ) (attachNames α typeNames) $ \(e, σ) (α, name') ->
     indexTypeLogicalMap α >>= \case
@@ -538,8 +558,11 @@ generalize generalizeKinds (e@(TermCore p _), σ) = do
           )
       _ -> error "unhandled type logical"
 
-  κα <- if generalizeKinds then Map.keys <$> getKindLogicalMap else pure []
-  κα <- filterM unsolvedKind κα
+  e <- finishType e
+  σ <- finishType σ
+
+  κα <- if inline then Set.toList <$> unsolvedKindLogical σ else pure []
+
   (e, σ) <- foldlMFlip (e, σ) (attachNames κα kindNames) $ \(e, σ) (α, name') ->
     indexKindLogicalMap α >>= \case
       (UnboundKindLogical p μ _) -> do
@@ -553,31 +576,25 @@ generalize generalizeKinds (e@(TermCore p _), σ) = do
             TypeSchemeCore $ ImplicitKindForall (Bound (KindPatternCore name μ) σ)
           )
       _ -> error "unhandled kind logical"
+
+  e <- finishKind e
+  σ <- finishKind σ
+
   pure (e, σ)
   where
     attachNames vars names = reverse $ zip (reverse vars) names
     foldlMFlip a b f = foldlM f a b
-    unsolvedType x =
-      indexTypeLogicalMap x >>= \case
-        (UnboundTypeLogical _ _ _ _ Nothing _) -> pure True
-        _ -> pure False
-    unsolvedKind x =
-      indexKindLogicalMap x >>= \case
-        (UnboundKindLogical _ _ _) -> pure True
-        _ -> pure False
 
 -- todo readd ambigous types check
 typeCheckGlobalAuto ::
   Bool ->
   TermSource p ->
   Core p (TermSchemeInfer p, TypeSchemeInfer)
-typeCheckGlobalAuto generalizeKinds e = do
+typeCheckGlobalAuto inline e = do
   enterLevel
   Checked e σ _ <- typeCheck e
   leaveLevel
-  (e, ς) <- generalize generalizeKinds (e, σ)
-  e <- zonk e
-  ς <- zonk ς
+  (e, ς) <- generalize inline (e, σ)
   pure (e, ς)
 
 typeCheckGlobalManual ::
@@ -592,8 +609,8 @@ typeCheckGlobalManual e@(TermSchemeSource p _) ς = case ς of
     (ς, _) <- kindCheckScheme ς
     zonkKind (const $ quit $ ExpectedFullAnnotation p) ς
     e <- go ς e
-    e <- zonk e
-    ς <- zonk ς
+    e <- finish e
+    ς <- finish ς
     pure (e, ς)
   where
     go (TypeSchemeCore (MonoType σ)) (TermSchemeSource p (MonoTerm e)) = do
