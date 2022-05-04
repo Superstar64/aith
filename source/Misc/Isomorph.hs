@@ -132,9 +132,6 @@ imap (Isomorph f g) = Isomorph (fmap f) (fmap g)
 
 -- some helpers need by syntax
 
-swap_1_4_associate :: Isomorph (a, (((b, c), d), e)) ((((a, e), b), c), d)
-swap_1_4_associate = Isomorph (\(e, (((pm, c), π), σ)) -> ((((e, σ), pm), c), π)) (\((((e, σ), pm), c), π) -> (e, (((pm, c), π), σ)))
-
 rotateLast3 :: Isomorph (((a, b), c), d) (((a, d), b), c)
 rotateLast3 = Isomorph (\(((pm, c), π), σ) -> (((pm, σ), c), π)) (\(((pm, σ), c), π) -> (((pm, c), π), σ))
 

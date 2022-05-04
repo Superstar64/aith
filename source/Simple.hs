@@ -4,7 +4,7 @@ import Ast.Common
 import Ast.Kind hiding (convertKind)
 import Ast.Term hiding (convertTerm)
 import Ast.Type hiding (convertType)
-import Control.Monad.Trans.Reader (ReaderT, ask, withReaderT)
+import Control.Monad.Trans.Reader (ReaderT, ask, runReader, withReaderT)
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Set (Set, singleton)
@@ -12,7 +12,7 @@ import Data.Void (absurd)
 import Misc.Symbol
 import TypeCheck.Unify
 
-data SimpleType = SimpleType (KindRuntime KindSize SimpleType)
+data SimpleType = SimpleType (KindRuntime KindSize SimpleType) deriving (Eq, Ord)
 
 data SimplePattern p = SimplePattern p (TermRuntimePatternF SimpleType (SimplePattern p))
 
@@ -33,6 +33,14 @@ externalImpl (SimpleTerm _ (NumberLiteral _)) = mempty
 externalImpl (SimpleTerm _ (Arithmatic _ e e' _)) = externalImpl e <> externalImpl e'
 
 external (SimpleFunction _ (Bound _ e)) = externalImpl e
+
+mangleType :: SimpleType -> String
+mangleType (SimpleType PointerRep) = "p"
+mangleType (SimpleType (StructRep σs)) = "s" ++ (σs >>= mangleType) ++ "e"
+mangleType (SimpleType (WordRep Byte)) = "b"
+mangleType (SimpleType (WordRep Short)) = "s"
+mangleType (SimpleType (WordRep Int)) = "i"
+mangleType (SimpleType (WordRep Long)) = "l"
 
 convertKindImpl :: KindInfer -> SimpleType
 convertKindImpl (KindCore (KindRuntime PointerRep)) = SimpleType $ PointerRep
@@ -137,3 +145,9 @@ convertFunction _ = error "failed to convert function"
 simplePatternType :: SimplePattern p -> SimpleType
 simplePatternType (SimplePattern _ (RuntimePatternVariable _ σ)) = σ
 simplePatternType (SimplePattern _ (RuntimePatternPair pm pm')) = SimpleType $ StructRep [simplePatternType pm, simplePatternType pm']
+
+simpleFunction :: TermSchemeInfer p -> SimpleFunction p
+simpleFunction e = runReader (convertFunction e) Map.empty
+
+simpleFunctionType :: TypeSchemeInfer -> SimpleFunctionType
+simpleFunctionType σ = runReader (convertFunctionType σ) Map.empty

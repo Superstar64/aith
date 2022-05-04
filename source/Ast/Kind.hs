@@ -22,18 +22,18 @@ data KindSize
   | Short
   | Int
   | Long
-  deriving (Show)
+  deriving (Show, Eq, Ord)
 
 data KindSignedness
   = Signed
   | Unsigned
-  deriving (Show)
+  deriving (Show, Eq, Ord)
 
 data KindRuntime s κ
   = PointerRep
   | StructRep [κ]
   | WordRep s
-  deriving (Show)
+  deriving (Show, Eq, Ord)
 
 data KindF v κ
   = KindVariable KindIdentifier

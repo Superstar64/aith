@@ -31,75 +31,93 @@ integer = Printer $ \n -> Just $ show n
 
 betweenParens = between (string "(") (string ")")
 
+commaSeperatedMany e = seperatedMany e (string ",")
+
+semiMany e = many (e ≪ string ";")
+
 betweenBraces = between (string "{") (string "}")
 
 argumentList e = betweenParens (seperatedMany e (string ","))
 
 preprocess x = line ≫ x ≪ line
 
+-- todo readd this to structs so c files can be monoidal again
 once name x = preprocess (string "#ifndef " ≫ name) ⊗ preprocess (string "#define " ≫ name ⊗ string " " ≫ name) ⊗ x ≪ preprocess (string "#endif")
 
 header :: Printer ()
 header = preprocess (string "#include \"stdint.h\"")
 
-globals = header ≫ many global
+variableDeclaration = just ⊣ identifer ∥ nothing ⊣ always
 
-typex =
+base =
   choice
-    [ C.pointer ⊣ string "void*",
-      C.struct ⊣ string "struct" ≫ identifer,
-      C.byte ⊣ string "int8_t",
+    [ C.void ⊣ string "void",
+      C.byte ⊣ string "uint8_t",
       C.short ⊣ string "int16_t",
       C.int ⊣ string "int32_t",
-      C.long ⊣ string "int64_t"
+      C.long ⊣ string "int64_t",
+      C.ubyte ⊣ string "uint8_t",
+      C.ushort ⊣ string "uint16_t",
+      C.uint ⊣ string "uint32_t",
+      C.ulong ⊣ string "uint64_t",
+      C.struct ⊣ string "struct" ≫ struct
     ]
 
-signedType =
-  choice
-    [ (C.signed ⊣ always) ⊗ (C.byte ⊣ string "int8_t"),
-      (C.signed ⊣ always) ⊗ (C.short ⊣ string "int16_t"),
-      (C.signed ⊣ always) ⊗ (C.int ⊣ string "int32_t"),
-      (C.signed ⊣ always) ⊗ (C.long ⊣ string "int64_t"),
-      (C.unsigned ⊣ always) ⊗ (C.byte ⊣ string "uint8_t"),
-      (C.unsigned ⊣ always) ⊗ (C.short ⊣ string "uint16_t"),
-      (C.unsigned ⊣ always) ⊗ (C.int ⊣ string "uint32_t"),
-      (C.unsigned ⊣ always) ⊗ (C.long ⊣ string "uint64_t")
-    ]
+declaration :: Printer C.Declaration
+declaration = C.declaration ⊣ base ⊗ declarator
 
-global = functionDefinition ∥ structDefinition
+struct :: Printer C.Struct
+struct = apply ⊣ (identifer ⊗ (fields ⊕ always)) ⊕ fields
   where
-    functionDefinition = C.functionDefinition ⊣ typex ⊗ identifer ⊗ arguments ⊗ compound
-      where
-        arguments = argumentList (typex ⊗ identifer)
-    structDefinition = C.structDefinition . toPrism ignoreCpp ⊣ once identifer definition
-      where
-        definition = string "struct" ≫ identifer ⊗ betweenBraces (many declare) ≪ string ";"
-          where
-            declare = typex ⊗ identifer ≪ string ";"
-    ignoreCpp = discardInfo (\(name, _) -> (name, (name, name)))
+    apply = branch (branchDistribute C.structDefinition (C.structUse . toPrism unit')) C.anonymous
+    fields = betweenBraces $ semiMany declaration
 
-compound = betweenBraces $ many statement
+declarator :: Printer C.Declarator
+declarator = declaratorPointer
+  where
+    declaratorPointer = foldrP (C.complex . C.pointer . toPrism unit) ⊣ many (string "*") ⊗ declaratorFunction
+    declaratorFunction = foldlP apply ⊣ declaratorCore ⊗ many (betweenParens (commaSeperatedMany declaration))
+      where
+        apply = C.complex . C.function
+    declaratorCore = C.basic ⊣ variableDeclaration ∥ betweenParens declarator
 
-statement =
+definition :: Printer C.Definition
+definition =
   choice
-    [ C.returnx ⊣ string "return" ≫ expression ≪ string ";",
-      C.forwardDeclare ⊣ typex ⊗ identifer ⊗ argumentList typex ≪ string ";",
-      C.variableDeclation ⊣ typex ⊗ identifer ≪ string "=" ⊗ expression ≪ string ";"
+    [ C.functionBody ⊣ statements,
+      C.initializer ⊣ string "=" ≫ initializer,
+      C.uninitialized ⊣ always
     ]
 
-expression = choice options
+initializer = C.scalar ⊣ expression ∥ C.brace ⊣ betweenBraces (commaSeperatedMany initializer)
+
+statement :: Printer C.Statement
+statement = C.binding ⊣ declaration ⊗ definition ≪ string ";" ∥ C.returnx ⊣ string "return" ≫ expression ≪ string ";"
+
+statements = betweenBraces $ many statement
+
+expression :: Printer C.Expression
+expression = binaryAdd
   where
-    options =
-      [ C.variable ⊣ identifer,
-        C.call ⊣ betweenParens (betweenParens castFunctionPointer ⊗ expression) ⊗ argumentList expression,
-        C.compoundLiteral ⊣ betweenParens typex ⊗ betweenBraces (seperatedMany expression (string ",")),
-        C.member ⊣ betweenParens expression ≪ string "." ⊗ identifer,
-        C.dereference ⊣ betweenParens (string "*" ≫ betweenParens (typex ≪ string "*") ⊗ expression),
-        C.address ⊣ betweenParens (betweenParens (string "void*") ≫ string "&" ≫ expression),
-        C.integerLiteral ⊣ integer,
-        C.addition ⊣ betweenParens signedType ⊗ betweenParens expression ⊗ string "+" ≫ betweenParens signedType ⊗ betweenParens expression,
-        C.subtraction ⊣ betweenParens signedType ⊗ betweenParens expression ⊗ string "-" ≫ betweenParens signedType ⊗ betweenParens expression,
-        C.multiplication ⊣ betweenParens signedType ⊗ betweenParens expression ⊗ string "*" ≫ betweenParens signedType ⊗ betweenParens expression,
-        C.division ⊣ betweenParens signedType ⊗ betweenParens expression ⊗ string "/" ≫ betweenParens signedType ⊗ betweenParens expression
-      ]
-    castFunctionPointer = typex ≪ string "(*)" ⊗ argumentList typex
+    binaryAdd = foldlP apply ⊣ binaryMul ⊗ many (add ⊕ sub)
+      where
+        add = string "+" ≫ binaryMul
+        sub = string "-" ≫ binaryMul
+        apply = branchDistribute C.addition C.subtraction
+    binaryMul = foldlP apply ⊣ prefix ⊗ many (mul ⊕ div)
+      where
+        mul = string "*" ≫ prefix
+        div = string "/" ≫ prefix
+        apply = branchDistribute C.multiplication C.division
+    prefix = ptr ∥ addr ∥ postfix
+      where
+        ptr = C.dereference ⊣ string "*" ≫ prefix
+        addr = C.address ⊣ string "&" ≫ prefix
+    postfix = foldlP apply ⊣ core ⊗ many (arguments ⊕ member)
+      where
+        apply = C.call `branchDistribute` C.member
+        arguments = betweenParens $ commaSeperatedMany expression
+        member = string "." ≫ identifer
+    core = C.variable ⊣ identifer ∥ C.integerLiteral ⊣ integer ∥ betweenParens expression
+
+code = header ≫ many statement

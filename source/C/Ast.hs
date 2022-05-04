@@ -1,19 +1,78 @@
 module C.Ast where
 
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (evalStateT, get, modify)
-import Control.Monad.Trans.Writer.Strict (runWriter, tell)
-import qualified Data.Set as Set
+import Control.Category ((.))
+import Data.Bifunctor (first, second)
+import Misc.Isomorph
 import Misc.Prism
+import Prelude hiding (id, (.))
 
-data Representation x = Pointer | Struct x | Byte | Short | Int | Long deriving (Show, Eq, Ord)
+data Base
+  = Void
+  | Byte
+  | Short
+  | Int
+  | Long
+  | UByte
+  | UShort
+  | UInt
+  | ULong
+  | Struct Struct
+  deriving (Show)
 
-pointer = Prism (const Pointer) $ \case
-  Pointer -> Just ()
-  _ -> Nothing
+data Struct
+  = Anonymous [Declaration]
+  | StructDefinition String [Declaration]
+  | StructUse String
+  deriving (Show)
 
-struct = Prism Struct $ \case
-  (Struct x) -> Just x
+data Composite x
+  = Pointer x
+  | Function x [Declaration]
+  deriving (Show)
+
+data Type
+  = Base Base
+  | Composite (Composite Type)
+  deriving (Show)
+
+data Declaration = Declaration Type (Maybe String) deriving (Show)
+
+data Initializer
+  = Scalar Expression
+  | Brace [Initializer]
+  deriving (Show)
+
+data Definition
+  = FunctionBody [Statement]
+  | Initializer Initializer
+  | Uninitialized
+  deriving (Show)
+
+data Statement
+  = Return Expression
+  | Binding Declaration Definition
+  deriving (Show)
+
+data Expression
+  = Variable String
+  | Call Expression [Expression]
+  | Member Expression String
+  | Dereference Expression
+  | Address Expression
+  | IntegerLiteral Integer
+  | Addition Expression Expression
+  | Subtraction Expression Expression
+  | Multiplication Expression Expression
+  | Division Expression Expression
+  deriving (Show)
+
+data Declarator
+  = Basic (Maybe String)
+  | Complex (Composite Declarator)
+  deriving (Show)
+
+void = Prism (const Void) $ \case
+  Void -> Just ()
   _ -> Nothing
 
 byte = Prism (const Byte) $ \case
@@ -32,109 +91,88 @@ long = Prism (const Long) $ \case
   Long -> Just ()
   _ -> Nothing
 
-data Sign = Signed | Unsigned deriving (Show)
-
-signed = Prism (const Signed) $ \case
-  Signed -> Just ()
+ubyte = Prism (const UByte) $ \case
+  UByte -> Just ()
   _ -> Nothing
 
-unsigned = Prism (const Unsigned) $ \case
-  Unsigned -> Just ()
+ushort = Prism (const UShort) $ \case
+  UShort -> Just ()
   _ -> Nothing
 
-data RepresentationFix = RepresentationFix ([Representation RepresentationFix]) deriving (Show, Eq, Ord)
+uint = Prism (const UInt) $ \case
+  UInt -> Just ()
+  _ -> Nothing
 
-mangleType Pointer = "p"
-mangleType (Struct (RepresentationFix items)) = "s" ++ (items >>= mangleType) ++ "e"
-mangleType Byte = "b"
-mangleType Short = "w"
-mangleType Int = "i"
-mangleType Long = "l"
+ulong = Prism (const ULong) $ \case
+  ULong -> Just ()
+  _ -> Nothing
 
-fields = map (\x -> '_' : show x) [0 ..]
+pointer = Prism Pointer $ \case
+  Pointer σ -> Just σ
+  _ -> Nothing
 
-escapeStruct Pointer = pure Pointer
-escapeStruct (Struct (RepresentationFix items)) = do
-  let mangling = "s" ++ (items >>= mangleType) ++ "e"
-  solved <- get
-  if items `Set.notMember` solved
-    then do
-      modify $ Set.insert items
-      items' <- traverse escapeStruct items
-      lift $ tell [StructDefinition mangling (zip items' fields)]
-    else pure ()
-  pure $ Struct $ mangling
-escapeStruct Byte = pure Byte
-escapeStruct Short = pure Short
-escapeStruct Int = pure Int
-escapeStruct Long = pure Long
+struct = Prism (Struct) $ \case
+  (Struct body) -> Just body
+  _ -> Nothing
 
-escapeStructs :: [Global (Representation RepresentationFix)] -> ([Global (Representation String)], [Global (Representation String)])
-escapeStructs x = runWriter $ evalStateT (traverse (traverse escapeStruct) x) (Set.empty)
-
-data Global x
-  = FunctionDefinition x String [(x, String)] [Statement x]
-  | StructDefinition String [(x, String)]
-  deriving (Show, Functor, Foldable, Traversable)
-
-functionDefinition = Prism (uncurry $ uncurry $ uncurry $ FunctionDefinition) $ \case
-  (FunctionDefinition returnType name arguments text) -> Just (((returnType, name), arguments), text)
+anonymous = Prism Anonymous $ \case
+  Anonymous body -> Just body
   _ -> Nothing
 
 structDefinition = Prism (uncurry StructDefinition) $ \case
-  (StructDefinition name items) -> Just (name, items)
+  StructDefinition name body -> Just (name, body)
   _ -> Nothing
 
-data Statement x
-  = Return (Expression x)
-  | ForwardDeclare x String [x]
-  | VariableDeclaration x String (Expression x)
-  deriving (Show, Functor, Foldable, Traversable)
+structUse = Prism StructUse $ \case
+  StructUse name -> Just name
+  _ -> Nothing
+
+scalar = Prism Scalar $ \case
+  Scalar expr -> Just expr
+  _ -> Nothing
+
+brace = Prism Brace $ \case
+  Brace expr -> Just expr
+  _ -> Nothing
+
+functionBody = Prism FunctionBody $ \case
+  FunctionBody body -> Just body
+  _ -> Nothing
+
+initializer = Prism Initializer $ \case
+  Initializer init -> Just init
+  _ -> Nothing
+
+uninitialized = Prism (const Uninitialized) $ \case
+  Uninitialized -> Just ()
+  _ -> Nothing
+
+function = Prism (uncurry Function) $ \case
+  Function e a -> Just (e, a)
+  _ -> Nothing
 
 returnx = Prism Return $ \case
-  (Return e) -> Just e
+  Return e -> Just e
   _ -> Nothing
 
-forwardDeclare = Prism (uncurry $ uncurry $ ForwardDeclare) $ \case
-  (ForwardDeclare returnType name argumentTypes) -> Just ((returnType, name), argumentTypes)
+binding = Prism (uncurry Binding) $ \case
+  Binding decl init -> Just (decl, init)
   _ -> Nothing
-
-variableDeclation = Prism (uncurry $ uncurry $ VariableDeclaration) $ \case
-  (VariableDeclaration variableType name value) -> Just ((variableType, name), value)
-  _ -> Nothing
-
-data Expression x
-  = Variable String
-  | Call x [x] (Expression x) [Expression x]
-  | CompoundLiteral x [Expression x]
-  | Member (Expression x) String
-  | Dereference x (Expression x)
-  | Address (Expression x)
-  | IntegerLiteral Integer
-  | Addition (Sign, x) (Expression x) (Sign, x) (Expression x)
-  | Subtraction (Sign, x) (Expression x) (Sign, x) (Expression x)
-  | Multiplication (Sign, x) (Expression x) (Sign, x) (Expression x)
-  | Division (Sign, x) (Expression x) (Sign, x) (Expression x)
-  deriving (Show, Functor, Foldable, Traversable)
 
 variable = Prism Variable $ \case
   (Variable x) -> Just x
   _ -> Nothing
 
-call = Prism (uncurry $ uncurry $ uncurry $ Call) $ \case
-  (Call returnType argumentTypes function arguments) -> Just (((returnType, argumentTypes), function), arguments)
-  _ -> Nothing
-
-compoundLiteral = Prism (uncurry $ CompoundLiteral) $ \case
-  (CompoundLiteral typex items) -> Just (typex, items)
+call = Prism (uncurry $ Call) $ \case
+  (Call function arguments) -> Just (function, arguments)
   _ -> Nothing
 
 member = Prism (uncurry $ Member) $ \case
   (Member value name) -> Just (value, name)
   _ -> Nothing
 
-dereference = Prism (uncurry $ Dereference) $ \case
-  (Dereference pointer value) -> Just (pointer, value)
+dereference = Prism Dereference $ \case
+  (Dereference pointer) -> Just pointer
   _ -> Nothing
 
 address = Prism Address $ \case
@@ -145,18 +183,60 @@ integerLiteral = Prism IntegerLiteral $ \case
   (IntegerLiteral n) -> Just n
   _ -> Nothing
 
-addition = Prism (uncurry $ uncurry $ uncurry Addition) $ \case
-  Addition x e x' e' -> Just (((x, e), x'), e')
+addition = Prism (uncurry Addition) $ \case
+  Addition e e' -> Just (e, e')
   _ -> Nothing
 
-subtraction = Prism (uncurry $ uncurry $ uncurry Subtraction) $ \case
-  Subtraction x e x' e' -> Just (((x, e), x'), e')
+subtraction = Prism (uncurry Subtraction) $ \case
+  Subtraction e e' -> Just (e, e')
   _ -> Nothing
 
-multiplication = Prism (uncurry $ uncurry $ uncurry Multiplication) $ \case
-  Multiplication x e x' e' -> Just (((x, e), x'), e')
+multiplication = Prism (uncurry Multiplication) $ \case
+  Multiplication e e' -> Just (e, e')
   _ -> Nothing
 
-division = Prism (uncurry $ uncurry $ uncurry Division) $ \case
-  Division x e x' e' -> Just (((x, e), x'), e')
+division = Prism (uncurry Division) $ \case
+  Division e e' -> Just (e, e')
   _ -> Nothing
+
+basic = Prism Basic $ \case
+  Basic x -> Just x
+  _ -> Nothing
+
+complex = Prism Complex $ \case
+  Complex e -> Just e
+  _ -> Nothing
+
+declaration :: Isomorph (Base, Declarator) Declaration
+declaration = Isomorph join split . secondI (inverse slot . firstI reverseI . slot)
+  where
+    join (base, Basic name) = Declaration (Base base) name
+    join (base, Complex (Pointer decl)) =
+      Declaration (Composite $ Pointer typex) name
+      where
+        Declaration typex name = join (base, decl)
+    join (base, Complex (Function decl arguments)) =
+      Declaration (Composite $ Function typex arguments) name
+      where
+        Declaration typex name = join (base, decl)
+    split (Declaration (Base typex) name) = (typex, Basic name)
+    split (Declaration (Composite (Pointer typex)) name) =
+      second (Complex . Pointer) $ split (Declaration typex name)
+    split (Declaration (Composite (Function typex arguments)) name) =
+      second (Complex . flip Function arguments) $ split (Declaration typex name)
+
+    reverseI = Isomorph reverse reverse
+
+    slot :: Isomorph Declarator ([Composite ()], Maybe String)
+    slot = Isomorph split join
+      where
+        split (Basic name) = ([], name)
+        split (Complex (Pointer decl)) =
+          first (Pointer () :) $ split decl
+        split (Complex (Function decl arguments)) =
+          first (Function () arguments :) $ split decl
+        join ([], name) = Basic name
+        join (Pointer () : decls, name) =
+          Complex $ Pointer $ join (decls, name)
+        join (Function () arguments : decls, name) =
+          Complex $ Function (join (decls, name)) arguments

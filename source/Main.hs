@@ -7,7 +7,6 @@ import Ast.Type hiding (Inline)
 import qualified C.Ast as C
 import qualified C.Print as C
 import Codegen
-import Control.Monad.Trans.Reader
 import Data.Functor.Identity (runIdentity)
 import qualified Data.Map as Map
 import Data.Traversable (for)
@@ -35,30 +34,6 @@ nameType = sourceType . runIdentity . zonkType nameTypeLogical . runIdentity . z
 
 nameKind :: KindUnify -> KindSource Internal
 nameKind = sourceKind . runIdentity . zonkKind nameKindLogical
-
-compileFunctionLiteral ::
-  [String] ->
-  String ->
-  TypeSchemeInfer ->
-  TermSchemeInfer p ->
-  C.Global (C.Representation C.RepresentationFix)
-compileFunctionLiteral path name σ e = fmap ctype $ runCodegen (compileFunction sym e' σ') (external e')
-  where
-    e' = runReader (convertFunction e) Map.empty
-    σ' = runReader (convertFunctionType σ) Map.empty
-    sym = mangle (Path path name)
-
-compileModule path (CoreModule code) = Map.toList code >>= (uncurry $ compileItem path)
-
-compileItem ::
-  [String] ->
-  String ->
-  Item (GlobalInfer p) ->
-  [C.Global (C.Representation C.RepresentationFix)]
-compileItem path name (Module items) = compileModule (path ++ [name]) items
-compileItem path name (Global (GlobalInfer (Text σ e))) = [compileFunctionLiteral path name σ e]
-compileItem _ _ (Global (GlobalInfer (Inline _ _))) = []
-compileItem _ _ (Global (GlobalInfer (Import _ _))) = []
 
 prettyError :: TypeError [SourcePos] -> String
 prettyError (UnknownIdentifier p (TermIdentifier x)) = "Unknown identifer " ++ x ++ positions p
@@ -181,12 +156,35 @@ prettyAll ((path, file) : remainder) code = do
   item <- pickItem path code
   writeFile file (pretty itemSingleton item)
 
+compileFunctionLiteral ::
+  [String] ->
+  String ->
+  TypeSchemeInfer ->
+  TermSchemeInfer p ->
+  Dependency (C.Statement)
+compileFunctionLiteral path name σ e = codegen sym (simpleFunctionType σ) (simpleFunction e)
+  where
+    sym = mangle (Path path name)
+
+compileModule :: [String] -> Module (GlobalInfer p) -> Dependency [C.Statement]
+compileModule path (CoreModule code) = concat <$> traverse (uncurry (compileItem path)) (Map.toList code)
+
+compileItem ::
+  [String] ->
+  String ->
+  Item (GlobalInfer p) ->
+  Dependency [C.Statement]
+compileItem path name (Module items) = compileModule (path ++ [name]) items
+compileItem path name (Global (GlobalInfer (Text σ e))) = pure (:) <*> compileFunctionLiteral path name σ e <*> pure []
+compileItem _ _ (Global (GlobalInfer (Inline _ _))) = pure []
+compileItem _ _ (Global (GlobalInfer (Import _ _))) = pure []
+
 generateAll [] _ = pure ()
 generateAll ((path@(Path heading name), file) : remainder) code = do
   generateAll remainder code
   item <- pickItem path code
-  let (functions, structs) = C.escapeStructs $ compileItem heading name item
-  writeFile file (C.emit C.globals $ structs ++ functions)
+  let (functions, structs) = runDependency $ compileItem heading name item
+  writeFile file (C.emit C.code $ structs ++ functions)
 
 uninfer :: ModuleOrder (GlobalInfer [SourcePos]) -> ModuleOrder (GlobalSource Internal)
 uninfer = fmap nameGlobal
