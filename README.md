@@ -176,6 +176,7 @@ Files start with `code` `:::`.
 | Effect | ``σ @ π`` |
 | Pointer | ``σ* @ π`` |
 | Number | ``#ρ ρ'`` |
+| Boolean | ``bool`` |
 
 # Types (Syntax Sugar) (σ, τ, π)
 | Description | Syntax | Meaning|
@@ -227,7 +228,6 @@ Files start with `code` `:::`.
 | Short Size | ``short``|
 | Int Size | ``int`` |
 | Long Size | ``long`` |
-| Boolean | ``bool`` |
 
 # Kind Pattern (pmκ)
 | Description | Syntax |
