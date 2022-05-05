@@ -1,5 +1,5 @@
 
-all: aith.pdf aith_simple.pdf
+all: aith.pdf
 
 aith.pdf: aith.tex
 	latexmk -pdf $<

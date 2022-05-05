@@ -104,6 +104,9 @@ checkNumber p σt = do
   matchType p σt (TypeCore $ Number ρ1 ρ2)
   pure (ρ1, ρ2)
 
+checkBoolean p σt = do
+  matchType p σt (TypeCore $ Boolean)
+
 augmentVariableLinear p x l ς check = do
   Checked e σ lΓ <- augmentTypeEnvironment x p l ς check
   case l of
@@ -283,6 +286,8 @@ kindCheck (TypeSource p σ) = case σ of
       Nothing -> freshKindVariable p Size
       Just ρ2 -> fmap fst $ secondM (checkSize p) =<< sortCheck ρ2
     pure (TypeCore $ Number ρ1' ρ2', KindCore $ Pretype $ KindCore $ KindRuntime $ WordRep ρ2')
+  Boolean -> do
+    pure (TypeCore $ Boolean, KindCore $ Pretype $ KindCore $ KindRuntime $ WordRep $ KindCore $ KindSize $ Byte)
   TypeLogical v -> absurd v
 
 instantiate p (TypeSchemeCore ς) = case ς of
@@ -475,6 +480,17 @@ typeCheck (TermSource p e) = case e of
     σ' <- fst <$> kindCheck σ'
     matchType p σ σ'
     pure $ Checked e τ lΓ
+  TermRuntime (BooleanLiteral b) -> do
+    π <- freshRegionTypeVariable p
+    pure $ Checked (TermCore p $ TermRuntime $ BooleanLiteral b) (TypeCore $ Effect (TypeCore Boolean) π) useNothing
+  TermRuntime (If eb et ef) -> do
+    Checked eb' ((), π) lΓ1 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck eb
+    Checked et' (σ, π') lΓ2 <- traverse (checkEffect p) =<< typeCheck et
+    Checked ef' (σ', π'') lΓ3 <- traverse (checkEffect p) =<< typeCheck ef
+    matchType p π π'
+    matchType p π π''
+    matchType p σ σ'
+    pure $ Checked (TermCore p $ TermRuntime $ If eb' et' ef') (TypeCore $ Effect σ π) (lΓ1 `combine` (lΓ2 `branch` lΓ3))
 
 topologicalBoundsSort :: [TypeLogical] -> Core p [TypeLogical]
 topologicalBoundsSort vars = sortTopological id quit children vars

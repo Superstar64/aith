@@ -59,7 +59,10 @@ keywords =
       "import",
       "function",
       "uses",
-      "if"
+      "if",
+      "true",
+      "false",
+      "bool"
     ]
 
 -- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
@@ -120,7 +123,9 @@ lambdaCore e = binaryToken "=>" ≫ e
 
 lambdaInline e = space ≫ betweenBraces e ∥ lambdaCore e
 
-lambdaMajor e = space ≫ betweenBraces (indent ≫ line ≫ e ≪ dedent ≪ line) ∥ lambdaCore e
+lambdaBrace e = space ≫ betweenBraces (indent ≫ line ≫ e ≪ dedent ≪ line)
+
+lambdaMajor e = lambdaBrace e ∥ lambdaCore e
 
 commaSome e = some (token "," ≫ space ≫ e)
 
@@ -261,6 +266,7 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenPare
         shortcut "ushort" Language.unsigned Language.short,
         shortcut "uint" Language.unsigned Language.int,
         shortcut "ulong" Language.unsigned Language.long,
+        Language.boolean ⊣ keyword "bool",
         Language.number ⊣ token "#" ≫ kindCoreAuto ⊗ space ≫ kindCoreAuto,
         Language.explicitForall ⊣ constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊗ lambdaInline typex,
         Language.ofCourse ⊣ betweenBangSquares typeFull,
@@ -345,7 +351,8 @@ term = termBinding
       where
         options =
           [ Language.bind ⊣ rotateBind ⊣ prefixKeyword "inline" ≫ termPattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ term,
-            Language.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ termRuntimePattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ term
+            Language.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ termRuntimePattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ term,
+            Language.ifx ⊣ prefixKeyword "if" ≫ termCore ⊗ lambdaBrace term ≪ binaryKeyword "else" ⊗ lambdaBrace term
           ]
         rotateBind = secondI Language.bound . associate . firstI swap
     termRTApply = applyBinary ⊣ termAdd ⊗ (binaryToken "$" ≫ termRTApply ⊕ always)
@@ -383,7 +390,9 @@ termCore = Language.termSource ⊣ position ⊗ choice options ∥ betweenParens
         Language.extern ⊣ extern,
         Language.ofCourseIntroduction ⊣ betweenBangSquares termFull,
         Language.numberLiteral ⊣ number,
-        Language.typeLambda ⊣ constraintBound ⊣ token "/\\" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCoreAuto ⊗ lambdaMajor term
+        Language.typeLambda ⊣ constraintBound ⊣ token "/\\" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCoreAuto ⊗ lambdaMajor term,
+        Language.truex ⊣ keyword "true",
+        Language.falsex ⊣ keyword "false"
       ]
     externHeader = prefixKeyword "extern" ≫ symbol ≪ space ≪ keyword "function"
     extern = swapLast2 ⊣ externHeader ⊗ betweenParens typeFullAuto ≪ binaryToken "=>" ⊗ typeAuto ≪ binaryKeyword "uses" ⊗ typeCoreAuto

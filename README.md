@@ -49,6 +49,11 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 * [ ] Essentials
   * [ ] Runtime Primitives
     * [ ] Booleans
+      * [x] Boolean Type
+      * [x] Boolean Literals
+      * [x] If expression
+      * [ ] Equality / Inequality Operators
+      * [ ] Logical Operators
     * [x] Integers
     * [x] Pointers
     * [ ] Arrays
@@ -123,6 +128,9 @@ Files start with `code` `:::`.
 | Subtraction | ``e - e'`` |
 | Multiplication | ``e * e'`` |
 | Divsion | ``e / e'`` |
+| True | ``true`` |
+| False | ``false`` |
+| If | ``if e { e' } else { e''}`` |
 | Type Abstraction | ``/\pmσ => e`` |
 | Type Abstraction | ``/\pmσ { e }`` |
 | Type Application | ``e <τ>``|
@@ -219,6 +227,7 @@ Files start with `code` `:::`.
 | Short Size | ``short``|
 | Int Size | ``int`` |
 | Long Size | ``long`` |
+| Boolean | ``bool`` |
 
 # Kind Pattern (pmκ)
 | Description | Syntax |

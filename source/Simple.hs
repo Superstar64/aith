@@ -31,6 +31,8 @@ externalImpl (SimpleTerm _ (PairIntroduction e e')) = externalImpl e <> external
 externalImpl (SimpleTerm _ (ReadReference e)) = externalImpl e
 externalImpl (SimpleTerm _ (NumberLiteral _)) = mempty
 externalImpl (SimpleTerm _ (Arithmatic _ e e' _)) = externalImpl e <> externalImpl e'
+externalImpl (SimpleTerm _ (BooleanLiteral _)) = mempty
+externalImpl (SimpleTerm _ (If eb et ef)) = externalImpl eb <> externalImpl et <> externalImpl ef
 
 external (SimpleFunction _ (Bound _ e)) = externalImpl e
 
@@ -114,6 +116,12 @@ convertTerm (TermCore p (TermRuntime (Arithmatic o e1 e2 κ))) = do
       KindCore (KindSignedness Signed) -> Signed
       KindCore (KindSignedness Unsigned) -> Unsigned
       _ -> error "bad sign"
+convertTerm (TermCore p (TermRuntime (BooleanLiteral b))) = pure $ SimpleTerm p $ BooleanLiteral b
+convertTerm (TermCore p (TermRuntime (If eb et ef))) = do
+  eb <- convertTerm eb
+  et <- convertTerm et
+  ef <- convertTerm ef
+  pure $ SimpleTerm p $ If eb et ef
 convertTerm (TermCore _ (TypeAbstraction _ _ _)) = simpleFailTerm
 convertTerm (TermCore _ (TypeApplication _ _ _)) = simpleFailPattern
 convertTerm (TermCore _ (InlineAbstraction _)) = simpleFailTerm

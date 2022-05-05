@@ -53,21 +53,9 @@ ctype (SimpleType (StructRep σs)) = do
     then do
       Codegen $ lift $ Dependency $ put $ DependencyState (Set.insert σs solved)
       members <- traverse ctype σs
-      Codegen $
-        lift $
-          Dependency $
-            lift $
-              tell
-                [ C.Binding
-                    ( C.Declaration
-                        ( C.Base $
-                            C.Struct $
-                              C.StructDefinition mangling (zipWith C.Declaration members fields)
-                        )
-                        Nothing
-                    )
-                    C.Uninitialized
-                ]
+      let σ = (C.Base $ C.Struct $ C.StructDefinition mangling (zipWith C.Declaration members fields))
+      let binding = C.Binding (C.Declaration σ Nothing) C.Uninitialized
+      Codegen $ lift $ Dependency $ lift $ tell [binding]
     else pure ()
   pure $ C.Base $ C.Struct $ C.StructUse mangling
   where
@@ -161,6 +149,18 @@ compileTerm (SimpleTerm _ (Arithmatic o e1 e2 s)) σ@(SimpleType (WordRep size))
       Subtraction -> C.Subtraction
       Multiplication -> C.Multiplication
       Division -> C.Division
+compileTerm (SimpleTerm _ (BooleanLiteral True)) _ = pure $ C.IntegerLiteral 1
+compileTerm (SimpleTerm _ (BooleanLiteral False)) _ = pure $ C.IntegerLiteral 0
+compileTerm (SimpleTerm _ (If eb et ef)) σ = do
+  eb <- compileTerm eb (SimpleType $ WordRep $ Byte)
+  result <- lift temporary
+  σ' <- lift $ ctype σ
+  tell [C.Binding (C.Declaration σ' (Just result)) C.Uninitialized]
+  (et, tDepend) <- lift $ runWriterT $ compileTerm et σ
+  (ef, fDepend) <- lift $ runWriterT $ compileTerm ef σ
+  let finish e = C.Expression $ C.Assign (C.Variable result) e
+  tell [C.If eb (tDepend ++ [finish et]) (fDepend ++ [finish ef])]
+  pure $ C.Variable result
 compileTerm _ _ = error "invalid type for simple term"
 
 compileFunction :: Symbol -> SimpleFunction p -> SimpleFunctionType -> Codegen C.Statement

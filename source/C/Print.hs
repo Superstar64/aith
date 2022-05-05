@@ -52,7 +52,7 @@ variableDeclaration = just ⊣ identifer ∥ nothing ⊣ always
 base =
   choice
     [ C.void ⊣ string "void",
-      C.byte ⊣ string "uint8_t",
+      C.byte ⊣ string "int8_t",
       C.short ⊣ string "int16_t",
       C.int ⊣ string "int32_t",
       C.long ⊣ string "int64_t",
@@ -92,13 +92,22 @@ definition =
 initializer = C.scalar ⊣ expression ∥ C.brace ⊣ betweenBraces (commaSeperatedMany initializer)
 
 statement :: Printer C.Statement
-statement = C.binding ⊣ declaration ⊗ definition ≪ string ";" ∥ C.returnx ⊣ string "return" ≫ expression ≪ string ";"
+statement =
+  choice
+    [ C.binding ⊣ declaration ⊗ definition ≪ string ";",
+      C.returnx ⊣ string "return" ≫ expression ≪ string ";",
+      C.ifx ⊣ string "if" ≫ betweenParens expression ⊗ statements ≪ string "else" ⊗ statements,
+      C.expression ⊣ expression ≪ string ";"
+    ]
 
 statements = betweenBraces $ many statement
 
 expression :: Printer C.Expression
-expression = binaryAdd
+expression = assignment
   where
+    assignment = apply ⊣ binaryAdd ⊗ (string "=" ≫ assignment ⊕ always)
+      where
+        apply = C.assign `branchDistribute` unit'
     binaryAdd = foldlP apply ⊣ binaryMul ⊗ many (add ⊕ sub)
       where
         add = string "+" ≫ binaryMul

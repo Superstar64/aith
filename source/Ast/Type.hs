@@ -45,6 +45,7 @@ data TypeF v λ κ σ
   | Effect σ σ
   | Reference σ σ
   | Number κ κ
+  | Boolean
   deriving (Show)
 
 traverseTypeSchemeF ::
@@ -100,6 +101,7 @@ traverseTypeF f i h g σ = case σ of
   Effect π σ -> pure Effect <*> g π <*> g σ
   Reference π σ -> pure Reference <*> g π <*> g σ
   Number ρ ρ' -> pure Number <*> h ρ <*> h ρ'
+  Boolean -> pure Boolean
 
 mapTypeF f i h g = runIdentity . traverseTypeF (Identity . f) (Identity . i) (Identity . h) (Identity . g)
 
@@ -215,6 +217,10 @@ reference = Prism (uncurry Reference) $ \case
 
 number = Prism (uncurry Number) $ \case
   (Number ρ ρ') -> Just (ρ, ρ')
+  _ -> Nothing
+
+boolean = Prism (const Boolean) $ \case
+  Boolean -> Just ()
   _ -> Nothing
 
 typeIdentifier = Isomorph TypeIdentifier runTypeIdentifier

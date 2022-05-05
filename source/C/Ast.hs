@@ -51,6 +51,8 @@ data Definition
 data Statement
   = Return Expression
   | Binding Declaration Definition
+  | If Expression [Statement] [Statement]
+  | Expression Expression
   deriving (Show)
 
 data Expression
@@ -64,6 +66,7 @@ data Expression
   | Subtraction Expression Expression
   | Multiplication Expression Expression
   | Division Expression Expression
+  | Assign Expression Expression
   deriving (Show)
 
 data Declarator
@@ -159,6 +162,14 @@ binding = Prism (uncurry Binding) $ \case
   Binding decl init -> Just (decl, init)
   _ -> Nothing
 
+ifx = Prism (uncurry $ uncurry If) $ \case
+  If bool true false -> pure ((bool, true), false)
+  _ -> Nothing
+
+expression = Prism Expression $ \case
+  Expression expr -> Just expr
+  _ -> Nothing
+
 variable = Prism Variable $ \case
   (Variable x) -> Just x
   _ -> Nothing
@@ -197,6 +208,10 @@ multiplication = Prism (uncurry Multiplication) $ \case
 
 division = Prism (uncurry Division) $ \case
   Division e e' -> Just (e, e')
+  _ -> Nothing
+
+assign = Prism (uncurry Assign) $ \case
+  Assign e e' -> Just (e, e')
   _ -> Nothing
 
 basic = Prism Basic $ \case

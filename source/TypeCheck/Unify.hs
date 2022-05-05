@@ -51,6 +51,7 @@ reconstructTypeF strictlyVariables indexVariable indexLogical augment make check
     pure $ make $ Pretype $ make $ KindRuntime $ WordRep ρ
   Reference _ _ ->
     pure $ make $ Pretype $ make $ KindRuntime $ PointerRep
+  Boolean -> pure $ make $ Pretype $ make $ KindRuntime $ WordRep $ make $ KindSize $ Byte
 
 reconstructKindF indexVariable indexLogical = \case
   KindVariable x -> do
@@ -129,6 +130,7 @@ typeOccursCheck p x lev σ' = go σ'
           recurse σ
           recurse τ
         Number _ _ -> pure ()
+        Boolean -> pure ()
 
 kindOccursCheck :: forall p. p -> KindLogical -> Level -> KindUnify -> Core p ()
 kindOccursCheck p x lev κ' = go κ'
@@ -233,6 +235,7 @@ matchType p σ σ' = unify σ σ'
     unify (TypeCore (Number ρ1 ρ2)) (TypeCore (Number ρ1' ρ2')) = do
       matchKind p ρ1 ρ1'
       matchKind p ρ2 ρ2'
+    unify (TypeCore Boolean) (TypeCore Boolean) = pure ()
     unify σ σ' = quit $ TypeMismatch p σ σ'
 
 matchKind :: p -> KindUnify -> KindUnify -> Core p ()
