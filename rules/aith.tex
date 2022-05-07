@@ -356,9 +356,12 @@ e \Coloneqq & \\
 e \Coloneqq & \\
 & (e, e') \tag{Pair Introduction} \\
 & \text{let}^\downarrow (x : \tau, x' : \tau') = e; e' \tag{Pair Elimination} \\
+& () \tag{Unit Introduction} \\
+& \text{let}^\downarrow () = e; e' \tag{Unit Elimination} \\
 & \dots \\
 \sigma, \tau, \pi \Coloneqq & \\
-& (\sigma, \tau) \tag{Runtime Pair} \\
+& (\sigma, \tau) \tag{Pair} \\
+& () \tag{Unit} \\
 & \dots \\
 \kappa, s, \rho \Coloneqq & \\
 & \text{Struct} \{ \rho, \rho', \dots \} \tag{Struct Representation} \\
@@ -373,13 +376,25 @@ e \Coloneqq & \\
 \frac
 {\splitfrac{\Phi | \Gamma \vdash e : (\tau, \tau')^\pi \quad \Phi | \Gamma , \langle x : \forall \alpha. \tau^\alpha \rangle, \langle x' : \forall \alpha. \tau'^\alpha \rangle \vdash e : \sigma^\pi}
 {\Phi \vdash \tau : +^{\rho} \quad \Phi \vdash \tau' : +^{\rho'} }}
-{\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow (x : \tau, x' : \tau') = e; e' : \sigma^\pi}
+{\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow (x : \tau, x' : \tau') = e; e' : \sigma^\pi} \\
+\\
+\frac
+{}
+{\Phi | \Gamma \vdash () : ()^\pi} \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : ()^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi}
+{\Phi | \Gamma \vdash \text{let}^\downarrow () = e; e' : \sigma^\pi}
 \end{gather*}
 
 \begin{gather*}
 \frac
 {\Phi \vdash \tau : +^{\kappa} \quad \Phi \vdash \tau : +^{\kappa'} }
 {\Phi \vdash (\sigma, \tau) : +^{\text{Struct} \{ \kappa,\kappa'\}}} \\
+\\
+\frac
+{}
+{\Phi \vdash () : +^{\text{Struct} \{\}}}
 \end{gather*}
 
 
