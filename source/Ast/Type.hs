@@ -41,7 +41,7 @@ data TypeF v λ κ σ
   | OfCourse σ
   | FunctionPointer σ σ σ
   | FunctionLiteralType σ σ σ
-  | Pair σ σ
+  | Tuple [σ]
   | Effect σ σ
   | Reference σ σ
   | Number κ κ
@@ -97,7 +97,7 @@ traverseTypeF f i h g σ = case σ of
   OfCourse σ -> pure OfCourse <*> g σ
   FunctionPointer σ π τ -> pure FunctionPointer <*> g σ <*> g π <*> g τ
   FunctionLiteralType σ π τ -> pure FunctionLiteralType <*> g σ <*> g π <*> g τ
-  Pair σ τ -> pure Pair <*> g σ <*> g τ
+  Tuple σs -> pure Tuple <*> traverse g σs
   Effect π σ -> pure Effect <*> g π <*> g σ
   Reference π σ -> pure Reference <*> g π <*> g σ
   Number ρ ρ' -> pure Number <*> h ρ <*> h ρ'
@@ -203,8 +203,8 @@ functionLiteralType = Prism (uncurry $ uncurry FunctionLiteralType) $ \case
 copy = Prism (const Copy) $ \case
   Copy -> Just ()
 
-runtimePair = Prism (uncurry Pair) $ \case
-  (Pair σ τ) -> Just (σ, τ)
+runtimePair = Prism (\(σ, τ) -> Tuple [σ, τ]) $ \case
+  (Tuple [σ, τ]) -> Just (σ, τ)
   _ -> Nothing
 
 effect = Prism (uncurry Effect) $ \case

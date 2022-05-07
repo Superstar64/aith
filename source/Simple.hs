@@ -27,7 +27,7 @@ externalImpl (SimpleTerm _ (Variable _ ())) = mempty
 externalImpl (SimpleTerm _ (Extern (Symbol sym) _ _ _)) = singleton sym
 externalImpl (SimpleTerm _ (Alias e (Bound _ e'))) = externalImpl e <> externalImpl e'
 externalImpl (SimpleTerm _ (FunctionApplication e e' _)) = externalImpl e <> externalImpl e'
-externalImpl (SimpleTerm _ (PairIntroduction e e')) = externalImpl e <> externalImpl e'
+externalImpl (SimpleTerm _ (TupleIntroduction es)) = foldMap externalImpl es
 externalImpl (SimpleTerm _ (ReadReference e)) = externalImpl e
 externalImpl (SimpleTerm _ (NumberLiteral _)) = mempty
 externalImpl (SimpleTerm _ (Arithmatic _ e e' _)) = externalImpl e <> externalImpl e'
@@ -75,10 +75,9 @@ convertTermPattern :: Monad m => TermRuntimePatternInfer p -> ReaderT (Map TypeI
 convertTermPattern (TermRuntimePatternCore p (RuntimePatternVariable x σ)) = do
   σ' <- convertType σ
   pure $ SimplePattern p $ RuntimePatternVariable x σ'
-convertTermPattern (TermRuntimePatternCore p (RuntimePatternPair pm1 pm2)) = do
-  pm1' <- convertTermPattern pm1
-  pm2' <- convertTermPattern pm2
-  pure $ SimplePattern p $ RuntimePatternPair pm1' pm2'
+convertTermPattern (TermRuntimePatternCore p (RuntimePatternTuple pms)) = do
+  pms <- traverse convertTermPattern pms
+  pure $ SimplePattern p $ RuntimePatternTuple pms
 
 simpleFailPattern = error "illegal simple pattern"
 
@@ -98,10 +97,9 @@ convertTerm (TermCore p (TermRuntime (Alias e1 (Bound pm e2)))) = do
   pm' <- convertTermPattern pm
   e2' <- convertTerm e2
   pure $ SimpleTerm p $ Alias e1' (Bound pm' e2')
-convertTerm (TermCore p (TermRuntime (PairIntroduction e1 e2))) = do
-  e1' <- convertTerm e1
-  e2' <- convertTerm e2
-  pure $ SimpleTerm p $ PairIntroduction e1' e2'
+convertTerm (TermCore p (TermRuntime (TupleIntroduction es))) = do
+  es <- traverse convertTerm es
+  pure $ SimpleTerm p $ TupleIntroduction es
 convertTerm (TermCore p (TermRuntime (ReadReference e))) = do
   e' <- convertTerm e
   pure $ SimpleTerm p $ ReadReference e'
@@ -152,7 +150,7 @@ convertFunction _ = error "failed to convert function"
 
 simplePatternType :: SimplePattern p -> SimpleType
 simplePatternType (SimplePattern _ (RuntimePatternVariable _ σ)) = σ
-simplePatternType (SimplePattern _ (RuntimePatternPair pm pm')) = SimpleType $ StructRep [simplePatternType pm, simplePatternType pm']
+simplePatternType (SimplePattern _ (RuntimePatternTuple pms)) = SimpleType $ StructRep $ map simplePatternType pms
 
 simpleFunction :: TermSchemeInfer p -> SimpleFunction p
 simpleFunction e = runReader (convertFunction e) Map.empty

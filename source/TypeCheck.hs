@@ -132,7 +132,7 @@ polyEffect name σ = TypeSchemeCore $ ImplicitForall (Bound (TypePatternCore fre
 augmentRuntimeTermPattern pm = go pm
   where
     go (TermRuntimePatternCore p (RuntimePatternVariable x σ)) = augmentVariableLinear p x (Automatic σ) (polyEffect "R" σ)
-    go (TermRuntimePatternCore _ (RuntimePatternPair pm pm')) = go pm . go pm'
+    go (TermRuntimePatternCore _ (RuntimePatternTuple pms)) = foldr (.) id (map go pms)
 
 capture p lΓ = do
   let captures = variablesUsed lΓ
@@ -169,10 +169,9 @@ typeCheckRuntimePattern = \case
         σ' <- fst <$> kindCheck σ
         enforcePretypeReal p σ'
     pure ((TermRuntimePatternCore p $ RuntimePatternVariable x σ', σ'))
-  (TermRuntimePatternSource p (RuntimePatternPair pm1 pm2)) -> do
-    (pm1', σ1) <- typeCheckRuntimePattern pm1
-    (pm2', σ2) <- typeCheckRuntimePattern pm2
-    pure ((TermRuntimePatternCore p $ RuntimePatternPair pm1' pm2', TypeCore $ Pair σ1 σ2))
+  (TermRuntimePatternSource p (RuntimePatternTuple pms)) -> do
+    (pms, σs) <- unzip <$> traverse typeCheckRuntimePattern pms
+    pure ((TermRuntimePatternCore p $ RuntimePatternTuple pms, TypeCore $ Tuple σs))
 
 sortCheckPattern :: Pattern KindIdentifier Sort p -> Core p (Pattern KindIdentifier Sort p, Sort)
 sortCheckPattern (Pattern p x μ) = pure (Pattern p x μ, μ)
@@ -266,10 +265,9 @@ kindCheck (TypeSource p σ) = case σ of
     (π', _) <- secondM (checkRegion p) =<< kindCheck π
     (τ', _) <- secondM (checkPretype p) =<< kindCheck τ
     pure (TypeCore $ FunctionLiteralType σ' π' τ', KindCore $ Type)
-  Pair σ τ -> do
-    (σ', ρ1) <- secondM (checkPretype p) =<< kindCheck σ
-    (τ', ρ2) <- secondM (checkPretype p) =<< kindCheck τ
-    pure (TypeCore $ Pair σ' τ', KindCore $ Pretype $ KindCore $ KindRuntime $ StructRep [ρ1, ρ2])
+  Tuple σs -> do
+    (σs, ρs) <- unzip <$> traverse (secondM (checkPretype p) <=< kindCheck) σs
+    pure (TypeCore $ Tuple σs, KindCore $ Pretype $ KindCore $ KindRuntime $ StructRep ρs)
   Effect σ π -> do
     (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion p) =<< kindCheck π
@@ -427,17 +425,21 @@ typeCheck (TermSource p e) = case e of
     matchType p π π''
     matchType p σ σ'
     pure $ Checked (TermCore p $ TermRuntime $ FunctionApplication e1' e2' σ) (TypeCore $ Effect τ π) (lΓ1 `combine` lΓ2)
-  TermRuntime (PairIntroduction e1 e2) -> do
-    Checked e1' (σ, π) lΓ1 <- traverse (checkEffect p) =<< typeCheck e1
-    Checked e2' (τ, π') lΓ2 <- traverse (checkEffect p) =<< typeCheck e2
-    matchType p π π'
-    σ <- enforcePretypeReal p σ
-    τ <- enforcePretypeReal p τ
+  TermRuntime (TupleIntroduction es) -> do
+    checked <- traverse (traverse (checkEffect p) <=< typeCheck) es
+    π <- freshRegionTypeVariable p
+
+    (es, σs, lΓs) <- fmap unzip3 $
+      for checked $ \(Checked e (σ, π') lΓ) -> do
+        matchType p π π'
+        σ <- enforcePretypeReal p σ
+        pure (e, σ, lΓ)
+
     pure $
       Checked
-        (TermCore p $ TermRuntime $ PairIntroduction e1' e2')
-        (TypeCore $ Effect (TypeCore $ Pair σ τ) π)
-        (lΓ1 `combine` lΓ2)
+        (TermCore p $ TermRuntime $ TupleIntroduction es)
+        (TypeCore $ Effect (TypeCore $ Tuple σs) π)
+        (combineAll lΓs)
   TermRuntime (ReadReference e) -> do
     Checked e' ((π', σ), π) lΓ <- traverse (firstM (checkReference p) <=< checkEffect p) =<< typeCheck e
     constrain p Copy σ

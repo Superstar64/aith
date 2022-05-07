@@ -40,12 +40,12 @@ reconstructTypeF strictlyVariables indexVariable indexLogical augment make check
     pure $ make $ Pretype $ make $ KindRuntime PointerRep
   FunctionLiteralType _ _ _ -> do
     pure $ make $ Type
-  Pair σ σ' -> do
-    κ <- reconstruct σ
-    κ' <- reconstruct σ'
-    checkRuntime κ $ \κ -> do
-      checkRuntime κ' $ \κ' -> do
-        pure $ make $ Pretype $ make $ KindRuntime $ StructRep [κ, κ']
+  Tuple σs -> go σs []
+    where
+      go [] κs = pure $ make $ Pretype $ make $ KindRuntime $ StructRep κs
+      go (σ : σs) κs = do
+        κ <- reconstruct σ
+        checkRuntime κ $ \κ -> go σs (κs ++ [κ])
   Effect _ _ -> pure $ make $ Type
   Number _ ρ -> do
     pure $ make $ Pretype $ make $ KindRuntime $ WordRep ρ
@@ -120,9 +120,9 @@ typeOccursCheck p x lev σ' = go σ'
           recurse σ
           recurse π
           recurse τ
-        Pair σ τ -> do
-          recurse σ
-          recurse τ
+        Tuple σs -> do
+          traverse recurse σs
+          pure ()
         Effect σ τ -> do
           recurse σ
           recurse τ
@@ -223,9 +223,9 @@ matchType p σ σ' = unify σ σ'
       match p σ σ'
       match p π π'
       match p τ τ'
-    unify (TypeCore (Pair σ τ)) (TypeCore (Pair σ' τ')) = do
-      match p σ σ'
-      match p τ τ'
+    unify (TypeCore (Tuple σs)) (TypeCore (Tuple σs')) | length σs == length σs' = do
+      sequence $ zipWith (match p) σs σs'
+      pure ()
     unify (TypeCore (Effect σ π)) (TypeCore (Effect σ' π')) = do
       match p σ σ'
       match p π π'
@@ -295,9 +295,9 @@ constrain p c σ = predicate c σ
         True -> pure ()
     predicate Copy (TypeCore (Number _ _)) = pure ()
     predicate Copy (TypeCore (FunctionPointer _ _ _)) = pure ()
-    predicate Copy (TypeCore (Pair σ τ)) = do
-      constrain p Copy σ
-      constrain p Copy τ
+    predicate Copy (TypeCore (Tuple σs)) = do
+      traverse (constrain p Copy) σs
+      pure ()
     predicate Copy (TypeCore (Reference _ _)) = pure ()
     predicate c σ = quit $ ConstraintMismatch p c σ
 

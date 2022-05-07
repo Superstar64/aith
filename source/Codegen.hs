@@ -46,6 +46,7 @@ temporary = do
 
 ctype :: SimpleType -> Codegen C.Type
 ctype (SimpleType PointerRep) = pure $ C.Composite $ C.Pointer $ C.Base C.Void
+ctype (SimpleType (StructRep [])) = pure $ C.Base C.Byte
 ctype (SimpleType (StructRep σs)) = do
   DependencyState solved <- Codegen $ lift $ Dependency $ get
   let mangling = σs >>= mangleType
@@ -84,10 +85,9 @@ compilePattern pm@(SimplePattern _ (RuntimePatternVariable x@(TermIdentifier bas
   Codegen $ put state {variables = Map.insert x name variables, cLocals = Set.insert name cLocals}
   σ <- ctype σ
   pure [C.Binding (C.Declaration σ (Just name)) (C.Initializer $ C.Scalar target)]
-compilePattern (SimplePattern _ (RuntimePatternPair pm1 pm2)) target = do
-  pm1' <- compilePattern pm1 (C.Member target "_0")
-  pm2' <- compilePattern pm2 (C.Member target "_1")
-  pure $ pm1' ++ pm2'
+compilePattern (SimplePattern _ (RuntimePatternTuple pms)) target = do
+  pms <- sequence $ zipWith compilePattern pms ((\i -> C.Member target (":" ++ show i)) <$> [0 ..])
+  pure $ concat pms
 
 putIntoVariable :: SimpleType -> C.Expression -> WriterT [C.Statement] Codegen C.Expression
 putIntoVariable σ e = do
@@ -125,11 +125,10 @@ compileTerm (SimpleTerm _ (Alias e1 (Bound pm e2))) σ = do
   bindings <- lift $ compilePattern pm e1'
   tell $ bindings
   compileTerm e2 σ
-compileTerm (SimpleTerm _ (PairIntroduction e1 e2)) σ@(SimpleType (StructRep [τ, τ'])) = do
-  e1' <- compileTerm e1 τ
-  e2' <- compileTerm e2 τ'
+compileTerm (SimpleTerm _ (TupleIntroduction es)) σ@(SimpleType (StructRep τs)) | length es == length τs = do
+  es <- sequence $ zipWith compileTerm es τs
   σ <- lift $ ctype σ
-  putIntoVariableRaw σ (C.Brace [C.Scalar e1', C.Scalar e2'])
+  putIntoVariableRaw σ (C.Brace $ map C.Scalar es)
 compileTerm (SimpleTerm _ (ReadReference e)) σ = do
   σ' <- lift $ ctype σ
   e <- compileTerm e (SimpleType PointerRep)

@@ -26,7 +26,7 @@ data TermPatternF σ pm
 
 data TermRuntimePatternF σ pm
   = RuntimePatternVariable TermIdentifier σ
-  | RuntimePatternPair pm pm
+  | RuntimePatternTuple [pm]
   deriving (Show)
 
 data Arithmatic
@@ -41,7 +41,7 @@ data TermRuntime θ s σauto σerase σ λ e
   | Alias e (λ e)
   | Extern Symbol σ σerase σ
   | FunctionApplication e e σauto
-  | PairIntroduction e e
+  | TupleIntroduction [e]
   | ReadReference e
   | NumberLiteral Integer
   | Arithmatic Arithmatic e e s
@@ -90,7 +90,7 @@ traverseTermRuntimePatternF ::
   m (TermRuntimePatternF σ' pm')
 traverseTermRuntimePatternF f h pm = case pm of
   RuntimePatternVariable x σ -> pure RuntimePatternVariable <*> pure x <*> f σ
-  RuntimePatternPair pm pm' -> pure RuntimePatternPair <*> h pm <*> h pm'
+  RuntimePatternTuple pms -> pure RuntimePatternTuple <*> traverse h pms
 
 foldTermRuntimePatternF f h = getConst . traverseTermRuntimePatternF (Const . f) (Const . h)
 
@@ -113,7 +113,7 @@ traverseTermRuntime d h z y f g i e =
     Alias e λ -> pure Alias <*> i e <*> g λ
     Extern sm σ σ'' σ' -> pure Extern <*> pure sm <*> f σ <*> y σ'' <*> f σ'
     FunctionApplication e1 e2 σ -> pure FunctionApplication <*> i e1 <*> i e2 <*> z σ
-    PairIntroduction e1 e2 -> pure PairIntroduction <*> i e1 <*> i e2
+    TupleIntroduction es -> pure TupleIntroduction <*> traverse i es
     ReadReference e -> pure ReadReference <*> i e
     NumberLiteral n -> pure NumberLiteral <*> pure n
     Arithmatic o e e' κ -> pure Arithmatic <*> pure o <*> i e <*> i e' <*> h κ
@@ -264,8 +264,8 @@ runtimePatternVariable =
     _ -> Nothing
 
 runtimePatternPair =
-  Prism (uncurry RuntimePatternPair) $ \case
-    (RuntimePatternPair pm pm') -> Just (pm, pm')
+  Prism (\(pm, pm') -> RuntimePatternTuple [pm, pm']) $ \case
+    (RuntimePatternTuple [pm, pm']) -> Just (pm, pm')
     _ -> Nothing
 
 termSource = Isomorph (uncurry TermSource) $ \(TermSource p e) -> (p, e)
@@ -316,8 +316,8 @@ functionLiteral =
     _ -> Nothing
 
 runtimePairIntrouction = (termRuntime .) $
-  Prism (uncurry $ PairIntroduction) $ \case
-    (PairIntroduction e1 e2) -> Just (e1, e2)
+  Prism (\(e1, e2) -> TupleIntroduction [e1, e2]) $ \case
+    (TupleIntroduction [e1, e2]) -> Just (e1, e2)
     _ -> Nothing
 
 readReference = (termRuntime .) $
@@ -844,7 +844,7 @@ sourceTerm (TermCore _ e) =
       Alias e λ -> Alias (sourceTerm e) (mapBound sourceTermRuntimePattern sourceTerm λ)
       Extern sym σ π τ -> Extern sym (sourceTypeAuto σ) (sourceTypeAuto π) (sourceTypeAuto τ)
       FunctionApplication e e' σ -> FunctionApplication (sourceTerm e) (sourceTermAnnotate PretypeAnnotation e' σ) ()
-      PairIntroduction e e' -> PairIntroduction (sourceTerm e) (sourceTerm e')
+      TupleIntroduction es -> TupleIntroduction (map sourceTerm es)
       ReadReference e -> ReadReference (sourceTerm e)
       NumberLiteral n -> NumberLiteral n
       Arithmatic o e e' _ -> Arithmatic o (sourceTerm e) (sourceTerm e') ()
