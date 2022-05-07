@@ -136,6 +136,13 @@ compileTerm (SimpleTerm _ (ReadReference e)) σ = do
   e <- compileTerm e (SimpleType PointerRep)
   e <- putIntoVariableRaw (C.Composite $ C.Pointer $ σ') (C.Scalar e)
   pure $ C.Dereference e
+compileTerm (SimpleTerm _ (WriteReference ep ev σ)) (SimpleType (StructRep [])) = do
+  σ' <- lift $ ctype σ
+  ep <- compileTerm ep (SimpleType $ PointerRep)
+  ep <- putIntoVariableRaw (C.Composite $ C.Pointer $ σ') (C.Scalar ep)
+  ev <- compileTerm ev σ
+  tell [C.Expression $ C.Assign (C.Dereference ep) ev]
+  pure $ C.IntegerLiteral 0
 compileTerm (SimpleTerm _ (NumberLiteral n)) _ = pure $ C.IntegerLiteral n
 compileTerm (SimpleTerm _ (Arithmatic o e1 e2 s)) σ@(SimpleType (WordRep size)) = do
   let σ' = cint size s

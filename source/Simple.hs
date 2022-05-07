@@ -29,6 +29,7 @@ externalImpl (SimpleTerm _ (Alias e (Bound _ e'))) = externalImpl e <> externalI
 externalImpl (SimpleTerm _ (FunctionApplication e e' _)) = externalImpl e <> externalImpl e'
 externalImpl (SimpleTerm _ (TupleIntroduction es)) = foldMap externalImpl es
 externalImpl (SimpleTerm _ (ReadReference e)) = externalImpl e
+externalImpl (SimpleTerm _ (WriteReference ep ev _)) = externalImpl ep <> externalImpl ev
 externalImpl (SimpleTerm _ (NumberLiteral _)) = mempty
 externalImpl (SimpleTerm _ (Arithmatic _ e e' _)) = externalImpl e <> externalImpl e'
 externalImpl (SimpleTerm _ (BooleanLiteral _)) = mempty
@@ -103,6 +104,11 @@ convertTerm (TermCore p (TermRuntime (TupleIntroduction es))) = do
 convertTerm (TermCore p (TermRuntime (ReadReference e))) = do
   e' <- convertTerm e
   pure $ SimpleTerm p $ ReadReference e'
+convertTerm (TermCore p (TermRuntime (WriteReference ep ev σ))) = do
+  ep <- convertTerm ep
+  ev <- convertTerm ev
+  σ <- convertType σ
+  pure $ SimpleTerm p $ WriteReference ep ev σ
 convertTerm (TermCore p (TermRuntime (NumberLiteral n))) = do
   pure $ SimpleTerm p $ NumberLiteral n
 convertTerm (TermCore p (TermRuntime (Arithmatic o e1 e2 κ))) = do

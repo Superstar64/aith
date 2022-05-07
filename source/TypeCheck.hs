@@ -441,10 +441,22 @@ typeCheck (TermSource p e) = case e of
         (TypeCore $ Effect (TypeCore $ Tuple σs) π)
         (combineAll lΓs)
   TermRuntime (ReadReference e) -> do
-    Checked e' ((π', σ), π) lΓ <- traverse (firstM (checkReference p) <=< checkEffect p) =<< typeCheck e
+    Checked e' ((π2, σ), π) lΓ <- traverse (firstM (checkReference p) <=< checkEffect p) =<< typeCheck e
     constrain p Copy σ
-    lessThen p π' π
+    lessThen p π2 π
     pure $ Checked (TermCore p $ TermRuntime $ ReadReference e') (TypeCore $ Effect σ π) lΓ
+  TermRuntime (WriteReference ep ev ()) -> do
+    Checked ep ((π2, σ), π) lΓ1 <- traverse (firstM (checkReference p) <=< checkEffect p) =<< typeCheck ep
+    Checked ev (σ', π') lΓ2 <- traverse (checkEffect p) =<< typeCheck ev
+    matchType p σ σ'
+    matchType p π π'
+    lessThen p π2 π
+    constrain p Copy σ
+    pure $
+      Checked
+        (TermCore p $ TermRuntime $ WriteReference ep ev σ)
+        (TypeCore $ Effect (TypeCore $ Tuple []) π)
+        (lΓ1 `combine` lΓ2)
   TermRuntime (NumberLiteral v) -> do
     π <- freshRegionTypeVariable p
     ρ1 <- freshKindVariable p Signedness

@@ -85,10 +85,10 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
   * [x] Qualified Unique Types
 * [ ] Effectful Regions
   * [x] Effects
-  * [ ] References
+  * [x] References
     * [x] Type
     * [x] Read
-    * [ ] Write
+    * [x] Write
   * [ ] Let Region
   * [x] Region Subtyping
 * [x] C Code Generation
@@ -124,6 +124,7 @@ Files start with `code` `:::`.
 | Pair Construction | ``e, e'`` |
 | Unit Construction | ``()`` |
 | Read Reference | ``*e`` |
+| Write Reference | ``*e = e'`` |
 | Number Literal | ``n`` |
 | Addition | ``e + e'`` |
 | Subtraction | ``e - e'`` |

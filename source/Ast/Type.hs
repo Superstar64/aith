@@ -204,11 +204,11 @@ copy = Prism (const Copy) $ \case
   Copy -> Just ()
 
 -- n-arity tuples are supported internally but only pairs are supposed in the surface language
-runtimePair = Prism (\(σ, τ) -> Tuple [σ, τ]) $ \case
+pair = Prism (\(σ, τ) -> Tuple [σ, τ]) $ \case
   (Tuple [σ, τ]) -> Just (σ, τ)
   _ -> Nothing
 
-runtimeUnit = Prism (const $ Tuple []) $ \case
+unit = Prism (const $ Tuple []) $ \case
   (Tuple []) -> Just ()
   _ -> Nothing
 

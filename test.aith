@@ -11,49 +11,6 @@ module combinators = {
 	inline readerMap = \f => \m => readerBind `m `(compose `readerPure `f);
 };
 
-
-module run = {
-	import call = /test/runtimeCall;
-	
-	deref <RA : region, RB : region >= RA, T : +[pointer] if copy > : function (T* @ RA) => T uses RB;
-	deref <RA, RB, T if copy> = function (x) {
-		*x
-	};
-
-	
-	dotProduct = function(vector1P, vector2P) {
-		let (x1,y1,(z1 :: #signed int)) = *vector1P;
-		let (x2,y2,z2) = *vector2P;
-		(x1 * x2 + y1 * y2 + z1 * z2)
-	};
-  
-	inline fstSysF = /\A : +[pointer] => /\B : +[pointer] if copy => function(x :: A, y :: B) => x;
-  
-  
-	fst <A : +[pointer], B : +[pointer] if copy, R : region> :  function (A, B) => A uses R;
-	fst <A, B, R> = ((fstSysF : \/A => \/B if copy => function (A,B) => A uses R)<_> : \/B if copy => function(A,B) => A uses R)<_>;
-	
-	snd <A : +[pointer] if copy, B : +[pointer], R : region> : function (A, B) => B uses R;
-	snd <A,B,R> = function(x, y) => y;
-	
-	pattern = function (pair) {
-		(fst $ pair, snd $ pair)
-	};
- 
-	mid <R : region> : function(#unsigned int, #unsigned int) => #unsigned int uses R; 
-	mid <R> = function(x,y) {
-		(x + y) / 2
-	};
-
-	inline divGen = function(x,y) {
-		(x + y - 1) / y
-	};
-  
-	div <R : region> : function (#unsigned int, #unsigned int) => #unsigned int uses R;
-	div <R> = divGen;
-};
-
-
 module systemf = {
 
 	inline ignored <B : *> : \/A : * => B -> B;
@@ -94,9 +51,11 @@ module default = {
 	add = function(x,y) {
 		x + y
 	};
+};
 
-	deref = function(x) {
-		***x
+module unit = {
+	idUnit = function () {
+		()
 	};
 };
 
@@ -124,8 +83,73 @@ module boolean = {
 	};
 };
 
-module unit = {
-	idUnit = function () {
+module pair = {
+	inline fstSysF = /\A : +[pointer] => /\B : +[pointer] if copy => function(x :: A, y :: B) => x;
+  
+	fst <A : +[pointer], B : +[pointer] if copy, R : region> :  function (A, B) => A uses R;
+	fst <A, B, R> = ((fstSysF : \/A => \/B if copy => function (A,B) => A uses R)<_> : \/B if copy => function(A,B) => A uses R)<_>;
+	
+	snd <A : +[pointer] if copy, B : +[pointer], R : region> : function (A, B) => B uses R;
+	snd <A,B,R> = function(x, y) => y;
+	
+	pattern = function (pair) {
+		(fst $ pair, snd $ pair)
+	};
+};
+
+module ptr = {
+	derefTriple = function(x) {
+		***x
+	};
+
+	deref <RA : region, RB : region >= RA, T : +[pointer] if copy > : function (T* @ RA) => T uses RB;
+	deref <RA, RB, T if copy> = function (x) {
+		*x
+	};
+
+	write<A:region, B:region >= A> : function(int* @ A) => () uses B;
+	write<A:region, B:region >= A> = function(x :: int* @ A) {
+		*x = (1 :: int)
+	};
+
+	writeTriple = function(x) {
+		***x = 1 
+	};
+
+	swap = function(x,y) {
+		let xp = *x;
+		let () = *x = (*y);
+		let () = *y = xp;
 		()
+	};
+};
+
+module integer = {
+	dotProduct = function(vector1P, vector2P) {
+		let (x1,y1,z1) = *vector1P;
+		let (x2,y2,z2) = *vector2P;
+		(x1 * x2 + y1 * y2 + z1 * z2)
+	};
+  
+	mid <R : region> : function(uint, uint) => uint uses R;
+	mid <R : region> = function(x,y) {
+		(x + y) / 2
+	};
+
+	inline divGen = function(x,y) {
+		(x + y - 1) / y
+	};
+
+	div = divGen;
+};
+
+module fptr = {
+	call = function(f) {
+		f $ 1
+	};
+
+	callUnit <R : region> : function(function*(uint) => () uses R) => () uses R;
+	callUnit <R : region> = function(f) {
+		f $ 2
 	};
 };

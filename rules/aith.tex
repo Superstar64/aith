@@ -294,7 +294,8 @@ e \Coloneqq & \\
 \subsubsection{References}
 \begin{align*}
 e \Coloneqq & \\
-& *^\pi e \tag{Dereference Pointer} \\
+& *^\pi e \tag{Read Pointer} \\
+& *^\pi e = (e' : \sigma) \tag{Write Pointer} \\
 & \dots \\
 \sigma, \tau, \pi \Coloneqq & \\
 & \sigma *^\pi \tag{Reference} \\
@@ -303,8 +304,12 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi | \Gamma \vdash e : (\sigma *^{\pi'})^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \Phi \vdash \sigma : +^{\rho} \quad \pi \succeq \pi'}
+{\Phi | \Gamma \vdash e : (\sigma *^{\pi'})^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
 {\Phi | \Gamma \vdash *^{\pi'} \, e : \sigma^\pi} \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : (\sigma *^{\pi'})^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi  \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi \quad \Phi \vdash \sigma : +^\rho}
+{\Phi | \Gamma \vdash *^{\pi'} e = (e' : \sigma) : ()^\pi }
 \end{gather*}
 
 \begin{gather*}
@@ -556,6 +561,7 @@ e \Coloneqq & \\
 & (e,e') \\
 & \text{let} (x: \sigma, x' : \sigma') = e; e' \\
 & * e \\
+& * e = (e : \sigma) \\
 & n \\
 & e +^z e' \\
 & \text{true} \\
@@ -597,6 +603,9 @@ z \Coloneqq & \, \text{signed} \, | \, \text{unsigned}
 \frac
 {\Gamma \vdash e : \text{void} *}
 {\Gamma \vdash * e : \sigma} \\
+\\
+\frac {\Gamma \vdash e : \text{void} * \quad \Gamma \vdash e' : \sigma}
+{\Gamma \vdash *e = (e' : \sigma) : ()} \\
 \\
 \frac
 {}

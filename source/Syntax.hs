@@ -60,9 +60,12 @@ keywords =
       "function",
       "uses",
       "if",
+      "else",
       "true",
       "false",
-      "bool"
+      "bool",
+      "copy",
+      "representation"
     ]
 
 -- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
@@ -235,7 +238,7 @@ constraintBound = firstP (firstP (toPrism Language.bound)) . toPrism rotateLast3
 
 typeFull = foldlP pair ⊣ typex ⊗ many (token "," ≫ space ≫ typex)
   where
-    pair = withInnerPosition Language.typeSource Language.runtimePair
+    pair = withInnerPosition Language.typeSource Language.pair
 
 typex :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
 typex = typeArrow
@@ -255,7 +258,7 @@ typex = typeArrow
 typeCore :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
 typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenParensElse unit typeFull
   where
-    unit = Language.typeSource ⊣ position ⊗ (Language.runtimeUnit ⊣ always)
+    unit = Language.typeSource ⊣ position ⊗ (Language.unit ⊣ always)
     shortcut name signed size = Language.number ⊣ keyword name ≫ lit signed ⊗ lit size
       where
         lit x = just ⊣ Language.kindSource ⊣ position ⊗ (x ⊣ always)
@@ -340,7 +343,7 @@ termFull = termPair
   where
     termPair = foldlP pair ⊣ termAnnotate ⊗ many (token "," ≫ space ≫ termAnnotate)
       where
-        pair = withInnerPosition Language.termSource Language.runtimePairIntrouction
+        pair = withInnerPosition Language.termSource Language.pairIntroduction
     termAnnotate = apply ⊣ term ⊗ (binaryToken "::" ≫ typeAuto ⊕ binaryToken ":" ≫ typeAuto ⊕ always)
       where
         apply = preAnnotate `branchDistribute` annotate `branchDistribute` unit'
@@ -367,26 +370,30 @@ term = termBinding
         applyAdd = add `branchDistribute` sub
         add = withInnerPosition Language.termSource (Language.arithmatic Language.Addition)
         sub = withInnerPosition Language.termSource (Language.arithmatic Language.Subtraction)
-    termMul = foldlP applyMul ⊣ termApply ⊗ many (binaryToken "*" ≫ termApply ⊕ binaryToken "/" ≫ termApply)
+    termMul = foldlP applyMul ⊣ termDeref ⊗ many (binaryToken "*" ≫ termDeref ⊕ binaryToken "/" ≫ termDeref)
       where
         applyMul = mul `branchDistribute` div
         mul = withInnerPosition Language.termSource (Language.arithmatic Language.Multiplication)
         div = withInnerPosition Language.termSource (Language.arithmatic Language.Division)
-    termApply = Language.termSource ⊣ position ⊗ choice options ∥ foldlP applyBinary ⊣ termCore ⊗ many (applySyntax ⊕ typeApplySyntax)
+    termDeref = Language.termSource ⊣ position ⊗ deref ∥ termDeref'
+      where
+        apply = branchDistribute (Language.writeReference) (Language.readReference . toPrism unit')
+        deref = apply ⊣ token "*" ≫ termDeref' ⊗ (binaryToken "=" ≫ termCore ⊕ always)
+    termDeref' = Language.termSource ⊣ position ⊗ deref ∥ termApply
+      where
+        deref = Language.readReference ⊣ token "*" ≫ termDeref'
+    termApply = foldlP applyBinary ⊣ termCore ⊗ many (applySyntax ⊕ typeApplySyntax)
       where
         applyBinary = application `branchDistribute` typeApplication
         application = withInnerPosition Language.termSource Language.inlineApplication
         typeApplication = withInnerPosition Language.termSource Language.typeApplication
         applySyntax = space ≫ token "`" ≫ termCore
         typeApplySyntax = space ≫ betweenAngle typeAuto
-        options =
-          [ Language.readReference ⊣ token "*" ≫ termApply
-          ]
 
 termCore :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
 termCore = Language.termSource ⊣ position ⊗ choice options ∥ betweenParensElse unit termFull
   where
-    unit = Language.termSource ⊣ position ⊗ (Language.runtimeUnitIntroduction ⊣ always)
+    unit = Language.termSource ⊣ position ⊗ (Language.unitIntroduction ⊣ always)
     unit' = Language.termRuntimePatternSource ⊣ position ⊗ (Language.runtimePatternUnit ⊣ always)
     options =
       [ Language.variable ⊣ termIdentifier ⊗ always,
@@ -484,14 +491,15 @@ instance SyntaxBase Parser where
 
 instance Syntax Parser where
   token op = Parser $ Megaparsec.string op >> Megaparsec.space
-  keyword string = Parser $ do
-    Megaparsec.label string $
+  keyword name | name `Set.member` keywords = Parser $ do
+    Megaparsec.label name $
       Megaparsec.try $ do
         c <- Megaparsec.letterChar
         cs <- Megaparsec.many Megaparsec.alphaNumChar
-        guard $ (c : cs) == string
+        guard $ (c : cs) == name
     Megaparsec.space
     pure ()
+  keyword name = error $ "bad keyword: " ++ name
   identifer = Parser $ do
     str <- Megaparsec.label "identifer" $
       Megaparsec.try $ do
@@ -545,7 +553,8 @@ instance Position Parser Internal where
 
 instance Syntax Printer where
   token op = Printer $ \() -> Just $ tell op
-  keyword name = Printer $ \() -> Just $ tell name
+  keyword name | name `Set.member` keywords = Printer $ \() -> Just $ tell name
+  keyword name = error $ "bad keyword: " ++ name
 
   -- todo invert syntax for pretty printing keywords as identifers
   identifer = Printer $ \name -> Just $ tell name

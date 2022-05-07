@@ -43,6 +43,7 @@ data TermRuntime θ s σauto σerase σ λ e
   | FunctionApplication e e σauto
   | TupleIntroduction [e]
   | ReadReference e
+  | WriteReference e e σauto
   | NumberLiteral Integer
   | Arithmatic Arithmatic e e s
   | BooleanLiteral Bool
@@ -115,6 +116,7 @@ traverseTermRuntime d h z y f g i e =
     FunctionApplication e1 e2 σ -> pure FunctionApplication <*> i e1 <*> i e2 <*> z σ
     TupleIntroduction es -> pure TupleIntroduction <*> traverse i es
     ReadReference e -> pure ReadReference <*> i e
+    WriteReference e e' σ -> pure WriteReference <*> i e <*> i e' <*> z σ
     NumberLiteral n -> pure NumberLiteral <*> pure n
     Arithmatic o e e' κ -> pure Arithmatic <*> pure o <*> i e <*> i e' <*> h κ
     BooleanLiteral b -> pure BooleanLiteral <*> pure b
@@ -322,12 +324,12 @@ functionLiteral =
     _ -> Nothing
 
 -- n-arity tuples are supported internally but only pairs are supposed in the surface language
-runtimePairIntrouction = (termRuntime .) $
+pairIntroduction = (termRuntime .) $
   Prism (\(e1, e2) -> TupleIntroduction [e1, e2]) $ \case
     (TupleIntroduction [e1, e2]) -> Just (e1, e2)
     _ -> Nothing
 
-runtimeUnitIntroduction = (termRuntime .) $
+unitIntroduction = (termRuntime .) $
   Prism (const $ TupleIntroduction []) $ \case
     (TupleIntroduction []) -> Just ()
     _ -> Nothing
@@ -335,6 +337,11 @@ runtimeUnitIntroduction = (termRuntime .) $
 readReference = (termRuntime .) $
   Prism (ReadReference) $ \case
     (ReadReference e) -> Just (e)
+    _ -> Nothing
+
+writeReference = (termRuntime .) $
+  Prism (\(e, e') -> WriteReference e e' ()) $ \case
+    (WriteReference e e' ()) -> Just (e, e')
     _ -> Nothing
 
 numberLiteral = (termRuntime .) $
@@ -858,6 +865,7 @@ sourceTerm (TermCore _ e) =
       FunctionApplication e e' σ -> FunctionApplication (sourceTerm e) (sourceTermAnnotate PretypeAnnotation e' σ) ()
       TupleIntroduction es -> TupleIntroduction (map sourceTerm es)
       ReadReference e -> ReadReference (sourceTerm e)
+      WriteReference e e' σ -> WriteReference (sourceTerm e) (sourceTermAnnotate PretypeAnnotation e' σ) ()
       NumberLiteral n -> NumberLiteral n
       Arithmatic o e e' _ -> Arithmatic o (sourceTerm e) (sourceTerm e') ()
       BooleanLiteral b -> BooleanLiteral b
