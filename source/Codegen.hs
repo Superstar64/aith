@@ -86,7 +86,7 @@ compilePattern pm@(SimplePattern _ (RuntimePatternVariable x@(TermIdentifier bas
   σ <- ctype σ
   pure [C.Binding (C.Declaration σ (Just name)) (C.Initializer $ C.Scalar target)]
 compilePattern (SimplePattern _ (RuntimePatternTuple pms)) target = do
-  pms <- sequence $ zipWith compilePattern pms ((\i -> C.Member target (":" ++ show i)) <$> [0 ..])
+  pms <- sequence $ zipWith compilePattern pms ((\i -> C.Member target ("_" ++ show i)) <$> [0 ..])
   pure $ concat pms
 
 putIntoVariable :: SimpleType -> C.Expression -> WriterT [C.Statement] Codegen C.Expression
@@ -125,6 +125,8 @@ compileTerm (SimpleTerm _ (Alias e1 (Bound pm e2))) σ = do
   bindings <- lift $ compilePattern pm e1'
   tell $ bindings
   compileTerm e2 σ
+compileTerm (SimpleTerm _ (TupleIntroduction [])) (SimpleType (StructRep [])) = do
+  pure $ C.IntegerLiteral 0
 compileTerm (SimpleTerm _ (TupleIntroduction es)) σ@(SimpleType (StructRep τs)) | length es == length τs = do
   es <- sequence $ zipWith compileTerm es τs
   σ <- lift $ ctype σ

@@ -123,3 +123,9 @@ module boolean = {
 		}
 	};
 };
+
+module unit = {
+	idUnit = function () {
+		()
+	};
+};

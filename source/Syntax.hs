@@ -99,6 +99,8 @@ binaryKeyword word = space ≫ keyword word ≫ space
 
 betweenParens = between (token "(") (token ")")
 
+betweenParensElse elsex e = token "(" ≫ (token ")" ≫ elsex ∥ e ≪ token ")")
+
 betweenAngle = between (token "<") (token ">")
 
 betweenBraces = between (token "{") (token "}")
@@ -251,8 +253,9 @@ typex = typeArrow
         ptr = withInnerPosition Language.typeSource Language.reference . toPrism swap
 
 typeCore :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
-typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenParens typeFull
+typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenParensElse unit typeFull
   where
+    unit = Language.typeSource ⊣ position ⊗ (Language.runtimeUnit ⊣ always)
     shortcut name signed size = Language.number ⊣ keyword name ≫ lit signed ⊗ lit size
       where
         lit x = just ⊣ Language.kindSource ⊣ position ⊗ (x ⊣ always)
@@ -273,8 +276,8 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenPare
         keyword "function" ≫ (funLiteral ∥ funPointer)
       ]
     rotate = associate' . secondI swap . associate
-    funLiteral = Language.functionLiteralType ⊣ rotate ⊣ betweenParens typeFull ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
-    funPointer = Language.functionPointer ⊣ rotate ⊣ token "*" ≫ betweenParens typeFull ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
+    funLiteral = Language.functionLiteralType ⊣ rotate ⊣ betweenParensElse unit typeFull ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
+    funPointer = Language.functionPointer ⊣ rotate ⊣ token "*" ≫ betweenParensElse unit typeFull ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
 
 typeFullAuto = auto typeFull
 
@@ -316,16 +319,16 @@ termRuntimePattern = patternPair
     patternPair = foldlP pair ⊣ patternCore ⊗ many (token "," ≫ space ≫ patternCore)
       where
         pair = withInnerPosition Language.termRuntimePatternSource Language.runtimePatternPair
-    patternCore = Language.termRuntimePatternSource ⊣ position ⊗ choice options ∥ betweenParens termRuntimePattern
+    patternCore = Language.termRuntimePatternSource ⊣ position ⊗ choice options ∥ betweenParensElse unit termRuntimePattern
       where
+        unit = Language.termRuntimePatternSource ⊣ position ⊗ (Language.runtimePatternUnit ⊣ always)
         options =
           [ Language.runtimePatternVariable ⊣ termIdentifier ⊗ typeAnnotate "::"
           ]
 
 termPattern :: (Position δ p, Syntax δ) => δ (Language.TermPatternSource p)
-termPattern = patternPair
+termPattern = patternCore
   where
-    patternPair = patternCore
     patternCore = Language.termPatternSource ⊣ position ⊗ choice options ∥ betweenParens termPattern
       where
         options =
@@ -381,12 +384,14 @@ term = termBinding
           ]
 
 termCore :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
-termCore = Language.termSource ⊣ position ⊗ choice options ∥ betweenParens termFull
+termCore = Language.termSource ⊣ position ⊗ choice options ∥ betweenParensElse unit termFull
   where
+    unit = Language.termSource ⊣ position ⊗ (Language.runtimeUnitIntroduction ⊣ always)
+    unit' = Language.termRuntimePatternSource ⊣ position ⊗ (Language.runtimePatternUnit ⊣ always)
     options =
       [ Language.variable ⊣ termIdentifier ⊗ always,
         Language.inlineAbstraction ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ lambdaMajor term,
-        Language.functionLiteral ⊣ Language.bound ⊣ keyword "function" ≫ betweenParens termRuntimePattern ⊗ lambdaMajor term,
+        Language.functionLiteral ⊣ Language.bound ⊣ keyword "function" ≫ betweenParensElse unit' termRuntimePattern ⊗ lambdaMajor term,
         Language.extern ⊣ extern,
         Language.ofCourseIntroduction ⊣ betweenBangSquares termFull,
         Language.numberLiteral ⊣ number,

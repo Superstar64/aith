@@ -263,9 +263,15 @@ runtimePatternVariable =
     (RuntimePatternVariable x σ) -> Just (x, σ)
     _ -> Nothing
 
+-- n-arity tuples are supported internally but only pairs are supposed in the surface language
 runtimePatternPair =
   Prism (\(pm, pm') -> RuntimePatternTuple [pm, pm']) $ \case
     (RuntimePatternTuple [pm, pm']) -> Just (pm, pm')
+    _ -> Nothing
+
+runtimePatternUnit =
+  Prism (const $ RuntimePatternTuple []) $ \case
+    (RuntimePatternTuple []) -> Just ()
     _ -> Nothing
 
 termSource = Isomorph (uncurry TermSource) $ \(TermSource p e) -> (p, e)
@@ -315,9 +321,15 @@ functionLiteral =
     (FunctionLiteral λ) -> Just λ
     _ -> Nothing
 
+-- n-arity tuples are supported internally but only pairs are supposed in the surface language
 runtimePairIntrouction = (termRuntime .) $
   Prism (\(e1, e2) -> TupleIntroduction [e1, e2]) $ \case
     (TupleIntroduction [e1, e2]) -> Just (e1, e2)
+    _ -> Nothing
+
+runtimeUnitIntroduction = (termRuntime .) $
+  Prism (const $ TupleIntroduction []) $ \case
+    (TupleIntroduction []) -> Just ()
     _ -> Nothing
 
 readReference = (termRuntime .) $
