@@ -6,7 +6,7 @@ import Ast.Sort
 import Ast.Term
 import Ast.Type
 import Control.Monad ((<=<))
-import Data.Foldable (foldlM, for_)
+import Data.Foldable (foldrM, for_)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import Data.Set (Set)
@@ -574,7 +574,7 @@ generalize inline (e@(TermCore p _), σ) = do
   α <- Set.toList <$> unsolvedTypeLogical σ
   α <- topologicalBoundsSort α
   -- todo actually use levels for generalization
-  (e, σ) <- foldlMFlip (e, σ) (attachNames α typeNames) $ \(e, σ) (α, name') ->
+  (e, σ) <- foldrMFlip (e, σ) (zip α typeNames) $ \(α, name') (e, σ) ->
     indexTypeLogicalMap α >>= \case
       (UnboundTypeLogical p κ c lower Nothing _) -> do
         let name = TypeIdentifier name'
@@ -593,7 +593,7 @@ generalize inline (e@(TermCore p _), σ) = do
 
   κα <- if inline then Set.toList <$> unsolvedKindLogical σ else pure []
 
-  (e, σ) <- foldlMFlip (e, σ) (attachNames κα kindNames) $ \(e, σ) (α, name') ->
+  (e, σ) <- foldrMFlip (e, σ) (zip κα kindNames) $ \(α, name') (e, σ) ->
     indexKindLogicalMap α >>= \case
       (UnboundKindLogical p μ _) -> do
         let name = KindIdentifier name'
@@ -612,8 +612,7 @@ generalize inline (e@(TermCore p _), σ) = do
 
   pure (e, σ)
   where
-    attachNames vars names = reverse $ zip (reverse vars) names
-    foldlMFlip a b f = foldlM f a b
+    foldrMFlip a b f = foldrM f a b
 
 -- todo readd ambigous types check
 typeCheckGlobalAuto ::

@@ -153,3 +153,10 @@ module fptr = {
 		f $ 2
 	};
 };
+
+module recurse = {
+	explode<R:region, A:+[pointer]> : function() => A uses R;
+	explode<R:region, A:+[pointer]> = function() {
+		explode $ ()
+	};
+};

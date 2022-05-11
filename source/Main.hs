@@ -7,6 +7,7 @@ import Ast.Type hiding (Inline)
 import qualified C.Ast as C
 import qualified C.Print as C
 import Codegen
+import Data.Bifunctor (second)
 import Data.Functor.Identity (runIdentity)
 import qualified Data.Map as Map
 import Data.Traversable (for)
@@ -186,8 +187,7 @@ generateAll ((path@(Path heading name), file) : remainder) code = do
   let (functions, structs) = runDependency $ compileItem heading name item
   writeFile file (C.emit C.code $ structs ++ functions)
 
-uninfer :: ModuleOrder (GlobalInfer [SourcePos]) -> ModuleOrder (GlobalSource Internal)
-uninfer = fmap nameGlobal
+uninfer = fmap (second nameGlobal)
   where
     nameGlobal :: GlobalInfer [SourcePos] -> GlobalSource Internal
     nameGlobal (GlobalInfer (Inline ς e)) = GlobalSource $ Inline (Just $ sourceTypeScheme ς) (sourceTermScheme e)
@@ -202,10 +202,12 @@ baseMain arguments = do
   code <- fmap (fmap (: [])) <$> addAll (loadItem command) :: IO (Module (GlobalSource [SourcePos]))
   prettyAll (prettyItem command) (fmap (fmap (const Internal)) code)
   ordering <- handleModuleError $ order code
-  ordering' <- handleTypeError $ typeCheckModule ordering
+  let declare = forwardDeclarations code
+  declare <- handleTypeError $ validateDeclarations declare
+  ordering' <- handleTypeError $ typeCheckModule (forwardDeclare declare) ordering
   let code' = unorder $ uninfer $ ordering'
   prettyAll (prettyItemAnnotated command) code'
-  let ordering'' = reduceModule ordering'
+  let ordering'' = reduceModule (forwardDefine declare) ordering'
   let code'' = unorder $ uninfer $ ordering''
   prettyAll (prettyItemReduced command) code''
   generateAll (generateCItem command) (unorder $ ordering'')

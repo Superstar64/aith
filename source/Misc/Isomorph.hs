@@ -17,10 +17,8 @@ instance Category Isomorph where
 inverse :: Isomorph a b -> Isomorph b a
 inverse (Isomorph f g) = Isomorph g f
 
-evalInto :: Isomorph a a' -> (a -> b) -> a' -> b
-evalInto i f e = f $ from e
-  where
-    (Isomorph _ from) = i
+monotonic :: Isomorph f g -> Map f v -> Map g v
+monotonic (Isomorph f _) = Map.mapKeysMonotonic f
 
 mapWith :: Isomorph a b -> (a -> a) -> b -> b
 mapWith i f e = to $ f $ from e

@@ -1,15 +1,17 @@
 module Misc.Util where
 
 import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.State.Strict (StateT, evalStateT, execStateT, get, modify)
+import Control.Monad.Trans.State.Strict (get, modify, runStateT)
+import Data.Bifunctor (second)
 import Data.Bitraversable (bitraverse)
 import Data.Foldable (toList)
-import Data.List (find)
+import Data.List (find, groupBy)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import qualified Data.Set as Set
 import Data.Traversable (for)
+import Data.Void (Void, absurd)
 
 firstM f = bitraverse f pure
 
@@ -27,44 +29,47 @@ temporaries prefix = temporaries' [prefix]
 
 fresh disallow canditate = fromJust $ find (flip Set.notMember disallow) $ temporaries canditate
 
+curryMap :: (Ord a, Ord b) => Map (a, b) c -> Map a (Map b c)
+curryMap = Map.fromList . map (second Map.fromList) . map combine . groupBy (\x y -> fst x == fst y) . map associate . Map.toList
+  where
+    combine list = (fst $ head list, map snd list)
+    associate ((a, b), c) = (a, (b, c))
+
 -- https://en.wikipedia.org/wiki/Topological_sorting#Depth-first_search
 
 data Mark = Temporary | Permanent deriving (Eq)
 
-visitTopological ::
-  (Ord k, Monad m) =>
-  (n -> k) ->
-  (n -> m ()) ->
-  (n -> m [n]) ->
-  n ->
-  StateT (Map k Mark) (StateT [n] m) ()
-visitTopological view quit children node = do
-  marks <- get
-  case Map.lookup (view node) marks of
-    Just Permanent -> pure ()
-    Just Temporary -> lift $ lift $ quit node
-    Nothing -> do
-      modify $ Map.insert (view node) Temporary
-      nodes <- lift $ lift $ children node
-      for nodes (visitTopological view quit children)
-      modify $ Map.insert (view node) Permanent
-      lift $ modify $ (node :)
+-- todo use ListT
 
+-- dualed topological sort
+-- if there is an edge from node `a` to `b`
+-- then `b` will appear before `a`
 sortTopological ::
   (Monad m, Ord k) =>
   (n -> k) ->
-  (n -> m ()) ->
+  (n -> m Void) ->
   (n -> m [n]) ->
   [n] ->
   m [n]
-sortTopological view quit children items = execStateT (evalStateT (go items) Map.empty) []
+sortTopological view quit children items = go Map.empty items
   where
-    go (item : items) = do
-      marks <- get
-      case Map.lookup (view item) marks of
-        Nothing -> do
-          visitTopological view quit children item
+    go marks (item : items) = do
+      (depend, marks') <- case Map.lookup (view item) marks of
+        Nothing -> runStateT (visitTopological item) marks
         Just Temporary -> error "Unexpected temporary"
-        Just Permanent -> pure ()
-      go items
-    go [] = pure ()
+        Just Permanent -> pure ([], marks)
+      (reverse depend ++) <$> go marks' items
+    go _ [] = pure []
+
+    -- builds a list in standard topological sort to then get reversed by `go`
+    visitTopological node = do
+      marks <- get
+      case Map.lookup (view node) marks of
+        Just Permanent -> pure []
+        Just Temporary -> fmap absurd $ lift $ quit node
+        Nothing -> do
+          modify $ Map.insert (view node) Temporary
+          nodes <- lift $ children node
+          depend <- for nodes visitTopological
+          modify $ Map.insert (view node) Permanent
+          pure (node : concat depend)
