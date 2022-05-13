@@ -48,13 +48,14 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 
 * [ ] Essentials
   * [ ] Runtime Primitives
-    * [ ] Booleans
+    * [x] Booleans
       * [x] Boolean Type
       * [x] Boolean Literals
       * [x] If expression
-      * [ ] Equality / Inequality Operators
       * [ ] Logical Operators
     * [x] Integers
+      * [x] Arithmatic
+      * [x] Relational Operators
     * [x] Pointers
     * [ ] Arrays
     * [x] Function Pointers
@@ -130,12 +131,18 @@ Files start with `code` `:::`.
 | Subtraction | ``e - e'`` |
 | Multiplication | ``e * e'`` |
 | Divsion | ``e / e'`` |
+| Equality | ``e = e'`` |
+| Inequality | ``e != e'`` |
+| Less | ``e < e'`` |
+| Less or Equal | ``e <= e'`` |
+| Greater | ``e > e'`` |
+| Greater or Equal | ``e >= e'`` |
 | True | ``true`` |
 | False | ``false`` |
 | If | ``if e { e' } else { e''}`` |
 | Type Abstraction | ``/\pmσ => e`` |
 | Type Abstraction | ``/\pmσ { e }`` |
-| Type Application | ``e <τ>``|
+| Type Application | ``e `<τ>``|
 | Type Annotation | ``e : σ`` |
 | Pretype Annotation | ``e :: σ`` |
 
@@ -194,10 +201,6 @@ Files start with `code` `:::`.
 | UInt | ``uint`` | ``#unsigned int`` |
 | ULong | ``ulong`` | ``#unsigned long`` |
 
-
-
-
-
 ## Type Pattern(pmσ)
 | Description | Syntax |
 |-|-|
@@ -247,7 +250,9 @@ Files start with `code` `:::`.
 | Size | ``size`` |
 
 # C Compiler Requirements
-* All pointers must have the same representation
+This list may be incomplete.
+* All pointers must have the same representation (including function pointers).
+* Signed integers must have 2's complement wrapping. (`-fwrapv` on gcc)
 
 # Papers
 Useful / Inspirational papers:

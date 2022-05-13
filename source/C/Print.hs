@@ -105,9 +105,18 @@ statements = betweenBraces $ many statement
 expression :: Printer C.Expression
 expression = assignment
   where
-    assignment = apply ⊣ binaryAdd ⊗ (string "=" ≫ assignment ⊕ always)
+    assignment = apply ⊣ equal ⊗ (string "=" ≫ assignment ⊕ always)
       where
         apply = C.assign `branchDistribute` unit'
+    equal = foldlP apply ⊣ relational ⊗ many (string "==" ≫ relational ⊕ string "!=" ≫ relational)
+      where
+        apply = C.equal `branchDistribute` C.notEqual
+    relational = foldlP apply ⊣ binaryAdd ⊗ many (r "<" ⊕ r "<=" ⊕ r ">" ⊕ r ">=")
+      where
+        r op = string op ≫ binaryAdd
+        apply = C.lessThen `b` C.lessThenEqual `b` C.greaterThen `b` C.greaterThenEqual
+          where
+            b = branchDistribute
     binaryAdd = foldlP apply ⊣ binaryMul ⊗ many (add ⊕ sub)
       where
         add = string "+" ≫ binaryMul

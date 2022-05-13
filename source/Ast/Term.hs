@@ -36,6 +36,15 @@ data Arithmatic
   | Division
   deriving (Show, Eq)
 
+data Relational
+  = Equal
+  | NotEqual
+  | LessThen
+  | LessThenEqual
+  | GreaterThen
+  | GreaterThenEqual
+  deriving (Show, Eq)
+
 data TermRuntime θ s σauto σerase σ λ e
   = Variable TermIdentifier θ
   | Alias e (λ e)
@@ -46,6 +55,7 @@ data TermRuntime θ s σauto σerase σ λ e
   | WriteReference e e σauto
   | NumberLiteral Integer
   | Arithmatic Arithmatic e e s
+  | Relational Relational e e σauto s
   | BooleanLiteral Bool
   | If e e e
   deriving (Show)
@@ -119,6 +129,7 @@ traverseTermRuntime d h z y f g i e =
     WriteReference e e' σ -> pure WriteReference <*> i e <*> i e' <*> z σ
     NumberLiteral n -> pure NumberLiteral <*> pure n
     Arithmatic o e e' κ -> pure Arithmatic <*> pure o <*> i e <*> i e' <*> h κ
+    Relational o e e' σ κ -> pure Relational <*> pure o <*> i e <*> i e' <*> z σ <*> h κ
     BooleanLiteral b -> pure BooleanLiteral <*> pure b
     If e e' e'' -> pure If <*> i e <*> i e' <*> i e''
 
@@ -367,6 +378,11 @@ ifx = (termRuntime .) $
 arithmatic o = (termRuntime .) $
   Prism (\(e, e') -> Arithmatic o e e' ()) $ \case
     Arithmatic o' e e' () | o == o' -> Just (e, e')
+    _ -> Nothing
+
+relational o = (termRuntime .) $
+  Prism (\(e, e') -> Relational o e e' () ()) $ \case
+    Relational o' e e' () () | o == o' -> Just (e, e')
     _ -> Nothing
 
 typeLambda = Prism (uncurry $ uncurry TypeAbstraction) $ \case
@@ -868,6 +884,7 @@ sourceTerm (TermCore _ e) =
       WriteReference e e' σ -> WriteReference (sourceTerm e) (sourceTermAnnotate PretypeAnnotation e' σ) ()
       NumberLiteral n -> NumberLiteral n
       Arithmatic o e e' _ -> Arithmatic o (sourceTerm e) (sourceTerm e') ()
+      Relational o e e' σ _ -> Relational o (sourceTermAnnotate PretypeAnnotation e σ) (sourceTermAnnotate PretypeAnnotation e' σ) () ()
       BooleanLiteral b -> BooleanLiteral b
       If e e' e'' -> If (sourceTerm e) (sourceTerm e') (sourceTerm e'')
     FunctionLiteral λ -> FunctionLiteral (mapBound sourceTermRuntimePattern sourceTerm λ)

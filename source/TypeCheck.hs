@@ -477,6 +477,17 @@ typeCheck (TermSource p e) = case e of
         (TermCore p $ TermRuntime $ Arithmatic o e1' e2' ρ1)
         (TypeCore $ Effect (TypeCore $ Number ρ1 ρ2) π)
         (lΓ1 `combine` lΓ2)
+  TermRuntime (Relational o e1 e2 () ()) -> do
+    Checked e1' ((ρ1, ρ2), π) lΓ1 <- traverse (firstM (checkNumber p) <=< checkEffect p) =<< typeCheck e1
+    Checked e2' ((ρ1', ρ2'), π') lΓ2 <- traverse (firstM (checkNumber p) <=< checkEffect p) =<< typeCheck e2
+    matchType p π π'
+    matchKind p ρ1 ρ1'
+    matchKind p ρ2 ρ2'
+    pure $
+      Checked
+        (TermCore p $ TermRuntime $ Relational o e1' e2' (TypeCore $ Number ρ1 ρ2) ρ1)
+        (TypeCore $ Effect (TypeCore $ Boolean) π)
+        (lΓ1 `combine` lΓ2)
   FunctionLiteral (Bound pm e) -> do
     (pm', σ) <- typeCheckRuntimePattern pm
     Checked e' (τ, π) lΓ <- traverse (checkEffect p) =<< augmentRuntimeTermPattern pm' (typeCheck e)

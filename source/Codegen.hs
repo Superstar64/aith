@@ -157,6 +157,21 @@ compileTerm (SimpleTerm _ (Arithmatic o e1 e2 s)) σ@(SimpleType (WordRep size))
       Subtraction -> C.Subtraction
       Multiplication -> C.Multiplication
       Division -> C.Division
+compileTerm (SimpleTerm _ (Relational o e1 e2 σ@(SimpleType (WordRep size)) s)) (SimpleType (WordRep Byte)) = do
+  let σ' = cint size s
+  e1 <- compileTerm e1 σ
+  e1 <- putIntoVariableRaw σ' (C.Scalar e1)
+  e2 <- compileTerm e2 σ
+  e2 <- putIntoVariableRaw σ' (C.Scalar e2)
+  pure $ op e1 e2
+  where
+    op = case o of
+      Equal -> C.Equal
+      NotEqual -> C.NotEqual
+      LessThen -> C.LessThen
+      LessThenEqual -> C.LessThenEqual
+      GreaterThen -> C.GreaterThen
+      GreaterThenEqual -> C.GreaterThenEqual
 compileTerm (SimpleTerm _ (BooleanLiteral True)) _ = pure $ C.IntegerLiteral 1
 compileTerm (SimpleTerm _ (BooleanLiteral False)) _ = pure $ C.IntegerLiteral 0
 compileTerm (SimpleTerm _ (If eb et ef)) σ = do

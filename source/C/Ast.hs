@@ -66,6 +66,12 @@ data Expression
   | Subtraction Expression Expression
   | Multiplication Expression Expression
   | Division Expression Expression
+  | Equal Expression Expression
+  | NotEqual Expression Expression
+  | LessThen Expression Expression
+  | LessThenEqual Expression Expression
+  | GreaterThen Expression Expression
+  | GreaterThenEqual Expression Expression
   | Assign Expression Expression
   deriving (Show)
 
@@ -208,6 +214,30 @@ multiplication = Prism (uncurry Multiplication) $ \case
 
 division = Prism (uncurry Division) $ \case
   Division e e' -> Just (e, e')
+  _ -> Nothing
+
+equal = Prism (uncurry Equal) $ \case
+  Equal e e' -> Just (e, e')
+  _ -> Nothing
+
+notEqual = Prism (uncurry NotEqual) $ \case
+  NotEqual e e' -> Just (e, e')
+  _ -> Nothing
+
+lessThen = Prism (uncurry LessThen) $ \case
+  LessThen e e' -> Just (e, e')
+  _ -> Nothing
+
+lessThenEqual = Prism (uncurry LessThenEqual) $ \case
+  LessThenEqual e e' -> Just (e, e')
+  _ -> Nothing
+
+greaterThen = Prism (uncurry GreaterThen) $ \case
+  GreaterThen e e' -> Just (e, e')
+  _ -> Nothing
+
+greaterThenEqual = Prism (uncurry GreaterThenEqual) $ \case
+  GreaterThenEqual e e' -> Just (e, e')
   _ -> Nothing
 
 assign = Prism (uncurry Assign) $ \case

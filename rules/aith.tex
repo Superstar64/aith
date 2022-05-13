@@ -294,8 +294,8 @@ e \Coloneqq & \\
 \subsubsection{References}
 \begin{align*}
 e \Coloneqq & \\
-& *^\pi e \tag{Read Pointer} \\
-& *^\pi e = (e' : \sigma) \tag{Write Pointer} \\
+& *(e : \sigma) \tag{Read Pointer} \\
+& *(e : \sigma) = e' \tag{Write Pointer} \\
 & \dots \\
 \sigma, \tau, \pi \Coloneqq & \\
 & \sigma *^\pi \tag{Reference} \\
@@ -304,12 +304,14 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi | \Gamma \vdash e : (\sigma *^{\pi'})^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
-{\Phi | \Gamma \vdash *^{\pi'} \, e : \sigma^\pi} \\
+{\splitfrac{\Phi | \Gamma \vdash e : (\sigma *^{\pi'})^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
+{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}}
+{\Phi | \Gamma \vdash * (e : (\sigma *^{\pi'})^\pi)  : \sigma^\pi} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\sigma *^{\pi'})^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi  \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi \quad \Phi \vdash \sigma : +^\rho}
-{\Phi | \Gamma \vdash *^{\pi'} e = (e' : \sigma) : ()^\pi }
+{\splitfrac{\Phi | \Gamma \vdash e : (\sigma *^{\pi'})^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi  \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
+{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}}
+{\Phi | \Gamma \vdash *(e : (\sigma *^{\pi'})^\pi) = e' : ()^\pi }
 \end{gather*}
 
 \begin{gather*}
@@ -417,6 +419,12 @@ e \Coloneqq & \\
 & e - e' \tag{Subtraction} \\
 & e * e' \tag{Multiplication} \\
 & e / e' \tag{Division} \\
+& e =^\sigma e' \tag {Equality} \\
+& e \neq^\sigma e' \tag {Inequality} \\
+& e <^\sigma e' \tag {Less Then} \\
+& e \leq^\sigma e' \tag {Less Then Equal} \\
+& e >^\sigma e' \tag {Greater Then} \\
+& e \geq^\sigma e' \tag {Greater Then Equal} \\
 & \dots \\
 \sigma, \tau, \pi \Coloneqq & \\
 & \text{Number} (\rho, \rho) \tag{Number} \\
@@ -444,6 +452,12 @@ e \Coloneqq & \\
 \frac
 {\Phi | \Gamma \vdash e : \text{Number}(\rho, \rho')^\pi \quad \Phi | \Gamma, \Gamma' \vdash e' : \text{Number}(\rho, \rho')^\pi}
 {\Phi | \Gamma, \Gamma' \vdash e + e' : \text{Number}(\rho, \rho')^\pi} \\
+\dots \\
+\\
+\frac
+{\splitfrac{\Phi | \Gamma \vdash e : \text{Number}(\rho, \rho')^\pi \quad \Phi | \Gamma, \Gamma' \vdash e' : \text{Number}(\rho, \rho')^\pi}
+{\Phi \vdash \rho : \text{Signedness} \quad \Phi \vdash \rho' : \text{Size}}}
+{\Phi | \Gamma, \Gamma' \vdash e <^{\text{Number}(\rho, \rho')} e' : \text{Boolean}^\pi} \\
 \dots
 \end{gather*}
 

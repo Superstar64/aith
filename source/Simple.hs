@@ -32,6 +32,7 @@ externalImpl (SimpleTerm _ (ReadReference e)) = externalImpl e
 externalImpl (SimpleTerm _ (WriteReference ep ev _)) = externalImpl ep <> externalImpl ev
 externalImpl (SimpleTerm _ (NumberLiteral _)) = mempty
 externalImpl (SimpleTerm _ (Arithmatic _ e e' _)) = externalImpl e <> externalImpl e'
+externalImpl (SimpleTerm _ (Relational _ e e' _ _)) = externalImpl e <> externalImpl e'
 externalImpl (SimpleTerm _ (BooleanLiteral _)) = mempty
 externalImpl (SimpleTerm _ (If eb et ef)) = externalImpl eb <> externalImpl et <> externalImpl ef
 
@@ -115,6 +116,16 @@ convertTerm (TermCore p (TermRuntime (Arithmatic o e1 e2 κ))) = do
   e1' <- convertTerm e1
   e2' <- convertTerm e2
   pure $ SimpleTerm p $ Arithmatic o e1' e2' s
+  where
+    s = case κ of
+      KindCore (KindSignedness Signed) -> Signed
+      KindCore (KindSignedness Unsigned) -> Unsigned
+      _ -> error "bad sign"
+convertTerm (TermCore p (TermRuntime (Relational o e1 e2 σ κ))) = do
+  e1' <- convertTerm e1
+  e2' <- convertTerm e2
+  σ <- convertType σ
+  pure $ SimpleTerm p $ Relational o e1' e2' σ s
   where
     s = case κ of
       KindCore (KindSignedness Signed) -> Signed

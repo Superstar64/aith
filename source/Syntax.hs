@@ -106,6 +106,8 @@ betweenParensElse elsex e = token "(" ≫ (token ")" ≫ elsex ∥ e ≪ token "
 
 betweenAngle = between (token "<") (token ">")
 
+betweenTickAngle = between (token "`<") (token ">")
+
 betweenBraces = between (token "{") (token "}")
 
 betweenSquares = between (token "[") (token "]")
@@ -361,10 +363,26 @@ term = termBinding
             Language.ifx ⊣ prefixKeyword "if" ≫ termCore ⊗ lambdaBrace term ≪ binaryKeyword "else" ⊗ lambdaBrace term
           ]
         rotateBind = secondI Language.bound . associate . firstI swap
-    termRTApply = applyBinary ⊣ termAdd ⊗ (binaryToken "$" ≫ termRTApply ⊕ always)
+    termRTApply = applyBinary ⊣ termEqual ⊗ (binaryToken "$" ≫ termRTApply ⊕ always)
       where
         applyBinary = apply `branchDistribute` unit'
         apply = withInnerPosition Language.termSource Language.functionApplication
+    termEqual = apply ⊣ termAdd ⊗ operators
+      where
+        i o = withInnerPosition Language.termSource (Language.relational o)
+        r op = binaryToken op ≫ termAdd
+        b = branchDistribute
+        apply = equal `b` notEqual `b` lessThenEqual `b` lessThen `b` greaterThenEqual `b` greaterThen `b` unit'
+          where
+            equal = i Language.Equal
+            notEqual = i Language.NotEqual
+            lessThen = i Language.LessThen
+            lessThenEqual = i Language.LessThenEqual
+            greaterThen = i Language.GreaterThen
+            greaterThenEqual = i Language.GreaterThenEqual
+
+        operators = r "=" ⊕ r "!=" ⊕ r "<=" ⊕ r "<" ⊕ r ">=" ⊕ r ">" ⊕ always
+
     termAdd = foldlP applyAdd ⊣ termMul ⊗ many (binaryToken "+" ≫ termMul ⊕ binaryToken "-" ≫ termMul)
       where
         applyAdd = add `branchDistribute` sub
@@ -382,13 +400,13 @@ term = termBinding
     termDeref' = Language.termSource ⊣ position ⊗ deref ∥ termApply
       where
         deref = Language.readReference ⊣ token "*" ≫ termDeref'
-    termApply = foldlP applyBinary ⊣ termCore ⊗ many (applySyntax ⊕ typeApplySyntax)
+    termApply = foldlP applyBinary ⊣ termCore ⊗ many (typeApplySyntax ⊕ applySyntax)
       where
-        applyBinary = application `branchDistribute` typeApplication
+        applyBinary = typeApplication `branchDistribute` application
         application = withInnerPosition Language.termSource Language.inlineApplication
         typeApplication = withInnerPosition Language.termSource Language.typeApplication
         applySyntax = space ≫ token "`" ≫ termCore
-        typeApplySyntax = space ≫ betweenAngle typeAuto
+        typeApplySyntax = space ≫ betweenTickAngle typeAuto
 
 termCore :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
 termCore = Language.termSource ⊣ position ⊗ choice options ∥ betweenParensElse unit termFull

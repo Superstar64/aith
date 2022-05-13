@@ -97,11 +97,12 @@ order code = sortTopological view quit children globals
     globals = items [] code
     view (path, _) = path
     quit (path, global) = Left $ Cycle (location global) path
-    children (path, global) = fmap concat $ for (Map.toList $ depend global path) $ \(path, p) -> do
-      global <- resolve p code path
-      case global of
-        GlobalSource (Text (Just _) _) -> pure []
-        _ -> pure [(path, global)]
+    children (path, global) = fmap concat $
+      for (Map.toList $ depend global path) $ \(path, p) -> do
+        global <- resolve p code path
+        case global of
+          GlobalSource (Text (Just _) _) -> pure []
+          _ -> pure [(path, global)]
 
     extractTerm (TermIdentifier x) = x
 
@@ -167,7 +168,8 @@ forwardDeclare = fmap basic . prepareContext
   where
     basic declerations =
       emptyEnvironment
-        { typeEnvironment = types $ identifers declerations }
+        { typeEnvironment = types $ identifers declerations
+        }
       where
         identifers = Map.mapKeysMonotonic TermIdentifier
         types = fmap (\(p, ς) -> (p, Unrestricted, convertFunctionLiteral $ flexibleType $ flexibleKind ς))
@@ -181,7 +183,7 @@ forwardDefine :: Module (p, TypeSchemeInfer) -> Map [String] (Map TermIdentifier
 forwardDefine =
   Map.mapWithKey (\heading -> identifers . Map.mapWithKey (make heading)) . prepareContext
   where
-    identifers = Map.mapKeysMonotonic TermIdentifier 
+    identifers = Map.mapKeysMonotonic TermIdentifier
     make heading name (p, ς) = (makeExtern path p ς, ς)
       where
         path = Path heading name

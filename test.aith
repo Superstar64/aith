@@ -19,7 +19,7 @@ module systemf = {
 	inline idSysF = /\A : * => \(x : A) => x;
 
 	inline runIdSysF = \f {
-		(f : \/A => A -> A)<_>
+		(f : \/A => A -> A)`<_>
 	};
 
 	inline id = runIdSysF `idSysF;
@@ -27,7 +27,7 @@ module systemf = {
 	inline constSysF = /\A : * => /\B : * => \![x : A] => \![y : B] => x;
 
 	inline const <A:*, B:*> : ![A] -> ![B] -> A;
-	inline const <A,B> = ((constSysF : \/A => \/B => ![A] -> ![B] -> A)<_> : \/ B => ![A] -> ![B] -> A)<_>;
+	inline const <A,B> = ((constSysF : \/A => \/B => ![A] -> ![B] -> A)`<_> : \/ B => ![A] -> ![B] -> A)`<_>;
 
 };
 
@@ -87,7 +87,7 @@ module pair = {
 	inline fstSysF = /\A : +[pointer] => /\B : +[pointer] if copy => function(x :: A, y :: B) => x;
   
 	fst <A : +[pointer], B : +[pointer] if copy, R : region> :  function (A, B) => A uses R;
-	fst <A, B, R> = ((fstSysF : \/A => \/B if copy => function (A,B) => A uses R)<_> : \/B if copy => function(A,B) => A uses R)<_>;
+	fst <A, B, R> = ((fstSysF : \/A => \/B if copy => function (A,B) => A uses R)`<_> : \/B if copy => function(A,B) => A uses R)`<_>;
 	
 	snd <A : +[pointer] if copy, B : +[pointer], R : region> : function (A, B) => B uses R;
 	snd <A,B,R> = function(x, y) => y;
@@ -141,6 +141,19 @@ module integer = {
 	};
 
 	div = divGen;
+
+	lessEqual = function(x,y) {
+		x <= y
+	};
+
+	factorial<R : region> : function(ulong) => ulong uses R; 
+	factorial<R : region> = function(x) {
+		if (x = 0) {
+			1
+		} else {
+			x * (factorial $ x - 1)  
+		}
+	};
 };
 
 module fptr = {
