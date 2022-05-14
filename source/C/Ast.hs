@@ -12,10 +12,12 @@ data Base
   | Short
   | Int
   | Long
+  | PtrDiff
   | UByte
   | UShort
   | UInt
   | ULong
+  | Size
   | Struct Struct
   deriving (Show)
 
@@ -100,6 +102,10 @@ long = Prism (const Long) $ \case
   Long -> Just ()
   _ -> Nothing
 
+ptrDiff = Prism (const PtrDiff) $ \case
+  PtrDiff -> Just ()
+  _ -> Nothing
+
 ubyte = Prism (const UByte) $ \case
   UByte -> Just ()
   _ -> Nothing
@@ -114,6 +120,10 @@ uint = Prism (const UInt) $ \case
 
 ulong = Prism (const ULong) $ \case
   ULong -> Just ()
+  _ -> Nothing
+
+size = Prism (const Size) $ \case
+  Size -> Just ()
   _ -> Nothing
 
 pointer = Prism Pointer $ \case

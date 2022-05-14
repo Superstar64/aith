@@ -65,7 +65,8 @@ keywords =
       "false",
       "bool",
       "copy",
-      "representation"
+      "representation",
+      "native"
     ]
 
 -- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
@@ -207,6 +208,7 @@ kindCore = Language.kindSource ⊣ position ⊗ choice options ∥ betweenParens
         Language.short ⊣ keyword "short",
         Language.int ⊣ keyword "int",
         Language.long ⊣ keyword "long",
+        Language.native ⊣ keyword "native",
         Language.signed ⊣ keyword "signed",
         Language.unsigned ⊣ keyword "unsigned"
       ]

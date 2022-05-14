@@ -65,16 +65,19 @@ ctype (SimpleType (WordRep Byte)) = pure $ C.Base C.Byte
 ctype (SimpleType (WordRep Short)) = pure $ C.Base C.Short
 ctype (SimpleType (WordRep Int)) = pure $ C.Base C.Int
 ctype (SimpleType (WordRep Long)) = pure $ C.Base C.Long
+ctype (SimpleType (WordRep Native)) = pure $ C.Base C.Size
 
 cint :: KindSize -> KindSignedness -> C.Type
 cint Byte Signed = C.Base C.Byte
 cint Short Signed = C.Base C.Short
 cint Int Signed = C.Base C.Int
 cint Long Signed = C.Base C.Long
+cint Native Signed = C.Base C.PtrDiff
 cint Byte Unsigned = C.Base C.UByte
 cint Short Unsigned = C.Base C.UShort
 cint Int Unsigned = C.Base C.UInt
 cint Long Unsigned = C.Base C.ULong
+cint Native Unsigned = C.Base C.Size
 
 -- only effectless expressions can be passed in
 compilePattern :: SimplePattern p -> C.Expression -> Codegen [C.Statement]

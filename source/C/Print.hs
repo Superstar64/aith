@@ -45,7 +45,7 @@ preprocess x = line ≫ x ≪ line
 once name x = preprocess (string "#ifndef " ≫ name) ⊗ preprocess (string "#define " ≫ name ⊗ string " " ≫ name) ⊗ x ≪ preprocess (string "#endif")
 
 header :: Printer ()
-header = preprocess (string "#include \"stdint.h\"")
+header = preprocess (string "#include <stdint.h>") ≫ preprocess (string "#include <stddef.h>")
 
 variableDeclaration = just ⊣ identifer ∥ nothing ⊣ always
 
@@ -56,10 +56,12 @@ base =
       C.short ⊣ string "int16_t",
       C.int ⊣ string "int32_t",
       C.long ⊣ string "int64_t",
+      C.ptrDiff ⊣ string "ptrdiff_t",
       C.ubyte ⊣ string "uint8_t",
       C.ushort ⊣ string "uint16_t",
       C.uint ⊣ string "uint32_t",
       C.ulong ⊣ string "uint64_t",
+      C.size ⊣ string "size_t",
       C.struct ⊣ string "struct" ≫ struct
     ]
 

@@ -22,6 +22,7 @@ data KindSize
   | Short
   | Int
   | Long
+  | Native
   deriving (Show, Eq, Ord)
 
 data KindSignedness
@@ -152,6 +153,11 @@ int = (kindSize .) $
 long = (kindSize .) $
   Prism (const Long) $ \case
     Long -> Just ()
+    _ -> Nothing
+
+native = (kindSize .) $
+  Prism (const Native) $ \case
+    Native -> Just ()
     _ -> Nothing
 
 signed = (kindSignedness .) $

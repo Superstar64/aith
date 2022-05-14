@@ -45,6 +45,7 @@ mangleType (SimpleType (WordRep Byte)) = "b"
 mangleType (SimpleType (WordRep Short)) = "s"
 mangleType (SimpleType (WordRep Int)) = "i"
 mangleType (SimpleType (WordRep Long)) = "l"
+mangleType (SimpleType (WordRep Native)) = "n"
 
 convertKindImpl :: KindInfer -> SimpleType
 convertKindImpl (KindCore (KindRuntime PointerRep)) = SimpleType $ PointerRep
@@ -53,6 +54,7 @@ convertKindImpl (KindCore (KindRuntime (WordRep (KindCore (KindSize Byte))))) = 
 convertKindImpl (KindCore (KindRuntime (WordRep (KindCore (KindSize Short))))) = SimpleType $ WordRep Short
 convertKindImpl (KindCore (KindRuntime (WordRep (KindCore (KindSize Int))))) = SimpleType $ WordRep Int
 convertKindImpl (KindCore (KindRuntime (WordRep (KindCore (KindSize Long))))) = SimpleType $ WordRep Long
+convertKindImpl (KindCore (KindRuntime (WordRep (KindCore (KindSize Native))))) = SimpleType $ WordRep Native
 convertKindImpl _ = simpleFailType
 
 simpleFailType = error "illegal simple type"

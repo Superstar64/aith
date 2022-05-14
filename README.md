@@ -235,6 +235,7 @@ Files start with `code` `:::`.
 | Short Size | ``short``|
 | Int Size | ``int`` |
 | Long Size | ``long`` |
+| Native Size | ``native`` |
 
 # Kind Pattern (pmκ)
 | Description | Syntax |
