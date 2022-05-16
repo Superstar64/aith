@@ -20,7 +20,7 @@ In Aith, inline functions can take inline functions as argument and return inlin
 all of which is completely erased at runtime.
 
 Inline functions that type check always generate valid code
-and inline functions are prevent from appear at runtime though kind checking.
+and inline functions are prevented from appearing at runtime though kind checking.
 
 ## Linear / Unique Types
 Aith supports linear types and unique types.
