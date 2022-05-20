@@ -30,6 +30,7 @@ executable aith
         Codegen
         C.Print
         Simple
+        Misc.Explode
 
     default-language:   Haskell2010
     default-extensions:

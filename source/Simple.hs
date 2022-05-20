@@ -16,7 +16,17 @@ data SimpleType = SimpleType (KindRuntime KindSize SimpleType) deriving (Eq, Ord
 
 data SimplePattern p = SimplePattern p (TermRuntimePatternF SimpleType (SimplePattern p))
 
-data SimpleTerm p = SimpleTerm p (TermRuntime () KindSignedness SimpleType () SimpleType (Bound (SimplePattern p)) (SimpleTerm p))
+data SimpleTerm p
+  = SimpleTerm
+      p
+      ( TermRuntime
+          ()
+          ()
+          KindSignedness
+          SimpleType
+          (Bound (SimplePattern p) (SimpleTerm p))
+          (SimpleTerm p)
+      )
 
 data SimpleFunction p = SimpleFunction p (Bound (SimplePattern p) (SimpleTerm p))
 
@@ -64,7 +74,7 @@ convertKind (KindCore (Pretype κ)) = convertKindImpl κ
 convertKind _ = simpleFailType
 
 reconstruct :: Monad m => TypeInfer -> ReaderT (Map TypeIdentifier KindInfer) m KindInfer
-reconstruct (TypeCore σ) = reconstructTypeF todo index absurd todo KindCore checkRuntime reconstruct σ
+reconstruct (TypeCore σ) = reconstructTypeF index absurd todo KindCore checkRuntime reconstruct σ
   where
     todo = error "todo fix when type variable are allowed inside runtime types"
     index x = do

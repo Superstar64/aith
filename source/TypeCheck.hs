@@ -200,7 +200,13 @@ sortCheck (KindSource p κ) = case κ of
     pure (KindCore $ Pretype κ', Kind)
   KindLogical v -> absurd v
 
-kindCheckScheme :: TypeSchemeSource p -> Core p (TypeSchemeUnify, KindUnify)
+kindCheckSchemePlain :: TypeSchemeSource p -> Core p (TypeScheme vσ vκ, KindUnify)
+kindCheckSchemePlain ς@(TypeSchemeSource p _) = do
+  (ς, κ) <- kindCheckScheme ς
+  ς <- zonkKind (const $ quit $ ExpectedFullAnnotation p) ς
+  pure (ς, κ)
+
+kindCheckScheme :: TypeSchemeSource p -> Core p (TypeScheme vσ KindLogical, KindUnify)
 kindCheckScheme =
   \case
     TypeSchemeSource p (MonoType σ) -> do
@@ -233,6 +239,12 @@ kindCheckPattern (Pattern p x κ) = case κ of
   Nothing -> do
     κ <- freshKindVariable p Kind
     pure (Pattern p x κ, κ)
+
+kindCheckPlain :: TypeSource p -> Core p ((Type vσ vκ), KindUnify)
+kindCheckPlain σ@(TypeSource p _) = do
+  (σ, κ) <- kindCheck σ
+  σ <- zonkKind (const $ quit $ ExpectedFullAnnotation p) σ
+  pure (σ, κ)
 
 kindCheck :: TypeSource p -> Core p ((Type vσ KindLogical), KindUnify)
 kindCheck (TypeSource p σ) = case σ of
@@ -286,6 +298,8 @@ kindCheck (TypeSource p σ) = case σ of
     pure (TypeCore $ Number ρ1' ρ2', KindCore $ Pretype $ KindCore $ KindRuntime $ WordRep ρ2')
   Boolean -> do
     pure (TypeCore $ Boolean, KindCore $ Pretype $ KindCore $ KindRuntime $ WordRep $ KindCore $ KindSize $ Byte)
+  World -> do
+    pure (TypeCore World, KindCore Region)
   TypeLogical v -> absurd v
 
 instantiate p (TypeSchemeCore ς) = case ς of
@@ -308,11 +322,6 @@ expectTypeAnnotation p Nothing = quit $ ExpectedTypeAnnotation p
 expectTypeAnnotation _ (Just σ) = pure σ
 
 validateType σ = fst <$> kindCheck σ
-
-validateStrictlyVariables π = Set.fromList <$> traverse get π
-  where
-    get (TypeSource _ (TypeVariable x)) = pure x
-    get (TypeSource p _) = quit $ ExpectedTypeVariable p
 
 data Checked p σ = Checked (TermUnify p) σ (Use TermIdentifier)
   deriving (Functor, Foldable, Traversable)
@@ -361,18 +370,17 @@ typeCheck (TermSource p e) = case e of
     let α' = fresh vars α
     let pm = Pattern p' α' κpm
     e <- pure $ convertType α' α e
-    π <- pure $ map (convertType α' α) π
 
     (pm', κ) <- kindCheckPattern pm
     checkConstraints p c κ
     π <- traverse (expectTypeAnnotation p) π
-    πx <- validateStrictlyVariables π
-    (π, κ') <- unzip <$> traverse kindCheck π
+    (π, κ') <- unzip <$> traverse kindCheckPlain π
     traverse (matchKind p κ) κ'
-    augmentTypePatternLevel pm' c πx $ do
+    augmentTypePatternLevel pm' c (Set.fromList π) $ do
       enterLevel
       Checked e' σ' lΓ <- typeCheck e
       leaveLevel
+      π <- pure (map flexible π)
       pure $
         Checked
           (TermCore p $ TypeAbstraction (Bound (toTypePattern pm') e') c π)
@@ -402,21 +410,15 @@ typeCheck (TermSource p e) = case e of
     Checked e2' (σ, π') lΓ2 <- traverse (checkEffect p) =<< augmentRuntimeTermPattern pm' (typeCheck e2)
     matchType p π π'
     pure $ Checked (TermCore p $ TermRuntime $ Alias e1' $ Bound pm' e2') (TypeCore $ Effect σ π) (lΓ1 `combine` lΓ2)
-  TermRuntime (Extern sym σ π τ) -> do
-    σ' <- case σ of
-      Nothing -> freshPretypeTypeVariable p
-      Just σ -> fmap fst $ secondM (checkPretype p) =<< kindCheck σ
-    π' <- case π of
-      Nothing -> freshRegionTypeVariable p
-      Just π -> fmap fst $ secondM (checkRegion p) =<< kindCheck π
-    τ' <- case τ of
-      Nothing -> freshPretypeTypeVariable p
-      Just τ -> fmap fst $ secondM (checkPretype p) =<< kindCheck τ
+  TermRuntime (Extern sym () () ()) -> do
+    σ <- freshPretypeTypeVariable p
+    π <- freshRegionTypeVariable p
+    τ <- freshPretypeTypeVariable p
     r <- freshRegionTypeVariable p
     pure $
       Checked
-        (TermCore p $ TermRuntime $ Extern sym σ' π' τ')
-        (TypeCore $ Effect (TypeCore $ FunctionPointer σ' π' τ') r)
+        (TermCore p $ TermRuntime $ Extern sym σ π τ)
+        (TypeCore $ Effect (TypeCore $ FunctionPointer σ π τ) r)
         useNothing
   TermRuntime (FunctionApplication e1 e2 ()) -> do
     Checked e1' ((σ, π, τ), π') lΓ1 <- traverse (firstM (checkFunctionPointer p) <=< checkEffect p) =<< typeCheck e1
@@ -539,7 +541,7 @@ finishType σ = zonkType go σ
     go x =
       indexTypeLogicalMap x >>= \case
         LinkTypeLogical σ -> finishType σ
-        UnboundTypeLogical _ _ _ _ (Just upper) _ -> pure $ TypeCore $ TypeVariable upper
+        UnboundTypeLogical _ _ _ _ (Just upper) _ -> pure $ flexible upper
         UnboundTypeLogical p _ _ _ Nothing _ -> quit $ AmbiguousType p
 
 finishKind :: (ZonkKind u) => u KindLogical -> Core p (u v)
@@ -597,6 +599,9 @@ generalize inline (e@(TermCore p _), σ) = do
           ( TermSchemeCore p $ ImplicitTypeAbstraction (Bound (TypePatternCore name κ) e) c lower,
             TypeSchemeCore $ ImplicitForall (Bound (TypePatternCore name κ) σ) c lower
           )
+      -- todo this messes up variable naming
+      (UnboundTypeLogical _ _ _ _ (Just _) _) -> do
+        pure (e, σ)
       _ -> error "unhandled type logical"
 
   e <- finishType e
@@ -625,7 +630,6 @@ generalize inline (e@(TermCore p _), σ) = do
   where
     foldrMFlip a b f = foldrM f a b
 
--- todo readd ambigous types check
 typeCheckGlobalAuto ::
   Bool ->
   TermSource p ->
@@ -642,33 +646,35 @@ typeCheckGlobalManual ::
   TermSchemeSource p ->
   TypeSchemeAuto p ->
   Core p (TermSchemeInfer p, TypeSchemeInfer)
-typeCheckGlobalManual e@(TermSchemeSource p _) ς = case ς of
+typeCheckGlobalManual e ς = case ς of
   Nothing -> error "todo handle type lambdas without annotation"
   Just ς -> do
     enterLevel
-    (ς, _) <- kindCheckScheme ς
-    zonkKind (const $ quit $ ExpectedFullAnnotation p) ς
+    (ς, _) <- kindCheckSchemePlain ς
     e <- go ς e
     e <- finish e
-    ς <- finish ς
     pure (e, ς)
   where
+    go :: TypeSchemeInfer -> TermSchemeSource p -> Core p (TermSchemeUnify p)
     go (TypeSchemeCore (MonoType σ)) (TermSchemeSource p (MonoTerm e)) = do
       Checked e σ' _ <- typeCheck e
-      matchType p σ σ'
+      matchType p (flexible σ) σ'
       leaveLevel
       pure (TermSchemeCore p $ MonoTerm e)
     go
       (TypeSchemeCore (ImplicitForall (Bound (TypePatternCore x κ) ς) c π))
       (TermSchemeSource _ (ImplicitTypeAbstraction (Bound (Pattern p x' _) e) _ _)) = do
+        ς <- pure $ flexible ς
+        π' <- pure $ map flexible π
+        κ <- pure $ flexibleKind κ
         -- todo handle constrains and bounds
         pure (TermSchemeCore p)
           <*> ( pure ImplicitTypeAbstraction
                   <*> ( pure (Bound (TypePatternCore x' κ))
-                          <*> (augmentKindEnvironment x' p κ c (strictlyVariables π) minBound $ go (convertType x' x ς) e)
+                          <*> (augmentKindEnvironment x' p κ c (Set.fromList π) minBound $ go (convertType x' x ς) e)
                       )
                   <*> pure c
-                  <*> pure π
+                  <*> pure π'
               )
     go
       (TypeSchemeCore (ImplicitKindForall (Bound (KindPatternCore x μ) ς)))

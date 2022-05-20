@@ -254,6 +254,7 @@ e \Coloneqq & \\
 & \dots \\
 \sigma, \tau, \pi \Coloneqq & \\
 & \sigma^\pi \tag{Region Effect} \\
+& \text{IO} \tag{IO Region} \\
 & \dots \\
 \kappa, s, \rho \Coloneqq & \\
 & \text{Region} \tag{Region} \\
@@ -283,6 +284,10 @@ e \Coloneqq & \\
 \frac
 {\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \sigma : +^\rho}
 {\Phi \vdash \sigma^\pi : *} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{IO} : \text{Region}}
 \end{gather*}
 
 \begin{gather*}

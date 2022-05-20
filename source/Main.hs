@@ -41,6 +41,7 @@ prettyError (UnknownIdentifier p (TermIdentifier x)) = "Unknown identifer " ++ x
 prettyError (TypeMismatch p σ σ') = "Type mismatch between ``" ++ pretty typex (nameType σ) ++ "`` and ``" ++ pretty typex (nameType σ') ++ "``" ++ positions p
 prettyError (KindMismatch p κ κ') = "Kind mismatch between ``" ++ pretty kind (nameKind κ) ++ "`` and ``" ++ pretty kind (nameKind κ') ++ "``" ++ positions p
 prettyError (ConstraintMismatch p c σ) = "Unable to proof ``" ++ pretty constraint c ++ "(" ++ pretty typex (nameType σ) ++ ")``" ++ positions p
+prettyError (TypeMisrelation p σ σ') = "Unable to subtype ``" ++ pretty typex (nameType σ') ++ "`` >= ``" ++ pretty typex (nameType σ) ++ "``" ++ positions p
 prettyError e = show e
 
 quoted x = "\"" ++ x ++ "\""

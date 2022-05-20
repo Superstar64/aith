@@ -45,38 +45,38 @@ data Relational
   | GreaterThenEqual
   deriving (Show, Eq)
 
-data TermRuntime θ s σauto σerase σ λ e
+data TermRuntime θ σerase s σ λe e
   = Variable TermIdentifier θ
-  | Alias e (λ e)
+  | Alias e λe
   | Extern Symbol σ σerase σ
-  | FunctionApplication e e σauto
+  | FunctionApplication e e σ
   | TupleIntroduction [e]
   | ReadReference e
-  | WriteReference e e σauto
+  | WriteReference e e σ
   | NumberLiteral Integer
   | Arithmatic Arithmatic e e s
-  | Relational Relational e e σauto s
+  | Relational Relational e e σ s
   | BooleanLiteral Bool
   | If e e e
   deriving (Show)
 
-data TermF sourceOnly λσ θ κ σauto σ λ λrt e
-  = TermRuntime (TermRuntime θ κ σauto σ σ λrt e)
-  | FunctionLiteral (λrt e)
-  | InlineAbstraction (λ e)
+data TermF sourceOnly κ θ σauto σ λσe λe λrun_e e
+  = TermRuntime (TermRuntime θ σauto κ σauto λrun_e e)
+  | FunctionLiteral λrun_e
+  | InlineAbstraction λe
   | InlineApplication e e σauto
   | OfCourseIntroduction e
-  | Bind e (λ e)
-  | TypeAbstraction (λσ e) (Set Constraint) [σ]
+  | Bind e λe
+  | TypeAbstraction λσe (Set Constraint) [σ]
   | TypeApplication e σ σauto
   | TypeAnnotation e σ sourceOnly
   | PretypeAnnotation e σ sourceOnly
   deriving (Show)
 
-data TermSchemeF λσ λ σ e eς
+data TermSchemeF σ λκe λσe e
   = MonoTerm e
-  | ImplicitTypeAbstraction (λ eς) (Set Constraint) [σ]
-  | ImplicitKindAbstraction (λσ eς)
+  | ImplicitTypeAbstraction λσe (Set Constraint) [σ]
+  | ImplicitKindAbstraction λκe
   deriving (Show)
 
 traverseTermPatternF ::
@@ -110,45 +110,44 @@ mapTermRuntimePatternF f h = runIdentity . traverseTermRuntimePatternF (Identity
 traverseTermRuntime ::
   Applicative m =>
   (θ -> m θ') ->
-  (s -> m s') ->
-  (σauto -> m σauto') ->
   (σerase -> m σerase') ->
+  (s -> m s') ->
   (σ -> m σ') ->
-  (λ e -> m (λ' e')) ->
+  (λe -> m λe') ->
   (e -> m e') ->
-  TermRuntime θ s σauto σerase σ λ e ->
-  m (TermRuntime θ' s' σauto' σerase' σ' λ' e')
-traverseTermRuntime d h z y f g i e =
+  TermRuntime θ σerase s σ λe e ->
+  m (TermRuntime θ' σerase' s' σ' λe' e')
+traverseTermRuntime d y h f g i e =
   case e of
     Variable x θ -> pure Variable <*> pure x <*> d θ
     Alias e λ -> pure Alias <*> i e <*> g λ
     Extern sm σ σ'' σ' -> pure Extern <*> pure sm <*> f σ <*> y σ'' <*> f σ'
-    FunctionApplication e1 e2 σ -> pure FunctionApplication <*> i e1 <*> i e2 <*> z σ
+    FunctionApplication e1 e2 σ -> pure FunctionApplication <*> i e1 <*> i e2 <*> f σ
     TupleIntroduction es -> pure TupleIntroduction <*> traverse i es
     ReadReference e -> pure ReadReference <*> i e
-    WriteReference e e' σ -> pure WriteReference <*> i e <*> i e' <*> z σ
+    WriteReference e e' σ -> pure WriteReference <*> i e <*> i e' <*> f σ
     NumberLiteral n -> pure NumberLiteral <*> pure n
     Arithmatic o e e' κ -> pure Arithmatic <*> pure o <*> i e <*> i e' <*> h κ
-    Relational o e e' σ κ -> pure Relational <*> pure o <*> i e <*> i e' <*> z σ <*> h κ
+    Relational o e e' σ κ -> pure Relational <*> pure o <*> i e <*> i e' <*> f σ <*> h κ
     BooleanLiteral b -> pure BooleanLiteral <*> pure b
     If e e' e'' -> pure If <*> i e <*> i e' <*> i e''
 
 traverseTermF ::
   Applicative m =>
   (source -> m source') ->
-  (λσ e -> m (λσ' e')) ->
-  (θ -> m θ') ->
   (κ -> m κ') ->
+  (θ -> m θ') ->
   (σauto -> m σauto') ->
   (σ -> m σ') ->
-  (λ e -> m (λ' e')) ->
-  (λr e -> m (λr' e')) ->
+  (λσe -> m λσe') ->
+  (λe -> m λe') ->
+  (λrun_e -> m λrun_e') ->
   (e -> m e') ->
-  TermF source λσ θ κ σauto σ λ λr e ->
-  m (TermF source' λσ' θ' κ' σauto' σ' λ' λr' e')
-traverseTermF y k d j z f h m i e =
+  TermF source κ θ σauto σ λσe λe λrun_e e ->
+  m (TermF source' κ' θ' σauto' σ' λσe' λe' λrun_e' e')
+traverseTermF y j d z f k h m i e =
   case e of
-    TermRuntime e -> pure TermRuntime <*> traverseTermRuntime d j z f f m i e
+    TermRuntime e -> pure TermRuntime <*> traverseTermRuntime d z j z m i e
     FunctionLiteral λ -> pure FunctionLiteral <*> m λ
     InlineAbstraction λ -> pure InlineAbstraction <*> h λ
     InlineApplication e1 e2 σ -> pure InlineApplication <*> i e1 <*> i e2 <*> z σ
@@ -165,13 +164,13 @@ mapTermF y l d j z f h m i = runIdentity . traverseTermF (Identity . y) (Identit
 
 traverseTermSchemeF ::
   Applicative m =>
-  (λσ eς -> m (λσ' eς')) ->
-  (λ eς -> m (λ' eς')) ->
   (σ -> m σ') ->
+  (λκe -> m λκe') ->
+  (λσe -> m λσe') ->
   (e -> m e') ->
-  TermSchemeF λσ λ σ e eς ->
-  m (TermSchemeF λσ' λ' σ' e' eς')
-traverseTermSchemeF f g h i e = case e of
+  TermSchemeF σ λκe λσe e ->
+  m (TermSchemeF σ' λκe' λσe' e')
+traverseTermSchemeF h f g i e = case e of
   MonoTerm e -> pure MonoTerm <*> i e
   ImplicitTypeAbstraction λ c π -> pure ImplicitTypeAbstraction <*> g λ <*> pure c <*> traverse h π
   ImplicitKindAbstraction λ -> pure ImplicitKindAbstraction <*> f λ
@@ -201,13 +200,13 @@ data TermSource p
       p
       ( TermF
           ()
-          (Bound (Pattern TypeIdentifier (KindAuto p) p))
           ()
           ()
           ()
           (TypeAuto p)
-          (Bound (TermPatternSource p))
-          (Bound (TermRuntimePatternSource p))
+          (Bound (Pattern TypeIdentifier (KindAuto p) p) (TermSource p))
+          (Bound (TermPatternSource p) (TermSource p))
+          (Bound (TermRuntimePatternSource p) (TermSource p))
           (TermSource p)
       )
   deriving (Show)
@@ -217,13 +216,13 @@ data Term p vσ vκ
       p
       ( TermF
           Void
-          (Bound (TypePattern vκ))
-          (Instantiation vσ vκ)
           (Kind vκ)
+          (Instantiation vσ vκ)
           (Type vσ vκ)
           (Type vσ vκ)
-          (Bound (TermPattern p vσ vκ))
-          (Bound (TermRuntimePattern p vσ vκ))
+          (Bound (TypePattern vκ) (Term p vσ vκ))
+          (Bound (TermPattern p vσ vκ) (Term p vσ vκ))
+          (Bound (TermRuntimePattern p vσ vκ) (Term p vσ vκ))
           (Term p vσ vκ)
       )
   deriving (Show)
@@ -236,22 +235,20 @@ data TermSchemeSource p
   = TermSchemeSource
       p
       ( TermSchemeF
-          (Bound (Pattern KindIdentifier Sort p))
-          (Bound (Pattern TypeIdentifier (KindAuto p) p))
           (TypeSource p)
+          (Bound (Pattern KindIdentifier Sort p) (TermSchemeSource p))
+          (Bound (Pattern TypeIdentifier (KindAuto p) p) (TermSchemeSource p))
           (TermSource p)
-          (TermSchemeSource p)
       )
 
 data TermScheme p vσ vκ
   = TermSchemeCore
       p
       ( TermSchemeF
-          (Bound KindPattern)
-          (Bound (TypePattern vκ))
           (Type vσ vκ)
+          (Bound KindPattern (TermScheme p vσ vκ))
+          (Bound (TypePattern vκ) (TermScheme p vσ vκ))
           (Term p vσ vκ)
-          (TermScheme p vσ vκ)
       )
 
 type TermSchemeUnify p = TermScheme p TypeLogical KindLogical
@@ -320,8 +317,8 @@ alias = (termRuntime .) $
     _ -> Nothing
 
 extern = (termRuntime .) $
-  Prism (uncurry $ uncurry $ uncurry $ Extern) $ \case
-    (Extern path σ π τ) -> Just (((path, σ), π), τ)
+  Prism (\sym -> Extern sym () () ()) $ \case
+    (Extern sym () () ()) -> Just sym
     _ -> Nothing
 
 functionApplication = (termRuntime .) $
@@ -469,11 +466,11 @@ instance Functor TermSource where
     TermSource (f p) $
       mapTermF
         id
-        (mapBound (mapPattern id (fmap (fmap f)) f) (fmap f))
         id
         id
         id
         (fmap (fmap f))
+        (mapBound (mapPattern id (fmap (fmap f)) f) (fmap f))
         (mapBound (fmap f) (fmap f))
         (mapBound (fmap f) (fmap f))
         (fmap f)
@@ -484,9 +481,9 @@ instance Functor TermSchemeSource where
     TermSchemeSource
       (f p)
       ( mapTermSchemeF
+          (fmap f)
           (mapBound (mapPattern id id f) (fmap f))
           (mapBound (mapPattern id (fmap $ fmap f) f) (fmap f))
-          (fmap f)
           (fmap f)
           e
       )
@@ -528,7 +525,7 @@ instance RenameTerm (TermPattern p vσ vκ) where
       go = renameTerm ux x
 
 instance ConvertType (TermSource p) where
-  convertType ux x (TermSource p e) = TermSource p $ mapTermF id go' id id id go go'' go'' go e
+  convertType ux x (TermSource p e) = TermSource p $ mapTermF id id id id go go' go'' go'' go e
     where
       go = convertType ux x
       go' = convertSameTypeSource ux x
@@ -616,7 +613,7 @@ instance Reduce (TermRuntimePattern p vσ vκ) where
 
 instance FreeVariablesTerm (Term p vσ vκ) where
   freeVariablesTerm (TermCore _ (TermRuntime (Variable x _))) = Set.singleton x
-  freeVariablesTerm (TermCore _ e) = foldTermF absurd go' mempty mempty mempty mempty go'' go'' go e
+  freeVariablesTerm (TermCore _ e) = foldTermF absurd mempty mempty mempty mempty go' go'' go'' go e
     where
       go = freeVariablesTerm
       go' = freeVariablesLowerTerm
@@ -624,7 +621,7 @@ instance FreeVariablesTerm (Term p vσ vκ) where
 
 instance FreeVariablesTermSource TermSource where
   freeVariablesTermSource (TermSource p (TermRuntime (Variable x _))) = Variables $ Map.singleton x p
-  freeVariablesTermSource (TermSource _ e) = foldTermF mempty go' mempty mempty mempty mempty go'' go'' go e
+  freeVariablesTermSource (TermSource _ e) = foldTermF mempty mempty mempty mempty mempty go' go'' go'' go e
     where
       go = freeVariablesTermSource
       go' = freeVariablesLowerTermSource
@@ -632,14 +629,14 @@ instance FreeVariablesTermSource TermSource where
 
 instance ConvertTerm (Term p vσ vκ) where
   convertTerm ux x (TermCore p (TermRuntime (Variable x' θ))) | x == x' = TermCore p $ TermRuntime $ Variable ux θ
-  convertTerm ux x (TermCore p e) = TermCore p $ mapTermF absurd go' id id id id go'' go'' go e
+  convertTerm ux x (TermCore p e) = TermCore p $ mapTermF absurd id id id id go' go'' go'' go e
     where
       go = convertTerm ux x
       go' = convertLowerTerm ux x
       go'' = convertSameTerm ux x
 
 instance SubstituteTerm Term where
-  substituteTerm ux x v@(TermCore _ (TermRuntime (Variable x' θ))) | x == x' = go ux θ
+  substituteTerm ux x (TermCore _ (TermRuntime (Variable x' θ))) | x == x' = go ux θ
     where
       go (TermSchemeCore _ (ImplicitTypeAbstraction λ _ _)) (InstantiationCore (InstantiateType σ θ)) = go (apply λ σ) θ
         where
@@ -648,108 +645,108 @@ instance SubstituteTerm Term where
         where
           apply (Bound (KindPatternCore α _) e) κ = substituteKind κ α e
       go (TermSchemeCore _ (MonoTerm e)) (InstantiationCore InstantiateEmpty) = e
-      go _ _ = flip const (ux, v) $ error "unable to substitute"
-  substituteTerm ux x (TermCore p e) = TermCore p $ mapTermF absurd go' id id id id go'' go'' go e
+      go _ _ = error "unable to substitute"
+  substituteTerm ux x (TermCore p e) = TermCore p $ mapTermF absurd id id id id go' go'' go'' go e
     where
       go = substituteTerm ux x
       go' = substituteLowerTerm avoidType ux x
       go'' = substituteSameTerm ux x
 
 instance FreeVariablesType (Term p vσ vκ) where
-  freeVariablesType (TermCore _ e) = foldTermF absurd go' go mempty go go go'' go'' go e
+  freeVariablesType (TermCore _ e) = foldTermF absurd mempty go go go go' go'' go'' go e
     where
       go = freeVariablesType
       go' = freeVariablesSameType
       go'' = freeVariablesHigherType
 
 instance ConvertType (Term p vσ vκ) where
-  convertType ux x (TermCore p e) = TermCore p $ mapTermF absurd go' go id go go go'' go'' go e
+  convertType ux x (TermCore p e) = TermCore p $ mapTermF absurd id go go go go' go'' go'' go e
     where
       go = convertType ux x
       go' = convertSameType ux x
       go'' = convertHigherType ux x
 
 instance SubstituteType (Term p) where
-  substituteType ux x (TermCore p e) = TermCore p $ mapTermF absurd go' go id go go go'' go'' go e
+  substituteType ux x (TermCore p e) = TermCore p $ mapTermF absurd id go go go go' go'' go'' go e
     where
       go = substituteType ux x
       go' = substituteSameType ux x
       go'' = substituteHigherType ux x
 
 instance FreeVariablesKind (Term p vσ vκ) where
-  freeVariablesKind (TermCore _ e) = foldTermF absurd go' go go go go go' go' go e
+  freeVariablesKind (TermCore _ e) = foldTermF absurd go go go go go' go' go' go e
     where
       go = freeVariablesKind
       go' = freeVariablesHigherKind
 
 instance ConvertKind (Term p vσ vκ) where
-  convertKind ux x (TermCore p e) = TermCore p $ mapTermF absurd go' go go go go go' go' go e
+  convertKind ux x (TermCore p e) = TermCore p $ mapTermF absurd go go go go go' go' go' go e
     where
       go = convertKind ux x
       go' = convertHigherKind ux x
 
 instance SubstituteKind (Term p vσ) where
-  substituteKind ux x (TermCore p e) = TermCore p $ mapTermF absurd go' go go go go go' go' go e
+  substituteKind ux x (TermCore p e) = TermCore p $ mapTermF absurd go go go go go' go' go' go e
     where
       go = substituteKind ux x
       go' = substituteHigherKind ux x
 
 instance FreeVariablesTerm (TermScheme p vσ vκ) where
-  freeVariablesTerm (TermSchemeCore _ e) = foldTermSchemeF go' go' mempty go e
+  freeVariablesTerm (TermSchemeCore _ e) = foldTermSchemeF mempty go' go' go e
     where
       go = freeVariablesTerm
       go' = freeVariablesLowerTerm
 
 instance FreeVariablesTermSource TermSchemeSource where
-  freeVariablesTermSource (TermSchemeSource _ e) = foldTermSchemeF go' go' mempty go e
+  freeVariablesTermSource (TermSchemeSource _ e) = foldTermSchemeF mempty go' go' go e
     where
       go = freeVariablesTermSource
       go' = freeVariablesLowerTermSource
 
 instance SubstituteTerm TermScheme where
-  substituteTerm ux x (TermSchemeCore p e) = TermSchemeCore p $ mapTermSchemeF go'' go' id go e
+  substituteTerm ux x (TermSchemeCore p e) = TermSchemeCore p $ mapTermSchemeF id go'' go' go e
     where
       go = substituteTerm ux x
       go' = substituteLowerTerm avoidType ux x
       go'' = substituteLowerTerm avoidKind ux x
 
 instance FreeVariablesType (TermScheme p vσ vκ) where
-  freeVariablesType (TermSchemeCore _ e) = foldTermSchemeF go'' go' go go e
+  freeVariablesType (TermSchemeCore _ e) = foldTermSchemeF go go'' go' go e
     where
       go = freeVariablesType
       go' = freeVariablesSameType
       go'' = freeVariablesLowerType
 
 instance ConvertType (TermScheme p vσ vκ) where
-  convertType ux x (TermSchemeCore p e) = TermSchemeCore p $ mapTermSchemeF go'' go' go go e
+  convertType ux x (TermSchemeCore p e) = TermSchemeCore p $ mapTermSchemeF go go'' go' go e
     where
       go = convertType ux x
       go' = convertSameType ux x
       go'' = convertLowerType ux x
 
 instance SubstituteType (TermScheme p) where
-  substituteType ux x (TermSchemeCore p e) = TermSchemeCore p $ mapTermSchemeF go'' go' go go e
+  substituteType ux x (TermSchemeCore p e) = TermSchemeCore p $ mapTermSchemeF go go'' go' go e
     where
       go = substituteType ux x
       go' = substituteSameType ux x
       go'' = substituteLowerType avoidKind ux x
 
 instance FreeVariablesKind (TermScheme p vσ vκ) where
-  freeVariablesKind (TermSchemeCore _ e) = foldTermSchemeF go'' go' go go e
+  freeVariablesKind (TermSchemeCore _ e) = foldTermSchemeF go go'' go' go e
     where
       go = freeVariablesKind
       go' = freeVariablesHigherKind
       go'' = freeVariablesSameKind
 
 instance ConvertKind (TermScheme p vσ vκ) where
-  convertKind ux x (TermSchemeCore p e) = TermSchemeCore p $ mapTermSchemeF go'' go' go go e
+  convertKind ux x (TermSchemeCore p e) = TermSchemeCore p $ mapTermSchemeF go go'' go' go e
     where
       go = convertKind ux x
       go' = convertHigherKind ux x
       go'' = convertSameKind ux x
 
 instance SubstituteKind (TermScheme p vσ) where
-  substituteKind ux x (TermSchemeCore p e) = TermSchemeCore p $ mapTermSchemeF go'' go' go go e
+  substituteKind ux x (TermSchemeCore p e) = TermSchemeCore p $ mapTermSchemeF go go'' go' go e
     where
       go = substituteKind ux x
       go' = substituteHigherKind ux x
@@ -775,9 +772,9 @@ instance ZonkType (TermScheme p) where
   zonkType f (TermSchemeCore p e) =
     pure TermSchemeCore <*> pure p
       <*> traverseTermSchemeF
-        (traverseBound pure (zonkType f))
-        (traverseBound pure (zonkType f))
         (zonkType f)
+        (traverseBound pure (zonkType f))
+        (traverseBound pure (zonkType f))
         (zonkType f)
         e
 
@@ -786,11 +783,11 @@ instance ZonkType (Term p) where
     pure TermCore <*> pure p
       <*> traverseTermF
         absurd
-        (traverseBound pure (zonkType f))
-        (zonkType f)
         pure
         (zonkType f)
         (zonkType f)
+        (zonkType f)
+        (traverseBound pure (zonkType f))
         (traverseBound (zonkType f) (zonkType f))
         (traverseBound (zonkType f) (zonkType f))
         (zonkType f)
@@ -810,9 +807,9 @@ instance ZonkKind (TermScheme p vσ) where
   zonkKind f (TermSchemeCore p e) =
     pure TermSchemeCore <*> pure p
       <*> traverseTermSchemeF
+        (zonkKind f)
         (traverseBound pure (zonkKind f))
         (traverseBound (zonkKind f) (zonkKind f))
-        (zonkKind f)
         (zonkKind f)
         e
 
@@ -821,11 +818,11 @@ instance ZonkKind (Term p vσ) where
     pure TermCore <*> pure p
       <*> traverseTermF
         absurd
+        (zonkKind f)
+        (zonkKind f)
+        (zonkKind f)
+        (zonkKind f)
         (traverseBound (zonkKind f) (zonkKind f))
-        (zonkKind f)
-        (zonkKind f)
-        (zonkKind f)
-        (zonkKind f)
         (traverseBound (zonkKind f) (zonkKind f))
         (traverseBound (zonkKind f) (zonkKind f))
         (zonkKind f)
@@ -859,9 +856,9 @@ sourceTermScheme :: Monoid p' => TermScheme p Void Void -> TermSchemeSource p'
 sourceTermScheme (TermSchemeCore _ e) =
   TermSchemeSource mempty $
     mapTermSchemeF
+      sourceType
       (mapBound sourceKindPattern sourceTermScheme)
       (mapBound sourceTypePattern sourceTermScheme)
-      sourceType
       sourceTerm
       e
 
@@ -874,10 +871,14 @@ sourceTermAnnotate annotate e σ =
 sourceTerm :: Monoid p' => Term p Void Void -> TermSource p'
 sourceTerm (TermCore _ e) =
   TermSource mempty $ case e of
+    TermRuntime (Extern sym σ π τ) ->
+      PretypeAnnotation
+        (TermSource mempty $ TermRuntime $ Extern sym () () ())
+        (Just $ TypeSource mempty $ FunctionPointer (sourceType σ) (sourceType π) (sourceType τ))
+        ()
     TermRuntime e -> TermRuntime $ case e of
       Variable x _ -> Variable x ()
       Alias e λ -> Alias (sourceTerm e) (mapBound sourceTermRuntimePattern sourceTerm λ)
-      Extern sym σ π τ -> Extern sym (sourceTypeAuto σ) (sourceTypeAuto π) (sourceTypeAuto τ)
       FunctionApplication e e' σ -> FunctionApplication (sourceTerm e) (sourceTermAnnotate PretypeAnnotation e' σ) ()
       TupleIntroduction es -> TupleIntroduction (map sourceTerm es)
       ReadReference e -> ReadReference (sourceTerm e)
@@ -887,6 +888,7 @@ sourceTerm (TermCore _ e) =
       Relational o e e' σ _ -> Relational o (sourceTermAnnotate PretypeAnnotation e σ) (sourceTermAnnotate PretypeAnnotation e' σ) () ()
       BooleanLiteral b -> BooleanLiteral b
       If e e' e'' -> If (sourceTerm e) (sourceTerm e') (sourceTerm e'')
+      Extern _ _ _ _ -> error "already handled"
     FunctionLiteral λ -> FunctionLiteral (mapBound sourceTermRuntimePattern sourceTerm λ)
     InlineAbstraction λ -> InlineAbstraction (mapBound sourceTermPattern sourceTerm λ)
     InlineApplication e e' σ -> InlineApplication (sourceTerm e) (sourceTermAnnotate TypeAnnotation e' σ) ()

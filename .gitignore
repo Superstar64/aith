@@ -8,3 +8,5 @@ dist-newstyle
 # build configuration
 cabal.project.local
 cabal.project.local~
+# ghci config
+.ghci

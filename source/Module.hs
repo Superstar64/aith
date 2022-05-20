@@ -172,7 +172,7 @@ forwardDeclare = fmap basic . prepareContext
         }
       where
         identifers = Map.mapKeysMonotonic TermIdentifier
-        types = fmap (\(p, ς) -> (p, Unrestricted, convertFunctionLiteral $ flexibleType $ flexibleKind ς))
+        types = fmap (\(p, ς) -> (p, Unrestricted, convertFunctionLiteral $ flexible ς))
 
 convertFunctionLiteral ς = case ς of
   TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ π τ))) -> polyEffect "R" (TypeCore $ FunctionPointer σ π τ)
@@ -215,16 +215,16 @@ typeCheckModule environments ((path@(Path heading name), item) : nodes) = do
   (item', σ) <- case item of
     GlobalSource (Inline Nothing (TermSchemeSource _ (MonoTerm e))) -> do
       (e, σ) <- runCore (typeCheckGlobalAuto True e) environment emptyState
-      pure (GlobalInfer $ Inline σ e, flexibleType $ flexibleKind σ)
+      pure (GlobalInfer $ Inline σ e, flexible σ)
     GlobalSource (Inline σ e) -> do
       (e, σ) <- runCore (typeCheckGlobalManual e σ) environment emptyState
-      pure (GlobalInfer $ Inline σ e, flexibleType $ flexibleKind σ)
+      pure (GlobalInfer $ Inline σ e, flexible σ)
     GlobalSource (Text Nothing (TermSchemeSource _ (MonoTerm e))) -> do
       (e, σ) <- runCore (typeCheckGlobalAuto False e >>= syntaticCheck) environment emptyState
-      pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexibleType $ flexibleKind σ)
+      pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexible σ)
     GlobalSource (Text σ e) -> do
       (e, σ) <- runCore (typeCheckGlobalManual e σ >>= syntaticCheck) environment emptyState
-      pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexibleType $ flexibleKind σ)
+      pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexible σ)
     GlobalSource (Import p sym@(Path heading name)) -> do
       let environment = Map.findWithDefault emptyEnvironment heading environments
       let (_, _, σ) = typeEnvironment environment Map.! (TermIdentifier name)

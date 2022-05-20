@@ -66,7 +66,8 @@ keywords =
       "bool",
       "copy",
       "representation",
-      "native"
+      "native",
+      "io"
     ]
 
 -- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
@@ -277,6 +278,7 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenPare
         shortcut "uint" Language.unsigned Language.int,
         shortcut "ulong" Language.unsigned Language.long,
         Language.boolean ⊣ keyword "bool",
+        Language.world ⊣ keyword "io",
         Language.number ⊣ token "#" ≫ kindCoreAuto ⊗ space ≫ kindCoreAuto,
         Language.explicitForall ⊣ constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊗ lambdaInline typex,
         Language.ofCourse ⊣ betweenBangSquares typeFull,
@@ -419,15 +421,13 @@ termCore = Language.termSource ⊣ position ⊗ choice options ∥ betweenParens
       [ Language.variable ⊣ termIdentifier ⊗ always,
         Language.inlineAbstraction ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ lambdaMajor term,
         Language.functionLiteral ⊣ Language.bound ⊣ keyword "function" ≫ betweenParensElse unit' termRuntimePattern ⊗ lambdaMajor term,
-        Language.extern ⊣ extern,
+        Language.extern ⊣ prefixKeyword "extern" ≫ symbol,
         Language.ofCourseIntroduction ⊣ betweenBangSquares termFull,
         Language.numberLiteral ⊣ number,
         Language.typeLambda ⊣ constraintBound ⊣ token "/\\" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCoreAuto ⊗ lambdaMajor term,
         Language.truex ⊣ keyword "true",
         Language.falsex ⊣ keyword "false"
       ]
-    externHeader = prefixKeyword "extern" ≫ symbol ≪ space ≪ keyword "function"
-    extern = swapLast2 ⊣ externHeader ⊗ betweenParens typeFullAuto ≪ binaryToken "=>" ⊗ typeAuto ≪ binaryKeyword "uses" ⊗ typeCoreAuto
 
 modulex ::
   (Syntax δ, Position δ p) =>

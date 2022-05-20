@@ -8,6 +8,7 @@ import Data.Functor.Identity (Identity (..), runIdentity)
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Void (Void, absurd)
+import Misc.Explode
 import Misc.Isomorph
 import Misc.Prism
 import qualified Misc.Util as Util
@@ -45,7 +46,7 @@ data KindF v κ
   | KindRuntime (KindRuntime κ κ)
   | KindSize (KindSize)
   | KindSignedness (KindSignedness)
-  deriving (Show)
+  deriving (Show, Eq, Ord)
 
 traverseKindF ::
   Applicative m =>
@@ -169,6 +170,13 @@ unsigned = (kindSignedness .) $
   Prism (const Unsigned) $ \case
     Unsigned -> Just ()
     _ -> Nothing
+
+-- use explode for rather then order because sorting with logic variables isn't dangerous
+instance Explode v => Eq (Kind v) where
+  KindCore κ == KindCore κ' = κ == κ'
+
+instance Explode v => Ord (Kind v) where
+  KindCore κ <= KindCore κ' = κ <= κ'
 
 class FreeVariablesKind u where
   freeVariablesKind :: u -> Set KindIdentifier

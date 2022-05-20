@@ -25,15 +25,15 @@ strictlyVariables π = Set.fromList $ map get π
     get (TypeCore (TypeVariable x)) = x
     get _ = error "non variable"
 
-reconstructTypeF strictlyVariables indexVariable indexLogical augment make checkRuntime reconstruct = \case
+reconstructTypeF indexVariable indexLogical augment make checkRuntime reconstruct = \case
   TypeVariable x -> do
     indexVariable x
   TypeLogical v -> do
     indexLogical v
   Inline _ _ -> do
     pure $ make $ Type
-  Forall (Bound pm σ) c πs -> do
-    augment pm c (strictlyVariables πs) $ reconstruct σ
+  Forall (Bound pm σ) _ _ -> do
+    augment pm $ reconstruct σ
   OfCourse _ -> do
     pure $ make $ Type
   FunctionPointer _ _ _ -> do
@@ -52,6 +52,7 @@ reconstructTypeF strictlyVariables indexVariable indexLogical augment make check
   Reference _ _ ->
     pure $ make $ Pretype $ make $ KindRuntime $ PointerRep
   Boolean -> pure $ make $ Pretype $ make $ KindRuntime $ WordRep $ make $ KindSize $ Byte
+  World -> pure $ make $ Region
 
 reconstructKindF indexVariable indexLogical = \case
   KindVariable x -> do
@@ -131,6 +132,7 @@ typeOccursCheck p x lev σ' = go σ'
           recurse τ
         Number _ _ -> pure ()
         Boolean -> pure ()
+        World -> pure ()
 
 kindOccursCheck :: forall p. p -> KindLogical -> Level -> KindUnify -> Core p ()
 kindOccursCheck p x lev κ' = go κ'
@@ -191,7 +193,7 @@ matchType p σ σ' = unify σ σ'
           for (Set.toList c) $ \c -> do
             constrain p c σ
           for lower (\π -> lessThen p π σ)
-          for upper (\x -> lessThen p σ (TypeCore $ TypeVariable x))
+          for upper (\π -> lessThen p σ (flexible π))
           pure ()
         (LinkTypeLogical σ') -> unify σ' σ
     unify σ σ'@(TypeCore (TypeLogical _)) = unify σ' σ
@@ -210,7 +212,7 @@ matchType p σ σ' = unify σ σ'
         let αf = fresh vars α
         let σ2 = convertType αf α σ
         let σ'2 = convertType αf α' σ'
-        augmentKindEnvironment αf p κ c (strictlyVariables π) maxBound $ match p σ2 σ'2
+        augmentKindSkolem p αf κ $ match p σ2 σ'2
         sequence $ zipWith (match p) π π'
         pure ()
     unify (TypeCore (OfCourse σ)) (TypeCore (OfCourse σ')) = do
@@ -236,6 +238,7 @@ matchType p σ σ' = unify σ σ'
       matchKind p ρ1 ρ1'
       matchKind p ρ2 ρ2'
     unify (TypeCore Boolean) (TypeCore Boolean) = pure ()
+    unify (TypeCore World) (TypeCore World) = pure ()
     unify σ σ' = quit $ TypeMismatch p σ σ'
 
 matchKind :: p -> KindUnify -> KindUnify -> Core p ()
@@ -310,55 +313,65 @@ reachLogical x (TypeCore (TypeLogical x')) =
 reachLogical _ _ = pure False
 
 maximal _ _ [] [max] = pure max
-maximal p e (x : xs) candidates = do
-  candidates <- flip filterM candidates $ \x' -> do
-    (_, _, _, lower, _) <- indexKindEnvironment x'
-    pure (x `Set.member` lower)
-  maximal p e xs candidates
-maximal p (x, x') _ _ = quit $ NoCommonMeet p x x'
+maximal p base (π : πs) candidates = do
+  candidates <- flip filterM candidates $ \π' -> do
+    lower <- lowerTypeBounds π'
+    pure (π `Set.member` lower)
+  maximal p base πs candidates
+maximal p (π, π') _ _ = quit $ NoCommonMeet p π π'
 
-meet p x x' = do
-  (_, _, _, lower1, _) <- indexKindEnvironment x
-  (_, _, _, lower2, _) <- indexKindEnvironment x'
-  maximal p (x, x') (Set.toList $ lower1 <> lower2) (Set.toList $ lower1 <> lower2)
+meet p π π' = do
+  lower1 <- lowerTypeBounds π
+  lower2 <- lowerTypeBounds π'
+  maximal p (π, π') (Set.toList $ lower1 <> lower2) (Set.toList $ lower1 <> lower2)
+
+-- type with no unification variables
+plainType :: p -> TypeUnify -> Core p (Type vκ vσ)
+plainType p σ = do
+  σ <- zonkType (const $ quit $ ExpectedPlainType p) σ
+  σ <- zonkKind (const $ quit $ ExpectedPlainType p) σ
+  pure σ
+
+-- type variable or type with no unification variables
+plainType' p σ@(TypeCore (TypeLogical x)) =
+  indexTypeLogicalMap x >>= \case
+    LinkTypeLogical σ -> plainType' p σ
+    _ -> pure σ
+plainType' p σ = plainType p σ
+
+-- todo switch to greater then
 
 lessThen :: p -> TypeUnify -> TypeUnify -> Core p ()
-lessThen p σ (TypeCore (TypeLogical x))
-  | (TypeCore (TypeVariable _)) <- σ = unifyBoundVariable
-  | (TypeCore (TypeLogical x')) <- σ =
-    indexTypeLogicalMap x' >>= \case
-      (LinkTypeLogical σ) -> lessThen p σ (TypeCore $ TypeLogical x)
-      _ -> unifyBoundVariable
-  where
-    unifyBoundVariable =
-      indexTypeLogicalMap x >>= \case
-        (LinkTypeLogical σ') -> lessThen p σ σ'
-        (UnboundTypeLogical p' κ c lower upper lev) -> do
-          reachable <- reachLogical x σ
-          if reachable
-            then matchType p (TypeCore (TypeLogical x)) σ
-            else do
-              -- todo occurance here maybe?
-              modifyState $ \state -> state {typeLogicalMap = Map.insert x (UnboundTypeLogical p' κ c (σ : lower) upper lev) $ typeLogicalMap state}
-              for upper $ \πx -> lessThen p σ (TypeCore $ TypeVariable πx)
-              pure ()
-lessThen p (TypeCore (TypeLogical x)) (TypeCore (TypeVariable x')) =
+lessThen p σ (TypeCore (TypeLogical x)) = do
+  σ <- plainType' p σ
   indexTypeLogicalMap x >>= \case
-    (LinkTypeLogical σ) -> lessThen p σ (TypeCore $ TypeVariable x')
+    (LinkTypeLogical σ') -> lessThen p σ σ'
+    (UnboundTypeLogical p' κ c lower upper lev) ->
+      reachLogical x σ >>= \case
+        True -> matchType p (TypeCore (TypeLogical x)) σ
+        False -> do
+          -- todo occurance here maybe?
+          modifyState $ \state -> state {typeLogicalMap = Map.insert x (UnboundTypeLogical p' κ c (σ : lower) upper lev) $ typeLogicalMap state}
+          for upper $ \π -> lessThen p σ (flexible π)
+          pure ()
+lessThen p (TypeCore (TypeLogical x)) σ' = do
+  σ' <- plainType p σ'
+  indexTypeLogicalMap x >>= \case
+    (LinkTypeLogical σ) -> lessThen p σ (flexible σ')
     (UnboundTypeLogical p' κ c lower upper lev) -> do
       bound <- case upper of
-        Nothing -> pure x'
-        Just x'' -> meet p x' x''
+        Nothing -> pure σ'
+        Just σ'' -> meet p σ' σ''
       modifyState $ \state -> state {typeLogicalMap = Map.insert x (UnboundTypeLogical p' κ c lower (Just bound) lev) $ typeLogicalMap state}
-      for lower $ \σ -> lessThen p σ (TypeCore $ TypeVariable x')
+      for lower $ \σ -> lessThen p σ (flexible σ')
       pure ()
-lessThen p σ@(TypeCore (TypeVariable x)) σ'@(TypeCore (TypeVariable x')) = do
-  (_, _, _, lower, _) <- indexKindEnvironment x'
-  if x `Set.notMember` lower
-    then -- todo use different error message
-      quit $ TypeMismatch p σ σ'
+lessThen p σ σ' = do
+  σ <- plainType p σ
+  σ' <- plainType p σ'
+  lower <- lowerTypeBounds σ'
+  if σ `Set.notMember` lower
+    then quit $ TypeMisrelation p (flexible σ) (flexible σ')
     else pure ()
-lessThen p _ _ = quit $ TypeVariableOnlySuported p
 
 kindIsMember :: forall p. p -> TypeUnify -> KindUnify -> Core p ()
 kindIsMember p σ κ = do
@@ -366,9 +379,10 @@ kindIsMember p σ κ = do
   matchKind p κ κ'
   where
     reconstructType :: TypeUnify -> Core p KindUnify
-    reconstructType (TypeCore σ) = reconstructTypeF strictlyVariables indexEnvironment indexLogicalMap augment KindCore checkRuntime reconstructType σ
+    reconstructType (TypeCore σ) = reconstructTypeF indexEnvironment indexLogicalMap augment KindCore checkRuntime reconstructType σ
       where
-        augment (TypePatternCore x κ) c π = augmentKindEnvironment x p κ c π minBound
+        -- todo use augmentTypePatternBottom
+        augment (TypePatternCore x κ) = augmentKindOccurs p x κ
         indexEnvironment x = snd' <$> indexKindEnvironment x
         indexLogicalMap x = indexTypeLogicalMap x >>= index
         index (UnboundTypeLogical _ x _ _ _ _) = pure x

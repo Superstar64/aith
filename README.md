@@ -188,6 +188,7 @@ Files start with `code` `:::`.
 | Pointer | ``σ* @ π`` |
 | Number | ``#ρ ρ'`` |
 | Boolean | ``bool`` |
+| IO Region | ``io`` |
 
 # Types (Syntax Sugar) (σ, τ, π)
 | Description | Syntax | Meaning|

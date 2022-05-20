@@ -31,7 +31,7 @@ module systemf = {
 
 };
 
-module cycle = {
+module varSub = {
 	inline sub<A : *, B : * >= A, C:*> : ![A] -> ![B] -> C -> C;
 	inline sub<A,B,C> = \![a : A] => \![b : B] => \x => x;
 
@@ -45,6 +45,9 @@ module cycle = {
 			)
 		)
 	};
+
+	inline rigid<A : * >= (\/B : * => B -> B), C : *> : ![A] -> C -> C;
+	inline rigid<A, C> = \![a] => sub `![/\D : * => \y : D => y] `![a];
 };
 
 module default = {
@@ -171,5 +174,15 @@ module recurse = {
 	explode<R:region, A:+[pointer]> : function() => A uses R;
 	explode<R:region, A:+[pointer]> = function() {
 		explode $ ()
+	};
+};
+
+module world = {
+	inline putchar<A:region, B : region >= io> : function*(int) => int uses B @ A;
+	inline putchar<A, B> = extern "putchar";
+
+	putPtr<A:region >= io> : function(int* @ A) => int uses A;
+	putPtr<A> = function(ptr) {
+		putchar $ *ptr
 	};
 };

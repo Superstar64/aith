@@ -33,6 +33,7 @@ data TypeError p
   | UnknownKindIdentifier p KindIdentifier
   | InvalidUsage p TermIdentifier
   | TypeMismatch p TypeUnify TypeUnify
+  | TypeMisrelation p TypeUnify TypeUnify
   | KindMismatch p KindUnify KindUnify
   | SortMismatch p Sort Sort
   | TypeOccursCheck p TypeLogical TypeUnify
@@ -47,11 +48,11 @@ data TypeError p
   | ConstraintKindError p Constraint KindUnify
   | ExpectedFunctionLiteral p
   | ExpectedTypeVariable p
-  | TypeVariableOnlySuported p
-  | NoCommonMeet p TypeIdentifier TypeIdentifier
+  | NoCommonMeet p TypeInfer TypeInfer
   | MismatchedTypeLambdas p
   | ExpectedFullAnnotation p
   | ExpectedTypeAbstraction p
+  | ExpectedPlainType p
   deriving (Show)
 
 newtype Core p a = Core {runCore'' :: ReaderT (CoreEnvironment p) (StateT (CoreState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
@@ -65,13 +66,13 @@ runCore c = (fmap fst .) . runCore' c
 
 data CoreEnvironment p = CoreEnvironment
   { typeEnvironment :: Map TermIdentifier (p, Multiplicity, TypeSchemeUnify),
-    kindEnvironment :: Map TypeIdentifier (p, KindUnify, Set Constraint, Set TypeIdentifier, Level),
+    kindEnvironment :: Map TypeIdentifier (p, KindUnify, Set Constraint, Set TypeInfer, Level),
     sortEnvironment :: Map KindIdentifier (p, Sort, Level)
   }
   deriving (Functor, Show)
 
 data TypeLogicalState p
-  = UnboundTypeLogical p KindUnify (Set Constraint) [TypeUnify] (Maybe TypeIdentifier) Level
+  = UnboundTypeLogical p KindUnify (Set Constraint) [TypeUnify] (Maybe TypeInfer) Level
   | LinkTypeLogical TypeUnify
   deriving (Show, Functor)
 
@@ -106,12 +107,12 @@ augmentTypeEnvironment x p l σ = modifyTypeEnvironment (Map.insert x (p, l, σ)
   where
     modifyTypeEnvironment f (Core r) = Core $ withReaderT (\env -> env {typeEnvironment = f (typeEnvironment env)}) r
 
-lookupKindEnvironment :: TypeIdentifier -> Core p (Maybe (p, KindUnify, Set Constraint, Set TypeIdentifier, Level))
+lookupKindEnvironment :: TypeIdentifier -> Core p (Maybe (p, KindUnify, Set Constraint, Set TypeInfer, Level))
 lookupKindEnvironment x = do
   xΓ <- Core ask
   pure $ Map.lookup x (kindEnvironment xΓ)
 
-indexKindEnvironment :: TypeIdentifier -> Core p (p, KindUnify, Set Constraint, Set TypeIdentifier, Level)
+indexKindEnvironment :: TypeIdentifier -> Core p (p, KindUnify, Set Constraint, Set TypeInfer, Level)
 indexKindEnvironment x = do
   xΓ <- Core ask
   pure $ kindEnvironment xΓ ! x
@@ -128,18 +129,24 @@ indexSortEnvironment x = do
 
 modifyKindEnvironment f (Core r) = Core $ withReaderT (\env -> env {kindEnvironment = f (kindEnvironment env)}) r
 
+lowerTypeBounds :: TypeInfer -> Core p (Set TypeInfer)
+lowerTypeBounds (TypeCore (TypeVariable x)) = do
+  (_, _, _, π, _) <- indexKindEnvironment x
+  pure π
+lowerTypeBounds π = pure (Set.singleton π)
+
 -- todo assertions to avoid shadowing
 augmentKindEnvironment x p κ c π lev e = do
-  πs <- Set.insert x <$> closure π
+  πs <- Set.insert (TypeCore $ TypeVariable x) <$> closure π
   modifyKindEnvironment (Map.insert x (p, κ, c, πs, lev)) e
   where
-    closure :: Set TypeIdentifier -> Core p (Set TypeIdentifier)
-    closure x = do
-      fold <$> traverse lookup (Set.toList x)
-      where
-    lookup x = do
-      (_, _, _, x, _) <- indexKindEnvironment x
-      pure x
+    closure :: Set TypeInfer -> Core p (Set TypeInfer)
+    closure x = fold <$> traverse lowerTypeBounds (Set.toList x)
+
+augmentKindSkolem p x κ = modifyKindEnvironment (Map.insert x (p, κ, c, π, minBound))
+  where
+    c = error "constraints used during unification"
+    π = error "bottom used during unification"
 
 augmentKindOccurs p x κ = modifyKindEnvironment (Map.insert x (p, κ, c, π, minBound))
   where
@@ -173,7 +180,7 @@ augmentSortEnvironment x p μ sk = modifySortEnvironment (Map.insert x (p, μ, s
   where
     modifySortEnvironment f (Core r) = Core $ withReaderT (\env -> env {sortEnvironment = f (sortEnvironment env)}) r
 
-freshTypeVariableRaw :: p -> KindUnify -> Set Constraint -> [TypeUnify] -> Maybe TypeIdentifier -> Level -> Core p TypeLogical
+freshTypeVariableRaw :: p -> KindUnify -> Set Constraint -> [TypeUnify] -> Maybe TypeInfer -> Level -> Core p TypeLogical
 freshTypeVariableRaw p κ c lower upper lev = do
   v <- TypeLogicalRaw <$> newFreshType
   insertTypeLogicalMap v
