@@ -315,6 +315,7 @@ Useful / Inspirational papers:
   * [HMF: Simple type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2007-118.pdf)
   * [Flexible types: robust type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2008-55.pdf)
 * [FreezeML : Complete and Easy Type Inference for First-Class Polymorphism](https://export.arxiv.org/pdf/2004.00396)
+* [A Quick Look at Impredicativity](https://www.microsoft.com/en-us/research/uploads/prod/2020/01/quick-look-icfp20.pdf) [(video)](https://youtu.be/ZuNMo136QqI)
 ### Type Inference (Subtyping)
 * [Algebraic Subtyping](https://www.cs.tufts.edu/~nr/cs257/archive/stephen-dolan/thesis.pdf)
 ### Unification
