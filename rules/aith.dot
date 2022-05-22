@@ -1,0 +1,129 @@
+digraph aith {
+    // basic visualization of type system
+    rankdir="BT"
+    top[label="⊤"]
+    kind[label="☐"]
+    representation
+    size
+    signedness
+
+    kind -> top
+    representation -> top
+    size -> top
+    signedness -> top
+
+    type[label="*"]
+    region
+    pretype[label="+[κ]"]
+    boxed[label="-"]
+    pointerRep[label="pointer"]
+    structRep[label="struct (κ, κ', ...)"]
+    wordRep[label="word κ"]
+    byte
+    short
+    int
+    long
+    signed
+    unsigned
+
+    type -> kind
+    region -> kind
+    pretype -> kind
+    boxed -> kind
+    pointerRep -> representation
+    structRep -> representation
+    wordRep -> representation
+    byte -> size
+    short -> size
+    int -> size
+    long -> size
+    signed -> signedness
+    unsigned -> signedness
+
+    inline[label="σ -> τ"]
+    forall[label="\\/α => σ"]
+    ofCourse[label="!σ"]
+    functionPointer[label="function*(σ) => τ uses π"]
+    functionLiteralType[label="function(σ) => τ uses π"]
+    pair[label="(σ, τ)"]
+    unit[label="()"]
+    effect[label="σ in π"]
+    shared[label="σ @ π"]
+    pointer[label="σ*"]
+    number[label="#κ κ'"]
+    boolean[label="bool"]
+    world[label="io"]
+
+    inline -> type
+    forall -> type
+    ofCourse -> type
+    functionPointer -> pretype
+    functionPointer -> pointerRep [style=dashed]
+    functionLiteralType -> type
+    pair -> pretype
+    pair -> structRep[style=dashed]
+    unit -> pretype
+    unit -> structRep[style=dashed]
+    effect -> type
+    shared -> pretype
+    shared -> pointerRep[style=dashed]
+    pointer -> boxed
+    number -> pretype
+    number -> wordRep[style=dashed]
+    boolean -> pretype
+    boolean -> wordRep[style=dashed]
+    world -> region
+
+    let[label="let x = e; e'"]
+    extern[label="extern \"sym\""]
+    app[label="e $ e'"]
+    pairIntro[label="(e,e')"]
+    unitIntro[label="()"]
+    read[label="*e"]
+    write[label="*e = e'"]
+    num[label="n"]
+    arith[label="e + e'"]
+    relate[label="e < e'"]
+    true
+    if[label="if e {e'} else {e''}"]
+
+    functionLiteral[label="function(x) { e }"]
+    inlineAbstraction[label="\\x => e"]
+    inlineApplication[label="e `e'"]
+    ofCourseIntro[label="!e"]
+    bind[label="inline x = e; e'"]
+    typeAbstraction[label="/\\α => e"]
+    typeApplication[label="e `<σ>"]
+
+    
+
+
+    let -> effect
+    extern -> effect
+    extern -> functionPointer[style=dashed]
+    app -> effect
+    pairIntro -> effect
+    pairIntro -> pair [style=dashed]
+    unitIntro -> effect
+    unitIntro -> unit [style=dashed]
+    read -> effect
+    write -> effect
+    write -> unit[style=dashed]
+    num -> effect
+    num -> number[style=dashed]
+    arith -> effect
+    arith -> number[style=dashed]
+    relate -> effect
+    relate -> boolean[style=dashed]
+    true -> effect
+    true -> boolean[style=dashed]
+    if -> effect
+
+    functionLiteral -> functionLiteralType
+    inlineAbstraction -> inline
+    inlineApplication
+    ofCourseIntro -> ofCourse
+    bind
+    typeAbstraction -> forall
+    typeApplication
+}
