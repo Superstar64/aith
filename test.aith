@@ -54,6 +54,11 @@ module default = {
 	add = function(x,y) {
 		x + y
 	};
+
+	ambigous = function(x) {
+		inline ![y] = ![1];
+		x
+	};
 };
 
 module unit = {
@@ -178,8 +183,8 @@ module recurse = {
 };
 
 module world = {
-	inline putchar<A:region, B : region >= io> : function*(int) => int uses B @ A;
-	inline putchar<A, B> = extern "putchar";
+	inline putchar<A:region> : function*(int) => int uses io in A;
+	inline putchar<A> = extern "putchar";
 
 	putPtr<A:region >= io> : function(int* @ A) => int uses A;
 	putPtr<A> = function(ptr) {

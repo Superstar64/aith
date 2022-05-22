@@ -184,7 +184,7 @@ Files start with `code` `:::`.
 | Function Literal Type | ``function(σ) => τ uses π`` |
 | Pair | ``σ, σ'`` |
 | Unit | ``()`` |
-| Effect | ``σ @ π`` |
+| Effect | ``σ in π`` |
 | Pointer | ``σ* @ π`` |
 | Number | ``#ρ ρ'`` |
 | Boolean | ``bool`` |
@@ -293,7 +293,7 @@ Useful / Inspirational papers:
 ### Regions
 * 
   * [Monadic and Substructural Type Systems for Region-Based Memory Management](https://www.cs.rit.edu/~mtf/research/thesis/fluet-thesis.single.pdf)
-    * Mix of single effect region calculus and monadic regions is in progress 
+    * Implementation of single effect region calculus is in progress 
   * [Monadic Regions](https://www.cs.cornell.edu/people/fluet/research/rgn-monad/JFP06/jfp06.pdf)
   * [A Step-Indexed Model of Substructural State](https://www.cs.cornell.edu/people/fluet/research/substruct-state/ICFP05/icfp05.pdf)
   * [Linear Regions Are All You Need](https://www.cs.cornell.edu/people/fluet/research/substruct-regions/ESOP06/esop06.pdf)

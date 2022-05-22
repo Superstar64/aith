@@ -421,10 +421,10 @@ typeCheck (TermSource p e) = case e of
         (TypeCore $ Effect (TypeCore $ FunctionPointer σ π τ) r)
         useNothing
   TermRuntime (FunctionApplication e1 e2 ()) -> do
-    Checked e1' ((σ, π, τ), π') lΓ1 <- traverse (firstM (checkFunctionPointer p) <=< checkEffect p) =<< typeCheck e1
+    Checked e1' ((σ, π2, τ), π) lΓ1 <- traverse (firstM (checkFunctionPointer p) <=< checkEffect p) =<< typeCheck e1
+    lessThen p π2 π
+    Checked e2' (σ', π') lΓ2 <- traverse (checkEffect p) =<< typeCheck e2
     matchType p π π'
-    Checked e2' (σ', π'') lΓ2 <- traverse (checkEffect p) =<< typeCheck e2
-    matchType p π π''
     matchType p σ σ'
     pure $ Checked (TermCore p $ TermRuntime $ FunctionApplication e1' e2' σ) (TypeCore $ Effect τ π) (lΓ1 `combine` lΓ2)
   TermRuntime (TupleIntroduction es) -> do
@@ -519,16 +519,13 @@ typeCheck (TermSource p e) = case e of
     matchType p σ σ'
     pure $ Checked (TermCore p $ TermRuntime $ If eb' et' ef') (TypeCore $ Effect σ π) (lΓ1 `combine` (lΓ2 `branch` lΓ3))
 
-topologicalBoundsSort :: [TypeLogical] -> Core p [TypeLogical]
-topologicalBoundsSort vars = sortTopological id quit children vars
-  where
-    quit x = error $ "unexpected cycle: " ++ show x
-    children x =
-      indexTypeLogicalMap x >>= \case
-        (LinkTypeLogical σ) -> do
-          pure $ Set.toList $ freeTypeLogical σ
-        (UnboundTypeLogical _ _ _ vars _ _) -> do
-          pure $ vars >>= (Set.toList . freeTypeLogical)
+defaultType _ _ _ (Just upper) = pure $ flexible upper
+defaultType p κ _ Nothing = do
+  κ <- finishKind κ
+  case κ of
+    KindCore Region -> pure $ TypeCore World
+    KindCore (KindLogical v) -> absurd v
+    _ -> quit $ AmbiguousType p
 
 defaultKind Kind = KindCore $ Type
 defaultKind Representation = KindCore $ KindRuntime $ PointerRep
@@ -541,8 +538,10 @@ finishType σ = zonkType go σ
     go x =
       indexTypeLogicalMap x >>= \case
         LinkTypeLogical σ -> finishType σ
-        UnboundTypeLogical _ _ _ _ (Just upper) _ -> pure $ flexible upper
-        UnboundTypeLogical p _ _ _ Nothing _ -> quit $ AmbiguousType p
+        UnboundTypeLogical p κ c _ upper _ -> do
+          σ <- defaultType p κ c upper
+          modifyState $ \state -> state {typeLogicalMap = Map.insert x (LinkTypeLogical (flexible σ)) $ typeLogicalMap state}
+          pure (flexible σ)
 
 finishKind :: (ZonkKind u) => u KindLogical -> Core p (u v)
 finishKind κ = zonkKind go κ
@@ -550,7 +549,10 @@ finishKind κ = zonkKind go κ
     go x =
       indexKindLogicalMap x >>= \case
         LinkKindLogical κ -> finishKind κ
-        UnboundKindLogical _ μ _ -> pure $ defaultKind μ
+        UnboundKindLogical _ μ _ -> do
+          let κ = defaultKind μ
+          modifyState $ \state -> state {kindLogicalMap = Map.insert x (LinkKindLogical κ) $ kindLogicalMap state}
+          pure $ κ
 
 finish :: (ZonkType u, ZonkKind (u vσ')) => u TypeLogical KindLogical -> Core p (u vσ' v')
 finish e = do
@@ -558,13 +560,25 @@ finish e = do
   e <- finishKind e
   pure e
 
+topologicalBoundsSort :: [TypeLogical] -> Core p [TypeLogical]
+topologicalBoundsSort vars = sortTopological id quit children vars
+  where
+    quit x = error $ "unexpected cycle: " ++ show x
+    children x =
+      indexTypeLogicalMap x >>= \case
+        (LinkTypeLogical σ) -> do
+          pure $ Set.toList $ freeTypeLogical σ
+        (UnboundTypeLogical _ _ _ vars _ _) -> do
+          pure $ vars >>= (Set.toList . freeTypeLogical)
+
 unsolvedTypeLogical :: (ZonkType u) => u TypeLogical vκ -> Core p (Set TypeLogical)
 unsolvedTypeLogical σ = do
   let α = Set.toList (freeTypeLogical σ)
   α <- for α $ \x ->
     indexTypeLogicalMap x >>= \case
       LinkTypeLogical σ -> unsolvedTypeLogical σ
-      _ -> pure $ Set.singleton x
+      UnboundTypeLogical _ _ _ _ Nothing _ -> pure $ Set.singleton x
+      _ -> pure $ Set.empty
   pure $ Set.unions α
 
 unsolvedKindLogical :: ZonkKind u => u KindLogical -> Core p (Set KindLogical)
@@ -599,9 +613,6 @@ generalize inline (e@(TermCore p _), σ) = do
           ( TermSchemeCore p $ ImplicitTypeAbstraction (Bound (TypePatternCore name κ) e) c lower,
             TypeSchemeCore $ ImplicitForall (Bound (TypePatternCore name κ) σ) c lower
           )
-      -- todo this messes up variable naming
-      (UnboundTypeLogical _ _ _ _ (Just _) _) -> do
-        pure (e, σ)
       _ -> error "unhandled type logical"
 
   e <- finishType e

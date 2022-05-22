@@ -871,11 +871,6 @@ sourceTermAnnotate annotate e σ =
 sourceTerm :: Monoid p' => Term p Void Void -> TermSource p'
 sourceTerm (TermCore _ e) =
   TermSource mempty $ case e of
-    TermRuntime (Extern sym σ π τ) ->
-      PretypeAnnotation
-        (TermSource mempty $ TermRuntime $ Extern sym () () ())
-        (Just $ TypeSource mempty $ FunctionPointer (sourceType σ) (sourceType π) (sourceType τ))
-        ()
     TermRuntime e -> TermRuntime $ case e of
       Variable x _ -> Variable x ()
       Alias e λ -> Alias (sourceTerm e) (mapBound sourceTermRuntimePattern sourceTerm λ)
@@ -888,7 +883,7 @@ sourceTerm (TermCore _ e) =
       Relational o e e' σ _ -> Relational o (sourceTermAnnotate PretypeAnnotation e σ) (sourceTermAnnotate PretypeAnnotation e' σ) () ()
       BooleanLiteral b -> BooleanLiteral b
       If e e' e'' -> If (sourceTerm e) (sourceTerm e') (sourceTerm e'')
-      Extern _ _ _ _ -> error "already handled"
+      Extern sym _ _ _ -> Extern sym () () ()
     FunctionLiteral λ -> FunctionLiteral (mapBound sourceTermRuntimePattern sourceTerm λ)
     InlineAbstraction λ -> InlineAbstraction (mapBound sourceTermPattern sourceTerm λ)
     InlineApplication e e' σ -> InlineApplication (sourceTerm e) (sourceTermAnnotate TypeAnnotation e' σ) ()

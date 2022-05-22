@@ -20,11 +20,6 @@ sortIsMember p κ μ' = do
   μ <- effectless $ reconstructKind κ
   matchSort p μ μ'
 
-strictlyVariables π = Set.fromList $ map get π
-  where
-    get (TypeCore (TypeVariable x)) = x
-    get _ = error "non variable"
-
 reconstructTypeF indexVariable indexLogical augment make checkRuntime reconstruct = \case
   TypeVariable x -> do
     indexVariable x

@@ -249,8 +249,8 @@ e \Coloneqq & \\
 e \Coloneqq & \\
 & \text{letRGN} \, (\Lambda \alpha e) \tag{Create Region} \\
 & \text{subRGN} \, \pi \, e \tag{Subtype Region} \\
-& \text{let}^\downarrow \, (x : \tau) = e; e' \tag{Runtime Let} \\
-& \text{copy} \, (x : \tau) = e; e' \tag{Runtime Copy Let} \\
+& \text{let}^\downarrow \, (x :: \tau) = e; e' \tag{Runtime Let} \\
+& \text{copy} \, (x :: \tau) = e; e' \tag{Runtime Copy Let} \\
 & \dots \\
 \sigma, \tau, \pi \Coloneqq & \\
 & \sigma^\pi \tag{Region Effect} \\
@@ -299,8 +299,8 @@ e \Coloneqq & \\
 \subsubsection{References}
 \begin{align*}
 e \Coloneqq & \\
-& *(e : \sigma) \tag{Read Pointer} \\
-& *(e : \sigma) = e' \tag{Write Pointer} \\
+& *(e :: \sigma) \tag{Read Pointer} \\
+& *(e :: \sigma) = e' \tag{Write Pointer} \\
 & \dots \\
 \sigma, \tau, \pi \Coloneqq & \\
 & \sigma *^\pi \tag{Reference} \\
@@ -310,13 +310,13 @@ e \Coloneqq & \\
 \begin{gather*}
 \frac
 {\splitfrac{\Phi | \Gamma \vdash e : (\sigma *^{\pi'})^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
-{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}}
-{\Phi | \Gamma \vdash * (e : (\sigma *^{\pi'})^\pi)  : \sigma^\pi} \\
+{ \Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}}
+{\Phi | \Gamma \vdash * (e :: \sigma *^{\pi'})  : \sigma^\pi} \\
 \\
 \frac
 {\splitfrac{\Phi | \Gamma \vdash e : (\sigma *^{\pi'})^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi  \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
-{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}}
-{\Phi | \Gamma \vdash *(e : (\sigma *^{\pi'})^\pi) = e' : ()^\pi }
+{\Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}}
+{\Phi | \Gamma \vdash *(e :: \sigma *^{\pi'}) = e' : ()^\pi }
 \end{gather*}
 
 \begin{gather*}
@@ -330,7 +330,7 @@ e \Coloneqq & \\
 \begin{align*}
 e \Coloneqq & \\
 & \text{extern} \, \text{sym} \tag{Extern Function} \\
-& e(^\downarrow e' : \sigma) \tag{Function Pointer Application} \\
+& (e :: \sigma) ^\downarrow e' \tag{Function Pointer Application} \\
 & \text{function} (x). e \tag{Function Literal} \\
 & \dots \\
 \sigma, \tau, \pi \Coloneqq & \\
@@ -345,8 +345,8 @@ e \Coloneqq & \\
 {\Phi | \Gamma \vdash \text{extern} \, \text{sym} : (\tau \xrightarrow{\downarrow}_{\pi'} \sigma)^\pi} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\sigma \xrightarrow{\downarrow}_\pi \tau)^\pi \quad \Phi | \Gamma' \vdash e' : \sigma^\pi \quad \Phi \vdash \sigma : +^{\rho}}
-{\Phi | \Gamma, \Gamma' \vdash e(^\downarrow e' : \sigma) : \tau^\pi} \\
+{\Phi | \Gamma \vdash e : (\sigma \xrightarrow{\downarrow}_{\pi'} \tau)^\pi \quad \Phi | \Gamma' \vdash e' : \sigma^\pi \quad \Phi \vdash \sigma : +^{\rho} \quad \pi \succeq \pi'}
+{\Phi | \Gamma, \Gamma' \vdash (e :: \sigma \xrightarrow{\downarrow}_{\pi'} \tau)^\downarrow e' : \tau^\pi} \\
 \\
 \frac
 {\Phi | \Gamma, \langle x : \forall \alpha. \sigma^\alpha \rangle \vdash e : \tau^\pi}
@@ -367,7 +367,7 @@ e \Coloneqq & \\
 \begin{align*}
 e \Coloneqq & \\
 & (e, e') \tag{Pair Introduction} \\
-& \text{let}^\downarrow (x : \tau, x' : \tau') = e; e' \tag{Pair Elimination} \\
+& \text{let}^\downarrow (x :: \tau, x' :: \tau') = e; e' \tag{Pair Elimination} \\
 & () \tag{Unit Introduction} \\
 & \text{let}^\downarrow () = e; e' \tag{Unit Elimination} \\
 & \dots \\
@@ -388,7 +388,7 @@ e \Coloneqq & \\
 \frac
 {\splitfrac{\Phi | \Gamma \vdash e : (\tau, \tau')^\pi \quad \Phi | \Gamma , \langle x : \forall \alpha. \tau^\alpha \rangle, \langle x' : \forall \alpha. \tau'^\alpha \rangle \vdash e : \sigma^\pi}
 {\Phi \vdash \tau : +^{\rho} \quad \Phi \vdash \tau' : +^{\rho'} }}
-{\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow (x : \tau, x' : \tau') = e; e' : \sigma^\pi} \\
+{\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow (x :: \tau, x' :: \tau') = e; e' : \sigma^\pi} \\
 \\
 \frac
 {}

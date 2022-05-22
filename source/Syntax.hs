@@ -67,7 +67,8 @@ keywords =
       "copy",
       "representation",
       "native",
-      "io"
+      "io",
+      "in"
     ]
 
 -- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
@@ -252,7 +253,7 @@ typex = typeArrow
       where
         applyBinary = inline `branchDistribute` unit'
         inline = withInnerPosition Language.typeSource Language.inline
-    typeEffect = effect `branchDistribute` unit' ⊣ typePtr ⊗ (binaryToken "@" ≫ typeCore ⊕ always)
+    typeEffect = effect `branchDistribute` unit' ⊣ typePtr ⊗ (binaryKeyword "in" ≫ typeCore ⊕ always)
       where
         effect = withInnerPosition Language.typeSource Language.effect
 
