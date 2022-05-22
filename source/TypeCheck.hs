@@ -47,6 +47,10 @@ checkPretype p κt = do
   matchKind p κt (KindCore (Pretype κ))
   pure κ
 
+checkBoxed p κt = do
+  matchKind p κt (KindCore Boxed)
+  pure κt
+
 checkRegion p κt = do
   matchKind p κt (KindCore Region)
   pure ()
@@ -57,6 +61,9 @@ freshMetaTypeVariable p = do
 freshPretypeTypeVariable p = do
   s <- freshKindVariable p Representation
   freshTypeVariable p (KindCore $ Pretype s)
+
+freshBoxedTypeVariable p = do
+  freshTypeVariable p (KindCore Boxed)
 
 freshRegionTypeVariable p = do
   freshTypeVariable p $ KindCore $ Region
@@ -86,16 +93,21 @@ checkFunctionLiteralType p σt = do
   matchType p σt (TypeCore $ FunctionLiteralType σ π τ)
   pure (σ, π, τ)
 
-checkReference p σt = do
-  π <- freshRegionTypeVariable p
+checkPointer p σt = do
   σ <- freshPretypeTypeVariable p
-  matchType p σt (TypeCore $ Reference π σ)
-  pure (π, σ)
+  matchType p σt (TypeCore $ Pointer σ)
+  pure (σ)
 
 checkEffect p σt = do
   σ <- freshPretypeTypeVariable p
   π <- freshRegionTypeVariable p
   matchType p σt (TypeCore $ Effect σ π)
+  pure (σ, π)
+
+checkShared p σt = do
+  σ <- freshBoxedTypeVariable p
+  π <- freshRegionTypeVariable p
+  matchType p σt (TypeCore $ Shared σ π)
   pure (σ, π)
 
 checkNumber p σt = do
@@ -198,6 +210,8 @@ sortCheck (KindSource p κ) = case κ of
   Pretype κ -> do
     (κ', _) <- secondM (checkRepresentation p) =<< sortCheck κ
     pure (KindCore $ Pretype κ', Kind)
+  Boxed -> do
+    pure (KindCore $ Boxed, Kind)
   KindLogical v -> absurd v
 
 kindCheckSchemePlain :: TypeSchemeSource p -> Core p (TypeScheme vσ vκ, KindUnify)
@@ -284,10 +298,13 @@ kindCheck (TypeSource p σ) = case σ of
     (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion p) =<< kindCheck π
     pure (TypeCore $ Effect σ' π', KindCore $ Type)
-  Reference π σ -> do
+  Shared σ π -> do
+    (σ', _) <- secondM (checkBoxed p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion p) =<< kindCheck π
+    pure (TypeCore $ Shared σ' π', KindCore $ Pretype $ KindCore $ KindRuntime $ PointerRep)
+  Pointer σ -> do
     (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
-    pure (TypeCore $ Reference π' σ', KindCore $ Pretype $ KindCore $ KindRuntime $ PointerRep)
+    pure (TypeCore $ Pointer σ', KindCore $ Boxed)
   Number ρ1 ρ2 -> do
     ρ1' <- case ρ1 of
       Nothing -> freshKindVariable p Signedness
@@ -443,12 +460,12 @@ typeCheck (TermSource p e) = case e of
         (TypeCore $ Effect (TypeCore $ Tuple σs) π)
         (combineAll lΓs)
   TermRuntime (ReadReference e) -> do
-    Checked e' ((π2, σ), π) lΓ <- traverse (firstM (checkReference p) <=< checkEffect p) =<< typeCheck e
+    Checked e' ((σ, π2), π) lΓ <- traverse (firstM (firstM (checkPointer p) <=< checkShared p) <=< checkEffect p) =<< typeCheck e
     constrain p Copy σ
     lessThen p π2 π
     pure $ Checked (TermCore p $ TermRuntime $ ReadReference e') (TypeCore $ Effect σ π) lΓ
   TermRuntime (WriteReference ep ev ()) -> do
-    Checked ep ((π2, σ), π) lΓ1 <- traverse (firstM (checkReference p) <=< checkEffect p) =<< typeCheck ep
+    Checked ep ((σ, π2), π) lΓ1 <- traverse (firstM (firstM (checkPointer p) <=< checkShared p) <=< checkEffect p) =<< typeCheck ep
     Checked ev (σ', π') lΓ2 <- traverse (checkEffect p) =<< typeCheck ev
     matchType p σ σ'
     matchType p π π'

@@ -44,7 +44,8 @@ data TypeF v κ λσ σ
   | FunctionLiteralType σ σ σ
   | Tuple [σ]
   | Effect σ σ
-  | Reference σ σ
+  | Shared σ σ
+  | Pointer σ
   | Number κ κ
   | Boolean
   | World
@@ -100,8 +101,9 @@ traverseTypeF f h i g σ = case σ of
   FunctionPointer σ π τ -> pure FunctionPointer <*> g σ <*> g π <*> g τ
   FunctionLiteralType σ π τ -> pure FunctionLiteralType <*> g σ <*> g π <*> g τ
   Tuple σs -> pure Tuple <*> traverse g σs
-  Effect π σ -> pure Effect <*> g π <*> g σ
-  Reference π σ -> pure Reference <*> g π <*> g σ
+  Effect σ π -> pure Effect <*> g σ <*> g π
+  Shared σ π -> pure Shared <*> g σ <*> g π
+  Pointer σ -> pure Pointer <*> g σ
   Number ρ ρ' -> pure Number <*> h ρ <*> h ρ'
   Boolean -> pure Boolean
   World -> pure World
@@ -231,11 +233,15 @@ unit = Prism (const $ Tuple []) $ \case
   _ -> Nothing
 
 effect = Prism (uncurry Effect) $ \case
-  (Effect π σ) -> Just (π, σ)
+  (Effect σ π) -> Just (σ, π)
   _ -> Nothing
 
-reference = Prism (uncurry Reference) $ \case
-  (Reference π σ) -> Just (π, σ)
+shared = Prism (uncurry Shared) $ \case
+  (Shared σ π) -> Just (σ, π)
+  _ -> Nothing
+
+pointer = Prism Pointer $ \case
+  (Pointer σ) -> Just σ
   _ -> Nothing
 
 number = Prism (uncurry Number) $ \case

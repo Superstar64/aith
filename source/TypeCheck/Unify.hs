@@ -42,10 +42,12 @@ reconstructTypeF indexVariable indexLogical augment make checkRuntime reconstruc
         κ <- reconstruct σ
         checkRuntime κ $ \κ -> go σs (κs ++ [κ])
   Effect _ _ -> pure $ make $ Type
+  Shared _ _ ->
+    pure $ make $ Pretype $ make $ KindRuntime $ PointerRep
   Number _ ρ -> do
     pure $ make $ Pretype $ make $ KindRuntime $ WordRep ρ
-  Reference _ _ ->
-    pure $ make $ Pretype $ make $ KindRuntime $ PointerRep
+  Pointer _ ->
+    pure $ make $ Boxed
   Boolean -> pure $ make $ Pretype $ make $ KindRuntime $ WordRep $ make $ KindSize $ Byte
   World -> pure $ make $ Region
 
@@ -57,6 +59,7 @@ reconstructKindF indexVariable indexLogical = \case
   Type -> pure $ Kind
   Region -> pure $ Kind
   Pretype _ -> pure $ Kind
+  Boxed -> pure $ Kind
   KindRuntime _ -> pure $ Representation
   KindSize _ -> pure $ Size
   KindSignedness _ -> pure $ Signedness
@@ -122,9 +125,11 @@ typeOccursCheck p x lev σ' = go σ'
         Effect σ τ -> do
           recurse σ
           recurse τ
-        Reference σ τ -> do
+        Shared σ π -> do
           recurse σ
-          recurse τ
+          recurse π
+        Pointer σ -> do
+          recurse σ
         Number _ _ -> pure ()
         Boolean -> pure ()
         World -> pure ()
@@ -153,6 +158,7 @@ kindOccursCheck p x lev κ' = go κ'
         Type -> pure ()
         Region -> pure ()
         Pretype κ -> recurse κ
+        Boxed -> pure ()
         (KindRuntime PointerRep) -> pure ()
         (KindRuntime (StructRep κs)) -> traverse recurse κs >> pure ()
         (KindRuntime (WordRep κ)) -> recurse κ
@@ -226,8 +232,10 @@ matchType p σ σ' = unify σ σ'
     unify (TypeCore (Effect σ π)) (TypeCore (Effect σ' π')) = do
       match p σ σ'
       match p π π'
-    unify (TypeCore (Reference π σ)) (TypeCore (Reference π' σ')) = do
+    unify (TypeCore (Shared σ π)) (TypeCore (Shared σ' π')) = do
+      match p σ σ'
       match p π π'
+    unify (TypeCore (Pointer σ)) (TypeCore (Pointer σ')) = do
       match p σ σ'
     unify (TypeCore (Number ρ1 ρ2)) (TypeCore (Number ρ1' ρ2')) = do
       matchKind p ρ1 ρ1'
@@ -256,6 +264,7 @@ matchKind p κ κ' = unify κ κ'
     unify (KindCore Region) (KindCore Region) = pure ()
     unify (KindCore (Pretype κ)) (KindCore (Pretype κ')) = do
       match p κ κ'
+    unify (KindCore Boxed) (KindCore Boxed) = pure ()
     unify (KindCore (KindRuntime PointerRep)) (KindCore (KindRuntime PointerRep)) = pure ()
     unify (KindCore (KindRuntime (StructRep κs))) (KindCore (KindRuntime (StructRep κs'))) | length κs == length κs' = do
       sequence_ $ zipWith (match p) κs κs'
@@ -296,7 +305,7 @@ constrain p c σ = predicate c σ
     predicate Copy (TypeCore (Tuple σs)) = do
       traverse (constrain p Copy) σs
       pure ()
-    predicate Copy (TypeCore (Reference _ _)) = pure ()
+    predicate Copy (TypeCore (Shared _ _)) = pure ()
     predicate c σ = quit $ ConstraintMismatch p c σ
 
 reachLogical x (TypeCore (TypeLogical x')) | x == x' = pure True

@@ -151,13 +151,9 @@ multiargExclusionary core = apply ⊣ keyword "multiarg" ≫ betweenParens (core
   where
     apply = branch (cons . secondP (cons . toPrism (inverse nonEmpty))) nil
 
+withInnerPosition1 core app = toPrism core . secondP app . toPrism (extractInfo $ location) . toPrism unit'
+
 withInnerPosition core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst)
-
-withInnerPosition3 core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst . fst)
-
-withInnerPosition4 core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst . fst . fst)
-
-withInnerPosition5 core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst . fst . fst . fst)
 
 path = (Path.path . swapNonEmpty) ⊣ token "/" ≫ identifer ⊗ pathTail
   where
@@ -203,6 +199,7 @@ kindCore = Language.kindSource ⊣ position ⊗ choice options ∥ betweenParens
       [ Language.kindVariable ⊣ kindIdentifier,
         Language.typex ⊣ token "*",
         Language.pretype ⊣ betweenPlusSquares kind,
+        Language.boxed ⊣ token "-",
         Language.region ⊣ keyword "region",
         Language.pointerRep ⊣ keyword "pointer",
         Language.structRep ⊣ prefixKeyword "struct" ≫ betweenParens (commaSeperatedMany kind),
@@ -256,10 +253,11 @@ typex = typeArrow
     typeEffect = effect `branchDistribute` unit' ⊣ typePtr ⊗ (binaryKeyword "in" ≫ typeCore ⊕ always)
       where
         effect = withInnerPosition Language.typeSource Language.effect
-
-    typePtr = foldlP ptr ⊣ typeCore ⊗ many (token "*" ≫ binaryToken "@" ≫ typeCore)
+    typePtr = foldlP apply ⊣ typeCore ⊗ many (token "*" ⊕ binaryToken "@" ≫ typeCore)
       where
-        ptr = withInnerPosition Language.typeSource Language.reference . toPrism swap
+        apply = ptr `branchDistribute` shared
+        ptr = withInnerPosition1 Language.typeSource Language.pointer
+        shared = withInnerPosition Language.typeSource Language.shared
 
 typeCore :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
 typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenParensElse unit typeFull

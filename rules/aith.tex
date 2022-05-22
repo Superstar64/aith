@@ -226,7 +226,6 @@ e \Coloneqq & \\
 \begin{align*}
 \kappa, s, \rho \Coloneqq & \\
 & +^\rho \tag{Pretype Kind}\\
-& \text{Pointer} \tag{Pointer Representation}\\
 & \dots \\
 \mu \Coloneqq & \\
 & \text{Representation} \\
@@ -238,10 +237,6 @@ e \Coloneqq & \\
 \frac
 {\Phi \vdash \rho : \text{Representation}}
 {\Phi \vdash +^\rho : \boxvoid} \\
-\\
-\frac
-{}
-{\Phi \vdash \text{Pointer} : \text{Representation}} \\
 \end{gather*}
 
 \subsubsection{Single Effect Regions}
@@ -296,6 +291,37 @@ e \Coloneqq & \\
 {\Phi \vdash \text{Region} : \text{Kind}} \\
 \end{gather*}
 
+\subsubsection{Boxed}
+\begin{align*}
+\sigma, \tau, \pi \Coloneqq & \\
+& \text{unique} \, \sigma \\
+& \sigma \, @ \, \pi \\
+\kappa, s, \rho \Coloneqq & \\
+& - \tag{Boxed} \\
+& \text{Pointer} \tag{Pointer Representation} \\
+& \dots \\
+\end{align*}
+
+\begin{gather*}
+\frac
+{\Phi \vdash \sigma : -}
+{\Phi \vdash \text{unique} \, \sigma : +^\text{Pointer}} \\
+\\
+\frac
+{\Phi \vdash \sigma : - \quad \pi : \text{Region}}
+{\Phi \vdash \sigma \, @ \, \pi : +^\text{Pointer}} 
+\end{gather*}
+
+\begin{gather*}
+\frac
+{}
+{\Phi \vdash - : \boxvoid} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Pointer} : \text{Representation}} \\
+\end{gather*}
+
 \subsubsection{References}
 \begin{align*}
 e \Coloneqq & \\
@@ -303,26 +329,26 @@ e \Coloneqq & \\
 & *(e :: \sigma) = e' \tag{Write Pointer} \\
 & \dots \\
 \sigma, \tau, \pi \Coloneqq & \\
-& \sigma *^\pi \tag{Reference} \\
+& \sigma * \tag{Pointer} \\
 & \dots \\
 \end{align*}
 
 \begin{gather*}
 \frac
-{\splitfrac{\Phi | \Gamma \vdash e : (\sigma *^{\pi'})^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
-{ \Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}}
-{\Phi | \Gamma \vdash * (e :: \sigma *^{\pi'})  : \sigma^\pi} \\
+{\splitfrac{\Phi | \Gamma \vdash e : (\sigma * @ \, {\pi'})^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
+{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}}
+{\Phi | \Gamma \vdash * (e :: \sigma * @ \, {\pi'})  : \sigma^\pi} \\
 \\
 \frac
-{\splitfrac{\Phi | \Gamma \vdash e : (\sigma *^{\pi'})^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi  \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
-{\Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}}
-{\Phi | \Gamma \vdash *(e :: \sigma *^{\pi'}) = e' : ()^\pi }
+{\splitfrac{\Phi | \Gamma \vdash e : (\sigma * @ \, {\pi'})^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi  \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
+{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}}
+{\Phi | \Gamma \vdash *(e :: \sigma * @ \,{\pi'}) = e' : ()^\pi }
 \end{gather*}
 
 \begin{gather*}
 \frac
-{\Phi \vdash \pi : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}
-{\Phi \vdash \sigma *^\pi : +^{\text{Pointer}}}
+{\Phi \vdash \sigma : +^{\rho}}
+{\Phi \vdash \sigma * : -}
 \end{gather*}
 
 \subsubsection{Functions}

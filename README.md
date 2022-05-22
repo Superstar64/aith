@@ -124,8 +124,8 @@ Files start with `code` `:::`.
 | Runtime Binding | ``let pm = e; e'`` |
 | Pair Construction | ``e, e'`` |
 | Unit Construction | ``()`` |
-| Read Reference | ``*e`` |
-| Write Reference | ``*e = e'`` |
+| Read Pointer | ``*e`` |
+| Write Pointer | ``*e = e'`` |
 | Number Literal | ``n`` |
 | Addition | ``e + e'`` |
 | Subtraction | ``e - e'`` |
@@ -185,7 +185,8 @@ Files start with `code` `:::`.
 | Pair | ``σ, σ'`` |
 | Unit | ``()`` |
 | Effect | ``σ in π`` |
-| Pointer | ``σ* @ π`` |
+| Shared | ``σ @ π`` |
+| Pointer | ``σ*`` |
 | Number | ``#ρ ρ'`` |
 | Boolean | ``bool`` |
 | IO Region | ``io`` |
@@ -226,6 +227,7 @@ Files start with `code` `:::`.
 | Variable | ``x`` |
 | Type | ``*`` |
 | Pretype | ``+[s]`` |
+| Boxed | ``-`` |
 | Region | ``region`` |
 | Pointer Representation | ``pointer``|
 | Struct Representation | ``struct (ρ, ρ', ...)`` |
@@ -274,7 +276,7 @@ Useful / Inspirational papers:
 * [Demonstrating Lambda Calculus Reduction](https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf)
   * Applicative order reduction used for reduction.
 * [Unification Theory](https://www.cs.bu.edu/fac/snyder/publications/UnifChapter.pdf)
-  * Reference for Robinson unification algorithm
+  * Pointer for Robinson unification algorithm
 ### Type Inference (First Class Polymorphism)
 * [QML : Explicit First-Class Polymorphism for ML](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/QML-Explicit-First-Class-Polymorphism-for-ML.pdf)
   * Explicit type lambdas based mostly of this, with some major changes: Scoped type variables are used rather then schematic type variables, type lambdas don't need type annotations, lastly type application have an optional slot for the type parameter.
