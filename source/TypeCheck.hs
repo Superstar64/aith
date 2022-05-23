@@ -535,6 +535,19 @@ typeCheck (TermSource p e) = case e of
     matchType p π π''
     matchType p σ σ'
     pure $ Checked (TermCore p $ TermRuntime $ If eb' et' ef') (TypeCore $ Effect σ π) (lΓ1 `combine` (lΓ2 `branch` lΓ3))
+  TermSugar (Not e) () -> do
+    Checked e' ((), π) lΓ <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck e
+    pure $ Checked (desugar p (Not e')) (TypeCore $ Effect (TypeCore Boolean) π) lΓ
+  TermSugar (And e ey) () -> do
+    Checked e' ((), π) lΓ1 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck e
+    Checked ey' ((), π') lΓ2 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck ey
+    matchType p π π'
+    pure $ Checked (desugar p (And e' ey')) (TypeCore $ Effect (TypeCore Boolean) π) (lΓ1 `combine` (lΓ2 `branch` useNothing))
+  TermSugar (Or e en) () -> do
+    Checked e' ((), π) lΓ1 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck e
+    Checked en' ((), π') lΓ2 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck en
+    matchType p π π'
+    pure $ Checked (desugar p (And e' en')) (TypeCore $ Effect (TypeCore Boolean) π) (lΓ1 `combine` (useNothing `branch` lΓ2))
 
 defaultType _ _ _ (Just upper) = pure $ flexible upper
 defaultType p κ _ Nothing = do

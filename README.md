@@ -146,6 +146,12 @@ Files start with `code` `:::`.
 | Type Annotation | ``e : σ`` |
 | Pretype Annotation | ``e :: σ`` |
 
+## Terms (Syntax Sugar) (e)
+| Description | Syntax | Meaning |
+| Not | ``~e`` | if e { false } else { true } |
+| And | ``e & e'`` | if e { e' } else { false } |
+| Or | ``e | e'`` | if e { true } else { e' } |
+
 ## Meta Patterns(pm)
 | Description | Syntax |
 |-|-|
@@ -192,7 +198,7 @@ Files start with `code` `:::`.
 | IO Region | ``io`` |
 
 # Types (Syntax Sugar) (σ, τ, π)
-| Description | Syntax | Meaning|
+| Description | Syntax | Meaning |
 |-|-|-|
 | Byte | ``byte`` | ``#signed byte`` |
 | Short | ``short`` | ``#signed short`` |

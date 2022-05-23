@@ -60,8 +60,15 @@ data TermRuntime θ σerase s σ λe e
   | If e e e
   deriving (Show)
 
+data TermSugar e
+  = Not e
+  | And e e
+  | Or e e
+  deriving (Show)
+
 data TermF sourceOnly κ θ σauto σ λσe λe λrun_e e
   = TermRuntime (TermRuntime θ σauto κ σauto λrun_e e)
+  | TermSugar (TermSugar e) sourceOnly
   | FunctionLiteral λrun_e
   | InlineAbstraction λe
   | InlineApplication e e σauto
@@ -132,6 +139,16 @@ traverseTermRuntime d y h f g i e =
     BooleanLiteral b -> pure BooleanLiteral <*> pure b
     If e e' e'' -> pure If <*> i e <*> i e' <*> i e''
 
+traverseTermSugar ::
+  Applicative m =>
+  (e -> m e') ->
+  TermSugar e ->
+  m (TermSugar e')
+traverseTermSugar f e = case e of
+  Not e -> pure Not <*> f e
+  And e e' -> pure And <*> f e <*> f e'
+  Or e e' -> pure Or <*> f e <*> f e'
+
 traverseTermF ::
   Applicative m =>
   (source -> m source') ->
@@ -148,6 +165,7 @@ traverseTermF ::
 traverseTermF y j d z f k h m i e =
   case e of
     TermRuntime e -> pure TermRuntime <*> traverseTermRuntime d z j z m i e
+    TermSugar e source -> pure TermSugar <*> traverseTermSugar i e <*> y source
     FunctionLiteral λ -> pure FunctionLiteral <*> m λ
     InlineAbstraction λ -> pure InlineAbstraction <*> h λ
     InlineApplication e1 e2 σ -> pure InlineApplication <*> i e1 <*> i e2 <*> z σ
@@ -255,6 +273,34 @@ type TermSchemeUnify p = TermScheme p TypeLogical KindLogical
 
 type TermSchemeInfer p = TermScheme p Void Void
 
+desugar p (Not e) =
+  TermCore
+    p
+    ( TermRuntime $
+        If
+          e
+          (TermCore p $ TermRuntime $ BooleanLiteral False)
+          (TermCore p $ TermRuntime $ BooleanLiteral True)
+    )
+desugar p (And e e') =
+  TermCore
+    p
+    ( TermRuntime $
+        If
+          e
+          e'
+          (TermCore p $ TermRuntime $ BooleanLiteral False)
+    )
+desugar p (Or e e') =
+  TermCore
+    p
+    ( TermRuntime $
+        If
+          e
+          (TermCore p $ TermRuntime $ BooleanLiteral True)
+          e'
+    )
+
 termPatternSource = Isomorph (uncurry $ TermPatternSource) $ \(TermPatternSource p pm) -> (p, pm)
 
 termRuntimePatternSource = Isomorph (uncurry $ TermRuntimePatternSource) $ \(TermRuntimePatternSource p pm) -> (p, pm)
@@ -288,6 +334,10 @@ termSource = Isomorph (uncurry TermSource) $ \(TermSource p e) -> (p, e)
 
 termRuntime = Prism TermRuntime $ \case
   (TermRuntime e) -> Just e
+  _ -> Nothing
+
+termSugar = Prism (\e -> TermSugar e ()) $ \case
+  (TermSugar e ()) -> Just e
   _ -> Nothing
 
 variable = (termRuntime .) $
@@ -380,6 +430,21 @@ arithmatic o = (termRuntime .) $
 relational o = (termRuntime .) $
   Prism (\(e, e') -> Relational o e e' () ()) $ \case
     Relational o' e e' () () | o == o' -> Just (e, e')
+    _ -> Nothing
+
+not = (termSugar .) $
+  Prism Not $ \case
+    Not e -> Just e
+    _ -> Nothing
+
+and = (termSugar .) $
+  Prism (uncurry And) $ \case
+    And e e' -> Just (e, e')
+    _ -> Nothing
+
+or = (termSugar .) $
+  Prism (uncurry Or) $ \case
+    Or e e' -> Just (e, e')
     _ -> Nothing
 
 typeLambda = Prism (uncurry $ uncurry TypeAbstraction) $ \case
@@ -884,6 +949,7 @@ sourceTerm (TermCore _ e) =
       BooleanLiteral b -> BooleanLiteral b
       If e e' e'' -> If (sourceTerm e) (sourceTerm e') (sourceTerm e'')
       Extern sym _ _ _ -> Extern sym () () ()
+    TermSugar _ invalid -> absurd invalid
     FunctionLiteral λ -> FunctionLiteral (mapBound sourceTermRuntimePattern sourceTerm λ)
     InlineAbstraction λ -> InlineAbstraction (mapBound sourceTermPattern sourceTerm λ)
     InlineApplication e e' σ -> InlineApplication (sourceTerm e) (sourceTermAnnotate TypeAnnotation e' σ) ()

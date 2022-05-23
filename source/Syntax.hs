@@ -366,10 +366,16 @@ term = termBinding
             Language.ifx ⊣ prefixKeyword "if" ≫ termCore ⊗ lambdaBrace term ≪ binaryKeyword "else" ⊗ lambdaBrace term
           ]
         rotateBind = secondI Language.bound . associate . firstI swap
-    termRTApply = applyBinary ⊣ termEqual ⊗ (binaryToken "$" ≫ termRTApply ⊕ always)
+    termRTApply = applyBinary ⊣ termOr ⊗ (binaryToken "$" ≫ termRTApply ⊕ always)
       where
         applyBinary = apply `branchDistribute` unit'
         apply = withInnerPosition Language.termSource Language.functionApplication
+    termOr = foldlP apply ⊣ termAnd ⊗ many (binaryToken "|" ≫ termAnd)
+      where
+        apply = withInnerPosition Language.termSource Language.or
+    termAnd = foldlP apply ⊣ termEqual ⊗ many (binaryToken "&" ≫ termEqual)
+      where
+        apply = withInnerPosition Language.termSource Language.and
     termEqual = apply ⊣ termAdd ⊗ operators
       where
         i o = withInnerPosition Language.termSource (Language.relational o)
@@ -396,13 +402,18 @@ term = termBinding
         applyMul = mul `branchDistribute` div
         mul = withInnerPosition Language.termSource (Language.arithmatic Language.Multiplication)
         div = withInnerPosition Language.termSource (Language.arithmatic Language.Division)
-    termDeref = Language.termSource ⊣ position ⊗ deref ∥ termDeref'
+    termDeref = Language.termSource ⊣ position ⊗ deref ∥ termPrefix
       where
         apply = branchDistribute (Language.writeReference) (Language.readReference . toPrism unit')
-        deref = apply ⊣ token "*" ≫ termDeref' ⊗ (binaryToken "=" ≫ termCore ⊕ always)
-    termDeref' = Language.termSource ⊣ position ⊗ deref ∥ termApply
+        deref = apply ⊣ token "*" ≫ termPrefix ⊗ (binaryToken "=" ≫ termCore ⊕ always)
+    termPrefix = Language.termSource ⊣ position ⊗ options ∥ termApply
       where
-        deref = Language.readReference ⊣ token "*" ≫ termDeref'
+        options =
+          choice
+            [ Language.readReference ⊣ token "*" ≫ termPrefix,
+              -- todo add proper lexer for tokens and use ! here
+              Language.not ⊣ token "~" ≫ termPrefix
+            ]
     termApply = foldlP applyBinary ⊣ termCore ⊗ many (typeApplySyntax ⊕ applySyntax)
       where
         applyBinary = typeApplication `branchDistribute` application
