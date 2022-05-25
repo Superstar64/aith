@@ -32,24 +32,24 @@ $(format) : $(build)/format/%.format : %.hs | $$(dir $$@)
 	touch $@
 
 test.c: test.aith aith
-	./aith $(aith_flags) --load $< /test --generate-c /test $@
+	./aith $(aith_flags) $< -C -o $@
 
 .PHONY: tests
 tests: $(build)/test/idempotency
 
 $(build)/test/format1.aith: test.aith aith | $$(dir $$@)
-	./aith $(aith_flags) --load $< /test --format /test $@
+	./aith $(aith_flags) $< --format -o $@
 $(build)/test/annotate1.aith: test.aith aith | $$(dir $$@)
-	./aith $(aith_flags) --load $< /test --annotate /test $@
+	./aith $(aith_flags) $< --annotate -o $@
 $(build)/test/reduce1.aith: test.aith aith | $$(dir $$@)
-	./aith $(aith_flags) --load $< /test --reduce /test $@
+	./aith $(aith_flags) $< --reduce -o $@
 
 $(build)/test/format2.aith : $(build)/test/format1.aith aith | $$(dir $$@)
-	./aith $(aith_flags) --load $< /test --format /test $@
+	./aith $(aith_flags) $< --format -o $@
 $(build)/test/annotate2.aith : $(build)/test/annotate1.aith aith | $$(dir $$@)
-	./aith $(aith_flags) --load $< /test --annotate /test $@
+	./aith $(aith_flags) $< --annotate -o $@
 $(build)/test/reduce2.aith : $(build)/test/reduce1.aith aith | $$(dir $$@)
-	./aith $(aith_flags) --load $< /test --reduce /test $@
+	./aith $(aith_flags) $< --reduce -o $@
 
 idempotency_format:=$(build)/test/format1.aith $(build)/test/format2.aith
 idempotency_annotate:=$(build)/test/annotate1.aith $(build)/test/annotate2.aith 
