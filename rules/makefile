@@ -5,4 +5,4 @@ aith.pdf: aith.tex
 	latexmk -pdf $<
 
 aith.svg: aith.dot
-	dot -Tpng -o $@ $<
+	dot -Tsvg -o $@ $<
