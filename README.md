@@ -152,9 +152,10 @@ Files start with `code` `:::`.
 
 ## Terms (Syntax Sugar) (e)
 | Description | Syntax | Meaning |
+| - | - | - |
 | Not | ``~e`` | if e { false } else { true } |
 | And | ``e & e'`` | if e { e' } else { false } |
-| Or | ``e | e'`` | if e { true } else { e' } |
+| Or | ``e \| e'`` | if e { true } else { e' } |
 
 ## Meta Patterns(pm)
 | Description | Syntax |
