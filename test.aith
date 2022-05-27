@@ -213,7 +213,7 @@ module arrays = {
 	memcpyPtr <A, R> = function (dst, src, i) {
 		if(i != 0) {
 			let () = set `dst `0 `(get `src `0);
-			memcpyPtr $ (dst &+ 1, src &+ 1, i + 1)
+			memcpyPtr $ (dst &+ 1, src &+ 1, i - 1)
 		} else {
 			()
 		}
