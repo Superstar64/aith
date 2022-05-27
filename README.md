@@ -61,7 +61,14 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
       * [x] Arithmatic
       * [x] Relational Operators
     * [x] Pointers
+      * [x] Get
+      * [x] Set
+      * [ ] Stack Allocation
+      * [ ] Heap Allocation
     * [ ] Arrays
+      * [x] Array to Pointer
+      * [x] Pointer Addition
+      * [ ] Pointer Difference
     * [x] Function Pointers
     * [x] Pairs
     * [ ] Records
@@ -131,7 +138,7 @@ Files start with `code` `:::`.
 | Read Pointer | ``*e`` |
 | Write Pointer | ``*e = e'`` |
 | Array to Pointer | ``&*e`` |
-| Array Increment | ``e &+ e'`` |
+| Array Increment | ``e&[e']`` |
 | Number Literal | ``n`` |
 | Addition | ``e + e'`` |
 | Subtraction | ``e - e'`` |

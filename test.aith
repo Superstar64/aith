@@ -202,18 +202,18 @@ module world = {
 
 module arrays = {
 	inline get = \x => \i {
-		*&*(x &+ i)
+		* &* &x[i]
 	};
 
 	inline set = \x => \i => \a {
-		*&*(x &+ i) = a
+		* &* &x[i] = a
 	};
 
 	memcpyPtr <A : +[pointer] if copy, R : region> : function(A[] @ R, A[] @ R, #unsigned native) => () uses R; 
 	memcpyPtr <A, R> = function (dst, src, i) {
 		if(i != 0) {
-			let () = set `dst `0 `(get `src `0);
-			memcpyPtr $ (dst &+ 1, src &+ 1, i - 1)
+			let () = *&*dst = (*&* src);
+			memcpyPtr $ (&dst[1], &src[1], i - 1)
 		} else {
 			()
 		}

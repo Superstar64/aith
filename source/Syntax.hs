@@ -398,19 +398,16 @@ term = termBinding
         applyAdd = add `branchDistribute` sub
         add = withInnerPosition Language.termSource (Language.arithmatic Language.Addition)
         sub = withInnerPosition Language.termSource (Language.arithmatic Language.Subtraction)
-    termMul = foldlP applyMul ⊣ termPtrOp ⊗ many (binaryToken "*" ≫ termPtrOp ⊕ binaryToken "/" ≫ termPtrOp)
+    termMul = foldlP applyMul ⊣ termDeref ⊗ many (binaryToken "*" ≫ termDeref ⊕ binaryToken "/" ≫ termDeref)
       where
         applyMul = mul `branchDistribute` div
         mul = withInnerPosition Language.termSource (Language.arithmatic Language.Multiplication)
         div = withInnerPosition Language.termSource (Language.arithmatic Language.Division)
-    termPtrOp = foldlP ptr ⊣ termDeref ⊗ many (binaryToken "&+" ≫ termDeref)
-      where
-        ptr = withInnerPosition Language.termSource (Language.pointerIncrement)
     termDeref = Language.termSource ⊣ position ⊗ deref ∥ termPrefix
       where
         apply = branchDistribute (Language.writeReference) (Language.readReference . toPrism unit')
         deref = apply ⊣ token "*" ≫ termPrefix ⊗ (binaryToken "=" ≫ termCore ⊕ always)
-    termPrefix = Language.termSource ⊣ position ⊗ options ∥ termApply
+    termPrefix = Language.termSource ⊣ position ⊗ options ∥ termIndex
       where
         options =
           choice
@@ -419,6 +416,9 @@ term = termBinding
               Language.not ⊣ token "~" ≫ termPrefix,
               Language.reinterpret ⊣ token "&*" ≫ termPrefix
             ]
+    termIndex = Language.termSource ⊣ position ⊗ index ∥ termApply
+      where
+        index = Language.pointerIncrement ⊣ token "&" ≫ termApply ⊗ betweenSquares term
     termApply = foldlP applyBinary ⊣ termCore ⊗ many (typeApplySyntax ⊕ applySyntax)
       where
         applyBinary = typeApplication `branchDistribute` application
