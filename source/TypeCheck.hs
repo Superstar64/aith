@@ -98,6 +98,11 @@ checkPointer p σt = do
   matchType p σt (TypeCore $ Pointer σ)
   pure (σ)
 
+checkArray p σt = do
+  σ <- freshPretypeTypeVariable p
+  matchType p σt (TypeCore $ Array σ)
+  pure (σ)
+
 checkEffect p σt = do
   σ <- freshPretypeTypeVariable p
   π <- freshRegionTypeVariable p
@@ -305,6 +310,9 @@ kindCheck (TypeSource p σ) = case σ of
   Pointer σ -> do
     (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
     pure (TypeCore $ Pointer σ', KindCore $ Boxed)
+  Array σ -> do
+    (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
+    pure (TypeCore $ Array σ', KindCore $ Boxed)
   Number ρ1 ρ2 -> do
     ρ1' <- case ρ1 of
       Nothing -> freshKindVariable p Signedness
@@ -524,6 +532,9 @@ typeCheck (TermSource p e) = case e of
     σ' <- fst <$> kindCheck σ'
     matchType p σ σ'
     pure $ Checked e τ lΓ
+  Reinterpret e -> do
+    Checked e' ((σ, π'), π) lΓ <- traverse (firstM (firstM (checkArray p) <=< checkShared p) <=< checkEffect p) =<< typeCheck e
+    pure $ Checked (TermCore p $ Reinterpret e') (TypeCore $ Effect (TypeCore $ Shared (TypeCore $ Pointer σ) π') π) lΓ
   TermRuntime (BooleanLiteral b) -> do
     π <- freshRegionTypeVariable p
     pure $ Checked (TermCore p $ TermRuntime $ BooleanLiteral b) (TypeCore $ Effect (TypeCore Boolean) π) useNothing
@@ -535,6 +546,17 @@ typeCheck (TermSource p e) = case e of
     matchType p π π''
     matchType p σ σ'
     pure $ Checked (TermCore p $ TermRuntime $ If eb' et' ef') (TypeCore $ Effect σ π) (lΓ1 `combine` (lΓ2 `branch` lΓ3))
+  TermRuntime (PointerIncrement ep ei ()) -> do
+    Checked ep' ((σ, π2), π) lΓ1 <- traverse (firstM (firstM (checkArray p) <=< checkShared p) <=< checkEffect p) =<< typeCheck ep
+    Checked ei' ((κ1, κ2), π') lΓ2 <- traverse (firstM (checkNumber p) <=< checkEffect p) =<< typeCheck ei
+    matchType p π π'
+    matchKind p κ1 (KindCore $ KindSignedness Unsigned)
+    matchKind p κ2 (KindCore $ KindSize Native)
+    pure $
+      Checked
+        (TermCore p $ TermRuntime $ PointerIncrement ep' ei' σ)
+        (TypeCore $ Effect (TypeCore $ Shared (TypeCore $ Array σ) π2) π)
+        (lΓ1 `combine` lΓ2)
   TermSugar (Not e) () -> do
     Checked e' ((), π) lΓ <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck e
     pure $ Checked (desugar p (Not e')) (TypeCore $ Effect (TypeCore Boolean) π) lΓ

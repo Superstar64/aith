@@ -187,6 +187,13 @@ compileTerm (SimpleTerm _ (If eb et ef)) σ = do
   let finish e = C.Expression $ C.Assign (C.Variable result) e
   tell [C.If eb (tDepend ++ [finish et]) (fDepend ++ [finish ef])]
   pure $ C.Variable result
+compileTerm (SimpleTerm _ (PointerIncrement ep ei σ)) (SimpleType PointerRep) = do
+  ep <- compileTerm ep (SimpleType $ PointerRep)
+  σ <- lift $ ctype σ
+  ep <- putIntoVariableRaw (C.Composite $ C.Pointer σ) (C.Scalar ep)
+  ei <- compileTerm ei (SimpleType $ WordRep $ Native)
+  ei <- putIntoVariableRaw (cint Native Unsigned) (C.Scalar ei)
+  pure $ C.Addition ep ei
 compileTerm _ _ = error "invalid type for simple term"
 
 compileFunction :: Symbol -> SimpleFunction p -> SimpleFunctionType -> Codegen C.Statement

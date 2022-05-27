@@ -130,6 +130,8 @@ Files start with `code` `:::`.
 | Unit Construction | ``()`` |
 | Read Pointer | ``*e`` |
 | Write Pointer | ``*e = e'`` |
+| Array to Pointer | ``&*e`` |
+| Array Increment | ``e &+ e'`` |
 | Number Literal | ``n`` |
 | Addition | ``e + e'`` |
 | Subtraction | ``e - e'`` |
@@ -198,6 +200,7 @@ Files start with `code` `:::`.
 | Effect | ``σ in π`` |
 | Shared | ``σ @ π`` |
 | Pointer | ``σ*`` |
+| Array Pointer | ``σ[]`` |
 | Number | ``#ρ ρ'`` |
 | Boolean | ``bool`` |
 | IO Region | ``io`` |

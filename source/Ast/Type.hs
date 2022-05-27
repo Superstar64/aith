@@ -46,6 +46,7 @@ data TypeF v κ λσ σ
   | Effect σ σ
   | Shared σ σ
   | Pointer σ
+  | Array σ
   | Number κ κ
   | Boolean
   | World
@@ -104,6 +105,7 @@ traverseTypeF f h i g σ = case σ of
   Effect σ π -> pure Effect <*> g σ <*> g π
   Shared σ π -> pure Shared <*> g σ <*> g π
   Pointer σ -> pure Pointer <*> g σ
+  Array σ -> pure Array <*> g σ
   Number ρ ρ' -> pure Number <*> h ρ <*> h ρ'
   Boolean -> pure Boolean
   World -> pure World
@@ -242,6 +244,10 @@ shared = Prism (uncurry Shared) $ \case
 
 pointer = Prism Pointer $ \case
   (Pointer σ) -> Just σ
+  _ -> Nothing
+
+array = Prism Array $ \case
+  (Array σ) -> Just σ
   _ -> Nothing
 
 number = Prism (uncurry Number) $ \case

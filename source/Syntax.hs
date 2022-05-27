@@ -253,10 +253,11 @@ typex = typeArrow
     typeEffect = effect `branchDistribute` unit' ⊣ typePtr ⊗ (binaryKeyword "in" ≫ typeCore ⊕ always)
       where
         effect = withInnerPosition Language.typeSource Language.effect
-    typePtr = foldlP apply ⊣ typeCore ⊗ many (token "*" ⊕ binaryToken "@" ≫ typeCore)
+    typePtr = foldlP apply ⊣ typeCore ⊗ many (token "*" ⊕ token "[]" ⊕ binaryToken "@" ≫ typeCore)
       where
-        apply = ptr `branchDistribute` shared
+        apply = ptr `branchDistribute` array `branchDistribute` shared
         ptr = withInnerPosition1 Language.typeSource Language.pointer
+        array = withInnerPosition1 Language.typeSource Language.array
         shared = withInnerPosition Language.typeSource Language.shared
 
 typeCore :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
@@ -397,11 +398,14 @@ term = termBinding
         applyAdd = add `branchDistribute` sub
         add = withInnerPosition Language.termSource (Language.arithmatic Language.Addition)
         sub = withInnerPosition Language.termSource (Language.arithmatic Language.Subtraction)
-    termMul = foldlP applyMul ⊣ termDeref ⊗ many (binaryToken "*" ≫ termDeref ⊕ binaryToken "/" ≫ termDeref)
+    termMul = foldlP applyMul ⊣ termPtrOp ⊗ many (binaryToken "*" ≫ termPtrOp ⊕ binaryToken "/" ≫ termPtrOp)
       where
         applyMul = mul `branchDistribute` div
         mul = withInnerPosition Language.termSource (Language.arithmatic Language.Multiplication)
         div = withInnerPosition Language.termSource (Language.arithmatic Language.Division)
+    termPtrOp = foldlP ptr ⊣ termDeref ⊗ many (binaryToken "&+" ≫ termDeref)
+      where
+        ptr = withInnerPosition Language.termSource (Language.pointerIncrement)
     termDeref = Language.termSource ⊣ position ⊗ deref ∥ termPrefix
       where
         apply = branchDistribute (Language.writeReference) (Language.readReference . toPrism unit')
@@ -412,7 +416,8 @@ term = termBinding
           choice
             [ Language.readReference ⊣ token "*" ≫ termPrefix,
               -- todo add proper lexer for tokens and use ! here
-              Language.not ⊣ token "~" ≫ termPrefix
+              Language.not ⊣ token "~" ≫ termPrefix,
+              Language.reinterpret ⊣ token "&*" ≫ termPrefix
             ]
     termApply = foldlP applyBinary ⊣ termCore ⊗ many (typeApplySyntax ⊕ applySyntax)
       where

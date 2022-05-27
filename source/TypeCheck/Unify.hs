@@ -48,6 +48,8 @@ reconstructTypeF indexVariable indexLogical augment make checkRuntime reconstruc
     pure $ make $ Pretype $ make $ KindRuntime $ WordRep ρ
   Pointer _ ->
     pure $ make $ Boxed
+  Array _ ->
+    pure $ make $ Boxed
   Boolean -> pure $ make $ Pretype $ make $ KindRuntime $ WordRep $ make $ KindSize $ Byte
   World -> pure $ make $ Region
 
@@ -129,6 +131,8 @@ typeOccursCheck p x lev σ' = go σ'
           recurse σ
           recurse π
         Pointer σ -> do
+          recurse σ
+        Array σ -> do
           recurse σ
         Number _ _ -> pure ()
         Boolean -> pure ()
@@ -237,6 +241,8 @@ matchType p σ σ' = unify σ σ'
       match p π π'
     unify (TypeCore (Pointer σ)) (TypeCore (Pointer σ')) = do
       match p σ σ'
+    unify (TypeCore (Array σ)) (TypeCore (Array σ')) = do
+      match p σ σ'
     unify (TypeCore (Number ρ1 ρ2)) (TypeCore (Number ρ1' ρ2')) = do
       matchKind p ρ1 ρ1'
       matchKind p ρ2 ρ2'
@@ -273,6 +279,7 @@ matchKind p κ κ' = unify κ κ'
     unify (KindCore (KindSize Short)) (KindCore (KindSize Short)) = pure ()
     unify (KindCore (KindSize Int)) (KindCore (KindSize Int)) = pure ()
     unify (KindCore (KindSize Long)) (KindCore (KindSize Long)) = pure ()
+    unify (KindCore (KindSize Native)) (KindCore (KindSize Native)) = pure ()
     unify (KindCore (KindSignedness Signed)) (KindCore (KindSignedness Signed)) = pure ()
     unify (KindCore (KindSignedness Unsigned)) (KindCore (KindSignedness Unsigned)) = pure ()
     unify κ κ' = quit $ KindMismatch p κ κ'

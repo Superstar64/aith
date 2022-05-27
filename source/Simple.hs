@@ -45,6 +45,7 @@ externalImpl (SimpleTerm _ (Arithmatic _ e e' _)) = externalImpl e <> externalIm
 externalImpl (SimpleTerm _ (Relational _ e e' _ _)) = externalImpl e <> externalImpl e'
 externalImpl (SimpleTerm _ (BooleanLiteral _)) = mempty
 externalImpl (SimpleTerm _ (If eb et ef)) = externalImpl eb <> externalImpl et <> externalImpl ef
+externalImpl (SimpleTerm _ (PointerIncrement ep ei _)) = externalImpl ep <> externalImpl ei
 
 external (SimpleFunction _ (Bound _ e)) = externalImpl e
 
@@ -149,6 +150,11 @@ convertTerm (TermCore p (TermRuntime (If eb et ef))) = do
   et <- convertTerm et
   ef <- convertTerm ef
   pure $ SimpleTerm p $ If eb et ef
+convertTerm (TermCore p (TermRuntime (PointerIncrement ep ei σ))) = do
+  ep <- convertTerm ep
+  ei <- convertTerm ei
+  σ <- convertType σ
+  pure $ SimpleTerm p $ PointerIncrement ep ei σ
 convertTerm (TermCore _ (TypeAbstraction _ _ _)) = simpleFailTerm
 convertTerm (TermCore _ (TypeApplication _ _ _)) = simpleFailPattern
 convertTerm (TermCore _ (InlineAbstraction _)) = simpleFailTerm
@@ -158,6 +164,7 @@ convertTerm (TermCore _ (Bind _ _)) = simpleFailTerm
 convertTerm (TermCore _ (FunctionLiteral _)) = simpleFailTerm
 convertTerm (TermCore _ (TypeAnnotation _ _ invalid)) = absurd invalid
 convertTerm (TermCore _ (PretypeAnnotation _ _ invalid)) = absurd invalid
+convertTerm (TermCore _ (Reinterpret e)) = convertTerm e
 convertTerm (TermCore _ (TermSugar _ invalid)) = absurd invalid
 
 simpleFailTerm = error "illegal simple term"

@@ -58,6 +58,7 @@ data TermRuntime θ σerase s σ λe e
   | Relational Relational e e σ s
   | BooleanLiteral Bool
   | If e e e
+  | PointerIncrement e e σ
   deriving (Show)
 
 data TermSugar e
@@ -78,6 +79,7 @@ data TermF sourceOnly κ θ σauto σ λσe λe λrun_e e
   | TypeApplication e σ σauto
   | TypeAnnotation e σ sourceOnly
   | PretypeAnnotation e σ sourceOnly
+  | Reinterpret e
   deriving (Show)
 
 data TermSchemeF σ λκe λσe e
@@ -138,6 +140,7 @@ traverseTermRuntime d y h f g i e =
     Relational o e e' σ κ -> pure Relational <*> pure o <*> i e <*> i e' <*> f σ <*> h κ
     BooleanLiteral b -> pure BooleanLiteral <*> pure b
     If e e' e'' -> pure If <*> i e <*> i e' <*> i e''
+    PointerIncrement e e' σ -> pure PointerIncrement <*> i e <*> i e' <*> f σ
 
 traverseTermSugar ::
   Applicative m =>
@@ -175,6 +178,7 @@ traverseTermF y j d z f k h m i e =
     TypeApplication e σ σ2 -> pure TypeApplication <*> i e <*> f σ <*> z σ2
     TypeAnnotation e σ source -> pure TypeAnnotation <*> i e <*> f σ <*> y source
     PretypeAnnotation e σ source -> pure PretypeAnnotation <*> i e <*> f σ <*> y source
+    Reinterpret e -> pure Reinterpret <*> i e
 
 foldTermF y l d j z f h m i = getConst . traverseTermF (Const . y) (Const . l) (Const . d) (Const . j) (Const . z) (Const . f) (Const . h) (Const . m) (Const . i)
 
@@ -432,6 +436,11 @@ relational o = (termRuntime .) $
     Relational o' e e' () () | o == o' -> Just (e, e')
     _ -> Nothing
 
+pointerIncrement = (termRuntime .) $
+  Prism (\(e, e') -> PointerIncrement e e' ()) $ \case
+    PointerIncrement e e' () -> Just (e, e')
+    _ -> Nothing
+
 not = (termSugar .) $
   Prism Not $ \case
     Not e -> Just e
@@ -453,6 +462,10 @@ typeLambda = Prism (uncurry $ uncurry TypeAbstraction) $ \case
 
 typeApplication = Prism (\(e, σ) -> TypeApplication e σ ()) $ \case
   TypeApplication e σ () -> Just (e, σ)
+  _ -> Nothing
+
+reinterpret = Prism Reinterpret $ \case
+  Reinterpret e -> Just e
   _ -> Nothing
 
 termSchemeSource = Isomorph (uncurry TermSchemeSource) $ \(TermSchemeSource p e) -> (p, e)
@@ -949,6 +962,7 @@ sourceTerm (TermCore _ e) =
       BooleanLiteral b -> BooleanLiteral b
       If e e' e'' -> If (sourceTerm e) (sourceTerm e') (sourceTerm e'')
       Extern sym _ _ _ -> Extern sym () () ()
+      PointerIncrement e e' _ -> PointerIncrement (sourceTerm e) (sourceTerm e') ()
     TermSugar _ invalid -> absurd invalid
     FunctionLiteral λ -> FunctionLiteral (mapBound sourceTermRuntimePattern sourceTerm λ)
     InlineAbstraction λ -> InlineAbstraction (mapBound sourceTermPattern sourceTerm λ)
@@ -963,6 +977,7 @@ sourceTerm (TermCore _ e) =
         ()
     TypeAnnotation _ _ invalid -> absurd invalid
     PretypeAnnotation _ _ invalid -> absurd invalid
+    Reinterpret e -> Reinterpret (sourceTerm e)
 
 sourceTermPattern :: Monoid p' => TermPattern p Void Void -> TermPatternSource p'
 sourceTermPattern (TermPatternCore _ pm) =
