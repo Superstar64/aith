@@ -209,6 +209,13 @@ module arrays = {
 		* &* &x[i] = a
 	};
 
+	swap = function(a, b, i) {
+		let tmp = get `a `i;
+		let () = set `a `i `(get `b `i);
+		let () = set `b `i `tmp;
+		()
+	};
+
 	memcpyPtr <A : +[pointer] if copy, R : region> : function(A[] @ R, A[] @ R, #unsigned native) => () uses R; 
 	memcpyPtr <A, R> = function (dst, src, i) {
 		if(i != 0) {

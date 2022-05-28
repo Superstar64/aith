@@ -184,23 +184,30 @@ matchType p σ σ' = unify σ σ'
     unify (TypeCore (TypeLogical x)) (TypeCore (TypeLogical x')) | x == x' = pure ()
     -- Big rule: Unifing a logic type variable does not avoid captures
     -- Rigid type variable scopes cannot shadow other rigid type variables
-    unify (TypeCore (TypeLogical x)) σ =
-      indexTypeLogicalMap x >>= \case
-        (UnboundTypeLogical _ κ c lower upper lev) -> do
-          modifyState $ \state -> state {typeLogicalMap = Map.insert x (LinkTypeLogical σ) $ typeLogicalMap state}
-          typeOccursCheck p x lev σ
-          kindIsMember p σ κ
-          -- state modification above may have created a cycle
-          -- and if a cycle was created, then it must contain σ
-          -- so convert e's solutions back to problems
-          -- and let induction take care of it
-          reunifyBounds p σ
-          for (Set.toList c) $ \c -> do
-            constrain p c σ
-          for lower (\π -> lessThen p π σ)
-          for upper (\π -> lessThen p σ (flexible π))
-          pure ()
-        (LinkTypeLogical σ') -> unify σ' σ
+    unify (TypeCore (TypeLogical x)) σ
+      | (TypeCore (TypeLogical x')) <- σ =
+        indexTypeLogicalMap x' >>= \case
+          LinkTypeLogical σ -> unify (TypeCore $ TypeLogical x) σ
+          _ -> unifyVariable
+      | otherwise = unifyVariable
+      where
+        unifyVariable =
+          indexTypeLogicalMap x >>= \case
+            (UnboundTypeLogical _ κ c lower upper lev) -> do
+              modifyState $ \state -> state {typeLogicalMap = Map.insert x (LinkTypeLogical σ) $ typeLogicalMap state}
+              typeOccursCheck p x lev σ
+              kindIsMember p σ κ
+              -- state modification above may have created a cycle
+              -- and if a cycle was created, then it must contain σ
+              -- so convert e's solutions back to problems
+              -- and let induction take care of it
+              reunifyBounds p σ
+              for (Set.toList c) $ \c -> do
+                constrain p c σ
+              for lower (\π -> lessThen p π σ)
+              for upper (\π -> lessThen p σ (flexible π))
+              pure ()
+            (LinkTypeLogical σ') -> unify σ' σ
     unify σ σ'@(TypeCore (TypeLogical _)) = unify σ' σ
     unify (TypeCore (TypeVariable x)) (TypeCore (TypeVariable x')) | x == x' = pure ()
     unify (TypeCore (Inline σ τ)) (TypeCore (Inline σ' τ')) = do
