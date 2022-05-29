@@ -262,6 +262,7 @@ data TermSchemeSource p
           (Bound (Pattern TypeIdentifier (KindAuto p) p) (TermSchemeSource p))
           (TermSource p)
       )
+  deriving (Show)
 
 data TermScheme p vσ vκ
   = TermSchemeCore
@@ -272,10 +273,16 @@ data TermScheme p vσ vκ
           (Bound (TypePattern vκ) (TermScheme p vσ vκ))
           (Term p vσ vκ)
       )
+  deriving (Show)
 
 type TermSchemeUnify p = TermScheme p TypeLogical KindLogical
 
 type TermSchemeInfer p = TermScheme p Void Void
+
+data TermControlSource p
+  = TermAutoSource (TermSource p)
+  | TermManualSource (TermSchemeSource p)
+  deriving (Show, Functor)
 
 desugar p (Not e) =
   TermCore
@@ -488,6 +495,14 @@ typeAnnotation = Prism (\(e, σ) -> TypeAnnotation e σ ()) $ \case
 
 preTypeAnnotation = Prism (\(e, σ) -> PretypeAnnotation e σ ()) $ \case
   (PretypeAnnotation e σ ()) -> Just (e, σ)
+  _ -> Nothing
+
+termAutoSource = Prism TermAutoSource $ \case
+  TermAutoSource e -> Just e
+  _ -> Nothing
+
+termManualSource = Prism TermManualSource $ \case
+  TermManualSource e -> Just e
   _ -> Nothing
 
 termIdentifier = Isomorph TermIdentifier runTermIdentifier
@@ -780,6 +795,10 @@ instance FreeVariablesTermSource TermSchemeSource where
     where
       go = freeVariablesTermSource
       go' = freeVariablesLowerTermSource
+
+instance FreeVariablesTermSource TermControlSource where
+  freeVariablesTermSource (TermAutoSource e) = freeVariablesTermSource e
+  freeVariablesTermSource (TermManualSource e) = freeVariablesTermSource e
 
 instance SubstituteTerm TermScheme where
   substituteTerm ux x (TermSchemeCore p e) = TermSchemeCore p $ mapTermSchemeF id go'' go' go e

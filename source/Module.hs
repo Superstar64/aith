@@ -47,12 +47,14 @@ data GlobalF ς p e
   | Text ς e
   deriving (Show)
 
-data GlobalSource p = GlobalSource (GlobalF (TypeSchemeAuto p) p (TermSchemeSource p))
+data GlobalSource p = GlobalSource (GlobalF (TypeSchemeAuto p) p (TermControlSource p))
 
 instance Location GlobalSource where
-  location (GlobalSource (Inline _ (TermSchemeSource p _))) = p
+  location (GlobalSource (Inline _ (TermManualSource (TermSchemeSource p _)))) = p
+  location (GlobalSource (Inline _ (TermAutoSource (TermSource p _)))) = p
   location (GlobalSource (Import p _)) = p
-  location (GlobalSource (Text _ (TermSchemeSource p _))) = p
+  location (GlobalSource (Text _ (TermManualSource (TermSchemeSource p _)))) = p
+  location (GlobalSource (Text _ (TermAutoSource (TermSource p _)))) = p
 
 instance Functor GlobalSource where
   fmap f (GlobalSource (Inline ς e)) = GlobalSource $ Inline (fmap (fmap f) ς) (fmap f e)
@@ -213,22 +215,23 @@ typeCheckModule _ [] = pure []
 typeCheckModule environments ((path@(Path heading name), item) : nodes) = do
   let environment = Map.findWithDefault emptyEnvironment heading environments
   (item', σ) <- case item of
-    GlobalSource (Inline Nothing (TermSchemeSource _ (MonoTerm e))) -> do
+    GlobalSource (Inline Nothing (TermAutoSource e)) -> do
       (e, σ) <- runCore (typeCheckGlobalAuto True e) environment emptyState
       pure (GlobalInfer $ Inline σ e, flexible σ)
-    GlobalSource (Inline σ e) -> do
+    GlobalSource (Inline σ (TermManualSource e)) -> do
       (e, σ) <- runCore (typeCheckGlobalManual e σ) environment emptyState
       pure (GlobalInfer $ Inline σ e, flexible σ)
-    GlobalSource (Text Nothing (TermSchemeSource _ (MonoTerm e))) -> do
+    GlobalSource (Text Nothing (TermAutoSource e)) -> do
       (e, σ) <- runCore (typeCheckGlobalAuto False e >>= syntaticCheck) environment emptyState
       pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexible σ)
-    GlobalSource (Text σ e) -> do
+    GlobalSource (Text σ (TermManualSource e)) -> do
       (e, σ) <- runCore (typeCheckGlobalManual e σ >>= syntaticCheck) environment emptyState
       pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexible σ)
     GlobalSource (Import p sym@(Path heading name)) -> do
       let environment = Map.findWithDefault emptyEnvironment heading environments
       let (_, _, σ) = typeEnvironment environment Map.! (TermIdentifier name)
       pure (GlobalInfer $ Import p sym, σ)
+    _ -> error "todo handle type annotation with automatic term"
   let augmented =
         environment
           { typeEnvironment = Map.insert (TermIdentifier name) (location item, Unrestricted, σ) $ typeEnvironment environment

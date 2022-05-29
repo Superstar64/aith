@@ -317,8 +317,29 @@ isoScheme = Isomorph Scheme runScheme
 scheme :: (Syntax δ, Position δ p) => δ (Scheme p)
 scheme = isoScheme ⊣ schema
   where
-    schema = (cons ⊣ inverse nonEmpty ⊣ betweenAngle (commaSeperatedSome (position ⊗ schemeCore))) ∥ nil ⊣ always
+    schema = betweenAngle $ cons ⊣ inverse nonEmpty ⊣ commaSeperatedSome (position ⊗ schemeCore) ∥ nil ⊣ always
     schemeCore = typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊕ token "'" ≫ kindPattern
+
+wrapType :: Isomorph (Scheme p, Language.TypeSource p) (Language.TypeSchemeSource p)
+wrapType =
+  wrap Language.typeSchemeSource Language.forallx Language.kindForall
+    . secondI
+      (assumeIsomorph (toPrism Language.typeSchemeSource . secondP Language.monoType) . extractInfo location)
+
+wrapTerm :: Isomorph (Scheme p, Language.TermSource p) (Language.TermSchemeSource p)
+wrapTerm =
+  wrap Language.termSchemeSource Language.implicitTypeAbstraction Language.implicitKindAbstraction
+    . secondI
+      (assumeIsomorph (toPrism Language.termSchemeSource . secondP Language.monoTerm) . extractInfo location)
+
+wrap c t k =
+  foldrP
+    ( toPrism c
+        . secondP
+          ((t . constraintBound) `branchDistribute'` (k . toPrism Language.bound))
+        . toPrism associate
+    )
+    . firstI (inverse isoScheme)
 
 typeAnnotate op = just ⊣ binaryToken op ≫ typex ∥ nothing ⊣ always
 
@@ -471,33 +492,40 @@ item name delimit footer footer' lambda =
     ]
   where
     itemCore brand inner = brand ≫ name ≪ delimit ⊗ inner ≪ footer
-    itemTerm :: δ () -> Prism (Maybe (Language.TypeSchemeSource p), Language.TermSchemeSource p) b -> δ (a, b)
+    itemTerm :: δ () -> Prism (Maybe (Language.TypeSchemeSource p), Language.TermControlSource p) b -> δ (a, b)
     itemTerm brand wrap = secondP wrap ⊣ associate ⊣ item
       where
         item =
           redundent "Type annotation doesn't match definition" $
-            firstI (imap $ secondI applyType . associate)
-              ⊣ secondI (secondI applyTerm . associate)
+            firstI (imap $ secondI wrapType . associate)
+              ⊣ secondI (secondI applyControl . associate)
               ⊣ declaration
-        declaration = branch applyAnnotated applyPlain ⊣ distribute ⊣ header ⊗ (annotated ⊕ plain)
-        applyAnnotated = firstP just . toPrism associate'
-        applyPlain = firstP nothing . toPrism (inverse unit)
-        annotated = annotate ≪ footer' ⊗ (header ⊗ binding ≪ footer)
-        plain = binding ≪ footer
-        header = brand ≫ name ⊗ scheme
-        annotate = Language.typeSchemeSource ⊣ position ⊗ (Language.monoType ⊣ binaryToken ":" ≫ typex)
-        binding = Language.termSchemeSource ⊣ position ⊗ (Language.monoTerm ⊣ delimit ≫ term)
 
-        applyType = apply Language.typeSchemeSource Language.forallx Language.kindForall
-        applyTerm = apply Language.termSchemeSource Language.implicitTypeAbstraction Language.implicitKindAbstraction
-        apply c t k =
-          foldrP
-            ( toPrism c
-                . secondP
-                  ((t . constraintBound) `branchDistribute'` (k . toPrism Language.bound))
-                . toPrism associate
-            )
-            . firstI (inverse isoScheme)
+        applyControl :: Isomorph (Maybe (Scheme p), Language.TermSource p) (Language.TermControlSource p)
+        applyControl = assumeIsomorph $ (auto `branchDistribute` manual) . toPrism swap . firstP (toPrism $ inverse maybe')
+          where
+            auto = Language.termAutoSource . toPrism unit . toPrism swap
+            manual = Language.termManualSource . toPrism wrapTerm . toPrism swap
+
+        declaration :: δ (Maybe ((a, Scheme p), Language.TypeSource p), ((a, Maybe (Scheme p)), Language.TermSource p))
+        declaration = apply ⊣ brand ≫ name ⊗ (scheme ⊗ (annotated ⊕ plain) ⊕ plain)
+
+        apply = ((applyManualFull `branchDistribute` applyManualLite) . toPrism associate') `branchDistribute` applyAuto
+        applyManualFull = secondP (firstP (secondP just)) . firstP just . toPrism associate'
+        applyManualLite = firstP nothing . toPrism (inverse unit) . firstP (secondP just)
+        applyAuto = firstP nothing . toPrism (inverse unit) . firstP (secondP nothing . toPrism (inverse unit'))
+
+        annotated :: δ (Language.TypeSource p, ((a, Scheme p), Language.TermSource p))
+        annotated = annotate ≪ footer' ⊗ (brand ≫ name ⊗ scheme ⊗ binding ≪ footer)
+
+        plain :: δ (Language.TermSource p)
+        plain = binding ≪ footer
+
+        annotate :: δ (Language.TypeSource p)
+        annotate = binaryToken ":" ≫ typex
+
+        binding :: δ (Language.TermSource p)
+        binding = delimit ≫ term
 
 itemSingleton ::
   (Syntax δ, Position δ p) => δ (Module.Item (Module.GlobalSource p))

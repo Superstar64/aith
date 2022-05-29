@@ -3,7 +3,6 @@ module Misc.Prism where
 import Control.Category (Category, id, (.))
 import Control.Monad ((<=<))
 import Data.List (uncons)
-import Data.List.NonEmpty (NonEmpty (..))
 import Misc.Isomorph
 import Prelude hiding (id, (.))
 
@@ -93,18 +92,6 @@ foldrP (Prism f g) = Isomorph f' g'
       Just (h, t) -> (h : items, last)
         where
           (items, last) = g' t
-
-foldlNonEmptyP :: Prism (a, b) a -> Prism (a, NonEmpty b) a
-foldlNonEmptyP (Prism f g) = Prism f' g'
-  where
-    f' (x, xs) = foldl (curry f) x xs
-    g' x = case g x of
-      Nothing -> Nothing
-      Just (a, b) -> Just $ (first, uncurry (:|) $ swap (a', b))
-        where
-          (first, a') = g'' a
-    Isomorph _ g'' = foldlP (Prism f g)
-    Isomorph _ swap = swapNonEmpty
 
 branch :: (ToPrism f, ToPrism g) => f a c -> g b c -> Prism (Either a b) c
 branch a b = Prism pick prefer

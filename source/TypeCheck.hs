@@ -731,23 +731,13 @@ typeCheckGlobalManual e ς = case ς of
         π' <- pure $ map flexible π
         κ <- pure $ flexibleKind κ
         -- todo handle constrains and bounds
-        pure (TermSchemeCore p)
-          <*> ( pure ImplicitTypeAbstraction
-                  <*> ( pure (Bound (TypePatternCore x' κ))
-                          <*> (augmentKindEnvironment x' p κ c (Set.fromList π) minBound $ go (convertType x' x ς) e)
-                      )
-                  <*> pure c
-                  <*> pure π'
-              )
+        e' <- augmentKindEnvironment x' p κ c (Set.fromList π) minBound $ go (convertType x' x ς) e
+        pure $ TermSchemeCore p $ ImplicitTypeAbstraction (Bound (TypePatternCore x' κ) e') c π'
     go
       (TypeSchemeCore (ImplicitKindForall (Bound (KindPatternCore x μ) ς)))
       (TermSchemeSource _ (ImplicitKindAbstraction (Bound (Pattern p x' _) e))) = do
-        pure (TermSchemeCore p)
-          <*> ( pure ImplicitKindAbstraction
-                  <*> ( pure (Bound (KindPatternCore x' μ))
-                          <*> (augmentSortEnvironment x' p μ minBound $ go (convertKind x' x ς) e)
-                      )
-              )
+        e' <- augmentSortEnvironment x' p μ minBound $ go (convertKind x' x ς) e
+        pure $ TermSchemeCore p $ ImplicitKindAbstraction $ Bound (KindPatternCore x' μ) e'
     go _ (TermSchemeSource p _) = quit $ MismatchedTypeLambdas p
 
 syntaticCheck :: (TermSchemeInfer p, TypeSchemeInfer) -> Core p (TermSchemeInfer p, TypeSchemeInfer)

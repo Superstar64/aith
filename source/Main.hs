@@ -159,8 +159,8 @@ generateAll ((path, file) : remainder) code = do
 uninfer = fmap (second nameGlobal)
   where
     nameGlobal :: GlobalInfer [SourcePos] -> GlobalSource Internal
-    nameGlobal (GlobalInfer (Inline ς e)) = GlobalSource $ Inline (Just $ sourceTypeScheme ς) (sourceTermScheme e)
-    nameGlobal (GlobalInfer (Text ς e)) = GlobalSource $ Text (Just $ sourceTypeScheme ς) (sourceTermScheme e)
+    nameGlobal (GlobalInfer (Inline ς e)) = GlobalSource $ Inline (Just $ sourceTypeScheme ς) (TermManualSource $ sourceTermScheme e)
+    nameGlobal (GlobalInfer (Text ς e)) = GlobalSource $ Text (Just $ sourceTypeScheme ς) (TermManualSource $ sourceTermScheme e)
     nameGlobal (GlobalInfer (Import _ path)) = GlobalSource $ Import Internal path
 
 data CommandLine = CommandLine
