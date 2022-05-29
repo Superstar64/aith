@@ -65,6 +65,7 @@ data TermSugar e
   = Not e
   | And e e
   | Or e e
+  | Do e e
   deriving (Show)
 
 data TermF sourceOnly κ θ σauto σ λσe λe λrun_e e
@@ -151,6 +152,7 @@ traverseTermSugar f e = case e of
   Not e -> pure Not <*> f e
   And e e' -> pure And <*> f e <*> f e'
   Or e e' -> pure Or <*> f e <*> f e'
+  Do e e' -> pure Do <*> f e <*> f e'
 
 traverseTermF ::
   Applicative m =>
@@ -311,6 +313,12 @@ desugar p (Or e e') =
           (TermCore p $ TermRuntime $ BooleanLiteral True)
           e'
     )
+desugar p (Do e e') =
+  TermCore
+    p
+    ( TermRuntime $
+        Alias e (Bound (TermRuntimePatternCore p $ RuntimePatternTuple []) e')
+    )
 
 termPatternSource = Isomorph (uncurry $ TermPatternSource) $ \(TermPatternSource p pm) -> (p, pm)
 
@@ -461,6 +469,11 @@ and = (termSugar .) $
 or = (termSugar .) $
   Prism (uncurry Or) $ \case
     Or e e' -> Just (e, e')
+    _ -> Nothing
+
+dox = (termSugar .) $
+  Prism (uncurry Do) $ \case
+    Do e e' -> Just (e, e')
     _ -> Nothing
 
 typeLambda = Prism (uncurry $ uncurry TypeAbstraction) $ \case

@@ -67,6 +67,7 @@ keywords =
       "copy",
       "representation",
       "native",
+      "ptrdiff",
       "io",
       "in"
     ]
@@ -131,11 +132,11 @@ symbol = Symbol.symbol ⊣ stringLiteral
 
 lambdaCore e = binaryToken "=>" ≫ e
 
-lambdaInline e = space ≫ betweenBraces e ∥ lambdaCore e
-
 lambdaBrace e = space ≫ betweenBraces (indent ≫ line ≫ e ≪ dedent ≪ line)
 
-lambdaMajor e = lambdaBrace e ∥ lambdaCore e
+lambda' e e' = lambdaBrace e ∥ lambdaCore e'
+
+lambda e = lambda' e e
 
 commaSome e = some (token "," ≫ space ≫ e)
 
@@ -244,8 +245,12 @@ typeFull = foldlP pair ⊣ typex ⊗ many (token "," ≫ space ≫ typex)
     pair = withInnerPosition Language.typeSource Language.pair
 
 typex :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
-typex = typeArrow
+typex = typeLambda
   where
+    typeLambda = Language.typeSource ⊣ position ⊗ typeLambda ∥ typeArrow
+      where
+        apply = Language.explicitForall . constraintBound
+        typeLambda = apply ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊗ lambdaCore typex
     typeArrow = applyBinary ⊣ typeEffect ⊗ (binaryToken "->" ≫ typeArrow ⊕ always)
       where
         applyBinary = inline `branchDistribute` unit'
@@ -273,14 +278,15 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenPare
         shortcut "short" Language.signed Language.short,
         shortcut "int" Language.signed Language.int,
         shortcut "long" Language.signed Language.long,
+        shortcut "ptrdiff" Language.signed Language.native,
         shortcut "ubyte" Language.unsigned Language.byte,
         shortcut "ushort" Language.unsigned Language.short,
         shortcut "uint" Language.unsigned Language.int,
         shortcut "ulong" Language.unsigned Language.long,
+        shortcut "native" Language.unsigned Language.native,
         Language.boolean ⊣ keyword "bool",
         Language.world ⊣ keyword "io",
         Language.number ⊣ token "#" ≫ kindCoreAuto ⊗ space ≫ kindCoreAuto,
-        Language.explicitForall ⊣ constraintBound ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊗ lambdaInline typex,
         Language.ofCourse ⊣ betweenBangSquares typeFull,
         keyword "function" ≫ (funLiteral ∥ funPointer)
       ]
@@ -371,27 +377,26 @@ termFull = termPair
     termPair = foldlP pair ⊣ termAnnotate ⊗ many (token "," ≫ space ≫ termAnnotate)
       where
         pair = withInnerPosition Language.termSource Language.pairIntroduction
-    termAnnotate = apply ⊣ term ⊗ (binaryToken "::" ≫ typeAuto ⊕ binaryToken ":" ≫ typeAuto ⊕ always)
+    termAnnotate = apply ⊣ termStatement ⊗ (binaryToken "::" ≫ typeAuto ⊕ binaryToken ":" ≫ typeAuto ⊕ always)
       where
         apply = preAnnotate `branchDistribute` annotate `branchDistribute` unit'
         annotate = withInnerPosition Language.termSource Language.typeAnnotation
         preAnnotate = withInnerPosition Language.termSource Language.preTypeAnnotation
 
-term :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
-term = termBinding
+termStatement :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
+termStatement = Language.termSource ⊣ position ⊗ choice options ∥ apply ⊣ term ⊗ (token ";" ≫ termStatement ⊕ always)
   where
-    termBinding = Language.termSource ⊣ position ⊗ choice options ∥ termRTApply
-      where
-        options =
-          [ Language.bind ⊣ rotateBind ⊣ prefixKeyword "inline" ≫ termPattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ term,
-            Language.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ termRuntimePattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ term,
-            Language.ifx ⊣ prefixKeyword "if" ≫ termCore ⊗ lambdaBrace term ≪ binaryKeyword "else" ⊗ lambdaBrace term
-          ]
-        rotateBind = secondI Language.bound . associate . firstI swap
-    termRTApply = applyBinary ⊣ termOr ⊗ (binaryToken "$" ≫ termRTApply ⊕ always)
-      where
-        applyBinary = apply `branchDistribute` unit'
-        apply = withInnerPosition Language.termSource Language.functionApplication
+    options =
+      [ Language.bind ⊣ rotateBind ⊣ prefixKeyword "inline" ≫ termPattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ termStatement,
+        Language.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ termRuntimePattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ termStatement,
+        Language.ifx ⊣ prefixKeyword "if" ≫ termCore ⊗ lambdaBrace termStatement ≪ binaryKeyword "else" ⊗ lambdaBrace termStatement
+      ]
+    rotateBind = secondI Language.bound . associate . firstI swap
+    apply = withInnerPosition Language.termSource Language.dox `branchDistribute` unit'
+
+term :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
+term = termOr
+  where
     termOr = foldlP apply ⊣ termAnd ⊗ many (binaryToken "|" ≫ termAnd)
       where
         apply = withInnerPosition Language.termSource Language.or
@@ -412,7 +417,7 @@ term = termBinding
             greaterThen = i Language.GreaterThen
             greaterThenEqual = i Language.GreaterThenEqual
 
-        operators = r "=" ⊕ r "!=" ⊕ r "<=" ⊕ r "<" ⊕ r ">=" ⊕ r ">" ⊕ always
+        operators = r "==" ⊕ r "!=" ⊕ r "<=" ⊕ r "<" ⊕ r ">=" ⊕ r ">" ⊕ always
 
     termAdd = foldlP applyAdd ⊣ termMul ⊗ many (binaryToken "+" ≫ termMul ⊕ binaryToken "-" ≫ termMul)
       where
@@ -440,13 +445,19 @@ term = termBinding
     termIndex = Language.termSource ⊣ position ⊗ index ∥ termApply
       where
         index = Language.pointerIncrement ⊣ token "&" ≫ termApply ⊗ betweenSquares term
-    termApply = foldlP applyBinary ⊣ termCore ⊗ many (typeApplySyntax ⊕ applySyntax)
+    termApply = foldlP applyBinary ⊣ termCore ⊗ many (typeApplySyntax ⊕ applySyntax ⊕ rtApplySyntax)
       where
-        applyBinary = typeApplication `branchDistribute` application
+        applyBinary = typeApplication `branchDistribute` application `branchDistribute` rtApplication
         application = withInnerPosition Language.termSource Language.inlineApplication
         typeApplication = withInnerPosition Language.termSource Language.typeApplication
+        rtApplication = withInnerPosition Language.termSource Language.functionApplication
         applySyntax = space ≫ token "`" ≫ termCore
         typeApplySyntax = space ≫ betweenTickAngle typeAuto
+        rtApplySyntax = space ≫ betweenParensElse unit termFull
+          where
+            unit = Language.termSource ⊣ position ⊗ (Language.unitIntroduction ⊣ always)
+
+termLambda = lambda' termStatement term
 
 termCore :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
 termCore = Language.termSource ⊣ position ⊗ choice options ∥ betweenParensElse unit termFull
@@ -455,12 +466,12 @@ termCore = Language.termSource ⊣ position ⊗ choice options ∥ betweenParens
     unit' = Language.termRuntimePatternSource ⊣ position ⊗ (Language.runtimePatternUnit ⊣ always)
     options =
       [ Language.variable ⊣ termIdentifier ⊗ always,
-        Language.inlineAbstraction ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ lambdaMajor term,
-        Language.functionLiteral ⊣ Language.bound ⊣ keyword "function" ≫ betweenParensElse unit' termRuntimePattern ⊗ lambdaMajor term,
+        Language.inlineAbstraction ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ termLambda,
+        Language.functionLiteral ⊣ Language.bound ⊣ keyword "function" ≫ betweenParensElse unit' termRuntimePattern ⊗ termLambda,
         Language.extern ⊣ prefixKeyword "extern" ≫ symbol,
         Language.ofCourseIntroduction ⊣ betweenBangSquares termFull,
         Language.numberLiteral ⊣ number,
-        Language.typeLambda ⊣ constraintBound ⊣ token "/\\" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCoreAuto ⊗ lambdaMajor term,
+        Language.typeLambda ⊣ constraintBound ⊣ token "/\\" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCoreAuto ⊗ termLambda,
         Language.truex ⊣ keyword "true",
         Language.falsex ⊣ keyword "false"
       ]
@@ -471,7 +482,7 @@ modulex ::
 modulex =
   Module.coreModule ⊣ orderless ⊣ list
     ⊣ some
-      (item identifer (binaryToken "=") (token ";" ≫ line) (token ";" ≫ line) lambdaMajor)
+      (item identifer (binaryToken "=") (token ";" ≫ line) (token ";" ≫ line) lambda)
     ⊕ never
 
 item ::

@@ -128,8 +128,8 @@ Files start with `code` `:::`.
 | Inline Application | ``e `e'``|
 | Of Course Introduction | ``![e]`` |
 | Inline Binding | ``inline pm = e; e'``|
-| Extern | ``extern "x" function (σa) => σa uses σa'`` |
-| Function Application | ``e $ e'``|
+| Extern | ``extern "sym"`` |
+| Function Application | ``e (e')``|
 | Function Literal | ``function(pm) => e`` |
 | Function Literal | ``function(pm) { e }`` |
 | Runtime Binding | ``let pm = e; e'`` |
@@ -144,7 +144,7 @@ Files start with `code` `:::`.
 | Subtraction | ``e - e'`` |
 | Multiplication | ``e * e'`` |
 | Divsion | ``e / e'`` |
-| Equality | ``e = e'`` |
+| Equality | ``e == e'`` |
 | Inequality | ``e != e'`` |
 | Less | ``e < e'`` |
 | Less or Equal | ``e <= e'`` |
@@ -162,9 +162,10 @@ Files start with `code` `:::`.
 ## Terms (Syntax Sugar) (e)
 | Description | Syntax | Meaning |
 | - | - | - |
-| Not | ``~e`` | if e { false } else { true } |
-| And | ``e & e'`` | if e { e' } else { false } |
-| Or | ``e \| e'`` | if e { true } else { e' } |
+| Not | ``~e`` | ``if e { false } else { true }`` |
+| And | ``e & e'`` | ``if e { e' } else { false }`` |
+| Or | ``e \| e'`` | ``if e { true } else { e' }`` |
+| Do | ``e; e'`` | ``let () = e; e'`` |
 
 ## Meta Patterns(pm)
 | Description | Syntax |
@@ -219,10 +220,12 @@ Files start with `code` `:::`.
 | Short | ``short`` | ``#signed short`` |
 | Int | ``int`` | ``#signed int`` |
 | Long | ``long`` | ``#signed long`` |
+| PtrDiff | ``ptrdiff`` | ``#signed native`` |
 | UByte | ``ubyte`` | ``#unsigned byte`` |
 | UShort | ``ushort`` | ``#unsigned short`` |
 | UInt | ``uint`` | ``#unsigned int`` |
 | ULong | ``ulong`` | ``#unsigned long`` |
+| Native | ``native`` | ``#unsigned native`` |
 
 ## Type Pattern(pmσ)
 | Description | Syntax |

@@ -315,6 +315,7 @@ constrain p c σ = predicate c σ
         False -> quit $ ConstraintMismatch p c σ
         True -> pure ()
     predicate Copy (TypeCore (Number _ _)) = pure ()
+    predicate Copy (TypeCore Boolean) = pure ()
     predicate Copy (TypeCore (FunctionPointer _ _ _)) = pure ()
     predicate Copy (TypeCore (Tuple σs)) = do
       traverse (constrain p Copy) σs

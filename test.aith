@@ -1,6 +1,6 @@
 module:::
 
-inline runtimeCall = \f => \x => f $ x;
+inline runtimeCall = \f => \x => f (x);
 
 module combinators = {
 	inline flip = \f => \x => \y => f `y `x;
@@ -108,7 +108,7 @@ module pair = {
 	snd <A,B,R> = function(x, y) => y;
 	
 	pattern = function (pair) {
-		(fst $ pair, snd $ pair)
+		(fst (pair), snd (pair))
 	};
 };
 
@@ -133,8 +133,8 @@ module ptr = {
 
 	swap = function(x,y) {
 		let xp = *x;
-		let () = *x = (*y);
-		let () = *y = xp;
+		*x = (*y);
+		*y = xp;
 		()
 	};
 };
@@ -163,29 +163,29 @@ module integer = {
 
 	factorial<R : region> : function(ulong) => ulong uses R; 
 	factorial<R : region> = function(x) {
-		if (x = 0) {
+		if (x == 0) {
 			1
 		} else {
-			x * (factorial $ x - 1)  
+			x * factorial (x - 1)  
 		}
 	};
 };
 
 module fptr = {
 	call = function(f) {
-		f $ 1
+		f (1)
 	};
 
 	callUnit <R : region> : function(function*(uint) => () uses R) => () uses R;
 	callUnit <R : region> = function(f) {
-		f $ 2
+		f (2)
 	};
 };
 
 module recurse = {
 	explode<R:region, A:+[pointer]> : function() => A uses R;
 	explode<R:region, A:+[pointer]> = function() {
-		explode $ ()
+		explode ()
 	};
 };
 
@@ -195,7 +195,7 @@ module world = {
 
 	putPtr<A:region >= io> : function(int* @ A) => int uses A;
 	putPtr<A> = function(ptr) {
-		putchar $ *ptr
+		putchar (*ptr)
 	};
 };
 
@@ -210,16 +210,16 @@ module arrays = {
 
 	swap = function(a, b, i) {
 		let tmp = get `a `i;
-		let () = set `a `i `(get `b `i);
-		let () = set `b `i `tmp;
+		set `a `i `(get `b `i);
+		set `b `i `tmp;
 		()
 	};
 
-	memcpyPtr <A : +[pointer] if copy, R : region> : function(A[] @ R, A[] @ R, #unsigned native) => () uses R; 
-	memcpyPtr <A, R> = function (dst, src, i) {
+	memcpyPtr <A : +[pointer] if copy, R : region> : function(A[] @ R, A[] @ R, native) => () uses R; 
+	memcpyPtr <A : +[pointer] if copy, R : region> = function(dst, src, i) {
 		if(i != 0) {
-			let () = *&*dst = (*&* src);
-			memcpyPtr $ (&dst[1], &src[1], i - 1)
+			*&*dst = (*&* src);
+			memcpyPtr (&dst[1], &src[1], i - 1)
 		} else {
 			()
 		}

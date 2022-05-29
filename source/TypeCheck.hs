@@ -570,6 +570,12 @@ typeCheck (TermSource p e) = case e of
     Checked en' ((), π') lΓ2 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck en
     matchType p π π'
     pure $ Checked (desugar p (And e' en')) (TypeCore $ Effect (TypeCore Boolean) π) (lΓ1 `combine` (useNothing `branch` lΓ2))
+  TermSugar (Do e1 e2) () -> do
+    Checked e1' (τ, π) lΓ1 <- traverse (checkEffect p) =<< typeCheck e1
+    matchType p τ (TypeCore $ Tuple [])
+    Checked e2' (σ, π') lΓ2 <- traverse (checkEffect p) =<< typeCheck e2
+    matchType p π π'
+    pure $ Checked (desugar p $ Do e1' e2') (TypeCore $ Effect σ π) (lΓ1 `combine` lΓ2)
 
 defaultType _ _ _ (Just upper) = pure $ flexible upper
 defaultType p κ _ Nothing = do
