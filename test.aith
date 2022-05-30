@@ -225,3 +225,27 @@ module arrays = {
 		}
 	};
 };
+
+module sort = {
+	insert<R : region> : function(int[*] @ R, native) => () uses R;
+	insert<R : region> = function(array, index) {
+		if (index > 0 & *&array[index] < *&array[index - 1]) {
+			let tmp = *&array[index];
+			*&array[index] = (*&array[index - 1]);
+			*&array[index - 1] = tmp;
+			insert(array, index - 1)
+		} else {
+			()
+		}
+	};
+
+	sort <R : region> : function(int[*] @ R, native) => () uses R;
+	sort <R : region> = function(array, length) {
+		if (length > 1) {
+			sort(array, length - 1);
+			insert(array, length - 1)
+		} else {
+			()
+		}
+	};
+};
