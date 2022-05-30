@@ -49,7 +49,11 @@ checkPretype p κt = do
 
 checkBoxed p κt = do
   matchKind p κt (KindCore Boxed)
-  pure κt
+  pure ()
+
+checkLength p κt = do
+  matchKind p κt (KindCore Length)
+  pure ()
 
 checkRegion p κt = do
   matchKind p κt (KindCore Region)
@@ -64,6 +68,9 @@ freshPretypeTypeVariable p = do
 
 freshBoxedTypeVariable p = do
   freshTypeVariable p (KindCore Boxed)
+
+freshLengthTypeVariable p = do
+  freshTypeVariable p (KindCore Length)
 
 freshRegionTypeVariable p = do
   freshTypeVariable p $ KindCore $ Region
@@ -95,13 +102,13 @@ checkFunctionLiteralType p σt = do
 
 checkPointer p σt = do
   σ <- freshPretypeTypeVariable p
-  matchType p σt (TypeCore $ Pointer σ)
-  pure (σ)
+  τ <- freshLengthTypeVariable p
+  matchType p σt (TypeCore $ Pointer σ τ)
+  pure (σ, τ)
 
-checkArray p σt = do
-  σ <- freshPretypeTypeVariable p
-  matchType p σt (TypeCore $ Array σ)
-  pure (σ)
+checkWildcard p σt = do
+  matchType p σt (TypeCore $ Wildcard)
+  pure ()
 
 checkEffect p σt = do
   σ <- freshPretypeTypeVariable p
@@ -217,6 +224,8 @@ sortCheck (KindSource p κ) = case κ of
     pure (KindCore $ Pretype κ', Kind)
   Boxed -> do
     pure (KindCore $ Boxed, Kind)
+  Length -> do
+    pure (KindCore $ Length, Kind)
   KindLogical v -> absurd v
 
 kindCheckSchemePlain :: TypeSchemeSource p -> Core p (TypeScheme vσ vκ, KindUnify)
@@ -307,12 +316,10 @@ kindCheck (TypeSource p σ) = case σ of
     (σ', _) <- secondM (checkBoxed p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion p) =<< kindCheck π
     pure (TypeCore $ Shared σ' π', KindCore $ Pretype $ KindCore $ KindRuntime $ PointerRep)
-  Pointer σ -> do
+  Pointer σ τ -> do
     (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
-    pure (TypeCore $ Pointer σ', KindCore $ Boxed)
-  Array σ -> do
-    (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
-    pure (TypeCore $ Array σ', KindCore $ Boxed)
+    (τ', _) <- secondM (checkLength p) =<< kindCheck τ
+    pure (TypeCore $ Pointer σ' τ', KindCore $ Boxed)
   Number ρ1 ρ2 -> do
     ρ1' <- case ρ1 of
       Nothing -> freshKindVariable p Signedness
@@ -325,6 +332,8 @@ kindCheck (TypeSource p σ) = case σ of
     pure (TypeCore $ Boolean, KindCore $ Pretype $ KindCore $ KindRuntime $ WordRep $ KindCore $ KindSize $ Byte)
   World -> do
     pure (TypeCore World, KindCore Region)
+  Wildcard -> do
+    pure (TypeCore Wildcard, KindCore Length)
   TypeLogical v -> absurd v
 
 instantiate p (TypeSchemeCore ς) = case ς of
@@ -468,12 +477,12 @@ typeCheck (TermSource p e) = case e of
         (TypeCore $ Effect (TypeCore $ Tuple σs) π)
         (combineAll lΓs)
   TermRuntime (ReadReference e) -> do
-    Checked e' ((σ, π2), π) lΓ <- traverse (firstM (firstM (checkPointer p) <=< checkShared p) <=< checkEffect p) =<< typeCheck e
+    Checked e' (((σ, _), π2), π) lΓ <- traverse (firstM (firstM (checkPointer p) <=< checkShared p) <=< checkEffect p) =<< typeCheck e
     constrain p Copy σ
     lessThen p π2 π
     pure $ Checked (TermCore p $ TermRuntime $ ReadReference e') (TypeCore $ Effect σ π) lΓ
   TermRuntime (WriteReference ep ev ()) -> do
-    Checked ep ((σ, π2), π) lΓ1 <- traverse (firstM (firstM (checkPointer p) <=< checkShared p) <=< checkEffect p) =<< typeCheck ep
+    Checked ep (((σ, _), π2), π) lΓ1 <- traverse (firstM (firstM (checkPointer p) <=< checkShared p) <=< checkEffect p) =<< typeCheck ep
     Checked ev (σ', π') lΓ2 <- traverse (checkEffect p) =<< typeCheck ev
     matchType p σ σ'
     matchType p π π'
@@ -532,9 +541,6 @@ typeCheck (TermSource p e) = case e of
     σ' <- fst <$> kindCheck σ'
     matchType p σ σ'
     pure $ Checked e τ lΓ
-  Reinterpret e -> do
-    Checked e' ((σ, π'), π) lΓ <- traverse (firstM (firstM (checkArray p) <=< checkShared p) <=< checkEffect p) =<< typeCheck e
-    pure $ Checked (TermCore p $ Reinterpret e') (TypeCore $ Effect (TypeCore $ Shared (TypeCore $ Pointer σ) π') π) lΓ
   TermRuntime (BooleanLiteral b) -> do
     π <- freshRegionTypeVariable p
     pure $ Checked (TermCore p $ TermRuntime $ BooleanLiteral b) (TypeCore $ Effect (TypeCore Boolean) π) useNothing
@@ -547,15 +553,17 @@ typeCheck (TermSource p e) = case e of
     matchType p σ σ'
     pure $ Checked (TermCore p $ TermRuntime $ If eb' et' ef') (TypeCore $ Effect σ π) (lΓ1 `combine` (lΓ2 `branch` lΓ3))
   TermRuntime (PointerIncrement ep ei ()) -> do
-    Checked ep' ((σ, π2), π) lΓ1 <- traverse (firstM (firstM (checkArray p) <=< checkShared p) <=< checkEffect p) =<< typeCheck ep
+    Checked ep' (((σ, ()), π2), π) lΓ1 <-
+      traverse (firstM (firstM (secondM (checkWildcard p) <=< checkPointer p) <=< checkShared p) <=< checkEffect p) =<< typeCheck ep
     Checked ei' ((κ1, κ2), π') lΓ2 <- traverse (firstM (checkNumber p) <=< checkEffect p) =<< typeCheck ei
     matchType p π π'
     matchKind p κ1 (KindCore $ KindSignedness Unsigned)
     matchKind p κ2 (KindCore $ KindSize Native)
+    τ <- freshLengthTypeVariable p
     pure $
       Checked
         (TermCore p $ TermRuntime $ PointerIncrement ep' ei' σ)
-        (TypeCore $ Effect (TypeCore $ Shared (TypeCore $ Array σ) π2) π)
+        (TypeCore $ Effect (TypeCore $ Shared (TypeCore $ Pointer σ τ) π2) π)
         (lΓ1 `combine` lΓ2)
   TermSugar (Not e) () -> do
     Checked e' ((), π) lΓ <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck e

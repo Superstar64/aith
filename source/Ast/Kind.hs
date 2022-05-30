@@ -44,6 +44,7 @@ data KindF v κ
   | Region
   | Pretype κ
   | Boxed
+  | Length
   | KindRuntime (KindRuntime κ κ)
   | KindSize (KindSize)
   | KindSignedness (KindSignedness)
@@ -62,6 +63,7 @@ traverseKindF f g κ = case κ of
   Region -> pure Region
   Pretype κ -> pure Pretype <*> g κ
   Boxed -> pure Boxed
+  Length -> pure Length
   KindRuntime PointerRep -> KindRuntime <$> (pure PointerRep)
   KindRuntime (StructRep κs) -> KindRuntime <$> (pure StructRep <*> traverse g κs)
   KindRuntime (WordRep κ) -> KindRuntime <$> (pure WordRep <*> g κ)
@@ -125,6 +127,10 @@ pretype = Prism Pretype $ \case
 
 boxed = Prism (const Boxed) $ \case
   Boxed -> pure ()
+  _ -> Nothing
+
+capacity = Prism (const Length) $ \case
+  Length -> pure ()
   _ -> Nothing
 
 pointerRep = (kindRuntime .) $

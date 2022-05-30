@@ -2,7 +2,7 @@ digraph aith {
     // basic visualization of type system
     rankdir="BT"
     top[label="⊤"]
-    kind[label="☐"]
+    kind[label="[ ]"]
     representation
     size
     signedness
@@ -16,6 +16,7 @@ digraph aith {
     region
     pretype[label="+[κ]"]
     boxed[label="-"]
+    capacity[label="capacity"]
     pointerRep[label="pointer"]
     structRep[label="struct (κ, κ', ...)"]
     wordRep[label="word κ"]
@@ -39,6 +40,7 @@ digraph aith {
     long -> size
     signed -> signedness
     unsigned -> signedness
+    capacity -> kind
 
     inline[label="σ -> τ"]
     forall[label="\\/α => σ"]
@@ -49,10 +51,11 @@ digraph aith {
     unit[label="()"]
     effect[label="σ in π"]
     shared[label="σ @ π"]
-    pointer[label="σ*"]
+    pointer[label="σ[τ]"]
     number[label="#κ κ'"]
     boolean[label="bool"]
     world[label="io"]
+    unknown[label="*"]
 
     inline -> type
     forall -> type
@@ -73,10 +76,11 @@ digraph aith {
     boolean -> pretype
     boolean -> wordRep[style=dashed]
     world -> region
+    unknown -> capacity
 
     let[label="let x = e; e'"]
     extern[label="extern \"sym\""]
-    app[label="e $ e'"]
+    app[label="e (e')"]
     pairIntro[label="(e,e')"]
     unitIntro[label="()"]
     read[label="*e"]

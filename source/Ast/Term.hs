@@ -80,7 +80,6 @@ data TermF sourceOnly κ θ σauto σ λσe λe λrun_e e
   | TypeApplication e σ σauto
   | TypeAnnotation e σ sourceOnly
   | PretypeAnnotation e σ sourceOnly
-  | Reinterpret e
   deriving (Show)
 
 data TermSchemeF σ λκe λσe e
@@ -180,7 +179,6 @@ traverseTermF y j d z f k h m i e =
     TypeApplication e σ σ2 -> pure TypeApplication <*> i e <*> f σ <*> z σ2
     TypeAnnotation e σ source -> pure TypeAnnotation <*> i e <*> f σ <*> y source
     PretypeAnnotation e σ source -> pure PretypeAnnotation <*> i e <*> f σ <*> y source
-    Reinterpret e -> pure Reinterpret <*> i e
 
 foldTermF y l d j z f h m i = getConst . traverseTermF (Const . y) (Const . l) (Const . d) (Const . j) (Const . z) (Const . f) (Const . h) (Const . m) (Const . i)
 
@@ -482,10 +480,6 @@ typeLambda = Prism (uncurry $ uncurry TypeAbstraction) $ \case
 
 typeApplication = Prism (\(e, σ) -> TypeApplication e σ ()) $ \case
   TypeApplication e σ () -> Just (e, σ)
-  _ -> Nothing
-
-reinterpret = Prism Reinterpret $ \case
-  Reinterpret e -> Just e
   _ -> Nothing
 
 termSchemeSource = Isomorph (uncurry TermSchemeSource) $ \(TermSchemeSource p e) -> (p, e)
@@ -1009,7 +1003,6 @@ sourceTerm (TermCore _ e) =
         ()
     TypeAnnotation _ _ invalid -> absurd invalid
     PretypeAnnotation _ _ invalid -> absurd invalid
-    Reinterpret e -> Reinterpret (sourceTerm e)
 
 sourceTermPattern :: Monoid p' => TermPattern p Void Void -> TermPatternSource p'
 sourceTermPattern (TermPatternCore _ pm) =

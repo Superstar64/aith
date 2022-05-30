@@ -45,11 +45,11 @@ data TypeF v κ λσ σ
   | Tuple [σ]
   | Effect σ σ
   | Shared σ σ
-  | Pointer σ
-  | Array σ
+  | Pointer σ σ
   | Number κ κ
   | Boolean
   | World
+  | Wildcard
   deriving (Show, Eq, Ord)
 
 traverseTypeSchemeF ::
@@ -104,11 +104,11 @@ traverseTypeF f h i g σ = case σ of
   Tuple σs -> pure Tuple <*> traverse g σs
   Effect σ π -> pure Effect <*> g σ <*> g π
   Shared σ π -> pure Shared <*> g σ <*> g π
-  Pointer σ -> pure Pointer <*> g σ
-  Array σ -> pure Array <*> g σ
+  Pointer σ τ -> pure Pointer <*> g σ <*> g τ
   Number ρ ρ' -> pure Number <*> h ρ <*> h ρ'
   Boolean -> pure Boolean
   World -> pure World
+  Wildcard -> pure Wildcard
 
 mapTypeF f i h g = runIdentity . traverseTypeF (Identity . f) (Identity . i) (Identity . h) (Identity . g)
 
@@ -242,12 +242,8 @@ shared = Prism (uncurry Shared) $ \case
   (Shared σ π) -> Just (σ, π)
   _ -> Nothing
 
-pointer = Prism Pointer $ \case
-  (Pointer σ) -> Just σ
-  _ -> Nothing
-
-array = Prism Array $ \case
-  (Array σ) -> Just σ
+pointer = Prism (uncurry Pointer) $ \case
+  (Pointer σ τ) -> Just (σ, τ)
   _ -> Nothing
 
 number = Prism (uncurry Number) $ \case
@@ -260,6 +256,10 @@ boolean = Prism (const Boolean) $ \case
 
 world = Prism (const World) $ \case
   World -> Just ()
+  _ -> Nothing
+
+wildCard = Prism (const Wildcard) $ \case
+  Wildcard -> Just ()
   _ -> Nothing
 
 typeIdentifier = Isomorph TypeIdentifier runTypeIdentifier

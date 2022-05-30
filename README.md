@@ -207,8 +207,8 @@ Files start with `code` `:::`.
 | Unit | ``()`` |
 | Effect | ``σ in π`` |
 | Shared | ``σ @ π`` |
-| Pointer | ``σ*`` |
-| Array Pointer | ``σ[]`` |
+| Pointer | ``σ[τ]`` |
+| Wildcard | ``*`` |
 | Number | ``#ρ ρ'`` |
 | Boolean | ``bool`` |
 | IO Region | ``io`` |
@@ -252,6 +252,7 @@ Files start with `code` `:::`.
 | Type | ``*`` |
 | Pretype | ``+[s]`` |
 | Boxed | ``-`` |
+| Capacity | ``capacity`` |
 | Region | ``region`` |
 | Pointer Representation | ``pointer``|
 | Struct Representation | ``struct (ρ, ρ', ...)`` |

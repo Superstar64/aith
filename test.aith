@@ -117,13 +117,13 @@ module ptr = {
 		***x
 	};
 
-	deref <RA : region, RB : region >= RA, T : +[pointer] if copy > : function (T* @ RA) => T uses RB;
-	deref <RA, RB, T if copy> = function (x) {
+	deref <RA : region, RB : region >= RA, T : +[pointer] if copy, L : capacity> : function (T[L] @ RA) => T uses RB;
+	deref <RA : region, RB : region >= RA, T : +[pointer] if copy, L : capacity> = function (x) {
 		*x
 	};
 
-	write<A:region, B:region >= A> : function(int* @ A) => () uses B;
-	write<A:region, B:region >= A> = function(x :: int* @ A) {
+	write<A:region, B:region >= A, L : capacity> : function(int[L] @ A) => () uses B;
+	write<A:region, B:region >= A, L : capacity> = function(x :: int[L] @ A) {
 		*x = (1 :: int)
 	};
 
@@ -193,19 +193,19 @@ module world = {
 	inline putchar<A:region> : function*(int) => int uses io in A;
 	inline putchar<A> = extern "putchar";
 
-	putPtr<A:region >= io> : function(int* @ A) => int uses A;
-	putPtr<A> = function(ptr) {
+	putPtr<A:region >= io, L : capacity> : function(int[L] @ A) => int uses A;
+	putPtr<A,L> = function(ptr) {
 		putchar (*ptr)
 	};
 };
 
 module arrays = {
 	inline get = \x => \i {
-		* &* &x[i]
+		*&x[i]
 	};
 
 	inline set = \x => \i => \a {
-		* &* &x[i] = a
+		*&x[i] = a
 	};
 
 	swap = function(a, b, i) {
@@ -215,10 +215,10 @@ module arrays = {
 		()
 	};
 
-	memcpyPtr <A : +[pointer] if copy, R : region> : function(A[] @ R, A[] @ R, native) => () uses R; 
+	memcpyPtr <A : +[pointer] if copy, R : region> : function(A[*] @ R, A[*] @ R, native) => () uses R; 
 	memcpyPtr <A : +[pointer] if copy, R : region> = function(dst, src, i) {
 		if(i != 0) {
-			*&*dst = (*&* src);
+			*dst = (*src);
 			memcpyPtr (&dst[1], &src[1], i - 1)
 		} else {
 			()

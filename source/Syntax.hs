@@ -69,7 +69,8 @@ keywords =
       "native",
       "ptrdiff",
       "io",
-      "in"
+      "in",
+      "capacity"
     ]
 
 -- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
@@ -210,7 +211,8 @@ kindCore = Language.kindSource ⊣ position ⊗ choice options ∥ betweenParens
         Language.long ⊣ keyword "long",
         Language.native ⊣ keyword "native",
         Language.signed ⊣ keyword "signed",
-        Language.unsigned ⊣ keyword "unsigned"
+        Language.unsigned ⊣ keyword "unsigned",
+        Language.capacity ⊣ keyword "capacity"
       ]
 
 kindCoreAuto :: (Position δ p, Syntax δ) => δ (Maybe (Language.KindSource p))
@@ -258,11 +260,10 @@ typex = typeLambda
     typeEffect = effect `branchDistribute` unit' ⊣ typePtr ⊗ (binaryKeyword "in" ≫ typeCore ⊕ always)
       where
         effect = withInnerPosition Language.typeSource Language.effect
-    typePtr = foldlP apply ⊣ typeCore ⊗ many (token "*" ⊕ token "[]" ⊕ binaryToken "@" ≫ typeCore)
+    typePtr = foldlP apply ⊣ typeCore ⊗ many (betweenSquares typeCore ⊕ binaryToken "@" ≫ typeCore)
       where
-        apply = ptr `branchDistribute` array `branchDistribute` shared
-        ptr = withInnerPosition1 Language.typeSource Language.pointer
-        array = withInnerPosition1 Language.typeSource Language.array
+        apply = ptr `branchDistribute` shared
+        ptr = withInnerPosition Language.typeSource Language.pointer
         shared = withInnerPosition Language.typeSource Language.shared
 
 typeCore :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
@@ -288,7 +289,8 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenPare
         Language.world ⊣ keyword "io",
         Language.number ⊣ token "#" ≫ kindCoreAuto ⊗ space ≫ kindCoreAuto,
         Language.ofCourse ⊣ betweenBangSquares typeFull,
-        keyword "function" ≫ (funLiteral ∥ funPointer)
+        keyword "function" ≫ (funLiteral ∥ funPointer),
+        Language.wildCard ⊣ token "*"
       ]
     rotate = associate' . secondI swap . associate
     funLiteral = Language.functionLiteralType ⊣ rotate ⊣ betweenParensElse unit typeFull ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
@@ -439,8 +441,7 @@ term = termOr
           choice
             [ Language.readReference ⊣ token "*" ≫ termPrefix,
               -- todo add proper lexer for tokens and use ! here
-              Language.not ⊣ token "~" ≫ termPrefix,
-              Language.reinterpret ⊣ token "&*" ≫ termPrefix
+              Language.not ⊣ token "~" ≫ termPrefix
             ]
     termIndex = Language.termSource ⊣ position ⊗ index ∥ termApply
       where

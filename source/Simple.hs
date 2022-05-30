@@ -164,7 +164,6 @@ convertTerm (TermCore _ (Bind _ _)) = simpleFailTerm
 convertTerm (TermCore _ (FunctionLiteral _)) = simpleFailTerm
 convertTerm (TermCore _ (TypeAnnotation _ _ invalid)) = absurd invalid
 convertTerm (TermCore _ (PretypeAnnotation _ _ invalid)) = absurd invalid
-convertTerm (TermCore _ (Reinterpret e)) = convertTerm e
 convertTerm (TermCore _ (TermSugar _ invalid)) = absurd invalid
 
 simpleFailTerm = error "illegal simple term"
