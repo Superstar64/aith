@@ -249,3 +249,13 @@ module sort = {
 		}
 	};
 };
+
+module borrowed = {
+	increment <R : region> : function(unique int[*]) => (unique int[*]) uses R;
+	increment <R : region> = function(p :: unique int[*]) {
+		let ((), p) = borrow p as <A >= R>(x :: int[*] @ A) {
+			*x = (*x + 1)
+		};
+		p
+	};
+};

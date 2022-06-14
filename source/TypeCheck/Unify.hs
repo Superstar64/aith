@@ -27,7 +27,7 @@ reconstructTypeF indexVariable indexLogical augment make checkRuntime reconstruc
     indexLogical v
   Inline _ _ -> do
     pure $ make $ Type
-  Forall (Bound pm σ) _ _ -> do
+  Forall (Bound pm σ) -> do
     augment pm $ reconstruct σ
   OfCourse _ -> do
     pure $ make $ Type
@@ -42,6 +42,8 @@ reconstructTypeF indexVariable indexLogical augment make checkRuntime reconstruc
         κ <- reconstruct σ
         checkRuntime κ $ \κ -> go σs (κs ++ [κ])
   Effect _ _ -> pure $ make $ Type
+  Unique _ ->
+    pure $ make $ Pretype $ make $ KindRuntime $ PointerRep
   Shared _ _ ->
     pure $ make $ Pretype $ make $ KindRuntime $ PointerRep
   Number _ ρ -> do
@@ -108,8 +110,8 @@ typeOccursCheck p x lev σ' = go σ'
         Inline σ τ -> do
           recurse σ
           recurse τ
-        Forall (Bound (TypePatternCore x κ) σ) _ π -> do
-          augmentKindOccurs p x κ $ recurse σ
+        Forall (Bound (TypePattern x κ _ π) σ) -> do
+          augmentKindSkolem p x κ $ recurse σ
           traverse recurse π
           pure ()
         OfCourse σ -> recurse σ
@@ -127,6 +129,8 @@ typeOccursCheck p x lev σ' = go σ'
         Effect σ τ -> do
           recurse σ
           recurse τ
+        Unique σ -> do
+          recurse σ
         Shared σ π -> do
           recurse σ
           recurse π
@@ -195,9 +199,9 @@ matchType p σ σ' = unify σ σ'
         unifyVariable =
           indexTypeLogicalMap x >>= \case
             (UnboundTypeLogical _ κ c lower upper lev) -> do
-              modifyState $ \state -> state {typeLogicalMap = Map.insert x (LinkTypeLogical σ) $ typeLogicalMap state}
               typeOccursCheck p x lev σ
               kindIsMember p σ κ
+              modifyState $ \state -> state {typeLogicalMap = Map.insert x (LinkTypeLogical σ) $ typeLogicalMap state}
               -- state modification above may have created a cycle
               -- and if a cycle was created, then it must contain σ
               -- so convert e's solutions back to problems
@@ -214,7 +218,7 @@ matchType p σ σ' = unify σ σ'
     unify (TypeCore (Inline σ τ)) (TypeCore (Inline σ' τ')) = do
       match p σ σ'
       match p τ τ'
-    unify (TypeCore (Forall (Bound (TypePatternCore α κ) σ) c π)) (TypeCore (Forall (Bound (TypePatternCore α' κ') σ') c' π'))
+    unify (TypeCore (Forall (Bound (TypePattern α κ c π) σ))) (TypeCore (Forall (Bound (TypePattern α' κ' c' π') σ')))
       | c == c',
         length π == length π' = do
         matchKind p κ κ'
@@ -244,6 +248,8 @@ matchType p σ σ' = unify σ σ'
     unify (TypeCore (Effect σ π)) (TypeCore (Effect σ' π')) = do
       match p σ σ'
       match p π π'
+    unify (TypeCore (Unique σ)) (TypeCore (Unique σ')) = do
+      match p σ σ'
     unify (TypeCore (Shared σ π)) (TypeCore (Shared σ' π')) = do
       match p σ σ'
       match p π π'
@@ -403,7 +409,7 @@ kindIsMember p σ κ = do
     reconstructType (TypeCore σ) = reconstructTypeF indexEnvironment indexLogicalMap augment KindCore checkRuntime reconstructType σ
       where
         -- todo use augmentTypePatternBottom
-        augment (TypePatternCore x κ) = augmentKindOccurs p x κ
+        augment (TypePattern x κ _ _) = augmentKindSkolem p x κ
         indexEnvironment x = snd' <$> indexKindEnvironment x
         indexLogicalMap x = indexTypeLogicalMap x >>= index
         index (UnboundTypeLogical _ x _ _ _ _) = pure x

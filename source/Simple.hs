@@ -155,7 +155,14 @@ convertTerm (TermCore p (TermRuntime (PointerIncrement ep ei σ))) = do
   ei <- convertTerm ei
   σ <- convertType σ
   pure $ SimpleTerm p $ PointerIncrement ep ei σ
-convertTerm (TermCore _ (TypeAbstraction _ _ _)) = simpleFailTerm
+convertTerm (TermCore p (Borrow ep (Bound (TypePattern α κ _ _) (Bound pm@(TermRuntimePatternCore _ (RuntimePatternVariable x _)) e)))) = do
+  ep <- convertTerm ep
+  withReaderT (Map.insert α κ) $ do
+    pm <- convertTermPattern pm
+    e <- convertTerm e
+    pure $ SimpleTerm p $ Alias ep (Bound pm $ SimpleTerm p $ TupleIntroduction [e, SimpleTerm p $ Variable x ()])
+convertTerm (TermCore _ (Borrow _ _)) = simpleFailTerm
+convertTerm (TermCore _ (TypeAbstraction _)) = simpleFailTerm
 convertTerm (TermCore _ (TypeApplication _ _ _)) = simpleFailPattern
 convertTerm (TermCore _ (InlineAbstraction _)) = simpleFailTerm
 convertTerm (TermCore _ (InlineApplication _ _ _)) = simpleFailTerm
@@ -169,7 +176,7 @@ convertTerm (TermCore _ (TermSugar _ invalid)) = absurd invalid
 simpleFailTerm = error "illegal simple term"
 
 convertFunctionType :: Monad m => TypeSchemeInfer -> ReaderT (Map TypeIdentifier KindInfer) m SimpleFunctionType
-convertFunctionType (TypeSchemeCore (ImplicitForall (Bound (TypePatternCore x κ) σ) _ _)) = withReaderT (Map.insert x κ) $ convertFunctionType σ
+convertFunctionType (TypeSchemeCore (ImplicitForall (Bound (TypePattern x κ _ _) σ))) = withReaderT (Map.insert x κ) $ convertFunctionType σ
 convertFunctionType (TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ _ τ)))) = do
   σ' <- convertType σ
   τ' <- convertType τ
@@ -177,7 +184,7 @@ convertFunctionType (TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ 
 convertFunctionType _ = error "failed to convert function type"
 
 convertFunction :: Monad m => TermSchemeInfer p -> ReaderT (Map TypeIdentifier KindInfer) m (SimpleFunction p)
-convertFunction (TermSchemeCore _ (ImplicitTypeAbstraction (Bound (TypePatternCore x κ) e) _ _)) = withReaderT (Map.insert x κ) $ convertFunction e
+convertFunction (TermSchemeCore _ (ImplicitTypeAbstraction (Bound (TypePattern x κ _ _) e))) = withReaderT (Map.insert x κ) $ convertFunction e
 convertFunction (TermSchemeCore _ (MonoTerm (TermCore p (FunctionLiteral (Bound pm e))))) = do
   pm' <- convertTermPattern pm
   e' <- convertTerm e

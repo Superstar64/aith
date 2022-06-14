@@ -32,7 +32,7 @@ These are types that limit how copying of variables.
 Linear types promise that a variable of a linear type will be used exactly once.
 Unique types promise that a variable of a unique type will has not been aliased.
 
-Aith has classical linear types (`!σ`) at the inline level and qualified unique types(unique type though type clasess) at the runtime level.
+Aith has classical linear types (`!σ`) at the inline level and qualified necessarily unique types(unique types though type clasess) at the runtime level.
 
 ## Effectful Regions
 Aith has support for effectful regions, similar to Rust's lifetimes.
@@ -61,14 +61,26 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
       * [x] Arithmatic
       * [x] Relational Operators
     * [x] Pointers
-      * [x] Get
-      * [x] Set
-      * [ ] Stack Allocation
-      * [ ] Heap Allocation
+      * [x] Shared
+        * [ ] Type
+        * [ ] Stack Allocation
+        * [x] Get
+        * [x] Set
+      * [ ] Unique
+        * [x] Type
+        * [ ] Heap Allocation
+      * [x] Borrowing
     * [ ] Arrays
-      * [x] Array to Pointer
-      * [x] Pointer Addition
-      * [ ] Pointer Difference
+      * [ ] Shared
+        * [x] Type
+        * [x] Array to Pointer
+        * [x] Pointer Addition
+        * [ ] Pointer Difference
+        * [ ] Heap Allocation
+      * [ ] Unique
+        * [x] Type
+        * [ ] Heap Allocation
+      * [x] Borrowing
     * [x] Function Pointers
     * [x] Pairs
     * [ ] Records
@@ -156,6 +168,7 @@ Files start with `code` `:::`.
 | Type Abstraction | ``/\pmσ => e`` |
 | Type Abstraction | ``/\pmσ { e }`` |
 | Type Application | ``e `<τ>``|
+| Borrow | ``borrow e as <α >= π>(pm) { e }`` |
 | Type Annotation | ``e : σ`` |
 | Pretype Annotation | ``e :: σ`` |
 
@@ -206,6 +219,7 @@ Files start with `code` `:::`.
 | Pair | ``σ, σ'`` |
 | Unit | ``()`` |
 | Effect | ``σ in π`` |
+| Unique | ``unique σ`` |
 | Shared | ``σ @ π`` |
 | Pointer | ``σ[τ]`` |
 | Wildcard | ``*`` |

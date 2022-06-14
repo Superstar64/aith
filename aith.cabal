@@ -37,7 +37,7 @@ executable aith
         MultiParamTypeClasses DeriveTraversable
         NoMonomorphismRestriction
         ScopedTypeVariables
-        GeneralizedNewtypeDeriving LambdaCase 
+        GeneralizedNewtypeDeriving LambdaCase
 
     ghc-options:        -W -Worphans -Wcompat -Wincomplete-uni-patterns -interactive-print=Text.Pretty.Simple.pPrint
                         -rtsopts=all

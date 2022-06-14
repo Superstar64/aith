@@ -70,7 +70,10 @@ keywords =
       "ptrdiff",
       "io",
       "in",
-      "capacity"
+      "capacity",
+      "unique",
+      "as",
+      "borrow"
     ]
 
 -- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
@@ -182,8 +185,7 @@ sort =
       Language.signedness ⊣ keyword "signedness"
     ]
 
-kindPattern :: (Position δ p, Syntax δ) => δ (Language.Pattern Language.KindIdentifier Language.Sort p)
-kindPattern = Language.pattern ⊣ position ⊗ kindIdentifier ⊗ token ":" ≫ sort
+kindPattern = Language.kindPatternSource ⊣ position ⊗ kindIdentifier ⊗ token ":" ≫ sort
 
 kind :: (Position δ p, Syntax δ) => δ (Language.KindSource p)
 kind = kindTop
@@ -236,11 +238,11 @@ lowerBounds σ = items ∥ nil ⊣ always
 
 typePattern ::
   (Syntax δ, Position δ p) =>
-  δ (Language.Pattern Language.TypeIdentifier (Maybe (Language.KindSource p)) p)
-typePattern = Language.pattern ⊣ position ⊗ typeIdentifier ⊗ (just ⊣ token ":" ≫ kind ∥ nothing ⊣ always)
-
-constraintBound :: Prism (((pm, c), π), σ) ((Language.Bound pm σ, c), π)
-constraintBound = firstP (firstP (toPrism Language.bound)) . toPrism rotateLast3
+  δ (Language.TypePatternSource p)
+typePattern =
+  Language.typePatternSource ⊣ position ⊗ typeIdentifier ⊗ k ⊗ constraints ⊗ (lowerBounds typeCore)
+  where
+    k = just ⊣ token ":" ≫ kind ∥ nothing ⊣ always
 
 typeFull = foldlP pair ⊣ typex ⊗ many (token "," ≫ space ≫ typex)
   where
@@ -251,15 +253,17 @@ typex = typeLambda
   where
     typeLambda = Language.typeSource ⊣ position ⊗ typeLambda ∥ typeArrow
       where
-        apply = Language.explicitForall . constraintBound
-        typeLambda = apply ⊣ token "\\/" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊗ lambdaCore typex
+        typeLambda = Language.explicitForall ⊣ Language.bound ⊣ token "\\/" ≫ typePattern ⊗ lambdaCore typex
     typeArrow = applyBinary ⊣ typeEffect ⊗ (binaryToken "->" ≫ typeArrow ⊕ always)
       where
         applyBinary = inline `branchDistribute` unit'
         inline = withInnerPosition Language.typeSource Language.inline
-    typeEffect = effect `branchDistribute` unit' ⊣ typePtr ⊗ (binaryKeyword "in" ≫ typeCore ⊕ always)
+    typeEffect = effect `branchDistribute` unit' ⊣ typeUnique ⊗ (binaryKeyword "in" ≫ typeCore ⊕ always)
       where
         effect = withInnerPosition Language.typeSource Language.effect
+    typeUnique = Language.typeSource ⊣ position ⊗ unique ∥ typePtr
+      where
+        unique = Language.unique ⊣ prefixKeyword "unique" ≫ typePtr
     typePtr = foldlP apply ⊣ typeCore ⊗ many (betweenSquares typeCore ⊕ binaryToken "@" ≫ typeCore)
       where
         apply = ptr `branchDistribute` shared
@@ -306,15 +310,8 @@ newtype Scheme p = Scheme
   { runScheme ::
       [ ( p,
           Either
-            ( ( Language.Pattern
-                  Language.TypeIdentifier
-                  (Maybe (Language.KindSource p))
-                  p,
-                Set Language.Constraint
-              ),
-              [Language.TypeSource p]
-            )
-            (Language.Pattern Language.KindIdentifier Language.Sort p)
+            (Language.TypePatternSource p)
+            (Language.KindPatternSource p)
         )
       ]
   }
@@ -326,7 +323,7 @@ scheme :: (Syntax δ, Position δ p) => δ (Scheme p)
 scheme = isoScheme ⊣ schema
   where
     schema = betweenAngle $ cons ⊣ inverse nonEmpty ⊣ commaSeperatedSome (position ⊗ schemeCore) ∥ nil ⊣ always
-    schemeCore = typePattern ⊗ constraints ⊗ lowerBounds typeCore ⊕ token "'" ≫ kindPattern
+    schemeCore = typePattern ⊕ token "'" ≫ kindPattern
 
 wrapType :: Isomorph (Scheme p, Language.TypeSource p) (Language.TypeSchemeSource p)
 wrapType =
@@ -344,7 +341,7 @@ wrap c t k =
   foldrP
     ( toPrism c
         . secondP
-          ((t . constraintBound) `branchDistribute'` (k . toPrism Language.bound))
+          ((t . toPrism Language.bound) `branchDistribute'` (k . toPrism Language.bound))
         . toPrism associate
     )
     . firstI (inverse isoScheme)
@@ -472,10 +469,16 @@ termCore = Language.termSource ⊣ position ⊗ choice options ∥ betweenParens
         Language.extern ⊣ prefixKeyword "extern" ≫ symbol,
         Language.ofCourseIntroduction ⊣ betweenBangSquares termFull,
         Language.numberLiteral ⊣ number,
-        Language.typeLambda ⊣ constraintBound ⊣ token "/\\" ≫ typePattern ⊗ constraints ⊗ lowerBounds typeCoreAuto ⊗ termLambda,
+        Language.typeLambda ⊣ Language.bound ⊣ token "/\\" ≫ typePattern ⊗ termLambda,
         Language.truex ⊣ keyword "true",
-        Language.falsex ⊣ keyword "false"
+        Language.falsex ⊣ keyword "false",
+        borrow
       ]
+    borrow = Language.borrow ⊣ prefixKeyword "borrow" ≫ termCore ⊗ binaryKeyword "as" ≫ binding
+      where
+        binding = Language.bound ⊣ betweenAngle typePattern ⊗ binding'
+          where
+            binding' = Language.bound ⊣ betweenParens termRuntimePattern ⊗ lambdaBrace termStatement
 
 modulex ::
   (Syntax δ, Position δ p) =>

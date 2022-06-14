@@ -84,7 +84,11 @@ type KindUnify = Kind KindLogical
 
 type KindInfer = Kind Void
 
-data KindPattern = KindPatternCore KindIdentifier Sort deriving (Show)
+data KindPatternSource p = KindPatternSource p KindIdentifier Sort deriving (Show, Functor)
+
+data KindPatternIntermediate p = KindPatternIntermediate p KindIdentifier Sort deriving (Show)
+
+data KindPattern = KindPattern KindIdentifier Sort deriving (Show)
 
 instance Functor KindSource where
   fmap f (KindSource p κ) = KindSource (f p) $ mapKindF id (fmap f) κ
@@ -183,6 +187,8 @@ unsigned = (kindSignedness .) $
     Unsigned -> Just ()
     _ -> Nothing
 
+kindPatternSource = Isomorph (uncurry $ uncurry KindPatternSource) $ \(KindPatternSource p x μ) -> ((p, x), μ)
+
 -- use explode for rather then order because sorting with logic variables isn't dangerous
 instance Explode v => Eq (Kind v) where
   KindCore κ == KindCore κ' = κ == κ'
@@ -203,34 +209,48 @@ class SubstituteKind u where
 class ZonkKind u where
   zonkKind :: Applicative m => (v -> m (Kind v')) -> u v -> m (u v')
 
-bindingsKind (KindPatternCore x _) = Set.singleton x
+class BindingsKind u where
+  bindingsKind :: u -> Set KindIdentifier
 
-renameKind ux x (KindPatternCore x' κ) | x == x' = KindPatternCore ux κ
-renameKind _ _ λ@(KindPatternCore _ _) = λ
+instance BindingsKind KindPattern where
+  bindingsKind (KindPattern x _) = Set.singleton x
 
-freeVariablesHigherKind = freeVariablesHigher' freeVariablesKind freeVariablesKind
+class RenameKind u where
+  renameKind :: KindIdentifier -> KindIdentifier -> u -> u
 
-convertHigherKind = substituteHigher' convertKind convertKind
+instance RenameKind KindPattern where
+  renameKind ux x (KindPattern x' κ) | x == x' = KindPattern ux κ
+  renameKind _ _ λ@(KindPattern _ _) = λ
 
-substituteHigherKind = substituteHigher' substituteKind substituteKind
+freeVariablesHigherKind = freeVariablesHigher freeVariablesKind freeVariablesKind
 
-freeVariablesSameKind = freeVariablesSame' freeVariablesKind bindingsKind
+convertHigherKind = substituteHigher convertKind convertKind
 
-convertSameKind = substituteSame' convertKind avoidKindConvert
+substituteHigherKind = substituteHigher substituteKind substituteKind
 
-substituteSameKind = substituteSame' substituteKind avoidKind
+freeVariablesSameKind = freeVariablesSame bindingsKind freeVariablesKind
 
-avoidKindConvert = Avoid bindingsKind renameKind Set.singleton convertKind
+convertSameKind = substituteSame avoidKindConvert convertKind
 
-avoidKind = Avoid bindingsKind renameKind freeVariablesKind convertKind
+substituteSameKind = substituteSame avoidKind substituteKind
 
-freeVariablesSameKindSource = freeVariablesSame' freeVariablesKind bindings'
+convertSameKindSource = substituteSame avoidKindConvert convertKind
 
-convertSameKindSource = substituteSame' convertKind avoidKindConvertSource
+freeVariablesRgnForKind = freeVariablesHigher freeVariablesKind freeVariablesHigherKind
 
-avoidKindConvertSource = Avoid bindings' rename' Set.singleton convertKind
+convertRgnForKind = substituteHigher convertKind convertHigherKind
 
-toKindPattern (Pattern _ x μ) = KindPatternCore x μ
+substituteRgnForKind = substituteHigher substituteKind substituteHigherKind
+
+avoidKindConvert = avoidKindConvert' convertKind
+
+avoidKindConvert' = Avoid bindingsKind renameKind Set.singleton
+
+avoidKind = avoidKind' convertKind
+
+avoidKind' = Avoid bindingsKind renameKind freeVariablesKind
+
+toKindPattern (KindPatternIntermediate _ x μ) = KindPattern x μ
 
 instance Fresh KindIdentifier where
   fresh c (KindIdentifier x) = KindIdentifier $ Util.fresh (Set.mapMonotonic runKindIdentifier c) x
@@ -274,6 +294,6 @@ sourceKind (KindCore κ) = KindSource mempty $ mapKindF id sourceKind κ
 
 sourceKindAuto = Just . sourceKind
 
-sourceKindPattern (KindPatternCore x μ) = Pattern mempty x μ
+sourceKindPattern (KindPattern x μ) = KindPatternSource mempty x μ
 
 flexibleKind = runIdentity . zonkKind absurd

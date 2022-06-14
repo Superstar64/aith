@@ -12,8 +12,6 @@ data Internal = Internal deriving (Show)
 
 data Bound pm e = Bound pm e deriving (Show)
 
-data Pattern i σ p = Pattern p i σ deriving (Show, Functor)
-
 data Variables x p = Variables {runVariables :: Map x p} deriving (Show)
 
 traverseBound ::
@@ -28,20 +26,7 @@ mapBound f g = runIdentity . traverseBound (Identity . f) (Identity . g)
 
 foldBound f g = getConst . traverseBound (Const . f) (Const . g)
 
-traversePattern ::
-  Applicative m =>
-  (i -> m i') ->
-  (σ -> m σ') ->
-  (p -> m p') ->
-  Pattern i σ p ->
-  m (Pattern i' σ' p')
-traversePattern f g h (Pattern p i σ) = pure Pattern <*> h p <*> f i <*> g σ
-
-mapPattern f g h = runIdentity . traversePattern (Identity . f) (Identity . g) (Identity . h)
-
 bound = Isomorph (uncurry Bound) $ \(Bound pm e) -> (pm, e)
-
-pattern = Isomorph (uncurry $ uncurry Pattern) (\(Pattern p i σ) -> ((p, i), σ))
 
 -- Applicative Order Reduction
 -- see https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf
@@ -69,41 +54,113 @@ instance (Ord x, Semigroup p) => Monoid (Variables x p) where
 instance (Reduce pm, Reduce e) => Reduce (Bound pm e) where
   reduce (Bound pm e) = Bound (reduce pm) (reduce e)
 
-rename' ux x (Pattern p x' σ) | x == x' = Pattern p ux σ
-rename' _ _ pm = pm
+skip _ _ = False
 
-bindings' (Pattern _ x _) = Set.singleton x
+pass _ _ = id
+
+freeVariablesBound ::
+  Ord x =>
+  (pm -> Set x) ->
+  (pm -> Set x) ->
+  (e -> Set x) ->
+  Bound pm e ->
+  Set x
+freeVariablesBound bindings freeVariablespm freeVariables (Bound pm e) =
+  foldr Set.delete (freeVariablespm pm <> freeVariables e) (Set.toList $ bindings pm)
+
+substituteBound ::
+  (x -> pm -> Bool) ->
+  (σ -> Bound pm e -> Bound pm e) ->
+  (σ -> x -> pm -> pm) ->
+  (σ -> x -> e -> e) ->
+  σ ->
+  x ->
+  Bound pm e ->
+  Bound pm e
+substituteBound guard _ _ _ _ x λ@(Bound pm _) | guard x pm = λ
+substituteBound _ avoidCapture substitutepm substitute ux x λ = Bound (substitutepm ux x pm) (substitute ux x e)
+  where
+    Bound pm e = avoidCapture ux λ
+
+-- term into dependent term bound
+
+substituteDependent ::
+  (Ord x, Fresh x) =>
+  Avoid pm x σ e ->
+  (σ -> x -> pm -> pm) ->
+  (σ -> x -> e -> e) ->
+  σ ->
+  x ->
+  Bound pm e ->
+  Bound pm e
+substituteDependent avoid = substituteBound (\x pm -> x `Set.member` avoidBindings avoid pm) (avoidCapture avoid)
 
 -- type into term pattern bound
 
-freeVariablesHigher' freeVariables freeVariables' (Bound pm e) = freeVariables pm <> freeVariables' e
+freeVariablesHigher ::
+  Ord x =>
+  (pm -> Set x) ->
+  (e -> Set x) ->
+  Bound pm e ->
+  Set x
+freeVariablesHigher = freeVariablesBound mempty
 
-substituteHigher' substitute substitute' ux x (Bound pm e) = Bound (substitute ux x pm) (substitute' ux x e)
+substituteHigher ::
+  (σ -> x -> pm -> pm) ->
+  (σ -> x -> e -> e) ->
+  σ ->
+  x ->
+  Bound pm e ->
+  Bound pm e
+substituteHigher = substituteBound skip (const id)
 
 -- term into term pattern bound
-freeVariablesSame' freeVariables bindings (Bound pm e) = foldr Set.delete (freeVariables e) (Set.toList $ bindings pm)
+freeVariablesSame ::
+  Ord x =>
+  (pm -> Set x) ->
+  (e -> Set x) ->
+  Bound pm e ->
+  Set x
+freeVariablesSame bindings freeVariables = freeVariablesBound bindings mempty freeVariables
 
-freeVariablesSameSource' freeVariables bindings (Bound pm e) = foldr delete (freeVariables e) (Set.toList $ bindings pm)
+freeVariablesSameSource bindings freeVariables (Bound pm e) = foldr delete (freeVariables e) (Set.toList $ bindings pm)
   where
     delete x (Variables m) = Variables $ Map.delete x m
 
-substituteSame' _ (Avoid bindings _ _ _) _ x λ@(Bound pm _) | x `Set.member` bindings pm = λ
-substituteSame' substitute avoid ux x λ = Bound pm (substitute ux x e)
-  where
-    Bound pm e = avoidCapture' avoid ux λ
+substituteSame ::
+  (Ord x, Fresh x) =>
+  Avoid pm x σ e ->
+  (σ -> x -> e -> e) ->
+  σ ->
+  x ->
+  Bound pm e ->
+  Bound pm e
+substituteSame avoid = substituteBound (\x pm -> x `Set.member` avoidBindings avoid pm) (avoidCapture avoid) pass
 
 -- term into type pattern bound
-freeVariablesLower' freeVariables (Bound _ e) = freeVariables e
+freeVariablesLower freeVariables (Bound _ e) = freeVariables e
 
-convertLower' convert ux x (Bound pm e) = Bound pm (convert ux x e)
+convertLower convert ux x (Bound pm e) = Bound pm (convert ux x e)
 
-substituteLower' substitute avoid ux x λ = Bound pm (substitute ux x e)
-  where
-    Bound pm e = avoidCapture' avoid ux λ
+substituteLower ::
+  Fresh x' =>
+  Avoid pm x' σ e ->
+  (σ -> x -> e -> e) ->
+  σ ->
+  x ->
+  Bound pm e ->
+  Bound pm e
+substituteLower avoid = substituteBound skip (avoidCapture avoid) pass
 
-data Avoid pm x σ e = Avoid (pm -> Set x) (x -> x -> pm -> pm) (σ -> Set x) (x -> x -> e -> e)
+data Avoid pm x σ e = Avoid
+  { avoidBindings :: pm -> Set x,
+    avoidRename :: x -> x -> pm -> pm,
+    avoidFreeVariables :: σ -> Set x,
+    avoidConvert :: x -> x -> e -> e
+  }
 
-avoidCapture' (Avoid bindings rename freeVariables convert) ux λ@(Bound pm _) = foldr replace λ replacing
+avoidCapture :: Fresh x => Avoid pm x σ e -> σ -> Bound pm e -> Bound pm e
+avoidCapture (Avoid bindings rename freeVariables convert) ux λ@(Bound pm _) = foldr replace λ replacing
   where
     replace x (Bound pm σ) = Bound (rename x' x pm) (convert x' x σ)
       where

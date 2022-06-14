@@ -293,6 +293,8 @@ e \Coloneqq & \\
 
 \subsubsection{Boxed}
 \begin{align*}
+e \Coloneqq & \\
+& \text{borrow} (e) \text{as} \, \Lambda \alpha. (x) \{ e' \} \\
 \sigma, \tau, \pi \Coloneqq & \\
 & \text{unique} \, \sigma \\
 & \sigma \, @ \, \pi \\
@@ -301,6 +303,12 @@ e \Coloneqq & \\
 & \text{Pointer} \tag{Pointer Representation} \\
 & \dots \\
 \end{align*}
+
+\begin{gather*}
+\frac
+{\Phi | \Gamma \vdash e : (\text{unique} \, \tau)^\pi \quad \Phi,\alpha : \text{Region} \, \succeq \{ \pi \} \, | \, \Gamma', [x : \forall \alpha'. (\tau @ \alpha)^{\alpha'}] \vdash e' : \sigma^\alpha \quad \alpha \notin \text{Free}(\sigma, \pi)}
+{\Phi | \Gamma, \Gamma' \vdash \text{borrow} (e) \text{as} \, \Lambda \alpha. (x) \{ e' \} : (\sigma, \text{unique} \, \tau)^\pi }
+\end{gather*}
 
 \begin{gather*}
 \frac
@@ -339,19 +347,19 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\splitfrac{\Phi | \Gamma \vdash e : (\sigma [\tau] \, {\pi'})^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
+{\splitfrac{\Phi | \Gamma \vdash e : (\sigma [\tau] \, @ \pi')^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
 {\Phi \vdash \tau : \text{Length} \quad \Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}}
 {\Phi | \Gamma \vdash * (e :: \sigma [\tau] @ \, {\pi'})  : \sigma^\pi} \\
 \\
 \frac
-{\splitfrac{\Phi | \Gamma \vdash e : (\sigma [\tau] \, {\pi'})^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi  \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
+{\splitfrac{\Phi | \Gamma \vdash e : (\sigma [\tau] \, @ \pi')^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi  \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
 {\Phi \vdash \tau : \text{Length} \quad \Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}}
 {\Phi | \Gamma \vdash *(e :: \sigma [\tau] @ \,{\pi'}) = e' : ()^\pi } \\
 \\
 \frac
 {\Phi | \Gamma \vdash e : (\sigma [*] @ \pi')^\pi \quad \Phi |
  \Gamma' \vdash e' : (\#\text{unsigned} \, \text{native})^\pi}
-{\Phi | \Gamma, \Gamma' \vdash \&e [e'] : (\sigma [\tau] @  \pi')^\pi} \\
+{\Phi | \Gamma, \Gamma' \vdash \&e [e'] : (\sigma [\tau] @  \pi')^\pi} 
 \end{gather*}
 
 \begin{gather*}
