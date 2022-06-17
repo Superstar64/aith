@@ -149,7 +149,7 @@ Files start with `code` `:::`.
 | Unit Construction | ``()`` |
 | Read Pointer | ``*e`` |
 | Write Pointer | ``*e = e'`` |
-| Array Increment | ``e&[e']`` |
+| Array Increment | ``&e[e']`` |
 | Number Literal | ``n`` |
 | Addition | ``e + e'`` |
 | Subtraction | ``e - e'`` |
