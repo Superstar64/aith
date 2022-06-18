@@ -316,8 +316,10 @@ Useful / Inspirational papers:
 * [Unification Theory](https://www.cs.bu.edu/fac/snyder/publications/UnifChapter.pdf)
   * Pointer for Robinson unification algorithm
 ### Type Inference (First Class Polymorphism)
+The idea of having an implicit type scheme and explicit type scheme is taken from these two papers (QML and the Explicit Poly-ML variant).
+The two major modifications are that scope type variables are used rather then schematic ones and type applications have an optional hole.
+* [Semi-Explicit First-Class Polymorphism for ML](https://caml.inria.fr/pub/papers/garrigue_remy-poly-ic99.pdf)
 * [QML : Explicit First-Class Polymorphism for ML](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/QML-Explicit-First-Class-Polymorphism-for-ML.pdf)
-  * Explicit type lambdas based mostly of this, with some major changes: Scoped type variables are used rather then schematic type variables, type lambdas don't need type annotations, lastly type application have an optional slot for the type parameter.
 ### Type Inference (Subtyping)
 * [The Simple Essence of Algebraic Subtyping](https://lptk.github.io/files/%5Bv1.8%5D%20simple-essence-algebraic-subtyping.pdf)
   * A tiny subset is implemented for type checking regions. See my [var sub](https://github.com/Superstar64/var_sub/) repo.
