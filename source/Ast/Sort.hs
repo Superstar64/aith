@@ -3,7 +3,7 @@ module Ast.Sort where
 import Ast.Common
 import Misc.Prism
 
-data Sort = Kind | Representation | Size | Signedness deriving (Show)
+data Sort = Kind | Representation | Size | Signedness deriving (Show, Eq, Ord)
 
 kind = Prism (const Kind) $ \case
   Kind -> Just ()

@@ -20,15 +20,15 @@ sortIsMember p κ μ' = do
   μ <- effectless $ reconstructKind κ
   matchSort p μ μ'
 
-reconstructTypeF indexVariable indexLogical augment make checkRuntime reconstruct = \case
+reconstructTypeF indexVariable indexLogical poly make checkRuntime reconstruct = \case
   TypeVariable x -> do
     indexVariable x
   TypeLogical v -> do
     indexLogical v
   Inline _ _ -> do
     pure $ make $ Type
-  Forall (Bound pm σ) -> do
-    augment pm $ reconstruct σ
+  Poly ς -> do
+    poly ς
   OfCourse _ -> do
     pure $ make $ Type
   FunctionPointer _ _ _ -> do
@@ -110,10 +110,7 @@ typeOccursCheck p x lev σ' = go σ'
         Inline σ τ -> do
           recurse σ
           recurse τ
-        Forall (Bound (TypePattern x κ _ π) σ) -> do
-          augmentKindSkolem p x κ $ recurse σ
-          traverse recurse π
-          pure ()
+        Poly ς -> occursPoly ς
         OfCourse σ -> recurse σ
         FunctionPointer σ π τ -> do
           recurse σ
@@ -141,6 +138,15 @@ typeOccursCheck p x lev σ' = go σ'
         Boolean -> pure ()
         World -> pure ()
         Wildcard -> pure ()
+    occursPoly (TypeSchemeCore ς) = case ς of
+      MonoType σ -> recurse σ
+      TypeForall (Bound (TypePattern x κ _ π) ς) -> do
+        augmentKindSkolem p x κ $ occursPoly ς
+        traverse recurse π
+        pure ()
+      KindForall (Bound (KindPattern x μ) ς) -> do
+        augmentSortSkolem p x μ $ occursPoly ς
+        pure ()
 
 kindOccursCheck :: forall p. p -> KindLogical -> Level -> KindUnify -> Core p ()
 kindOccursCheck p x lev κ' = go κ'
@@ -218,20 +224,7 @@ matchType p σ σ' = unify σ σ'
     unify (TypeCore (Inline σ τ)) (TypeCore (Inline σ' τ')) = do
       match p σ σ'
       match p τ τ'
-    unify (TypeCore (Forall (Bound (TypePattern α κ c π) σ))) (TypeCore (Forall (Bound (TypePattern α' κ' c' π') σ')))
-      | c == c',
-        length π == length π' = do
-        matchKind p κ κ'
-        -- A logical variable inside of this forall may have been equated with a type that contains this forall's binding.
-        -- To prevent a capture, this forall is alpha converted to  new rigid variable that doesn't exist in the current environment.
-        -- This alpha renaming does not convert under logic variables.
-        vars <- Map.keysSet <$> kindEnvironment <$> askEnvironment
-        let αf = fresh vars α
-        let σ2 = convertType αf α σ
-        let σ'2 = convertType αf α' σ'
-        augmentKindSkolem p αf κ $ match p σ2 σ'2
-        sequence $ zipWith (match p) π π'
-        pure ()
+    unify (TypeCore (Poly ς)) (TypeCore (Poly ς')) = unifyPoly ς ς'
     unify (TypeCore (OfCourse σ)) (TypeCore (OfCourse σ')) = do
       match p σ σ'
     unify (TypeCore (FunctionPointer σ π τ)) (TypeCore (FunctionPointer σ' π' τ')) = do
@@ -263,6 +256,39 @@ matchType p σ σ' = unify σ σ'
     unify (TypeCore World) (TypeCore World) = pure ()
     unify (TypeCore Wildcard) (TypeCore Wildcard) = pure ()
     unify σ σ' = quit $ TypeMismatch p σ σ'
+
+    unifyPoly
+      (TypeSchemeCore (TypeForall (Bound (TypePattern α κ c π) ς)))
+      (TypeSchemeCore (TypeForall (Bound (TypePattern α' κ' c' π') ς')))
+        | c == c',
+          length π == length π' = do
+          matchKind p κ κ'
+          -- A logical variable inside of this forall may have been equated with a type that contains this forall's binding.
+          -- To prevent a capture, this forall is alpha converted to  new rigid variable that doesn't exist in the current environment.
+          -- This alpha renaming does not convert under logic variables.
+          vars <- Map.keysSet <$> kindEnvironment <$> askEnvironment
+          let αf = fresh vars α
+          let ς2 = convertType αf α ς
+          let ς'2 = convertType αf α' ς'
+          augmentKindSkolem p αf κ $ unifyPoly ς2 ς'2
+          sequence $ zipWith (match p) π π'
+          pure ()
+    unifyPoly
+      (TypeSchemeCore (KindForall (Bound (KindPattern β μ) ς)))
+      (TypeSchemeCore (KindForall (Bound (KindPattern β' μ') ς'))) =
+        do
+          matchSort p μ μ'
+          vars <- Map.keysSet <$> sortEnvironment <$> askEnvironment
+          let βf = fresh vars β
+          let ς2 = convertKind βf β ς
+          let ς'2 = convertKind βf β' ς'
+          augmentSortSkolem p βf μ $ unifyPoly ς2 ς'2
+          pure ()
+    unifyPoly
+      (TypeSchemeCore (MonoType σ))
+      (TypeSchemeCore (MonoType σ')) =
+        unify σ σ'
+    unifyPoly ς ς' = quit $ TypeMismatch p (TypeCore $ Poly ς) (TypeCore $ Poly ς')
 
 matchKind :: p -> KindUnify -> KindUnify -> Core p ()
 matchKind p κ κ' = unify κ κ'
@@ -406,10 +432,14 @@ kindIsMember p σ κ = do
   matchKind p κ κ'
   where
     reconstructType :: TypeUnify -> Core p KindUnify
-    reconstructType (TypeCore σ) = reconstructTypeF indexEnvironment indexLogicalMap augment KindCore checkRuntime reconstructType σ
+    reconstructType (TypeCore σ) = go σ
       where
+        go = reconstructTypeF indexEnvironment indexLogicalMap poly KindCore checkRuntime reconstructType
         -- todo use augmentTypePatternBottom
-        augment (TypePattern x κ _ _) = augmentKindSkolem p x κ
+        poly (TypeSchemeCore (TypeForall (Bound (TypePattern x κ _ _) ς))) = augmentKindSkolem p x κ $ poly ς
+        poly (TypeSchemeCore (KindForall (Bound (KindPattern x μ) ς))) = augmentSortSkolem p x μ $ poly ς
+        poly (TypeSchemeCore (MonoType (TypeCore σ))) = go σ
+
         indexEnvironment x = snd' <$> indexKindEnvironment x
         indexLogicalMap x = indexTypeLogicalMap x >>= index
         index (UnboundTypeLogical _ x _ _ _ _) = pure x

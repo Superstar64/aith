@@ -97,7 +97,7 @@ digraph aith {
     ofCourseIntro[label="!e"]
     bind[label="inline x = e; e'"]
     typeAbstraction[label="/\\α => e"]
-    typeApplication[label="e `<σ>"]
+    polyElimination[label="e `<σ>"]
 
     
 
@@ -129,5 +129,5 @@ digraph aith {
     ofCourseIntro -> ofCourse
     bind
     typeAbstraction -> forall
-    typeApplication
+    polyElimination
 }

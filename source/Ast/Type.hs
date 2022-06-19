@@ -18,9 +18,9 @@ newtype TypeLogical = TypeLogicalRaw Int deriving (Eq, Ord, Show)
 
 data TypeSchemeF λκς λσς σ
   = MonoType σ
-  | ImplicitForall λσς
-  | ImplicitKindForall λκς
-  deriving (Show)
+  | TypeForall λσς
+  | KindForall λκς
+  deriving (Show, Eq, Ord)
 
 data InstantiationF κ σ θ
   = InstantiateType σ θ
@@ -36,7 +36,7 @@ data TypeF v κ λσ σ
   = TypeVariable TypeIdentifier
   | TypeLogical v
   | Inline σ σ
-  | Forall λσ
+  | Poly λσ
   | OfCourse σ
   | FunctionPointer σ σ σ
   | FunctionLiteralType σ σ σ
@@ -61,8 +61,8 @@ traverseTypeSchemeF ::
 traverseTypeSchemeF f g h σ =
   case σ of
     MonoType σ -> pure MonoType <*> h σ
-    ImplicitForall λ -> pure ImplicitForall <*> g λ
-    ImplicitKindForall λ -> pure ImplicitKindForall <*> f λ
+    TypeForall λ -> pure TypeForall <*> g λ
+    KindForall λ -> pure KindForall <*> f λ
 
 mapTypeSchemeF f g h = runIdentity . traverseTypeSchemeF (Identity . f) (Identity . g) (Identity . h)
 
@@ -96,7 +96,7 @@ traverseTypeF f h i g σ = case σ of
   TypeVariable x -> pure TypeVariable <*> pure x
   TypeLogical v -> pure TypeLogical <*> f v
   Inline σ τ -> pure Inline <*> g σ <*> g τ
-  Forall λ -> pure Forall <*> i λ
+  Poly λ -> pure Poly <*> i λ
   OfCourse σ -> pure OfCourse <*> g σ
   FunctionPointer σ π τ -> pure FunctionPointer <*> g σ <*> g π <*> g τ
   FunctionLiteralType σ π τ -> pure FunctionLiteralType <*> g σ <*> g π <*> g τ
@@ -151,7 +151,7 @@ data TypeSource p
       ( TypeF
           Void
           (KindAuto p)
-          (Bound (TypePatternSource p) (TypeSource p))
+          (TypeSchemeSource p)
           (TypeSource p)
       )
   deriving (Show)
@@ -163,7 +163,7 @@ data Type vσ vκ
       ( TypeF
           vσ
           (Kind vκ)
-          (Bound (TypePattern vσ vκ) (Type vσ vκ))
+          (TypeScheme vσ vκ)
           (Type vσ vκ)
       )
   deriving (Show)
@@ -191,12 +191,12 @@ monoType = Prism MonoType $ \case
   (MonoType σ) -> Just σ
   _ -> Nothing
 
-forallx = Prism ImplicitForall $ \case
-  (ImplicitForall λ) -> Just λ
+typeForall = Prism TypeForall $ \case
+  (TypeForall λ) -> Just λ
   _ -> Nothing
 
-kindForall = Prism ImplicitKindForall $ \case
-  (ImplicitKindForall λ) -> Just λ
+kindForall = Prism KindForall $ \case
+  (KindForall λ) -> Just λ
   _ -> Nothing
 
 typeSource = Isomorph (uncurry TypeSource) $ \(TypeSource p σ) -> (p, σ)
@@ -218,8 +218,8 @@ inline = Prism (uncurry Inline) $ \case
   (Inline σ τ) -> Just (σ, τ)
   _ -> Nothing
 
-explicitForall = Prism Forall $ \case
-  (Forall λ) -> Just λ
+poly = Prism Poly $ \case
+  (Poly λ) -> Just λ
   _ -> Nothing
 
 ofCourse = Prism OfCourse $ \case
@@ -280,30 +280,49 @@ wildCard = Prism (const Wildcard) $ \case
 
 typeIdentifier = Isomorph TypeIdentifier runTypeIdentifier
 
+instance (Explode vσ, Explode vκ) => Eq (TypeScheme vσ vκ) where
+  TypeSchemeCore (TypeForall (Bound (TypePattern _ _ c _) _))
+    == TypeSchemeCore (TypeForall (Bound (TypePattern _ _ c' _) _))
+      | c /= c' = False
+  TypeSchemeCore (TypeForall (Bound (TypePattern _ _ _ π) _))
+    == TypeSchemeCore (TypeForall (Bound (TypePattern _ _ _ π') _))
+      | π /= π' = False
+  TypeSchemeCore (TypeForall (Bound (TypePattern α κ _ _) σ))
+    == TypeSchemeCore (TypeForall (Bound (TypePattern α' κ' _ _) σ'))
+      | κ == κ' = σ == convertType α α' σ'
+      | otherwise = False
+  TypeSchemeCore (KindForall (Bound (KindPattern β μ) σ))
+    == TypeSchemeCore (KindForall (Bound (KindPattern β' μ') σ'))
+      | μ == μ' =
+        σ == convertKind β β' σ'
+  TypeSchemeCore (MonoType σ) == TypeSchemeCore (MonoType σ') = σ == σ'
+  _ == _ = False
+
+instance (Explode vσ, Explode vκ) => Ord (TypeScheme vσ vκ) where
+  TypeSchemeCore (TypeForall (Bound (TypePattern _ _ c _) _))
+    `compare` TypeSchemeCore (TypeForall (Bound (TypePattern _ _ c' _) _))
+      | b <- c `compare` c', b /= EQ = b
+  TypeSchemeCore (TypeForall (Bound (TypePattern _ _ _ π) _))
+    `compare` TypeSchemeCore (TypeForall (Bound (TypePattern _ _ _ π') _))
+      | b <- π `compare` π', b /= EQ = b
+  TypeSchemeCore (TypeForall (Bound (TypePattern α κ _ _) ς))
+    `compare` TypeSchemeCore (TypeForall (Bound (TypePattern α' κ' _ _) ς'))
+      | b <- κ `compare` κ', b == EQ = ς `compare` convertType α α' ς'
+      | otherwise = κ `compare` κ'
+  TypeSchemeCore (KindForall (Bound (KindPattern β μ) ς))
+    `compare` TypeSchemeCore (KindForall (Bound (KindPattern β' μ') ς'))
+      | b <- μ `compare` μ', b == EQ = ς `compare` convertKind β β' ς'
+      | otherwise = μ `compare` μ'
+  TypeSchemeCore ς `compare` TypeSchemeCore ς' = remove ς `compare` remove ς'
+    where
+      remove = mapTypeSchemeF (const ()) (const ()) id
+
 -- use explode for rather then order because sorting with logic variables isn't dangerous
 instance (Explode vσ, Explode vκ) => Eq (Type vσ vκ) where
-  TypeCore (Forall (Bound (TypePattern _ _ c _) _)) == (TypeCore (Forall (Bound (TypePattern _ _ c' _) _)))
-    | c /= c' = False
-  TypeCore (Forall (Bound (TypePattern _ _ _ π) _)) == (TypeCore (Forall (Bound (TypePattern _ _ _ π') _)))
-    | π /= π' = False
-  TypeCore (Forall (Bound (TypePattern α κ _ _) σ)) == (TypeCore (Forall (Bound (TypePattern α' κ' _ _) σ')))
-    | κ == κ' = σ == convertType α α' σ'
-    | otherwise = False
-  TypeCore a == TypeCore b = removeBounds a == removeBounds b
-    where
-      removeBounds = mapTypeF id id (const ()) id
+  TypeCore a == TypeCore b = a == b
 
 instance (Explode vσ, Explode vκ) => Ord (Type vσ vκ) where
-  TypeCore (Forall (Bound (TypePattern _ _ c _) _)) `compare` (TypeCore (Forall (Bound (TypePattern _ _ c' _) _)))
-    | b <- c `compare` c', b /= EQ = b
-  TypeCore (Forall (Bound (TypePattern _ _ _ π) _)) `compare` (TypeCore (Forall (Bound (TypePattern _ _ _ π') _)))
-    | b <- π `compare` π', b /= EQ = b
-  TypeCore (Forall (Bound (TypePattern α κ _ _) σ)) `compare` (TypeCore (Forall (Bound (TypePattern α' κ' _ _) σ')))
-    | b <- κ `compare` κ', b == EQ = σ `compare` convertType α α' σ'
-    | otherwise = κ `compare` κ'
-  TypeCore a `compare` TypeCore b = removeBounds a `compare` removeBounds b
-    where
-      removeBounds = mapTypeF id id (const ()) id
+  TypeCore a `compare` TypeCore b = a `compare` b
 
 class FreeVariablesType u where
   freeVariablesType :: u -> Set TypeIdentifier
@@ -376,7 +395,7 @@ instance Functor TypeSource where
       mapTypeF
         id
         (fmap (fmap f))
-        (mapBound (fmap f) (fmap f))
+        (fmap f)
         (fmap f)
         σ
 
@@ -404,6 +423,13 @@ instance FreeVariablesType (TypeScheme vσ vκ) where
       go' = freeVariablesSameType
       go'' = freeVariablesLowerType
 
+instance ConvertType (TypeSchemeSource p) where
+  convertType ux x (TypeSchemeSource p σ) = TypeSchemeSource p $ mapTypeSchemeF go'' go' go σ
+    where
+      go = convertType ux x
+      go' = convertSameType ux x
+      go'' = convertLowerType ux x
+
 instance ConvertType (TypeScheme vσ vκ) where
   convertType ux x (TypeSchemeCore σ) = TypeSchemeCore $ mapTypeSchemeF go'' go' go σ
     where
@@ -417,6 +443,20 @@ instance SubstituteType TypeScheme where
       go = substituteType ux x
       go' = substituteSameType ux x
       go'' = substituteLowerType avoidKind ux x
+
+instance FreeVariablesKind (TypeScheme vσ vκ) where
+  freeVariablesKind (TypeSchemeCore ς) = foldTypeSchemeF go'' go' go ς
+    where
+      go = freeVariablesKind
+      go' = freeVariablesHigherKind
+      go'' = freeVariablesSameKind
+
+instance ConvertKind (TypeSchemeSource p) where
+  convertKind ux x (TypeSchemeSource p σ) = TypeSchemeSource p $ mapTypeSchemeF go'' go' go σ
+    where
+      go = convertKind ux x
+      go' = convertHigherKind ux x
+      go'' = convertSameKind ux x
 
 instance ConvertKind (TypeScheme vσ vκ) where
   convertKind ux x (TypeSchemeCore σ) = TypeSchemeCore $ mapTypeSchemeF go'' go' go σ
@@ -434,31 +474,27 @@ instance SubstituteKind (TypeScheme vσ) where
 
 instance FreeVariablesType (Type vσ vκ) where
   freeVariablesType (TypeCore (TypeVariable x)) = Set.singleton x
-  freeVariablesType (TypeCore σ) = foldTypeF mempty mempty go' go σ
+  freeVariablesType (TypeCore σ) = foldTypeF mempty mempty go go σ
     where
       go = freeVariablesType
-      go' = freeVariablesSameType
 
 instance ConvertType (TypeSource p) where
   convertType ux x (TypeSource p (TypeVariable x')) | x == x' = TypeSource p $ TypeVariable ux
-  convertType ux x (TypeSource p σ) = TypeSource p $ mapTypeF id id go' go σ
+  convertType ux x (TypeSource p σ) = TypeSource p $ mapTypeF id id go go σ
     where
       go = convertType ux x
-      go' = convertSameType ux x
 
 instance ConvertType (Type vσ vκ) where
   convertType ux x (TypeCore (TypeVariable x')) | x == x' = TypeCore $ TypeVariable ux
-  convertType ux x (TypeCore σ) = TypeCore $ mapTypeF id id go' go σ
+  convertType ux x (TypeCore σ) = TypeCore $ mapTypeF id id go go σ
     where
       go = convertType ux x
-      go' = convertSameType ux x
 
 instance SubstituteType (Type) where
   substituteType ux x (TypeCore (TypeVariable x')) | x == x' = ux
-  substituteType ux x (TypeCore σ) = TypeCore $ mapTypeF id id go' go σ
+  substituteType ux x (TypeCore σ) = TypeCore $ mapTypeF id id go go σ
     where
       go = substituteType ux x
-      go' = substituteSameType ux x
 
 instance FreeVariablesType (Instantiation vσ vκ) where
   freeVariablesType (InstantiationCore θ) = foldInstantiationF mempty go go θ
@@ -503,25 +539,31 @@ instance SubstituteKind (Instantiation vσ) where
       go = substituteKind ux x
 
 instance FreeVariablesKind (Type vσ vκ) where
-  freeVariablesKind (TypeCore σ) = foldTypeF mempty go go' go σ
+  freeVariablesKind (TypeCore σ) = foldTypeF mempty go go go σ
     where
       go = freeVariablesKind
-      go' = freeVariablesHigherKind
 
-instance ConvertKind (Type vσ vκ) where
-  convertKind ux x (TypeCore σ) = TypeCore $ mapTypeF id go go' go σ
+instance ConvertKind (TypeSource p) where
+  convertKind ux x (TypeSource p σ) = TypeSource p $ mapTypeF id (fmap go) go go σ
     where
       go = convertKind ux x
-      go' = convertHigherKind ux x
+
+instance ConvertKind (Type vσ vκ) where
+  convertKind ux x (TypeCore σ) = TypeCore $ mapTypeF id go go go σ
+    where
+      go = convertKind ux x
 
 instance SubstituteKind (Type vσ) where
-  substituteKind ux x (TypeCore σ) = TypeCore $ mapTypeF id go go' go σ
+  substituteKind ux x (TypeCore σ) = TypeCore $ mapTypeF id go go go σ
     where
       go = substituteKind ux x
-      go' = substituteHigherKind ux x
 
 instance FreeVariablesKind (TypePattern vσ vκ) where
   freeVariablesKind (TypePattern _ κ _ π) = freeVariablesKind κ <> foldMap freeVariablesKind π
+
+instance ConvertKind (TypePatternSource p) where
+  convertKind ux x (TypePatternSource p x' κ c π) =
+    TypePatternSource p x' (fmap (convertKind ux x) κ) c (map (convertKind ux x) π)
 
 instance ConvertKind (TypePattern vσ vκ) where
   convertKind ux x (TypePattern x' κ c π) =
@@ -538,7 +580,7 @@ instance ZonkType Type where
       <*> traverseTypeF
         (error "handled manually")
         pure
-        (traverseBound (zonkType f) (zonkType f))
+        (zonkType f)
         (zonkType f)
         σ
 
@@ -566,7 +608,7 @@ instance ZonkKind (Type vσ) where
       <*> traverseTypeF
         pure
         (zonkKind f)
-        (traverseBound (zonkKind f) (zonkKind f))
+        (zonkKind f)
         (zonkKind f)
         σ
 
@@ -608,7 +650,7 @@ sourceType (TypeCore σ) =
     mapTypeF
       id
       sourceKindAuto
-      (mapBound sourceTypePattern sourceType)
+      sourceTypeScheme
       sourceType
       σ
 

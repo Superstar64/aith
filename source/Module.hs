@@ -178,7 +178,7 @@ forwardDeclare = fmap basic . prepareContext
 
 convertFunctionLiteral ς = case ς of
   TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ π τ))) -> polyEffect "R" (TypeCore $ FunctionPointer σ π τ)
-  TypeSchemeCore (ImplicitForall (Bound pm ς)) -> TypeSchemeCore $ ImplicitForall (Bound pm $ convertFunctionLiteral ς)
+  TypeSchemeCore (TypeForall (Bound pm ς)) -> TypeSchemeCore $ TypeForall (Bound pm $ convertFunctionLiteral ς)
   _ -> error "not function literal"
 
 forwardDefine :: Module (p, TypeSchemeInfer) -> Map [String] (Map TermIdentifier (TermSchemeInfer p, TypeSchemeInfer))
@@ -198,11 +198,11 @@ makeExtern ::
 makeExtern path p ς = case ς of
   TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ π τ))) ->
     TermSchemeCore p $
-      ImplicitTypeAbstraction
+      TypeAbstraction
         ( Bound (TypePattern (TypeIdentifier "R") (KindCore Region) Set.empty []) (TermSchemeCore p $ MonoTerm $ TermCore p (TermRuntime $ Extern (mangle path) σ π τ))
         )
-  TypeSchemeCore (ImplicitForall (Bound (TypePattern x κ c π) e)) ->
-    TermSchemeCore p (ImplicitTypeAbstraction (Bound (TypePattern x κ c π) $ makeExtern path p e))
+  TypeSchemeCore (TypeForall (Bound (TypePattern x κ c π) e)) ->
+    TermSchemeCore p (TypeAbstraction (Bound (TypePattern x κ c π) $ makeExtern path p e))
   _ -> error "not function literal"
 
 typeCheckModule ::

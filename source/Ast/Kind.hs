@@ -212,15 +212,8 @@ class ZonkKind u where
 class BindingsKind u where
   bindingsKind :: u -> Set KindIdentifier
 
-instance BindingsKind KindPattern where
-  bindingsKind (KindPattern x _) = Set.singleton x
-
 class RenameKind u where
   renameKind :: KindIdentifier -> KindIdentifier -> u -> u
-
-instance RenameKind KindPattern where
-  renameKind ux x (KindPattern x' κ) | x == x' = KindPattern ux κ
-  renameKind _ _ λ@(KindPattern _ _) = λ
 
 freeVariablesHigherKind = freeVariablesHigher freeVariablesKind freeVariablesKind
 
@@ -255,11 +248,31 @@ toKindPattern (KindPatternIntermediate _ x μ) = KindPattern x μ
 instance Fresh KindIdentifier where
   fresh c (KindIdentifier x) = KindIdentifier $ Util.fresh (Set.mapMonotonic runKindIdentifier c) x
 
+instance BindingsKind KindPattern where
+  bindingsKind (KindPattern x _) = Set.singleton x
+
+instance RenameKind KindPattern where
+  renameKind ux x (KindPattern x' κ) | x == x' = KindPattern ux κ
+  renameKind _ _ λ@(KindPattern _ _) = λ
+
+instance BindingsKind (KindPatternSource p) where
+  bindingsKind (KindPatternSource _ x _) = Set.singleton x
+
+instance RenameKind (KindPatternSource p) where
+  renameKind ux x (KindPatternSource p x' κ) | x == x' = KindPatternSource p ux κ
+  renameKind _ _ λ@(KindPatternSource _ _ _) = λ
+
 instance FreeVariablesKind (Kind v) where
   freeVariablesKind (KindCore (KindVariable x)) = Set.singleton x
   freeVariablesKind (KindCore κ) = foldKindF mempty go κ
     where
       go = freeVariablesKind
+
+instance ConvertKind (KindSource p) where
+  convertKind ux x (KindSource p (KindVariable x')) | x == x' = KindSource p (KindVariable ux)
+  convertKind ux x (KindSource p κ) = KindSource p $ mapKindF id go κ
+    where
+      go = convertKind ux x
 
 instance ConvertKind (Kind v) where
   convertKind ux x (KindCore (KindVariable x')) | x == x' = KindCore (KindVariable ux)

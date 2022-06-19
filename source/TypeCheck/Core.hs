@@ -181,6 +181,9 @@ augmentSortEnvironment x p μ sk = modifySortEnvironment (Map.insert x (p, μ, s
   where
     modifySortEnvironment f (Core r) = Core $ withReaderT (\env -> env {sortEnvironment = f (sortEnvironment env)}) r
 
+augmentSortSkolem :: p -> KindIdentifier -> Sort -> Core p a -> Core p a
+augmentSortSkolem p x μ f = augmentSortEnvironment x p μ maxBound f
+
 augmentKindPatternBottom (KindPatternIntermediate p x μ) f = do
   useKindVar x
   augmentSortEnvironment x p μ (error $ "level usage during sort checking " ++ show x) f

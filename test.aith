@@ -12,21 +12,21 @@ module combinators = {
 };
 
 module systemf = {
-	inline ignored <B : *> : \/A : * => B -> B;
-	inline ignored <B> = /\A : * => \(x : B) => x;
+	inline ignored <B : *> : <A : *> B -> B;
+	inline ignored <B> = <A : *> \(x : B) => x;
 
-	inline idSysF = /\A : * => \(x : A) => x;
+	inline idSysF = <A : *> \x : A => x;
 
 	inline runIdSysF = \f {
-		(f : \/A => A -> A)`<_>
+		|< f : <A> A -> A >|
 	};
 
 	inline id = runIdSysF `idSysF;
 
-	inline constSysF = /\A : * => /\B : * => \![x : A] => \![y : B] => x;
+	inline constSysF = <A : *, B : *> \![x : A] => \![y : B] => x;
 
 	inline const <A:*, B:*> : ![A] -> ![B] -> A;
-	inline const <A,B> = ((constSysF : \/A => \/B => ![A] -> ![B] -> A)`<_> : \/ B => ![A] -> ![B] -> A)`<_>;
+	inline const <A,B> = |< constSysF : <A, B> ![A] -> ![B] -> A >|;
 
 };
 
@@ -45,8 +45,8 @@ module varSub = {
 		)
 	};
 
-	inline rigid<A : * >= (\/B : * => B -> B), C : *> : ![A] -> C -> C;
-	inline rigid<A, C> = \![a] => sub `![/\D : * => \y : D => y] `![a];
+	inline rigid<A : * >= (<B : *> B -> B), C : *> : ![A] -> C -> C;
+	inline rigid<A, C> = \![a] => sub `![<D : *> \y : D => y] `![a];
 };
 
 module default = {
@@ -99,10 +99,10 @@ module boolean = {
 };
 
 module pair = {
-	inline fstSysF = /\A : +[pointer] => /\B : +[pointer] if copy => function(x :: A, y :: B) => x;
+	inline fstSysF = <A : +[pointer], B : +[pointer] if copy> function(x :: A, y :: B) => x;
   
 	fst <A : +[pointer], B : +[pointer] if copy, R : region> :  function (A, B) => A uses R;
-	fst <A, B, R> = ((fstSysF : \/A => \/B if copy => function (A,B) => A uses R)`<_> : \/B if copy => function(A,B) => A uses R)`<_>;
+	fst <A, B, R> = |< fstSysF : <A, B if copy> function (A,B) => A uses R >|;
 	
 	snd <A : +[pointer] if copy, B : +[pointer], R : region> : function (A, B) => B uses R;
 	snd <A,B,R> = function(x, y) => y;

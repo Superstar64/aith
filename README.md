@@ -43,6 +43,15 @@ If a region is alive, then that region and all it's parent regions are valid.
 In Aith, regions are effectful, meaning that all runtime expressions are attached to a region that they live in.
 These expressions can only access memory in their region or regions proven to be parents of said region. 
 
+## Type Inference
+(todo)
+
+### First Class Polymorpism (System-F)
+(todo)
+
+### Subtyping
+(todo)
+
 # Building and Running Tests
 Install ghc, cabal and make.
 Run `make` to build aith, `make tests` to run the tests and `make test.c` to generate the test c source file.
@@ -100,7 +109,7 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 * [ ] System-F
   * [x] Levity Polymorphism
   * [x] Type Lambda / Application
-  * [ ] Kind Lambda / Application
+  * [x] Kind Lambda / Application
   * [ ] Type Lambda / Application for Runtime Terms
   * [ ] Higher Order Unification (System-F ω)
 * [ ] Linear / Unique Types
@@ -164,9 +173,8 @@ Files start with `code` `:::`.
 | True | ``true`` |
 | False | ``false`` |
 | If | ``if e { e' } else { e''}`` |
-| Type Abstraction | ``/\pmσ => e`` |
-| Type Abstraction | ``/\pmσ { e }`` |
-| Type Application | ``e `<τ>``|
+| Poly Introduction| ``ς e`` |
+| Poly Elimination | ``\|< e >\|`` |
 | Borrow | ``borrow e as <α >= π>(pm) { e }`` |
 | Type Annotation | ``e : σ`` |
 | Pretype Annotation | ``e :: σ`` |
@@ -210,8 +218,7 @@ Files start with `code` `:::`.
 |-|-|
 | Variable | ``x`` |
 | Inline Function | ``σ -> τ``|
-| Forall | ``\/x : κ => σ`` |
-| Forall | ``\/x : κ { σ }`` |
+| Poly | ``ς σ`` |
 | Of Course | ``![σ]`` |
 | Function Pointer | ``function*(σ) => τ uses π`` |
 | Function Literal Type | ``function(σ) => τ uses π`` |
@@ -317,7 +324,7 @@ Useful / Inspirational papers:
   * Pointer for Robinson unification algorithm
 ### Type Inference (First Class Polymorphism)
 The idea of having an implicit type scheme and explicit type scheme is taken from these two papers (QML and the Explicit Poly-ML variant).
-The two major modifications are that scope type variables are used rather then schematic ones and type applications have an optional hole.
+The major modification is that scope type variables are used rather then schematic ones.
 * [Semi-Explicit First-Class Polymorphism for ML](https://caml.inria.fr/pub/papers/garrigue_remy-poly-ic99.pdf)
 * [QML : Explicit First-Class Polymorphism for ML](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/QML-Explicit-First-Class-Polymorphism-for-ML.pdf)
 ### Type Inference (Subtyping)

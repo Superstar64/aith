@@ -132,6 +132,8 @@ betweenDoubleBraces = between (token "{{") (token "}}")
 
 betweenDoubleSquares = between (token "[[") (token "]]")
 
+betweenPipeAngles = between (token "|<") (token ">|")
+
 symbol = Symbol.symbol ⊣ stringLiteral
 
 lambdaCore e = binaryToken "=>" ≫ e
@@ -251,9 +253,9 @@ typeFull = foldlP pair ⊣ typex ⊗ many (token "," ≫ space ≫ typex)
 typex :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
 typex = typeLambda
   where
-    typeLambda = Language.typeSource ⊣ position ⊗ typeLambda ∥ typeArrow
+    typeLambda = Language.typeSource ⊣ position ⊗ poly ∥ typeArrow
       where
-        typeLambda = Language.explicitForall ⊣ Language.bound ⊣ token "\\/" ≫ typePattern ⊗ lambdaCore typex
+        poly = Language.poly ⊣ wrapType ⊣ scheme ≪ space ⊗ typeLambda
     typeArrow = applyBinary ⊣ typeEffect ⊗ (binaryToken "->" ≫ typeArrow ⊕ always)
       where
         applyBinary = inline `branchDistribute` unit'
@@ -327,13 +329,13 @@ scheme = isoScheme ⊣ schema
 
 wrapType :: Isomorph (Scheme p, Language.TypeSource p) (Language.TypeSchemeSource p)
 wrapType =
-  wrap Language.typeSchemeSource Language.forallx Language.kindForall
+  wrap Language.typeSchemeSource Language.typeForall Language.kindForall
     . secondI
       (assumeIsomorph (toPrism Language.typeSchemeSource . secondP Language.monoType) . extractInfo location)
 
 wrapTerm :: Isomorph (Scheme p, Language.TermSource p) (Language.TermSchemeSource p)
 wrapTerm =
-  wrap Language.termSchemeSource Language.implicitTypeAbstraction Language.implicitKindAbstraction
+  wrap Language.termSchemeSource Language.typeAbstraction Language.kindAbstraction
     . secondI
       (assumeIsomorph (toPrism Language.termSchemeSource . secondP Language.monoTerm) . extractInfo location)
 
@@ -394,8 +396,11 @@ termStatement = Language.termSource ⊣ position ⊗ choice options ∥ apply �
     apply = withInnerPosition Language.termSource Language.dox `branchDistribute` unit'
 
 term :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
-term = termOr
+term = termLambda
   where
+    termLambda = Language.termSource ⊣ position ⊗ lambda ∥ termOr
+      where
+        lambda = Language.polyIntroduction ⊣ wrapTerm ⊣ scheme ≪ space ⊗ term
     termOr = foldlP apply ⊣ termAnd ⊗ many (binaryToken "|" ≫ termAnd)
       where
         apply = withInnerPosition Language.termSource Language.or
@@ -443,14 +448,12 @@ term = termOr
     termIndex = Language.termSource ⊣ position ⊗ index ∥ termApply
       where
         index = Language.pointerIncrement ⊣ token "&" ≫ termApply ⊗ betweenSquares term
-    termApply = foldlP applyBinary ⊣ termCore ⊗ many (typeApplySyntax ⊕ applySyntax ⊕ rtApplySyntax)
+    termApply = foldlP applyBinary ⊣ termCore ⊗ many (applySyntax ⊕ rtApplySyntax)
       where
-        applyBinary = typeApplication `branchDistribute` application `branchDistribute` rtApplication
+        applyBinary = application `branchDistribute` rtApplication
         application = withInnerPosition Language.termSource Language.inlineApplication
-        typeApplication = withInnerPosition Language.termSource Language.typeApplication
         rtApplication = withInnerPosition Language.termSource Language.functionApplication
         applySyntax = space ≫ token "`" ≫ termCore
-        typeApplySyntax = space ≫ betweenTickAngle typeAuto
         rtApplySyntax = space ≫ betweenParensElse unit termFull
           where
             unit = Language.termSource ⊣ position ⊗ (Language.unitIntroduction ⊣ always)
@@ -469,10 +472,10 @@ termCore = Language.termSource ⊣ position ⊗ choice options ∥ betweenParens
         Language.extern ⊣ prefixKeyword "extern" ≫ symbol,
         Language.ofCourseIntroduction ⊣ betweenBangSquares termFull,
         Language.numberLiteral ⊣ number,
-        Language.typeLambda ⊣ Language.bound ⊣ token "/\\" ≫ typePattern ⊗ termLambda,
         Language.truex ⊣ keyword "true",
         Language.falsex ⊣ keyword "false",
-        borrow
+        borrow,
+        Language.polyElimination ⊣ betweenPipeAngles termFull
       ]
     borrow = Language.borrow ⊣ prefixKeyword "borrow" ≫ termCore ⊗ binaryKeyword "as" ≫ binding
       where
