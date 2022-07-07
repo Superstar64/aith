@@ -311,7 +311,7 @@ The major modification is that scope type variables are used rather then schemat
 * [Semi-Explicit First-Class Polymorphism for ML](https://caml.inria.fr/pub/papers/garrigue_remy-poly-ic99.pdf)
 * [QML : Explicit First-Class Polymorphism for ML](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/QML-Explicit-First-Class-Polymorphism-for-ML.pdf)
 ### Type Inference (Subtyping)
-* [The Simple Essence of Algebraic Subtyping](https://lptk.github.io/files/%5Bv1.8%5D%20simple-essence-algebraic-subtyping.pdf)
+* [The Simple Essence of Algebraic Subtyping](https://lptk.github.io/files/%5Bv1.8%5D%20simple-essence-algebraic-subtyping.pdf) [(video)](https://youtu.be/d10q-b8jNKg)
   * A tiny subset is implemented for type checking regions. See my [var sub](https://github.com/Superstar64/var_sub/) repo.
 ### Compiler Design
 * [How OCaml type checker works -- or what polymorphism and garbage collection have in common](https://okmij.org/ftp/ML/generalization.html)
@@ -352,7 +352,9 @@ The major modification is that scope type variables are used rather then schemat
 * [FreezeML : Complete and Easy Type Inference for First-Class Polymorphism](https://export.arxiv.org/pdf/2004.00396) [(video)](https://youtu.be/bZKC3o4jsek)
 * [A Quick Look at Impredicativity](https://www.microsoft.com/en-us/research/uploads/prod/2020/01/quick-look-icfp20.pdf) [(video)](https://youtu.be/ZuNMo136QqI)
 ### Type Inference (Subtyping)
-* [Algebraic Subtyping](https://www.cs.tufts.edu/~nr/cs257/archive/stephen-dolan/thesis.pdf)
+*
+  * [Algebraic Subtyping](https://www.cs.tufts.edu/~nr/cs257/archive/stephen-dolan/thesis.pdf)
+  * [Polymorphism, Subtyping, and Type Inference in MLsub](https://www.repository.cam.ac.uk/bitstream/handle/1810/261583/Dolan_and_Mycrof-2017-POPL-AM.pdf) [(video)](https://youtu.be/-P1ks4NPIyk)
 ### Unification
 * [Unification Under a Mixed Prefix](https://www.lix.polytechnique.fr/~dale/papers/jsc92.pdf)
 ### Internals
