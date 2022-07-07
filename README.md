@@ -336,6 +336,7 @@ The major modification is that scope type variables are used rather then schemat
 * [Type Systems](http://lucacardelli.name/Papers/TypeSystems.pdf)
 ### Pure Type Systems
 * [An Introduction to Generalized Type Systems](https://www.researchgate.net/profile/Henk-hendrik-Barendregt/publication/216300104_An_Introduction_to_Generalized_Type_Systems/links/584c326d08aeb989251f7565/An-Introduction-to-Generalized-Type-Systems.pdf)
+* [The Structural Theory of Pure Type Systems](https://www.andrew.cmu.edu/user//fpv/papers/struct_pts.pdf) [(video)](https://youtu.be/8zuTuE9f9Jg)
 ### Linear / Unique Types
 * [Linear Haskell](https://arxiv.org/pdf/1710.09756.pdf) [(video)](https://youtu.be/t0mhvd3-60Y)
 *
