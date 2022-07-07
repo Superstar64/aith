@@ -1,7 +1,6 @@
 module Simple where
 
 import Ast.Common
-import Ast.Kind hiding (convertKind)
 import Ast.Term hiding (convertTerm)
 import Ast.Type hiding (convertType)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReader, withReaderT)
@@ -9,8 +8,8 @@ import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Set (Set, singleton)
 import Data.Void (absurd)
-import Misc.Symbol
-import TypeCheck.Unify
+import Misc.Symbol (Symbol (Symbol))
+import TypeCheck.Unify hiding (reconstruct)
 
 data SimpleType = SimpleType (KindRuntime KindSize SimpleType) deriving (Eq, Ord)
 
@@ -58,35 +57,35 @@ mangleType (SimpleType (WordRep Int)) = "i"
 mangleType (SimpleType (WordRep Long)) = "l"
 mangleType (SimpleType (WordRep Native)) = "n"
 
-convertKindImpl :: KindInfer -> SimpleType
-convertKindImpl (KindCore (KindRuntime PointerRep)) = SimpleType $ PointerRep
-convertKindImpl (KindCore (KindRuntime (StructRep ρs))) = SimpleType $ StructRep (convertKindImpl <$> ρs)
-convertKindImpl (KindCore (KindRuntime (WordRep (KindCore (KindSize Byte))))) = SimpleType $ WordRep Byte
-convertKindImpl (KindCore (KindRuntime (WordRep (KindCore (KindSize Short))))) = SimpleType $ WordRep Short
-convertKindImpl (KindCore (KindRuntime (WordRep (KindCore (KindSize Int))))) = SimpleType $ WordRep Int
-convertKindImpl (KindCore (KindRuntime (WordRep (KindCore (KindSize Long))))) = SimpleType $ WordRep Long
-convertKindImpl (KindCore (KindRuntime (WordRep (KindCore (KindSize Native))))) = SimpleType $ WordRep Native
+convertKindImpl :: TypeInfer -> SimpleType
+convertKindImpl (TypeCore (KindRuntime PointerRep)) = SimpleType $ PointerRep
+convertKindImpl (TypeCore (KindRuntime (StructRep ρs))) = SimpleType $ StructRep (convertKindImpl <$> ρs)
+convertKindImpl (TypeCore (KindRuntime (WordRep (TypeCore (KindSize Byte))))) = SimpleType $ WordRep Byte
+convertKindImpl (TypeCore (KindRuntime (WordRep (TypeCore (KindSize Short))))) = SimpleType $ WordRep Short
+convertKindImpl (TypeCore (KindRuntime (WordRep (TypeCore (KindSize Int))))) = SimpleType $ WordRep Int
+convertKindImpl (TypeCore (KindRuntime (WordRep (TypeCore (KindSize Long))))) = SimpleType $ WordRep Long
+convertKindImpl (TypeCore (KindRuntime (WordRep (TypeCore (KindSize Native))))) = SimpleType $ WordRep Native
 convertKindImpl _ = simpleFailType
 
 simpleFailType = error "illegal simple type"
 
-convertKind :: KindInfer -> SimpleType
-convertKind (KindCore (Pretype κ)) = convertKindImpl κ
+convertKind :: TypeInfer -> SimpleType
+convertKind (TypeCore (Pretype κ)) = convertKindImpl κ
 convertKind _ = simpleFailType
 
-reconstruct :: Monad m => TypeInfer -> ReaderT (Map TypeIdentifier KindInfer) m KindInfer
-reconstruct (TypeCore σ) = reconstructTypeF index absurd todo KindCore checkRuntime reconstruct σ
+reconstruct :: Monad m => TypeInfer -> ReaderT (Map TypeIdentifier TypeInfer) m TypeInfer
+reconstruct (TypeCore σ) = reconstructF index absurd todo checkRuntime reconstruct σ
   where
     todo = error "todo fix when type variable are allowed inside runtime types"
     index x = do
       map <- ask
       pure $ map ! x
-    checkRuntime (KindCore (Pretype κ)) f = f κ
+    checkRuntime (TypeCore (Pretype κ)) f = f κ
     checkRuntime _ _ = error $ "reconstruction of pair didn't return pretype"
 
 convertType σ = convertKind <$> reconstruct σ
 
-convertTermPattern :: Monad m => TermRuntimePatternInfer p -> ReaderT (Map TypeIdentifier KindInfer) m (SimplePattern p)
+convertTermPattern :: Monad m => TermRuntimePatternInfer p -> ReaderT (Map TypeIdentifier TypeInfer) m (SimplePattern p)
 convertTermPattern (TermRuntimePatternCore p (RuntimePatternVariable x σ)) = do
   σ' <- convertType σ
   pure $ SimplePattern p $ RuntimePatternVariable x σ'
@@ -96,7 +95,7 @@ convertTermPattern (TermRuntimePatternCore p (RuntimePatternTuple pms)) = do
 
 simpleFailPattern = error "illegal simple pattern"
 
-convertTerm :: Monad m => TermInfer p -> ReaderT (Map TypeIdentifier KindInfer) m (SimpleTerm p)
+convertTerm :: Monad m => TermInfer p -> ReaderT (Map TypeIdentifier TypeInfer) m (SimpleTerm p)
 convertTerm (TermCore p (TermRuntime (Variable x _))) = pure $ SimpleTerm p (Variable x ())
 convertTerm (TermCore p (TermRuntime (Extern sym σ _ τ))) = do
   σ' <- convertType σ
@@ -131,8 +130,8 @@ convertTerm (TermCore p (TermRuntime (Arithmatic o e1 e2 κ))) = do
   pure $ SimpleTerm p $ Arithmatic o e1' e2' s
   where
     s = case κ of
-      KindCore (KindSignedness Signed) -> Signed
-      KindCore (KindSignedness Unsigned) -> Unsigned
+      TypeCore (KindSignedness Signed) -> Signed
+      TypeCore (KindSignedness Unsigned) -> Unsigned
       _ -> error "bad sign"
 convertTerm (TermCore p (TermRuntime (Relational o e1 e2 σ κ))) = do
   e1' <- convertTerm e1
@@ -141,8 +140,8 @@ convertTerm (TermCore p (TermRuntime (Relational o e1 e2 σ κ))) = do
   pure $ SimpleTerm p $ Relational o e1' e2' σ s
   where
     s = case κ of
-      KindCore (KindSignedness Signed) -> Signed
-      KindCore (KindSignedness Unsigned) -> Unsigned
+      TypeCore (KindSignedness Signed) -> Signed
+      TypeCore (KindSignedness Unsigned) -> Unsigned
       _ -> error "bad sign"
 convertTerm (TermCore p (TermRuntime (BooleanLiteral b))) = pure $ SimpleTerm p $ BooleanLiteral b
 convertTerm (TermCore p (TermRuntime (If eb et ef))) = do
@@ -175,7 +174,7 @@ convertTerm (TermCore _ (TermSugar _ invalid)) = absurd invalid
 
 simpleFailTerm = error "illegal simple term"
 
-convertFunctionType :: Monad m => TypeSchemeInfer -> ReaderT (Map TypeIdentifier KindInfer) m SimpleFunctionType
+convertFunctionType :: Monad m => TypeSchemeInfer -> ReaderT (Map TypeIdentifier TypeInfer) m SimpleFunctionType
 convertFunctionType (TypeSchemeCore (TypeForall (Bound (TypePattern x κ _ _) σ))) = withReaderT (Map.insert x κ) $ convertFunctionType σ
 convertFunctionType (TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ _ τ)))) = do
   σ' <- convertType σ
@@ -183,7 +182,7 @@ convertFunctionType (TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ 
   pure $ SimpleFunctionType σ' τ'
 convertFunctionType _ = error "failed to convert function type"
 
-convertFunction :: Monad m => TermSchemeInfer p -> ReaderT (Map TypeIdentifier KindInfer) m (SimpleFunction p)
+convertFunction :: Monad m => TermSchemeInfer p -> ReaderT (Map TypeIdentifier TypeInfer) m (SimpleFunction p)
 convertFunction (TermSchemeCore _ (TypeAbstraction (Bound (TypePattern x κ _ _) e))) = withReaderT (Map.insert x κ) $ convertFunction e
 convertFunction (TermSchemeCore _ (MonoTerm (TermCore p (FunctionLiteral (Bound pm e))))) = do
   pm' <- convertTermPattern pm

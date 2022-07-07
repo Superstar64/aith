@@ -2,8 +2,6 @@ module Syntax where
 
 import Ast.Common (Internal (..), location)
 import qualified Ast.Common as Language
-import qualified Ast.Kind as Language
-import qualified Ast.Sort as Language
 import qualified Ast.Term as Language
 import qualified Ast.Type as Language
 import Control.Applicative (Alternative, empty, (<|>))
@@ -38,10 +36,10 @@ keywords =
       "size",
       "signedness",
       "word",
-      "imaginary",
       "region",
       "pointer",
       "struct",
+      "integer",
       "byte",
       "short",
       "int",
@@ -67,13 +65,15 @@ keywords =
       "copy",
       "representation",
       "native",
-      "ptrdiff",
       "io",
       "in",
       "capacity",
       "unique",
       "as",
-      "borrow"
+      "borrow",
+      "invariant",
+      "subtypable",
+      "substitutability"
     ]
 
 -- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
@@ -174,56 +174,11 @@ termIdentifier = Language.termIdentifier ⊣ identifer
 
 typeIdentifier = Language.typeIdentifier ⊣ identifer
 
-kindIdentifier = Language.kindIdentifier ⊣ identifer
-
 auto e = just ⊣ e ∥ nothing ⊣ token "_"
 
-sort :: Syntax δ => δ Language.Sort
-sort =
-  choice
-    [ Language.kind ⊣ token "[" ≫ space ≫ token "]",
-      Language.representation ⊣ keyword "representation",
-      Language.size ⊣ keyword "size",
-      Language.signedness ⊣ keyword "signedness"
-    ]
-
-kindPattern = Language.kindPatternSource ⊣ position ⊗ kindIdentifier ⊗ token ":" ≫ sort
-
-kind :: (Position δ p, Syntax δ) => δ (Language.KindSource p)
-kind = kindTop
+kindPattern = Language.kindPatternSource ⊣ position ⊗ typeIdentifier ⊗ sort
   where
-    kindTop = Language.kindSource ⊣ position ⊗ choice options ∥ kindCore
-      where
-        options =
-          [ Language.wordRep ⊣ prefixKeyword "word" ≫ kindCore
-          ]
-
-kindCore :: (Position δ p, Syntax δ) => δ (Language.KindSource p)
-kindCore = Language.kindSource ⊣ position ⊗ choice options ∥ betweenParens kind
-  where
-    options =
-      [ Language.kindVariable ⊣ kindIdentifier,
-        Language.typex ⊣ token "*",
-        Language.pretype ⊣ betweenPlusSquares kind,
-        Language.boxed ⊣ token "-",
-        Language.region ⊣ keyword "region",
-        Language.pointerRep ⊣ keyword "pointer",
-        Language.structRep ⊣ prefixKeyword "struct" ≫ betweenParens (commaSeperatedMany kind),
-        Language.byte ⊣ keyword "byte",
-        Language.short ⊣ keyword "short",
-        Language.int ⊣ keyword "int",
-        Language.long ⊣ keyword "long",
-        Language.native ⊣ keyword "native",
-        Language.signed ⊣ keyword "signed",
-        Language.unsigned ⊣ keyword "unsigned",
-        Language.capacity ⊣ keyword "capacity"
-      ]
-
-kindCoreAuto :: (Position δ p, Syntax δ) => δ (Maybe (Language.KindSource p))
-kindCoreAuto = auto kindCore
-
-kindAuto :: (Position δ p, Syntax δ) => δ (Maybe (Language.KindSource p))
-kindAuto = auto kind
+    sort = just ⊣ token ":" ≫ typex ∥ nothing ⊣ always
 
 constraint :: Syntax δ => δ Language.Constraint
 constraint = Language.copy ⊣ keyword "copy" ≫ always
@@ -244,7 +199,7 @@ typePattern ::
 typePattern =
   Language.typePatternSource ⊣ position ⊗ typeIdentifier ⊗ k ⊗ constraints ⊗ (lowerBounds typeCore)
   where
-    k = just ⊣ token ":" ≫ kind ∥ nothing ⊣ always
+    k = just ⊣ token ":" ≫ typex ∥ nothing ⊣ always
 
 typeFull = foldlP pair ⊣ typex ⊗ many (token "," ≫ space ≫ typex)
   where
@@ -266,11 +221,18 @@ typex = typeLambda
     typeUnique = Language.typeSource ⊣ position ⊗ unique ∥ typePtr
       where
         unique = Language.unique ⊣ prefixKeyword "unique" ≫ typePtr
-    typePtr = foldlP apply ⊣ typeCore ⊗ many (betweenSquares typeCore ⊕ binaryToken "@" ≫ typeCore)
+    typePtr = foldlP apply ⊣ typeInt ⊗ many (betweenSquares typex ⊕ binaryToken "@" ≫ typeInt)
       where
         apply = ptr `branchDistribute` shared
         ptr = withInnerPosition Language.typeSource Language.pointer
         shared = withInnerPosition Language.typeSource Language.shared
+    typeInt = apply ⊣ kindWord ⊗ (space ≫ keyword "integer" ≫ betweenParens typex ⊕ always)
+      where
+        apply = num `branchDistribute` unit'
+        num = withInnerPosition Language.typeSource Language.number
+    kindWord = (word `branchDistribute` unit') ⊣ typeCore ⊗ (space ≫ keyword "word" ⊕ always)
+      where
+        word = withInnerPosition1 Language.typeSource Language.wordRep
 
 typeCore :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
 typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenParensElse unit typeFull
@@ -278,35 +240,50 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenPare
     unit = Language.typeSource ⊣ position ⊗ (Language.unit ⊣ always)
     shortcut name signed size = Language.number ⊣ keyword name ≫ lit signed ⊗ lit size
       where
-        lit x = just ⊣ Language.kindSource ⊣ position ⊗ (x ⊣ always)
+        lit x = Language.typeSource ⊣ position ⊗ (x ⊣ always)
     options =
       [ Language.typeVariable ⊣ typeIdentifier,
         shortcut "byte" Language.signed Language.byte,
         shortcut "short" Language.signed Language.short,
         shortcut "int" Language.signed Language.int,
         shortcut "long" Language.signed Language.long,
-        shortcut "ptrdiff" Language.signed Language.native,
         shortcut "ubyte" Language.unsigned Language.byte,
         shortcut "ushort" Language.unsigned Language.short,
         shortcut "uint" Language.unsigned Language.int,
         shortcut "ulong" Language.unsigned Language.long,
-        shortcut "native" Language.unsigned Language.native,
         Language.boolean ⊣ keyword "bool",
         Language.world ⊣ keyword "io",
-        Language.number ⊣ token "#" ≫ kindCoreAuto ⊗ space ≫ kindCoreAuto,
         Language.ofCourse ⊣ betweenBangSquares typeFull,
         keyword "function" ≫ (funLiteral ∥ funPointer),
-        Language.wildCard ⊣ token "*"
+        Language.wildCard ⊣ token ":",
+        Language.typex ⊣ token "*",
+        Language.pretype ⊣ betweenPlusSquares typex,
+        Language.boxed ⊣ token "-",
+        Language.region ⊣ keyword "region",
+        Language.pointerRep ⊣ keyword "pointer",
+        Language.structRep ⊣ prefixKeyword "struct" ≫ betweenParens (commaSeperatedMany typex),
+        Language.byte ⊣ token "8bit",
+        Language.short ⊣ token "16bit",
+        Language.int ⊣ token "32bit",
+        Language.long ⊣ token "64bit",
+        Language.native ⊣ keyword "native",
+        Language.signed ⊣ keyword "signed",
+        Language.unsigned ⊣ keyword "unsigned",
+        Language.capacity ⊣ keyword "capacity",
+        Language.kind ⊣ betweenSquares typex,
+        Language.representation ⊣ keyword "representation",
+        Language.size ⊣ keyword "size",
+        Language.signedness ⊣ keyword "signedness",
+        Language.sort ⊣ token "/\\",
+        Language.invariant ⊣ keyword "invariant",
+        Language.subtypable ⊣ keyword "subtypable",
+        Language.substitutability ⊣ keyword "substitutability"
       ]
     rotate = associate' . secondI swap . associate
     funLiteral = Language.functionLiteralType ⊣ rotate ⊣ betweenParensElse unit typeFull ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
     funPointer = Language.functionPointer ⊣ rotate ⊣ token "*" ≫ betweenParensElse unit typeFull ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
 
-typeFullAuto = auto typeFull
-
 typeAuto = auto typex
-
-typeCoreAuto = auto typeCore
 
 newtype Scheme p = Scheme
   { runScheme ::

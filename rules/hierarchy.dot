@@ -1,16 +1,18 @@
 digraph aith {
     // basic visualization of type system
     rankdir="BT"
-    top[label="⊤"]
-    kind[label="[ ]"]
+
+    sort[label="/\\"]
+    kind[label="[κ]"]
     representation
     size
     signedness
 
-    kind -> top
-    representation -> top
-    size -> top
-    signedness -> top
+    kind -> sort
+    representation -> sort
+    size -> sort
+    signedness -> sort
+    substitutability -> sort
 
     type[label="*"]
     region
@@ -19,11 +21,11 @@ digraph aith {
     capacity[label="capacity"]
     pointerRep[label="pointer"]
     structRep[label="struct (κ, κ', ...)"]
-    wordRep[label="word κ"]
-    byte
-    short
-    int
-    long
+    wordRep[label="κ word"]
+    byte [label="8bit"]
+    short [label="16bit"]
+    int [label="32bit"]
+    long [label="64bit"]
     signed
     unsigned
 
@@ -41,24 +43,28 @@ digraph aith {
     signed -> signedness
     unsigned -> signedness
     capacity -> kind
+    invariant -> substitutability
+    subtypable -> substitutability
+
 
     inline[label="σ -> τ"]
-    forall[label="\\/α => σ"]
+    poly[label="<...> σ"]
     ofCourse[label="!σ"]
     functionPointer[label="function*(σ) => τ uses π"]
     functionLiteralType[label="function(σ) => τ uses π"]
     pair[label="(σ, τ)"]
     unit[label="()"]
     effect[label="σ in π"]
+    unique[label="unique σ"]
     shared[label="σ @ π"]
     pointer[label="σ[τ]"]
-    number[label="#κ κ'"]
+    number[label="κ integer(κ)'"]
     boolean[label="bool"]
     world[label="io"]
-    unknown[label="*"]
+    unknown[label=":"]
 
     inline -> type
-    forall -> type
+    poly -> type
     ofCourse -> type
     functionPointer -> pretype
     functionPointer -> pointerRep [style=dashed]
@@ -68,6 +74,8 @@ digraph aith {
     unit -> pretype
     unit -> structRep[style=dashed]
     effect -> type
+    unique -> pretype
+    unique -> pointerRep[style=dashed]
     shared -> pretype
     shared -> pointerRep[style=dashed]
     pointer -> boxed
@@ -93,11 +101,8 @@ digraph aith {
 
     functionLiteral[label="function(x) { e }"]
     inlineAbstraction[label="\\x => e"]
-    inlineApplication[label="e `e'"]
     ofCourseIntro[label="!e"]
-    bind[label="inline x = e; e'"]
-    typeAbstraction[label="/\\α => e"]
-    polyElimination[label="e `<σ>"]
+    polyIntroduction[label="<...> e"]
 
     
 
@@ -125,9 +130,6 @@ digraph aith {
 
     functionLiteral -> functionLiteralType
     inlineAbstraction -> inline
-    inlineApplication
     ofCourseIntro -> ofCourse
-    bind
-    typeAbstraction -> forall
-    polyElimination
+    polyIntroduction -> poly
 }

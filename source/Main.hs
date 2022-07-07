@@ -1,9 +1,8 @@
 module Main where
 
 import Ast.Common
-import Ast.Kind hiding (typex)
 import Ast.Term
-import Ast.Type hiding (Inline)
+import Ast.Type hiding (Inline, kind, typex)
 import qualified C.Ast as C
 import qualified C.Print as C
 import Codegen
@@ -29,23 +28,16 @@ import Prelude hiding (readFile, writeFile)
 import qualified Prelude
 
 nameTypeLogical :: Applicative m => TypeLogical -> m TypeInfer
-nameTypeLogical (TypeLogicalRaw i) = pure $ TypeCore $ TypeVariable $ TypeIdentifier $ show i
-
-nameKindLogical :: Applicative m => KindLogical -> m KindInfer
-nameKindLogical (KindLogicalRaw i) = pure $ KindCore $ KindVariable $ KindIdentifier $ show i
+nameTypeLogical (TypeLogicalRaw i) = pure $ TypeCore $ TypeSub $ TypeVariable $ TypeIdentifier $ show i
 
 nameType :: TypeUnify -> TypeSource Internal
-nameType = sourceType . runIdentity . zonkType nameTypeLogical . runIdentity . zonkKind nameKindLogical
-
-nameKind :: KindUnify -> KindSource Internal
-nameKind = sourceKind . runIdentity . zonkKind nameKindLogical
+nameType = sourceType . runIdentity . zonkType nameTypeLogical
 
 prettyError :: TypeError [SourcePos] -> String
 prettyError (UnknownIdentifier p (TermIdentifier x)) = "Unknown identifer " ++ x ++ positions p
 prettyError (TypeMismatch p σ σ') = "Type mismatch between ``" ++ pretty typex (nameType σ) ++ "`` and ``" ++ pretty typex (nameType σ') ++ "``" ++ positions p
-prettyError (KindMismatch p κ κ') = "Kind mismatch between ``" ++ pretty kind (nameKind κ) ++ "`` and ``" ++ pretty kind (nameKind κ') ++ "``" ++ positions p
 prettyError (ConstraintMismatch p c σ) = "Unable to proof ``" ++ pretty constraint c ++ "(" ++ pretty typex (nameType σ) ++ ")``" ++ positions p
-prettyError (TypeMisrelation p σ σ') = "Unable to subtype ``" ++ pretty typex (nameType σ') ++ "`` >= ``" ++ pretty typex (nameType σ) ++ "``" ++ positions p
+prettyError (TypeMisrelation p σ σ') = "Unable to subtype ``" ++ pretty typex (nameType (TypeCore $ TypeSub σ')) ++ "`` >= ``" ++ pretty typex (nameType (TypeCore $ TypeSub σ)) ++ "``" ++ positions p
 prettyError e = show e
 
 quoted x = "\"" ++ x ++ "\""
@@ -199,7 +191,7 @@ data Flags
 
 descriptions =
   [ Option [] ["help"] (NoArg Help) "Help",
-    Option ['d'] ["dircetory"] (ReqArg Wd "path") "Set",
+    Option ['d'] ["directory"] (ReqArg Wd "path") "Set",
     Option ['o'] ["output"] (ReqArg Output "file") "Output",
     Option ['F'] ["format"] (NoArg Format) "Format",
     Option ['A'] ["annotate"] (NoArg Annotate) "Annotate",

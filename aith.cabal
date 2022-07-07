@@ -16,10 +16,8 @@ executable aith
         TypeCheck.Core
         TypeCheck.Unify
         Ast.Common
-        Ast.Kind
         Ast.Type
         Ast.Term
-        Ast.Sort
         Module
         Misc.Symbol
         Misc.Prism
@@ -30,7 +28,6 @@ executable aith
         Codegen
         C.Print
         Simple
-        Misc.Explode
 
     default-language:   Haskell2010
     default-extensions:

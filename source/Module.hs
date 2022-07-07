@@ -1,7 +1,6 @@
 module Module where
 
 import Ast.Common
-import Ast.Kind
 import Ast.Term
 import Ast.Type hiding (Inline)
 import Data.Map (Map)
@@ -199,7 +198,7 @@ makeExtern path p ς = case ς of
   TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ π τ))) ->
     TermSchemeCore p $
       TypeAbstraction
-        ( Bound (TypePattern (TypeIdentifier "R") (KindCore Region) Set.empty []) (TermSchemeCore p $ MonoTerm $ TermCore p (TermRuntime $ Extern (mangle path) σ π τ))
+        ( Bound (TypePattern (TypeIdentifier "R") (TypeCore Region) Set.empty []) (TermSchemeCore p $ MonoTerm $ TermCore p (TermRuntime $ Extern (mangle path) σ π τ))
         )
   TypeSchemeCore (TypeForall (Bound (TypePattern x κ c π) e)) ->
     TermSchemeCore p (TypeAbstraction (Bound (TypePattern x κ c π) $ makeExtern path p e))

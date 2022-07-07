@@ -1,8 +1,11 @@
 
-all: aith.pdf aith.svg
+all: rules.pdf hierarchy.svg pure.pdf
 
-aith.pdf: aith.tex
+rules.pdf: rules.tex
 	latexmk -pdf $<
 
-aith.svg: aith.dot
+hierarchy.svg: hierarchy.dot
 	dot -Tsvg -o $@ $<
+
+pure.pdf : pure.tex
+	latexmk -pdf $<

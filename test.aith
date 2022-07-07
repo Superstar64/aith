@@ -31,8 +31,8 @@ module systemf = {
 };
 
 module varSub = {
-	inline sub<A : *, B : * >= A, C:*> : ![A] -> ![B] -> C -> C;
-	inline sub<A,B,C> = \![a : A] => \![b : B] => \x => x;
+	inline sub<R : +[pointer], A : region, B : region >= A, C:*> : ![R in A] -> ![R in B] -> C -> C;
+	inline sub<R,A,B,C> = \![a] => \![b] => \x => x;
 
 
 	inline cycle = \![a] => \![b] => \![c] {
@@ -45,8 +45,7 @@ module varSub = {
 		)
 	};
 
-	inline rigid<A : * >= (<B : *> B -> B), C : *> : ![A] -> C -> C;
-	inline rigid<A, C> = \![a] => sub `![<D : *> \y : D => y] `![a];
+	inline polySub = <A, B >= A> \x => x;
 };
 
 module default = {
@@ -139,7 +138,7 @@ module ptr = {
 	};
 };
 
-module integer = {
+module number = {
 	dotProduct = function(vector1P, vector2P) {
 		let (x1,y1,z1) = *vector1P;
 		let (x2,y2,z2) = *vector2P;
@@ -215,7 +214,7 @@ module arrays = {
 		()
 	};
 
-	memcpyPtr <A : +[pointer] if copy, R : region> : function(A[*] @ R, A[*] @ R, native) => () uses R; 
+	memcpyPtr <A : +[pointer] if copy, R : region> : function(A[:] @ R, A[:] @ R, unsigned integer(native)) => () uses R; 
 	memcpyPtr <A : +[pointer] if copy, R : region> = function(dst, src, i) {
 		if(i != 0) {
 			*dst = (*src);
@@ -227,7 +226,7 @@ module arrays = {
 };
 
 module sort = {
-	insert<R : region> : function(int[*] @ R, native) => () uses R;
+	insert<R : region> : function(int[:] @ R, unsigned integer(native)) => () uses R;
 	insert<R : region> = function(array, index) {
 		if (index > 0 & *&array[index] < *&array[index - 1]) {
 			let tmp = *&array[index];
@@ -239,7 +238,7 @@ module sort = {
 		}
 	};
 
-	sort <R : region> : function(int[*] @ R, native) => () uses R;
+	sort <R : region> : function(int[:] @ R, unsigned integer(native)) => () uses R;
 	sort <R : region> = function(array, length) {
 		if (length > 1) {
 			sort(array, length - 1);
@@ -251,9 +250,9 @@ module sort = {
 };
 
 module borrowed = {
-	increment <R : region> : function(unique int[*]) => (unique int[*]) uses R;
-	increment <R : region> = function(p :: unique int[*]) {
-		let ((), p) = borrow p as <A >= R>(x :: int[*] @ A) {
+	increment <R : region> : function(unique int[:]) => (unique int[:]) uses R;
+	increment <R : region> = function(p :: unique int[:]) {
+		let ((), p) = borrow p as <A >= R>(x :: int[:] @ A) {
 			*x = (*x + 1)
 		};
 		p

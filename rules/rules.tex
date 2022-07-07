@@ -5,6 +5,9 @@
 \allowdisplaybreaks
 \begin{document}
 
+As of now, this document is mostly for myself. Its missing a lot of prose and explantions. \\
+
+
 \tableofcontents
 
 
@@ -12,17 +15,21 @@
 
 All valid terms have a type who's kind is of the form $ * $. \\
 \\
-All valid types have a kind who's sort is of the form $ \boxvoid $.\\
+All valid types have a kind who's sort is of the form $ \boxvoid^\mu $.\\
+\\
+All valid kinds have a sort who's super sort is of the from $ \Delta $.\\
+\\
+All types that are subtypable have a kind who's sort of the form $ \boxvoid^\text{Subtypable} $. \\
 \\
 Function literals and function literal types can not appear at runtime. They must be bound by a global "function" binding.
 This binding converts a function literal into an extern and a function literal type into a function pointer type. \\
 \\
-Terms with a type $ \sigma^\pi $ are runtime terms and can't be reduced.
-They should be treated as if they are already in $ \beta $ normal form. \\
+Terms with a type $ \sigma^\pi $ are runtime terms.
+Runtime terms are not reduced at compile time.
 \\
 Overlines are used to mean 0 or more. \\
 \\
-After $ \beta $ reduction, terms not of type $ \sigma^\pi $ must either be a free variable or corrispond to these $ \beta $ normal forms. \\
+After $ \beta $ reduction, terms not of type $ \sigma^\pi $ must either be a free variable or correspond to these $ \beta $ normal forms. \\
 \begin{gather*}
 \begin{array}{c | c}
 \text{Type} & \text{Term} \\
@@ -42,12 +49,9 @@ After $ \beta $ reduction, terms not of type $ \sigma^\pi $ must either be a fre
 e \tag{Terms} \\
 x \tag{Variables} \\
 n \tag{Numbers} \\
-\sigma, \tau \tag{Types} \\
-\alpha \tag{Type Variables} \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \tag{Types, Kinds, and Sort} \\
+\alpha, \beta \tag{Type and Kind Variables} \\
 c \tag{Constraints} \\
-\kappa, s, \rho \tag{Kinds} \\
-\beta \tag{Kind Variables} \\
-\mu \tag{Sorts} \\
 \Gamma \tag{Type Environment} \\
 \Phi \tag{Misc Environment} \\
 \text{sym} \tag{Symbol}
@@ -60,7 +64,6 @@ Type and Kind checking uses synthesis mode.
 \begin{align*}
 \Phi \mid \Gamma \vdash \, & e : \sigma \tag{\text{Term Validation}} \\
 \Phi \vdash \, & \sigma : \kappa \tag{\text{Type Validation}} \\
-\Phi \vdash \, & \kappa : \mu \tag{Kind Validation} \\
 \Phi \vdash \, &c (\sigma) \tag{Constraint Instantiation} \\
 \Phi \vdash \, &c : \kappa \to \diamond \tag{Constraint Validation} \\
 \Phi \vdash \, & \sigma \succeq \tau \tag{Subtyping}
@@ -74,22 +77,40 @@ Type and Kind checking uses synthesis mode.
 & \emptyset \\
 \Phi \Coloneqq & \\
 & \Phi, \alpha : \kappa + \{ \overline c \} \succeq \{ \overline \pi \} \\
-& \Phi, \beta : \mu \\
 & \emptyset \\
 \end{align*}
 
 \subsection{Meta}
 \begin{align*}
-\kappa, s, \rho \Coloneqq & \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & * \tag{Type} \\
-\mu \Coloneqq & \\
-& \boxvoid \tag{Kind} \\
+& \boxvoid^\mu \tag{Kind} \\
+& \Delta \tag{Sort} \\
+& \text{Invariant} \\
+& \text{Subtypable} \\
+& \text{Substitutability}
 \end{align*}
 
 \begin{gather*}
 \frac
 {}
-{\Phi \vdash * : \boxvoid} \\
+{\Phi \vdash * : \boxvoid^\text{Invariant}} \\
+\\
+\frac
+{\Phi \vdash \mu : \text{Substitutability}}
+{\Phi \vdash \boxvoid^\mu : \Delta} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Invariant} : \text{Substitutability}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Subtypable} : \text{Substitutability}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Substitutability} : \Delta}
 \end{gather*}
 
 
@@ -98,11 +119,8 @@ Type and Kind checking uses synthesis mode.
 e \Coloneqq & \\
 & x \tag{Variable} \\
 & \dots \\
-\sigma, \tau, \pi \Coloneqq & \\
+\sigma, \tau, \pi, \kappa, s, \rho \Coloneqq & \\
 & \alpha \tag{Type Variable} \\
-& \dots \\
-\kappa, s, \rho \Coloneqq & \\
-& \beta \tag{Kind Variable} \\
 & \dots
 \end{align*}
 
@@ -130,12 +148,6 @@ e \Coloneqq & \\
 {\Phi \vdash \alpha : \kappa}
 \end{gather*}
 
-\begin{gather*}
-\frac
-{(\beta : \mu) \in \Phi}
-{\Phi \vdash \beta : \mu } \\
-\end{gather*}
-
 \subsubsection{Macro Linear Lambda Calculus}
 \begin{align*}
 e \Coloneqq & \\
@@ -144,7 +156,7 @@ e \Coloneqq & \\
 & !e \tag{Bang Introduction} \\
 & \text{let}^\uparrow \, !(x : \sigma) = e; e' \tag{Bang Elimination} \\
 & \dots \\
-\sigma, \tau, \pi \Coloneqq & \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & \sigma \xrightarrow{\uparrow} \tau \tag{Macro} \\
 & !\sigma \tag{Bang} \\
 & \dots \\
@@ -187,7 +199,7 @@ e \Coloneqq & \\
 & \Lambda \beta. e \tag{Kind Lambda} \\
 & (e : \forall \beta. \tau) \kappa \tag{Kind Application} \\
 & \dots \\
-\sigma, \tau, \pi \Coloneqq & \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & \forall \alpha : \kappa + \{ \overline c \} \succeq \{ \overline \pi \}. \sigma \tag{Type Poly}\\ 
 & \forall \beta : \mu. \sigma \tag{Kind Poly}\\
 & \dots
@@ -213,22 +225,22 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi, \alpha : \kappa + \{ \overline c \} \vdash \sigma : * \quad \Phi \vdash \kappa : \boxvoid \quad \overline { \Phi \vdash c : \kappa \to \diamond} \quad \overline { \Phi \vdash \pi : \kappa }}
+{\splitfrac{\Phi, \alpha : \kappa + \{ \overline c \} \succeq \{ \overline \pi \}\vdash \sigma : * \quad \overline { \Phi \vdash c : \kappa \to \diamond} \quad \overline { \Phi \vdash \pi : \kappa}}
+{\splitfrac{\Phi \vdash \kappa : \boxvoid^\mu \quad \text{when $ \pi $ is empty}}
+{\Phi \vdash \kappa : \boxvoid^\text{Subtypable} \quad \text{when $ \pi $ is not empty} }}}
 {\Phi \vdash \forall \alpha : \kappa + \{ \overline c \}. \sigma : * } \\
 \\
 \frac
-{\Phi, \beta : \mu \vdash \sigma : * \quad \Phi \vdash \mu}
+{\Phi, \beta : \mu \vdash \sigma : * \quad \Phi \vdash \mu : \Delta}
 {\Phi \vdash \forall \beta : \mu. \sigma : * } \\
 \end{gather*}
 
 \subsection{Runtime}
 
 \begin{align*}
-\kappa, s, \rho \Coloneqq & \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & +^\rho \tag{Pretype Kind}\\
-& \dots \\
-\mu \Coloneqq & \\
-& \text{Representation} \\
+& \text{Representation} \tag {Representation Sort}\\
 & \dots
 \end{align*}
 
@@ -236,7 +248,11 @@ e \Coloneqq & \\
 \\
 \frac
 {\Phi \vdash \rho : \text{Representation}}
-{\Phi \vdash +^\rho : \boxvoid} \\
+{\Phi \vdash +^\rho : \boxvoid^\text{Invariant}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Representation} : \Delta}
 \end{gather*}
 
 \subsubsection{Single Effect Regions}
@@ -247,11 +263,9 @@ e \Coloneqq & \\
 & \text{let}^\downarrow \, (x :: \tau) = e; e' \tag{Runtime Let} \\
 & \text{copy} \, (x :: \tau) = e; e' \tag{Runtime Copy Let} \\
 & \dots \\
-\sigma, \tau, \pi \Coloneqq & \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & \sigma^\pi \tag{Region Effect} \\
 & \text{IO} \tag{IO Region} \\
-& \dots \\
-\kappa, s, \rho \Coloneqq & \\
 & \text{Region} \tag{Region} \\
 & \dots
 \end{align*}
@@ -282,23 +296,20 @@ e \Coloneqq & \\
 \\
 \frac
 {}
-{\Phi \vdash \text{IO} : \text{Region}}
-\end{gather*}
-
-\begin{gather*}
+{\Phi \vdash \text{IO} : \text{Region}} \\
+\\
 \frac
 {}
-{\Phi \vdash \text{Region} : \text{Kind}} \\
+{\Phi \vdash \text{Region} : \boxvoid^\text{Subtypable}} \\
 \end{gather*}
 
 \subsubsection{Boxed}
 \begin{align*}
 e \Coloneqq & \\
 & \text{borrow} (e) \text{as} \, \Lambda \alpha. (x) \{ e' \} \\
-\sigma, \tau, \pi \Coloneqq & \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & \text{unique} \, \sigma \\
 & \sigma \, @ \, \pi \\
-\kappa, s, \rho \Coloneqq & \\
 & - \tag{Boxed} \\
 & \text{Pointer} \tag{Pointer Representation} \\
 & \dots \\
@@ -317,10 +328,8 @@ e \Coloneqq & \\
 \\
 \frac
 {\Phi \vdash \sigma : - \quad \pi : \text{Region}}
-{\Phi \vdash \sigma \, @ \, \pi : +^\text{Pointer}} 
-\end{gather*}
-
-\begin{gather*}
+{\Phi \vdash \sigma \, @ \, \pi : +^\text{Pointer}} \\
+\\
 \frac
 {}
 {\Phi \vdash - : \boxvoid} \\
@@ -337,11 +346,9 @@ e \Coloneqq & \\
 & *(e :: \sigma) = e' \tag{Write Pointer} \\
 & \& e [e'] \tag{Pointer Increment} \\
 & \dots \\
-\sigma, \tau, \pi \Coloneqq & \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & \sigma [\pi] \tag{Pointer} \\
-& * \tag{Unknown Length} \\
-& \dots \\
-\kappa, s, \rho \Coloneqq & \\
+& : \tag{Unknown Length} \\
 & \text{Length}
 \end{align*}
 
@@ -357,8 +364,8 @@ e \Coloneqq & \\
 {\Phi | \Gamma \vdash *(e :: \sigma [\tau] @ \,{\pi'}) = e' : ()^\pi } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\sigma [*] @ \pi')^\pi \quad \Phi |
- \Gamma' \vdash e' : (\#\text{unsigned} \, \text{native})^\pi}
+{\Phi | \Gamma \vdash e : (\sigma [:] @ \pi')^\pi \quad \Phi |
+ \Gamma' \vdash e' : (\text{unsigned} \, \text{integer}(\text{native}))^\pi}
 {\Phi | \Gamma, \Gamma' \vdash \&e [e'] : (\sigma [\tau] @  \pi')^\pi} 
 \end{gather*}
 
@@ -369,7 +376,11 @@ e \Coloneqq & \\
 \\
 \frac
 {}
-{\Phi \vdash * : \text{Length}}
+{\Phi \vdash (:) : \text{Length}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Length} : \boxvoid}
 \end{gather*}
 
 \subsubsection{Functions}
@@ -380,7 +391,7 @@ e \Coloneqq & \\
 & (e :: \sigma) ^\downarrow e' \tag{Function Pointer Application} \\
 & \text{function} (x). e \tag{Function Literal} \\
 & \dots \\
-\sigma, \tau, \pi \Coloneqq & \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & \tau \xrightarrow{\downarrow}_\pi \sigma \tag{Function Pointer}\\
 & \tau \xrightarrow{\text{text}}_\pi \sigma  \tag{Function Literal Type} \\
 & \dots
@@ -418,11 +429,9 @@ e \Coloneqq & \\
 & () \tag{Unit Introduction} \\
 & \text{let}^\downarrow () = e; e' \tag{Unit Elimination} \\
 & \dots \\
-\sigma, \tau, \pi \Coloneqq & \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & (\sigma, \tau) \tag{Pair} \\
 & () \tag{Unit} \\
-& \dots \\
-\kappa, s, \rho \Coloneqq & \\
 & \text{Struct} \{ \rho, \rho', \dots \} \tag{Struct Representation} \\
 & \dots
 \end{align*}
@@ -443,10 +452,8 @@ e \Coloneqq & \\
 \\
 \frac
 {\Phi | \Gamma \vdash e : ()^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi}
-{\Phi | \Gamma \vdash \text{let}^\downarrow () = e; e' : \sigma^\pi}
-\end{gather*}
-
-\begin{gather*}
+{\Phi | \Gamma \vdash \text{let}^\downarrow () = e; e' : \sigma^\pi} \\
+\\
 \frac
 {\Phi \vdash \tau : +^{\kappa} \quad \Phi \vdash \tau : +^{\kappa'} }
 {\Phi \vdash (\sigma, \tau) : +^{\text{Struct} \{ \kappa,\kappa'\}}} \\
@@ -478,68 +485,62 @@ e \Coloneqq & \\
 & e >^\sigma e' \tag {Greater Then} \\
 & e \geq^\sigma e' \tag {Greater Then Equal} \\
 & \dots \\
-\sigma, \tau, \pi \Coloneqq & \\
-& \text{Number} (\rho, \rho) \tag{Number} \\
-& \dots \\
-\kappa, s, \rho \Coloneqq & \\
-& \text{Word} (\rho) \tag{Word Representation} \\
-& 8 \tag{Byte Size} \\
-& 16 \tag{Short Size} \\
-& 32 \tag{Int Size} \\
-& 64 \tag{Long Size} \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
+& \rho \, \text{integer} (\rho') \tag{Number} \\
+& \rho \, \text{word} \tag{Word Representation} \\
+& 8\text{bit} \tag{Byte Size} \\
+& 16\text{bit} \tag{Short Size} \\
+& 32\text{bit} \tag{Int Size} \\
+& 64\text{bit} \tag{Long Size} \\
 & \text{native} \tag{Native Size} \\
 & \text{signed} \tag{Signed} \\
 & \text{unsigned} \tag{Unsigned} \\
+& \text{Size} \tag{Size Sort}\\
+& \text{Signedness} \tag{Signedness Sort}\\
 & \dots \\
-\mu \Coloneqq & \\
-& \text{Size} \\
-& \text{Signedness} \\
-& \dots
 \end{align*}
 
 \begin{gather*}
 \frac
 {}
-{\Phi | \Gamma \vdash n : \text{Number}(\rho, \rho')^\pi} \\
+{\Phi | \Gamma \vdash n : (\rho \, \text{integer}(\rho'))^\pi} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \text{Number}(\rho, \rho')^\pi \quad \Phi | \Gamma, \Gamma' \vdash e' : \text{Number}(\rho, \rho')^\pi}
-{\Phi | \Gamma, \Gamma' \vdash e + e' : \text{Number}(\rho, \rho')^\pi} \\
+{\Phi | \Gamma \vdash e : (\rho \, \text{integer}(\rho'))^\pi \quad \Phi | \Gamma, \Gamma' \vdash e' :(\rho \, \text{integer}(\rho'))^\pi}
+{\Phi | \Gamma, \Gamma' \vdash e + e' : (\rho \, \text{integer}(\rho'))^\pi} \\
 \dots \\
 \\
 \frac
-{\splitfrac{\Phi | \Gamma \vdash e : \text{Number}(\rho, \rho')^\pi \quad \Phi | \Gamma, \Gamma' \vdash e' : \text{Number}(\rho, \rho')^\pi}
+{\splitfrac{\Phi | \Gamma \vdash e : (\rho \, \text{integer}(\rho'))^\pi \quad \Phi | \Gamma, \Gamma' \vdash e' : (\rho \, \text{integer}(\rho'))^\pi}
 {\Phi \vdash \rho : \text{Signedness} \quad \Phi \vdash \rho' : \text{Size}}}
-{\Phi | \Gamma, \Gamma' \vdash e <^{\text{Number}(\rho, \rho')} e' : \text{Boolean}^\pi} \\
+{\Phi | \Gamma, \Gamma' \vdash e <^{(\rho \, \text{integer}(\rho'))} e' : \text{Boolean}^\pi} \\
 \dots
 \end{gather*}
 
 \begin{gather*}
 \frac
 {\Phi \vdash \rho : \text{Signedness} \quad \Phi \vdash \rho' : \text{Size}}
-{\Phi \vdash \text{Number} (\rho, \rho') : +^ {\text{Word} (\rho')} } \\
-\end{gather*}
-
-\begin{gather*}
+{\Phi \vdash \rho \, \text{integer}(\rho') : +^ {\rho' \, \text{Word}} } \\
+\\
 \frac
 {\Phi \vdash \rho : \text{Size}}
-{\Phi \vdash \text{Word} (\rho) : \text{Representation}} \\
+{\Phi \vdash \rho \, \text{Word} : \text{Representation}} \\
 \\
 \frac
 {}
-{\Phi \vdash 8 : \text{Size}} \\
+{\Phi \vdash 8\text{bit} : \text{Size}} \\
 \\
 \frac
 {}
-{\Phi \vdash 16 : \text{Size}} \\
+{\Phi \vdash 16\text{bit} : \text{Size}} \\
 \\
 \frac
 {}
-{\Phi \vdash 32 : \text{Size}} \\
+{\Phi \vdash 32\text{bit} : \text{Size}} \\
 \\
 \frac
 {}
-{\Phi \vdash 64 : \text{Size}} \\
+{\Phi \vdash 64\text{bit} : \text{Size}} \\
 \\
 \frac
 {}
@@ -552,6 +553,14 @@ e \Coloneqq & \\
 \frac
 {}
 {\Phi \vdash \text{unsigned} : \text{Signedness}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Size} : \Delta} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Signedness} : \Delta}
 \end{gather*}
 
 \subsubsection{Boolean Logic}
@@ -560,7 +569,7 @@ e \Coloneqq & \\
 & \text{true} \\
 & \text{false} \\
 & \text{if} (e) \{ e' \} \text{else} \{ e'' \} \\
-\sigma, \tau, \pi \Coloneqq & \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & \text{Boolean}
 \end{align*}
 
@@ -596,7 +605,7 @@ c \Coloneqq & \\
 \begin{gather*}
 \frac
 {}
-{\Phi \vdash \text{Copy} (\text{Number} (\rho, \rho'))} \\
+{\Phi \vdash \text{Copy} (\rho \, \text{integer} (\rho'))} \\
 \\
 \frac
 {}
@@ -618,7 +627,19 @@ c \Coloneqq & \\
 \end{gather*}
 
 \subsection{Subtyping}
-
+\begin{gather*}
+\frac
+{\Phi \vdash \sigma : \kappa \quad \Phi \vdash \kappa \vdash \boxvoid^\text{Subtypable}}
+{\Phi \vdash \sigma \succeq \sigma} \\
+\\
+\frac
+{\Phi \vdash \sigma \succeq \pi \quad \Phi \vdash \pi \succeq \tau}
+{\Phi \vdash \sigma \succeq \tau} \\
+\\
+\frac
+{(\alpha : \kappa + \{ \overline c \} + \{ \tau, \tau', \dots \sigma \}) \in \Phi }
+{\Phi \vdash \alpha \succeq \sigma}
+\end{gather*}
 
 \section{Simple Language}
 The is the internal intermediate language used before C code generation.

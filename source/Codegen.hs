@@ -1,8 +1,8 @@
 module Codegen where
 
 import Ast.Common hiding (fresh)
-import Ast.Kind (KindRuntime (..), KindSignedness (..), KindSize (..))
 import Ast.Term
+import Ast.Type (KindRuntime (..), KindSignedness (..), KindSize (..))
 import qualified C.Ast as C
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, put)

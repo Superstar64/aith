@@ -2,8 +2,6 @@
 
 module TypeCheck.Core where
 
-import Ast.Kind
-import Ast.Sort
 import Ast.Term
 import Ast.Type
 import Control.Monad.Trans.Class (lift)
@@ -29,30 +27,26 @@ instance Bounded Level where
 data TypeError p
   = UnknownIdentifier p TermIdentifier
   | UnknownTypeIdentifier p TypeIdentifier
-  | UnknownKindIdentifier p KindIdentifier
   | InvalidUsage p TermIdentifier
   | TypeMismatch p TypeUnify TypeUnify
-  | TypeMisrelation p TypeUnify TypeUnify
-  | KindMismatch p KindUnify KindUnify
-  | SortMismatch p Sort Sort
+  | TypeMisrelation p TypeSub TypeSub
   | TypeOccursCheck p TypeLogical TypeUnify
-  | KindOccursCheck p KindLogical KindUnify
-  | AmbiguousType p
-  | AmbiguousKind p
+  | AmbiguousType p TypeInfer
   | EscapingSkolemType p TypeIdentifier TypeUnify
-  | EscapingSkolemKind p KindIdentifier KindUnify
   | CaptureLinear p TermIdentifier
   | ExpectedTypeAnnotation p
   | ConstraintMismatch p Constraint TypeUnify
-  | ConstraintKindError p Constraint KindUnify
+  | ConstraintKindError p Constraint TypeUnify
   | ExpectedFunctionLiteral p
   | ExpectedTypeVariable p
-  | NoCommonMeet p TypeInfer TypeInfer
+  | NoCommonMeet p TypeSub TypeSub
   | MismatchedTypeLambdas p
   | ExpectedFullAnnotation p
   | ExpectedTypeAbstraction p
   | ExpectedPlainType p
   | IncorrectRegionBounds p
+  | NotTypable p
+  | ExpectedSubtypable p
   deriving (Show)
 
 newtype Core p a = Core {runCore'' :: ReaderT (CoreEnvironment p) (StateT (CoreState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
@@ -66,27 +60,19 @@ runCore c = (fmap fst .) . runCore' c
 
 data CoreEnvironment p = CoreEnvironment
   { typeEnvironment :: Map TermIdentifier (p, Multiplicity, TypeSchemeUnify),
-    kindEnvironment :: Map TypeIdentifier (p, KindUnify, Set Constraint, Set TypeInfer, Level),
-    sortEnvironment :: Map KindIdentifier (p, Sort, Level)
+    kindEnvironment :: Map TypeIdentifier (p, TypeUnify, Set Constraint, Set TypeSub, Level)
   }
   deriving (Functor, Show)
 
 data TypeLogicalState p
-  = UnboundTypeLogical p KindUnify (Set Constraint) [TypeUnify] (Maybe TypeInfer) Level
+  = UnboundTypeLogical p TypeUnify (Set Constraint) [TypeUnify] (Maybe TypeSub) Level
   | LinkTypeLogical TypeUnify
-  deriving (Show, Functor)
-
-data KindLogicalState p
-  = UnboundKindLogical p Sort Level
-  | LinkKindLogical KindUnify
   deriving (Show, Functor)
 
 -- todo use int maps here
 data CoreState p = CoreState
   { typeLogicalMap :: Map TypeLogical (TypeLogicalState p),
-    kindLogicalMap :: Map KindLogical (KindLogicalState p),
     freshTypeCounter :: Int,
-    freshKindCounter :: Int,
     levelCounter :: Int,
     usedVars :: Set String
   }
@@ -94,7 +80,7 @@ data CoreState p = CoreState
 
 quit e = Core $ lift $ lift $ Left e
 
-emptyEnvironment = CoreEnvironment Map.empty Map.empty Map.empty
+emptyEnvironment = CoreEnvironment Map.empty Map.empty
 
 askEnvironment = Core ask
 
@@ -117,35 +103,35 @@ augmentTypeEnvironment x p l σ = modifyTypeEnvironment (Map.insert x (p, l, σ)
   where
     modifyTypeEnvironment f (Core r) = Core $ withReaderT (\env -> env {typeEnvironment = f (typeEnvironment env)}) r
 
-lookupKindEnvironment :: TypeIdentifier -> Core p (Maybe (p, KindUnify, Set Constraint, Set TypeInfer, Level))
+lookupKindEnvironment :: TypeIdentifier -> Core p (Maybe (p, TypeUnify, Set Constraint, Set TypeSub, Level))
 lookupKindEnvironment x = do
   xΓ <- Core ask
   pure $ Map.lookup x (kindEnvironment xΓ)
 
-indexKindEnvironment :: TypeIdentifier -> Core p (p, KindUnify, Set Constraint, Set TypeInfer, Level)
+indexKindEnvironment :: TypeIdentifier -> Core p (p, TypeUnify, Set Constraint, Set TypeSub, Level)
 indexKindEnvironment x = do
   xΓ <- Core ask
   if x `Map.notMember` kindEnvironment xΓ
     then error $ "Bad Type Variable " ++ show x
     else pure $ kindEnvironment xΓ ! x
 
-lowerTypeBounds :: TypeInfer -> Core p (Set TypeInfer)
-lowerTypeBounds (TypeCore (TypeVariable x)) = do
+lowerTypeBounds :: TypeSub -> Core p (Set TypeSub)
+lowerTypeBounds (TypeVariable x) = do
   (_, _, _, π, _) <- indexKindEnvironment x
   pure π
-lowerTypeBounds π = pure (Set.singleton π)
+lowerTypeBounds World = pure (Set.singleton World)
 
 modifyKindEnvironment f (Core r) = Core $ withReaderT (\env -> env {kindEnvironment = f (kindEnvironment env)}) r
 
 -- todo assertions to avoid shadowing
 augmentKindEnvironment p x κ c π lev f = do
-  πs <- Set.insert (TypeCore $ TypeVariable x) <$> closure π
+  πs <- Set.insert (TypeVariable x) <$> closure π
   modifyKindEnvironment (Map.insert x (p, κ, c, πs, lev)) f
   where
-    closure :: Set TypeInfer -> Core p (Set TypeInfer)
+    closure :: Set TypeSub -> Core p (Set TypeSub)
     closure x = fold <$> traverse lowerTypeBounds (Set.toList x)
 
-augmentKindSkolem p x κ = modifyKindEnvironment (Map.insert x (p, κ, c, π, minBound))
+augmentKindUnify occurs p x κ = modifyKindEnvironment (Map.insert x (p, κ, c, π, if occurs then minBound else maxBound))
   where
     c = error "constraints used during unification"
     π = error "bottom used during unification"
@@ -158,45 +144,15 @@ augmentTypePatternLevel (TypePatternIntermediate p x κ c π) f = do
   leaveLevel
   pure f'
 
-augmentTypePatternBottom (TypePatternIntermediate p x κ _ _) f = do
-  useTypeVar x
-  modifyKindEnvironment (Map.insert x (p, κ, c, π, sk)) f
-  where
-    c = error $ "constraints used during kind checking" ++ show x
-    π = error $ "bottom used during kind checking" ++ show x
-    sk = error $ "level usage during kind checking " ++ show x
-
-lookupSortEnvironment :: KindIdentifier -> Core p (Maybe (p, Sort, Level))
-lookupSortEnvironment x = do
-  xΓ <- Core ask
-  pure $ Map.lookup x (sortEnvironment xΓ)
-
-indexSortEnvironment :: KindIdentifier -> Core p (p, Sort, Level)
-indexSortEnvironment x = do
-  xΓ <- Core ask
-  pure $ sortEnvironment xΓ ! x
-
-augmentSortEnvironment :: KindIdentifier -> p -> Sort -> Level -> Core p a -> Core p a
-augmentSortEnvironment x p μ sk = modifySortEnvironment (Map.insert x (p, μ, sk))
-  where
-    modifySortEnvironment f (Core r) = Core $ withReaderT (\env -> env {sortEnvironment = f (sortEnvironment env)}) r
-
-augmentSortSkolem :: p -> KindIdentifier -> Sort -> Core p a -> Core p a
-augmentSortSkolem p x μ f = augmentSortEnvironment x p μ maxBound f
-
-augmentKindPatternBottom (KindPatternIntermediate p x μ) f = do
-  useKindVar x
-  augmentSortEnvironment x p μ (error $ "level usage during sort checking " ++ show x) f
-
 augmentKindPatternLevel (KindPatternIntermediate p x μ) f = do
   enterLevel
-  useKindVar x
+  useTypeVar x
   lev <- Level <$> currentLevel
-  f' <- augmentSortEnvironment x p μ lev f
+  f' <- augmentKindEnvironment p x μ Set.empty Set.empty lev f
   leaveLevel
   pure f'
 
-emptyState = CoreState Map.empty Map.empty 0 0 0 Set.empty
+emptyState = CoreState Map.empty 0 0 Set.empty
 
 getState = Core $ lift $ get
 
@@ -212,25 +168,18 @@ modifyTypeLogicalMap f = do
       { typeLogicalMap = f $ typeLogicalMap state
       }
 
-getKindLogicalMap = kindLogicalMap <$> getState
-
-modifyKindLogicalMap f = do
-  modifyState $ \state ->
-    state
-      { kindLogicalMap = f $ kindLogicalMap state
-      }
-
 modifyLevelCounter :: (Int -> Int) -> Core p ()
 modifyLevelCounter f = do
   modifyState $ \state -> state {levelCounter = f $ levelCounter state}
 
 enterLevel = modifyLevelCounter (+ 1)
 
+-- todo lower levels of all type variables in state
 leaveLevel = modifyLevelCounter (subtract 1)
 
 currentLevel = levelCounter <$> getState
 
-freshTypeVariableRaw :: p -> KindUnify -> Set Constraint -> [TypeUnify] -> Maybe TypeInfer -> Level -> Core p TypeLogical
+freshTypeVariableRaw :: p -> TypeUnify -> Set Constraint -> [TypeUnify] -> Maybe TypeSub -> Level -> Core p TypeLogical
 freshTypeVariableRaw p κ c lower upper lev = do
   v <- TypeLogicalRaw <$> newFreshType
   insertTypeLogicalMap v
@@ -245,6 +194,8 @@ freshTypeVariableRaw p κ c lower upper lev = do
       state <- getState
       putState state {typeLogicalMap = Map.insert x (UnboundTypeLogical p κ c lower upper lev) $ typeLogicalMap state}
 
+freshKindVariableRaw p μ lev = freshTypeVariableRaw p μ Set.empty [] Nothing lev
+
 indexTypeLogicalMap :: TypeLogical -> Core p (TypeLogicalState p)
 indexTypeLogicalMap x = do
   vars <- typeLogicalMap <$> getState
@@ -252,32 +203,6 @@ indexTypeLogicalMap x = do
     then error $ "Bad Type Logical " ++ show x
     else pure $ vars ! x
 
-freshKindVariableRaw :: p -> Sort -> Level -> Core p KindLogical
-freshKindVariableRaw p μ lev = do
-  v <- KindLogicalRaw <$> newFreshKind
-  insertKindLogicalMap v
-  pure $ v
-  where
-    newFreshKind = do
-      state <- getState
-      let i = freshKindCounter state
-      putState state {freshKindCounter = i + 1}
-      pure i
-    insertKindLogicalMap x = do
-      state <- getState
-      putState state {kindLogicalMap = Map.insert x (UnboundKindLogical p μ lev) $ kindLogicalMap state}
-
-indexKindLogicalMap :: KindLogical -> Core p (KindLogicalState p)
-indexKindLogicalMap x = do
-  vars <- kindLogicalMap <$> getState
-  if x `Map.notMember` vars
-    then error $ "Bad Kind Logical" ++ show x
-    else pure $ vars ! x
-
 useTypeVar :: TypeIdentifier -> Core p ()
 useTypeVar (TypeIdentifier x) = do
-  modifyState $ \state -> state {usedVars = Set.insert x $ usedVars state}
-
-useKindVar :: KindIdentifier -> Core p ()
-useKindVar (KindIdentifier x) = do
   modifyState $ \state -> state {usedVars = Set.insert x $ usedVars state}

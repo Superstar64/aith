@@ -202,12 +202,6 @@ Files start with `code` `:::`.
 | Pair Destruction | ``pm , pm'`` |
 | Unit Destruction | ``()`` |
 
-## Auto Type (σa)
-| Description | Syntax |
-|-|-|
-| Type | ``σ`` |
-| Hole | ``_`` |
-
 # Scheme(ς)
 | Description | Syntax |
 |-|-|
@@ -228,10 +222,30 @@ Files start with `code` `:::`.
 | Unique | ``unique σ`` |
 | Shared | ``σ @ π`` |
 | Pointer | ``σ[τ]`` |
-| Wildcard | ``*`` |
-| Number | ``#ρ ρ'`` |
+| Wildcard | ``:`` |
+| Number | ``ρ integer(ρ')`` |
 | Boolean | ``bool`` |
 | IO Region | ``io`` |
+| Type | ``*`` |
+| Pretype | ``+[s]`` |
+| Boxed | ``-`` |
+| Capacity | ``capacity`` |
+| Region | ``region`` |
+| Pointer Representation | ``pointer``|
+| Struct Representation | ``struct (ρ, ρ', ...)`` |
+| Word Representation | ``ρ word`` |
+| Signed | ``signed`` |
+| Unsigned | ``unsigned`` |
+| Byte Size | ``8bit``|
+| Short Size | ``16bit``|
+| Int Size | ``32bit`` |
+| Long Size | ``64bit`` |
+| Native Size | ``native`` |
+| Kind | ``[κ]`` |
+| Representation | ``representation`` |
+| Signedness | ``signedness`` |
+| Size | ``size`` |
+
 
 # Types (Syntax Sugar) (σ, τ, π)
 | Description | Syntax | Meaning |
@@ -259,44 +273,13 @@ Files start with `code` `:::`.
 |-|-|
 | Copy | ``copy`` |
 
-## Auto Kind (κa)
-| Description | Syntax |
-|-|-|
-| Kind | ``κ`` |
-| Hole | ``_`` |
 
-## Kinds(κ,s,ρ)
-| Description | Syntax |
-|-|-|
-| Variable | ``x`` |
-| Type | ``*`` |
-| Pretype | ``+[s]`` |
-| Boxed | ``-`` |
-| Capacity | ``capacity`` |
-| Region | ``region`` |
-| Pointer Representation | ``pointer``|
-| Struct Representation | ``struct (ρ, ρ', ...)`` |
-| Word Representation | ``word ρ`` |
-| Signed | ``signed`` |
-| Unsigned | ``unsigned`` |
-| Byte Size | ``byte``|
-| Short Size | ``short``|
-| Int Size | ``int`` |
-| Long Size | ``long`` |
-| Native Size | ``native`` |
 
 # Kind Pattern (pmκ)
 | Description | Syntax |
 |-|-|
 | Variable Ascribe | ``x : μ`` |
 
-## Sorts(μ)
-| Description | Syntax |
-|-|-|
-| Kind | ``[ ]`` |
-| Representation | ``representation`` |
-| Signedness | ``signedness`` |
-| Size | ``size`` |
 
 # C Compiler Requirements
 This list may be incomplete.
