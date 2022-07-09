@@ -675,6 +675,7 @@ defaultType p μ _ Nothing = do
     Substitutability -> pure $ TypeCore $ Invariant
     Sort -> pure $ TypeCore $ Kind $ TypeCore $ Invariant
     Region -> pure $ TypeCore $ TypeSub World
+    Length -> pure $ TypeCore $ Wildcard
     (TypeLogical v) -> absurd v
     _ -> quit $ AmbiguousType p μ'
 
@@ -769,18 +770,24 @@ typeCheckGlobalAuto inline e = do
   (e, ς) <- generalize inline (e, σ)
   pure (e, ς)
 
+typeCheckGlobalSemi ::
+  TermSchemeSource p -> Core p (TermSchemeInfer p, TypeSchemeInfer)
+typeCheckGlobalSemi e = do
+  CheckedScheme e ς _ <- typeCheckScheme e
+  ς <- finish ς
+  e <- finish e
+  pure (e, ς)
+
 typeCheckGlobalManual ::
   forall p.
   TermSchemeSource p ->
-  TypeSchemeAuto p ->
+  TypeSchemeSource p ->
   Core p (TermSchemeInfer p, TypeSchemeInfer)
-typeCheckGlobalManual e ς = case ς of
-  Nothing -> error "todo handle type lambdas without annotation"
-  Just ς -> do
-    (ς, _) <- firstM finish =<< kindCheckScheme ς
-    e <- go ς e
-    e <- finish e
-    pure (e, ς)
+typeCheckGlobalManual e ς = do
+  (ς, _) <- firstM finish =<< kindCheckScheme ς
+  e <- go ς e
+  e <- finish e
+  pure (e, ς)
   where
     go :: TypeSchemeInfer -> TermSchemeSource p -> Core p (TermSchemeUnify p)
     go (TypeSchemeCore (MonoType σ)) (TermSchemeSource p (MonoTerm e)) = do
@@ -789,11 +796,25 @@ typeCheckGlobalManual e ς = case ς of
       pure (TermSchemeCore p $ MonoTerm e)
     go
       (TypeSchemeCore (TypeForall (Bound (TypePattern x κ c π) ς)))
-      (TermSchemeSource _ (TypeAbstraction (Bound (TypePatternSource p x' _ _ _) e))) = do
+      (TermSchemeSource _ (TypeAbstraction (Bound (TypePatternSource p x' κ' c' π') e))) = do
         ς <- pure $ flexible ς
         κ <- pure $ flexible κ
+        case κ' of
+          Just κ' -> do
+            (κ', _) <- kindCheck κ'
+            matchType p κ κ'
+          Nothing -> pure ()
+        -- this is a bit hacky to assume no constraints mean any constraints
+        case π' of
+          [] -> pure ()
+          _ -> do
+            (π', _) <- unzip <$> traverse kindCheck π'
+            sequence $ zipWith (matchType p) (map flexible π) π'
+            pure ()
+        case c' of
+          c' | Set.null c' || c == c' -> pure ()
+          _ -> quit $ BadConstraintAnnotation p
         π <- pure $ map assumeSub π
-        -- todo handle constrains and bounds
         e' <- augmentKindEnvironment p x' κ c (Set.fromList π) minBound $ go (convertType x' x ς) e
         pure $ TermSchemeCore p $ TypeAbstraction (Bound (TypePattern x' κ c (map (TypeCore . TypeSub) π)) e')
         where
@@ -801,10 +822,48 @@ typeCheckGlobalManual e ς = case ς of
           assumeSub _ = error "not sub"
     go
       (TypeSchemeCore (KindForall (Bound (KindPattern x μ) ς)))
-      (TermSchemeSource _ (KindAbstraction (Bound (KindPatternSource p x' _) e))) = do
+      (TermSchemeSource _ (KindAbstraction (Bound (KindPatternSource p x' μ') e))) = do
+        case μ' of
+          Just μ' -> do
+            (μ', _) <- kindCheck μ'
+            matchType p (flexible μ) μ'
+          Nothing -> pure ()
         e' <- augmentKindEnvironment p x' (flexible μ) Set.empty Set.empty minBound $ go (convertType x' x ς) e
         pure $ TermSchemeCore p $ KindAbstraction $ Bound (KindPattern x' $ flexible μ) e'
     go _ (TermSchemeSource p _) = quit $ MismatchedTypeLambdas p
+
+typeCheckGlobalScope ::
+  forall p.
+  TermSource p ->
+  TypeSchemeSource p ->
+  Core p (TermSchemeInfer p, TypeSchemeInfer)
+typeCheckGlobalScope e@(TermSource p _) ς = do
+  (ς, _) <- firstM finish =<< kindCheckScheme ς
+  e <- go ς
+  e <- finish e
+  pure (e, ς)
+  where
+    go :: TypeSchemeInfer -> Core p (TermSchemeUnify p)
+    go (TypeSchemeCore (MonoType σ)) = do
+      Checked e σ' _ <- typeCheck e
+      matchType p (flexible σ) σ'
+      pure (TermSchemeCore p $ MonoTerm e)
+    go
+      (TypeSchemeCore (TypeForall (Bound (TypePattern x κ c π) ς))) =
+        do
+          ς <- pure $ flexible ς
+          κ <- pure $ flexible κ
+          π <- pure $ map assumeSub π
+          e' <- augmentKindEnvironment p x κ c (Set.fromList π) minBound $ go ς
+          pure $ TermSchemeCore p $ TypeAbstraction (Bound (TypePattern x κ c (map (TypeCore . TypeSub) π)) e')
+        where
+          assumeSub (TypeCore (TypeSub σ)) = σ
+          assumeSub _ = error "not sub"
+    go
+      (TypeSchemeCore (KindForall (Bound (KindPattern x μ) ς))) =
+        do
+          e' <- augmentKindEnvironment p x (flexible μ) Set.empty Set.empty minBound $ go ς
+          pure $ TermSchemeCore p $ KindAbstraction $ Bound (KindPattern x $ flexible μ) e'
 
 syntaticCheck :: (TermSchemeInfer p, TypeSchemeInfer) -> Core p (TermSchemeInfer p, TypeSchemeInfer)
 syntaticCheck (e@(TermSchemeCore p _), ς) = do

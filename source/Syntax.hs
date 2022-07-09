@@ -226,7 +226,7 @@ typex = typeLambda
         apply = ptr `branchDistribute` shared
         ptr = withInnerPosition Language.typeSource Language.pointer
         shared = withInnerPosition Language.typeSource Language.shared
-    typeInt = apply ⊣ kindWord ⊗ (space ≫ keyword "integer" ≫ betweenParens typex ⊕ always)
+    typeInt = integers ∥# apply ⊣ kindWord ⊗ (space ≫ keyword "integer" ≫ betweenParens typex ⊕ always)
       where
         apply = num `branchDistribute` unit'
         num = withInnerPosition Language.typeSource Language.number
@@ -234,23 +234,29 @@ typex = typeLambda
       where
         word = withInnerPosition1 Language.typeSource Language.wordRep
 
-typeCore :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
-typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ betweenParensElse unit typeFull
-  where
-    unit = Language.typeSource ⊣ position ⊗ (Language.unit ⊣ always)
-    shortcut name signed size = Language.number ⊣ keyword name ≫ lit signed ⊗ lit size
-      where
-        lit x = Language.typeSource ⊣ position ⊗ (x ⊣ always)
-    options =
-      [ Language.typeVariable ⊣ typeIdentifier,
-        shortcut "byte" Language.signed Language.byte,
+integers =
+  Language.typeSource ⊣ position
+    ⊗ choice
+      [ shortcut "byte" Language.signed Language.byte,
         shortcut "short" Language.signed Language.short,
         shortcut "int" Language.signed Language.int,
         shortcut "long" Language.signed Language.long,
         shortcut "ubyte" Language.unsigned Language.byte,
         shortcut "ushort" Language.unsigned Language.short,
         shortcut "uint" Language.unsigned Language.int,
-        shortcut "ulong" Language.unsigned Language.long,
+        shortcut "ulong" Language.unsigned Language.long
+      ]
+  where
+    shortcut name signed size = Language.number ⊣ keyword name ≫ lit signed ⊗ lit size
+      where
+        lit x = Language.typeSource ⊣ position ⊗ (x ⊣ always)
+
+typeCore :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
+typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers ∥ betweenParensElse unit typeFull
+  where
+    unit = Language.typeSource ⊣ position ⊗ (Language.unit ⊣ always)
+    options =
+      [ Language.typeVariable ⊣ typeIdentifier,
         Language.boolean ⊣ keyword "bool",
         Language.world ⊣ keyword "io",
         Language.ofCourse ⊣ betweenBangSquares typeFull,
@@ -491,33 +497,30 @@ item name delimit footer footer' lambda =
     itemTerm brand wrap = secondP wrap ⊣ associate ⊣ item
       where
         item =
-          redundent "Type annotation doesn't match definition" $
-            firstI (imap $ secondI wrapType . associate)
-              ⊣ secondI (secondI applyControl . associate)
-              ⊣ declaration
+          redundent "Type annotation doesn't match definition" declaration
 
-        applyControl :: Isomorph (Maybe (Scheme p), Language.TermSource p) (Language.TermControlSource p)
-        applyControl = assumeIsomorph $ (auto `branchDistribute` manual) . toPrism swap . firstP (toPrism $ inverse maybe')
+        declaration :: δ (Maybe (a, Language.TypeSchemeSource p), (a, Language.TermControlSource p))
+        declaration = typed `branchDistribute` semiAutomatic `branchDistribute` auto ⊣ decleration'
           where
-            auto = Language.termAutoSource . toPrism unit . toPrism swap
-            manual = Language.termManualSource . toPrism wrapTerm . toPrism swap
+            decleration' = brand ≫ name ⊗ (signatured ⊕ plain)
+              where
+                signatured = otherwise `branchDistribute` semiAutomatic ⊣ scheme ⊗ (annotated ⊕ plain)
+                  where
+                    semiAutomatic = right . toPrism wrapTerm
+                    otherwise = left . toPrism (firstI wrapType . associate')
 
-        declaration :: δ (Maybe ((a, Scheme p), Language.TypeSource p), ((a, Maybe (Scheme p)), Language.TermSource p))
-        declaration = apply ⊣ brand ≫ name ⊗ (scheme ⊗ (annotated ⊕ plain) ⊕ plain)
-
-        apply = ((applyManualFull `branchDistribute` applyManualLite) . toPrism associate') `branchDistribute` applyAuto
-        applyManualFull = secondP (firstP (secondP just)) . firstP just . toPrism associate'
-        applyManualLite = firstP nothing . toPrism (inverse unit) . firstP (secondP just)
-        applyAuto = firstP nothing . toPrism (inverse unit) . firstP (secondP nothing . toPrism (inverse unit'))
-
-        annotated :: δ (Language.TypeSource p, ((a, Scheme p), Language.TermSource p))
-        annotated = annotate ≪ footer' ⊗ (brand ≫ name ⊗ scheme ⊗ binding ≪ footer)
+                    annotated :: δ (Language.TypeSource p, (a, Language.TermControlSource p))
+                    annotated = binaryToken ":" ≫ typex ≪ footer' ⊗ (brand ≫ name ⊗ (manual ∥ scoped) ≪ footer)
+                      where
+                        manual = Language.termManualSource ⊣ wrapTerm ⊣ scheme ⊗ binding
+                        scoped = Language.termAutoSource ⊣ binding
+            notype = firstP nothing . toPrism (inverse unit)
+            semiAutomatic = notype . secondP Language.termManualSource
+            auto = notype . secondP Language.termAutoSource
+            typed = firstP just . toPrism associate'
 
         plain :: δ (Language.TermSource p)
         plain = binding ≪ footer
-
-        annotate :: δ (Language.TypeSource p)
-        annotate = binaryToken ":" ≫ typex
 
         binding :: δ (Language.TermSource p)
         binding = delimit ≫ term

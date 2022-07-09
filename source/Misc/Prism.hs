@@ -38,9 +38,7 @@ singleton :: Prism a [a]
 singleton = cons . secondP nil . toPrism (inverse unit')
 
 just :: Prism a (Maybe a)
-just = Prism Just $ \case
-  Just x -> Just x
-  Nothing -> Nothing
+just = Prism Just id
 
 nothing :: Prism () (Maybe a)
 nothing = Prism (const Nothing) $ \case
@@ -93,6 +91,12 @@ foldrP (Prism f g) = Isomorph f' g'
         where
           (items, last) = g' t
 
+-- note
+-- this combinator may not be as safe as it appears (and as I originally thought)
+-- `branch a a` never pick the second case
+
+-- seemingly associative
+-- not commutative
 branch :: (ToPrism f, ToPrism g) => f a c -> g b c -> Prism (Either a b) c
 branch a b = Prism pick prefer
   where

@@ -47,6 +47,7 @@ data TypeError p
   | IncorrectRegionBounds p
   | NotTypable p
   | ExpectedSubtypable p
+  | BadConstraintAnnotation p
   deriving (Show)
 
 newtype Core p a = Core {runCore'' :: ReaderT (CoreEnvironment p) (StateT (CoreState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)

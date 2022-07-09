@@ -258,3 +258,15 @@ module borrowed = {
 		p
 	};
 };
+
+module partial = {
+	inline auto = \x => x;
+	
+	inline semi<A> = \x : A => x;
+
+	inline scoped<A> : A -> A;
+	inline scoped = \x : A => x;
+
+	inline manual<A> : A -> A;
+	inline manual<A> = \x => x;
+};
