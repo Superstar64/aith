@@ -42,7 +42,6 @@ flatten = Map.fromList . go
 
 data GlobalF ς p e
   = Inline ς e
-  | Import p Path
   | Text ς e
   deriving (Show)
 
@@ -51,13 +50,11 @@ data GlobalSource p = GlobalSource (GlobalF (TypeSchemeAuto p) p (TermControlSou
 instance Location GlobalSource where
   location (GlobalSource (Inline _ (TermManualSource (TermSchemeSource p _)))) = p
   location (GlobalSource (Inline _ (TermAutoSource (TermSource p _)))) = p
-  location (GlobalSource (Import p _)) = p
   location (GlobalSource (Text _ (TermManualSource (TermSchemeSource p _)))) = p
   location (GlobalSource (Text _ (TermAutoSource (TermSource p _)))) = p
 
 instance Functor GlobalSource where
   fmap f (GlobalSource (Inline ς e)) = GlobalSource $ Inline (fmap (fmap f) ς) (fmap f e)
-  fmap f (GlobalSource (Import p path)) = GlobalSource $ Import (f p) path
   fmap f (GlobalSource (Text ς e)) = GlobalSource $ Text (fmap (fmap f) ς) (fmap f e)
 
 data GlobalInfer p = GlobalInfer (GlobalF TypeSchemeInfer p (TermSchemeInfer p))
@@ -74,10 +71,6 @@ global = Prism (Global . GlobalSource) $ \case
 
 inline = Prism (uncurry Inline) $ \case
   (Inline σ e) -> Just (σ, e)
-  _ -> Nothing
-
-importx = Prism (uncurry Import) $ \case
-  (Import p path) -> Just (p, path)
   _ -> Nothing
 
 text = Prism (uncurry Text) $ \case
@@ -106,15 +99,19 @@ order code = sortTopological view quit children globals
           _ -> pure [(path, global)]
 
     extractTerm (TermIdentifier x) = x
+    extractGlobalTerm (TermGlobalIdentifier x) = x
 
     depend :: Semigroup p => GlobalSource p -> Path -> Map Path p
-    depend (GlobalSource (Inline _ e)) (Path location _) = Map.mapKeysMonotonic (Path location) (freeTerm)
+    depend (GlobalSource (Inline _ e)) (Path location _) = Map.unionWith (<>) freeTerm freeGlobalTerm
       where
-        freeTerm = Map.mapKeysMonotonic extractTerm $ runVariables $ freeVariablesTermSource e
-    depend (GlobalSource (Text _ e)) (Path location _) = Map.mapKeysMonotonic (Path location) (freeTerm)
+        freeTerm = Map.mapKeysMonotonic (Path location) freeTerm'
+        freeTerm' = Map.mapKeysMonotonic extractTerm $ runVariables $ freeVariablesTermSource e
+        freeGlobalTerm = Map.mapKeysMonotonic extractGlobalTerm $ runVariables $ freeVariablesGlobalTermSource e
+    depend (GlobalSource (Text _ e)) (Path location _) = Map.unionWith (<>) freeTerm freeGlobalTerm
       where
-        freeTerm = Map.mapKeysMonotonic extractTerm $ runVariables $ freeVariablesTermSource e
-    depend (GlobalSource (Import p path)) _ = Map.singleton path p
+        freeTerm = Map.mapKeysMonotonic (Path location) freeTerm'
+        freeTerm' = Map.mapKeysMonotonic extractTerm $ runVariables $ freeVariablesTermSource e
+        freeGlobalTerm = Map.mapKeysMonotonic extractGlobalTerm $ runVariables $ freeVariablesGlobalTermSource e
 
     resolve :: p -> Module (GlobalSource p) -> Path -> Either (ModuleError p) (GlobalSource p)
     resolve p (CoreModule code) path = go code path
@@ -151,8 +148,6 @@ mangle (Path path name) = Symbol $ (concat $ map (++ "_") $ extract <$> path) ++
   where
     extract x = x
 
-prepareContext = curryMap . monotonic (inverse path) . flatten
-
 forwardDeclarations :: Module (GlobalSource p) -> Module (TypeSchemeSource p)
 forwardDeclarations = mapMaybe forward
   where
@@ -164,30 +159,20 @@ validateDeclarations = traverse $ \ς@(TypeSchemeSource p _) -> do
   ς <- runCore (do (ς, _) <- kindCheckScheme ς; finish ς) emptyEnvironment emptyState
   pure (p, ς)
 
-forwardDeclare :: Module (p, TypeSchemeInfer) -> Map [String] (CoreEnvironment p)
-forwardDeclare = fmap basic . prepareContext
+forwardDeclare :: Module (p, TypeSchemeInfer) -> CoreEnvironment p
+forwardDeclare declarations = emptyEnvironment {typeGlobalEnviroment = globals}
   where
-    basic declerations =
-      emptyEnvironment
-        { typeEnvironment = types $ identifers declerations
-        }
-      where
-        identifers = Map.mapKeysMonotonic TermIdentifier
-        types = fmap (\(p, ς) -> (p, Unrestricted, convertFunctionLiteral $ flexible ς))
+    globals = Map.mapKeysMonotonic TermGlobalIdentifier $ Map.map (\(p, ς) -> TermBinding p Unrestricted $ convertFunctionLiteral $ flexible ς) $ flatten declarations
 
 convertFunctionLiteral ς = case ς of
   TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ π τ))) -> polyEffect "R" (TypeCore $ FunctionPointer σ π τ)
   TypeSchemeCore (TypeForall (Bound pm ς)) -> TypeSchemeCore $ TypeForall (Bound pm $ convertFunctionLiteral ς)
   _ -> error "not function literal"
 
-forwardDefine :: Module (p, TypeSchemeInfer) -> Map [String] (Map TermIdentifier (TermSchemeInfer p, TypeSchemeInfer))
-forwardDefine =
-  Map.mapWithKey (\heading -> identifers . Map.mapWithKey (make heading)) . prepareContext
+forwardDefine :: Module (p, TypeSchemeInfer) -> Map TermGlobalIdentifier (TermSchemeInfer p, TypeSchemeInfer)
+forwardDefine = Map.mapKeysMonotonic TermGlobalIdentifier . Map.mapWithKey definition . flatten
   where
-    identifers = Map.mapKeysMonotonic TermIdentifier
-    make heading name (p, ς) = (makeExtern path p ς, ς)
-      where
-        path = Path heading name
+    definition path (p, ς) = (makeExtern path p ς, ς)
 
 makeExtern ::
   Path ->
@@ -204,13 +189,19 @@ makeExtern path p ς = case ς of
     TermSchemeCore p (TypeAbstraction (Bound (TypePattern x κ c π) $ makeExtern path p e))
   _ -> error "not function literal"
 
+bindMembers :: [String] -> CoreEnvironment p -> CoreEnvironment p
+bindMembers heading environment = environment {typeEnvironment = Map.foldrWithKey bind Map.empty (typeGlobalEnviroment environment)}
+  where
+    bind (TermGlobalIdentifier (Path heading' name)) e σΓ | heading == heading' = Map.insert (TermIdentifier name) e σΓ
+    bind _ _ σΓ = σΓ
+
 typeCheckModule ::
-  Map [String] (CoreEnvironment p) ->
+  CoreEnvironment p ->
   [(Path, GlobalSource p)] ->
   Either (TypeError p) [(Path, GlobalInfer p)]
 typeCheckModule _ [] = pure []
-typeCheckModule environments ((path@(Path heading name), item) : nodes) = do
-  let environment = Map.findWithDefault emptyEnvironment heading environments
+typeCheckModule environment ((path@(Path heading _), item) : nodes) = do
+  environment <- pure $ bindMembers heading environment
   (item', σ) <- case item of
     GlobalSource (Inline Nothing (TermAutoSource e)) -> do
       (e, σ) <- runCore (typeCheckGlobalAuto True e) environment emptyState
@@ -236,27 +227,25 @@ typeCheckModule environments ((path@(Path heading name), item) : nodes) = do
     GlobalSource (Text Nothing (TermManualSource e)) -> do
       (e, σ) <- runCore (typeCheckGlobalSemi e >>= syntaticCheck) environment emptyState
       pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexible σ)
-    GlobalSource (Import p sym@(Path heading name)) -> do
-      let environment = Map.findWithDefault emptyEnvironment heading environments
-      let (_, _, σ) = typeEnvironment environment Map.! (TermIdentifier name)
-      pure (GlobalInfer $ Import p sym, σ)
-  let augmented =
+  let environment' =
         environment
-          { typeEnvironment = Map.insert (TermIdentifier name) (location item, Unrestricted, σ) $ typeEnvironment environment
+          { typeGlobalEnviroment = Map.insert (TermGlobalIdentifier path) (TermBinding (location item) Unrestricted σ) $ typeGlobalEnviroment environment
           }
-  let environment' = Map.insert heading augmented environments
   ((path, item') :) <$> typeCheckModule environment' nodes
 
 reduceModule ::
-  Map [String] (Map TermIdentifier (TermSchemeInfer p, TypeSchemeInfer)) ->
+  Map TermGlobalIdentifier (TermSchemeInfer p, TypeSchemeInfer) ->
   [(Path, GlobalInfer p)] ->
   [(Path, GlobalInfer p)]
 reduceModule _ [] = []
-reduceModule globals ((path@(Path heading name), item) : nodes) =
+reduceModule globals ((path@(Path heading _), item) : nodes) =
   (path, item') : reduceModule globals' nodes
   where
-    scope = Map.findWithDefault Map.empty heading globals
-    reduceGlobal e = reduce $ foldr (\(x, (ex, _)) -> substituteTerm ex x) e $ Map.toList $ scope
+    reduceGlobal e = reduce $ foldr substitute e $ Map.toList $ globals
+    substitute (x@(TermGlobalIdentifier (Path heading' name')), (ex, _))
+      | heading == heading' =
+        substituteTerm ex (TermIdentifier name') . substituteGlobalTerm ex x
+      | otherwise = substituteGlobalTerm ex x
     (item', (σ', e')) = case item of
       GlobalInfer (Inline σ e) ->
         let e' = reduceGlobal e
@@ -264,7 +253,4 @@ reduceModule globals ((path@(Path heading name), item) : nodes) =
       GlobalInfer (Text σ e@(TermSchemeCore p _)) ->
         let e' = reduceGlobal e
          in (GlobalInfer (Text σ e'), (convertFunctionLiteral σ, makeExtern path p σ))
-      GlobalInfer (Import _ (Path heading name)) ->
-        let (e', σ) = globals Map.! heading Map.! (TermIdentifier name)
-         in (GlobalInfer (Inline σ e'), (σ, e'))
-    globals' = Map.insert heading (Map.insert (TermIdentifier name) (e', σ') scope) globals
+    globals' = Map.insert (TermGlobalIdentifier path) (e', σ') globals

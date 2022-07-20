@@ -26,6 +26,7 @@ instance Bounded Level where
 
 data TypeError p
   = UnknownIdentifier p TermIdentifier
+  | UnknownGlobalIdentifier p TermGlobalIdentifier
   | UnknownTypeIdentifier p TypeIdentifier
   | InvalidUsage p TermIdentifier
   | TypeMismatch p TypeUnify TypeUnify
@@ -57,11 +58,14 @@ runCore' c = runStateT . runReaderT (runCore'' c)
 runCore :: Core p a -> CoreEnvironment p -> CoreState p -> Either (TypeError p) a
 runCore c = (fmap fst .) . runCore' c
 
--- todo define new types for environments
+data TermBinding p = TermBinding p Multiplicity TypeSchemeUnify deriving (Show, Functor)
+
+data TypeBinding p = TypeBinding p TypeUnify (Set Constraint) (Set TypeSub) Level deriving (Show, Functor)
 
 data CoreEnvironment p = CoreEnvironment
-  { typeEnvironment :: Map TermIdentifier (p, Multiplicity, TypeSchemeUnify),
-    kindEnvironment :: Map TypeIdentifier (p, TypeUnify, Set Constraint, Set TypeSub, Level)
+  { typeEnvironment :: Map TermIdentifier (TermBinding p),
+    kindEnvironment :: Map TypeIdentifier (TypeBinding p),
+    typeGlobalEnviroment :: Map TermGlobalIdentifier (TermBinding p)
   }
   deriving (Functor, Show)
 
@@ -81,35 +85,33 @@ data CoreState p = CoreState
 
 quit e = Core $ lift $ lift $ Left e
 
-emptyEnvironment = CoreEnvironment Map.empty Map.empty
+emptyEnvironment = CoreEnvironment Map.empty Map.empty Map.empty
 
 askEnvironment = Core ask
 
 withEnvironment f (Core r) = Core $ withReaderT f r
 
-lookupTypeEnviroment :: TermIdentifier -> Core p (Maybe (p, Multiplicity, TypeSchemeUnify))
+lookupTypeEnviroment :: TermIdentifier -> Core p (Maybe (TermBinding p))
 lookupTypeEnviroment x = do
   xΓ <- Core ask
   pure $ Map.lookup x (typeEnvironment xΓ)
 
-indexTypeEnviroment :: TermIdentifier -> Core p (p, Multiplicity, TypeSchemeUnify)
-indexTypeEnviroment x = do
+lookupTypeGlobalEnviroment :: TermGlobalIdentifier -> Core p (Maybe (TermBinding p))
+lookupTypeGlobalEnviroment x = do
   xΓ <- Core ask
-  if x `Map.notMember` typeEnvironment xΓ
-    then error $ "Bad Variable" ++ show x
-    else pure $ typeEnvironment xΓ ! x
+  pure $ Map.lookup x (typeGlobalEnviroment xΓ)
 
 augmentTypeEnvironment :: TermIdentifier -> p -> Multiplicity -> TypeSchemeUnify -> Core p a -> Core p a
-augmentTypeEnvironment x p l σ = modifyTypeEnvironment (Map.insert x (p, l, σ))
+augmentTypeEnvironment x p l σ = modifyTypeEnvironment (Map.insert x (TermBinding p l σ))
   where
     modifyTypeEnvironment f (Core r) = Core $ withReaderT (\env -> env {typeEnvironment = f (typeEnvironment env)}) r
 
-lookupKindEnvironment :: TypeIdentifier -> Core p (Maybe (p, TypeUnify, Set Constraint, Set TypeSub, Level))
+lookupKindEnvironment :: TypeIdentifier -> Core p (Maybe (TypeBinding p))
 lookupKindEnvironment x = do
   xΓ <- Core ask
   pure $ Map.lookup x (kindEnvironment xΓ)
 
-indexKindEnvironment :: TypeIdentifier -> Core p (p, TypeUnify, Set Constraint, Set TypeSub, Level)
+indexKindEnvironment :: TypeIdentifier -> Core p (TypeBinding p)
 indexKindEnvironment x = do
   xΓ <- Core ask
   if x `Map.notMember` kindEnvironment xΓ
@@ -118,7 +120,7 @@ indexKindEnvironment x = do
 
 lowerTypeBounds :: TypeSub -> Core p (Set TypeSub)
 lowerTypeBounds (TypeVariable x) = do
-  (_, _, _, π, _) <- indexKindEnvironment x
+  TypeBinding _ _ _ π _ <- indexKindEnvironment x
   pure π
 lowerTypeBounds World = pure (Set.singleton World)
 
@@ -127,12 +129,12 @@ modifyKindEnvironment f (Core r) = Core $ withReaderT (\env -> env {kindEnvironm
 -- todo assertions to avoid shadowing
 augmentKindEnvironment p x κ c π lev f = do
   πs <- Set.insert (TypeVariable x) <$> closure π
-  modifyKindEnvironment (Map.insert x (p, κ, c, πs, lev)) f
+  modifyKindEnvironment (Map.insert x (TypeBinding p κ c πs lev)) f
   where
     closure :: Set TypeSub -> Core p (Set TypeSub)
     closure x = fold <$> traverse lowerTypeBounds (Set.toList x)
 
-augmentKindUnify occurs p x κ = modifyKindEnvironment (Map.insert x (p, κ, c, π, if occurs then minBound else maxBound))
+augmentKindUnify occurs p x κ = modifyKindEnvironment (Map.insert x (TypeBinding p κ c π (if occurs then minBound else maxBound)))
   where
     c = error "constraints used during unification"
     π = error "bottom used during unification"

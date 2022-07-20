@@ -67,7 +67,7 @@ typeOccursCheck p x lev σ' = go σ'
     go (TypeCore σ) = do
       case σ of
         TypeSub (TypeVariable x') -> do
-          (_, _, _, _, lev') <- indexKindEnvironment x'
+          TypeBinding _ _ _ _ lev' <- indexKindEnvironment x'
           if lev' > lev
             then quit $ EscapingSkolemType p x' σ'
             else pure ()
@@ -292,7 +292,7 @@ constrain p c σ = predicate c σ
               modifyState $ \state -> state {typeLogicalMap = Map.insert x (UnboundTypeLogical p' κ (Set.insert c cs) lower upper lev) $ typeLogicalMap state}
             True -> pure ()
     predicate c σ@(TypeCore (TypeSub (TypeVariable x))) = do
-      (_, κ, cs, _, _) <- indexKindEnvironment x
+      TypeBinding _ κ cs _ _ <- indexKindEnvironment x
       predicateKindCheck p c κ
       case Set.member c cs of
         False -> quit $ ConstraintMismatch p c σ
@@ -385,11 +385,12 @@ reconstruct p (TypeCore σ) = go σ
     poly (TypeSchemeCore (KindForall (Bound (KindPattern x μ) ς))) = augmentKindUnify True p x μ $ poly ς
     poly (TypeSchemeCore (MonoType (TypeCore σ))) = go σ
 
-    indexEnvironment x = snd' <$> indexKindEnvironment x
+    indexEnvironment x = kind <$> indexKindEnvironment x
+      where
+        kind (TypeBinding _ κ _ _ _) = κ
     indexLogicalMap x = indexTypeLogicalMap x >>= index
     index (UnboundTypeLogical _ x _ _ _ _) = pure x
     index (LinkTypeLogical σ) = reconstruct p σ
-    snd' (_, x, _, _, _) = x
     checkRuntime :: TypeUnify -> (TypeUnify -> Core p TypeUnify) -> Core p TypeUnify
     checkRuntime κ f = do
       α <- (TypeCore . TypeLogical) <$> freshKindVariableRaw p (TypeCore Representation) maxBound

@@ -65,7 +65,7 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
       * [x] Boolean Type
       * [x] Boolean Literals
       * [x] If expression
-      * [ ] Logical Operators
+      * [x] Logical Operators
     * [x] Integers
       * [x] Arithmatic
       * [x] Relational Operators
@@ -138,12 +138,12 @@ Files start with `code` `:::`.
 | Inline Term Ascribe | ``inline x ς : σ; x ς = e; ``|
 | Function | ``x = e;`` |
 | Function Ascribe | ``x ς : σ; x ς = e;``|
-| Import | ``import x = /x'/x''/...;``|
 
 ## Terms(e)
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
+| Global Variable | `/x/x'/...` |
 | Inline Abstraction | `` \pm { e }`` |
 | Inline Abstraction | `` \pm => e`` |
 | Inline Application | ``e `e'``|

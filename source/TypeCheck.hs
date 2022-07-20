@@ -172,7 +172,7 @@ augmentVariableLinear p x l ς check = do
 capture p lΓ = do
   let captures = variablesUsed lΓ
   for (Set.toList captures) $ \x -> do
-    (_, l, _) <- fromJust <$> lookupTypeEnviroment x
+    (TermBinding _ l _) <- fromJust <$> lookupTypeEnviroment x
     case l of
       Unrestricted -> pure ()
       Linear -> quit $ CaptureLinear p x
@@ -293,7 +293,7 @@ kindCheck (TypeSource p σ) = case σ of
   TypeSub (TypeVariable x) -> do
     κ <- lookupKindEnvironment x
     case κ of
-      Just (_, κ, _, _, _) -> pure (TypeCore $ TypeSub $ TypeVariable x, κ)
+      Just (TypeBinding _ κ _ _ _) -> pure (TypeCore $ TypeSub $ TypeVariable x, κ)
       Nothing -> quit $ UnknownTypeIdentifier p x
   Inline σ τ -> do
     (σ', _) <- secondM (checkType p) =<< kindCheck σ
@@ -414,10 +414,18 @@ typeCheck (TermSource p e) = case e of
   TermRuntime (Variable x ()) -> do
     mσ <- lookupTypeEnviroment x
     case mσ of
-      Just (_, _, σ) -> do
+      Just (TermBinding _ _ σ) -> do
         (τ, θ) <- instantiate p σ
         pure $ Checked (TermCore p $ TermRuntime $ Variable x θ) τ (Use x)
       Nothing -> quit $ UnknownIdentifier p x
+  GlobalVariable x () -> do
+    mσ <- lookupTypeGlobalEnviroment x
+    case mσ of
+      Just (TermBinding _ _ σ) -> do
+        (τ, θ) <- instantiate p σ
+        -- todo useNothing here is kinda of a hack
+        pure $ Checked (TermCore p $ GlobalVariable x θ) τ useNothing
+      Nothing -> quit $ UnknownGlobalIdentifier p x
   InlineAbstraction (Bound pm e) -> do
     (pm', σ) <- typeCheckMetaPattern pm
     Checked e' τ lΓ <- augmentMetaTermPattern pm' (typeCheck e)

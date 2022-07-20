@@ -1,4 +1,4 @@
-module:::
+module ::
 
 inline runtimeCall = \f => \x => f (x);
 
@@ -269,4 +269,11 @@ module partial = {
 
 	inline manual<A> : A -> A;
 	inline manual<A> = \x => x;
+};
+
+module import = {
+	inline id = \x => x;
+	module b = {
+		inline const = \![y] => /import/id;
+	};
 };

@@ -2,11 +2,9 @@ module Misc.Util where
 
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State.Strict (get, modify, runStateT)
-import Data.Bifunctor (second)
 import Data.Bitraversable (bitraverse)
 import Data.Foldable (toList)
-import Data.List (find, groupBy)
-import Data.Map (Map)
+import Data.List (find)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import qualified Data.Set as Set
@@ -28,12 +26,6 @@ temporaries' prefixes =
 temporaries prefix = temporaries' [prefix]
 
 fresh disallow canditate = fromJust $ find (flip Set.notMember disallow) $ temporaries canditate
-
-curryMap :: (Ord a, Ord b) => Map (a, b) c -> Map a (Map b c)
-curryMap = Map.fromList . map (second Map.fromList) . map combine . groupBy (\x y -> fst x == fst y) . map associate . Map.toList
-  where
-    combine list = (fst $ head list, map snd list)
-    associate ((a, b), c) = (a, (b, c))
 
 -- https://en.wikipedia.org/wiki/Topological_sorting#Depth-first_search
 

@@ -10,12 +10,15 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Void (Void, absurd)
 import Misc.Isomorph
+import Misc.Path
 import Misc.Prism
 import Misc.Symbol
 import qualified Misc.Util as Util
 import Prelude hiding (id, (.))
 
 newtype TermIdentifier = TermIdentifier {runTermIdentifier :: String} deriving (Show, Eq, Ord)
+
+newtype TermGlobalIdentifier = TermGlobalIdentifier {runTermGlobalIdentifier :: Path} deriving (Show, Eq, Ord)
 
 data TermPatternF σ pm
   = PatternVariable TermIdentifier σ
@@ -69,6 +72,7 @@ data TermSugar e
 data TermF sourceOnly θ σauto σ λrgn_e λσe λe λrun_e e
   = TermRuntime (TermRuntime θ σauto σauto σauto λrun_e e)
   | TermSugar (TermSugar e) sourceOnly
+  | GlobalVariable TermGlobalIdentifier θ
   | FunctionLiteral λrun_e
   | Borrow e λrgn_e
   | InlineAbstraction λe
@@ -169,6 +173,7 @@ traverseTermF y d z f r k h m i e =
   case e of
     TermRuntime e -> pure TermRuntime <*> traverseTermRuntime d z z z m i e
     TermSugar e source -> pure TermSugar <*> traverseTermSugar i e <*> y source
+    GlobalVariable x θ -> pure GlobalVariable <*> pure x <*> d θ
     FunctionLiteral λ -> pure FunctionLiteral <*> m λ
     Borrow e λ -> pure Borrow <*> i e <*> r λ
     InlineAbstraction λ -> pure InlineAbstraction <*> h λ
@@ -355,9 +360,13 @@ termSugar = Prism (\e -> TermSugar e ()) $ \case
   _ -> Nothing
 
 variable = (termRuntime .) $
-  Prism (uncurry Variable) $ \case
-    (Variable x θ) -> Just (x, θ)
+  Prism (\x -> Variable x ()) $ \case
+    (Variable x ()) -> Just x
     _ -> Nothing
+
+globalVariable = Prism (\x -> GlobalVariable x ()) $ \case
+  (GlobalVariable x ()) -> Just x
+  _ -> Nothing
 
 inlineAbstraction = Prism (InlineAbstraction) $ \case
   (InlineAbstraction λ) -> Just λ
@@ -515,6 +524,8 @@ termManualSource = Prism TermManualSource $ \case
 
 termIdentifier = Isomorph TermIdentifier runTermIdentifier
 
+termGlobalIdentifier = Isomorph TermGlobalIdentifier runTermGlobalIdentifier
+
 class BindingsTerm pm where
   bindingsTerm :: pm -> Set TermIdentifier
 
@@ -526,16 +537,20 @@ class FreeVariablesTerm u where
 
 class FreeVariablesTermSource u where
   freeVariablesTermSource :: Semigroup p => u p -> Variables TermIdentifier p
+  freeVariablesGlobalTermSource :: Semigroup p => u p -> Variables TermGlobalIdentifier p
 
 class ConvertTerm u where
   convertTerm :: TermIdentifier -> TermIdentifier -> u -> u
 
 class SubstituteTerm u where
-  substituteTerm :: (TermScheme p v) -> TermIdentifier -> u p v -> u p v
+  substituteTerm :: TermScheme p v -> TermIdentifier -> u p v -> u p v
+  substituteGlobalTerm :: TermScheme p v -> TermGlobalIdentifier -> u p v -> u p v
 
 freeVariablesSameTerm = freeVariablesSame bindingsTerm freeVariablesTerm
 
 freeVariablesSameTermSource = freeVariablesSameSource bindingsTerm freeVariablesTermSource
+
+freeVariablesLowerGlobalTermSource = freeVariablesLower freeVariablesGlobalTermSource
 
 convertSameTerm = substituteSame avoidTermConvert convertTerm
 
@@ -549,13 +564,21 @@ convertLowerTerm = convertLower convertTerm
 
 substituteLowerTerm avoid = substituteLower avoid substituteTerm
 
+substituteLowerGlobalTerm = substituteLowerGlobalTerm' avoidTerm
+
+substituteLowerGlobalTerm' avoid = substituteLower avoid substituteGlobalTerm
+
 freeVariablesRgnForTerm = freeVariablesLower freeVariablesSameTerm
 
 freeVariablesRgnSourceForTerm = freeVariablesLower freeVariablesSameTermSource
 
+freeVariablesGlobalRGNSourceForTerm = freeVariablesLower freeVariablesLowerGlobalTermSource
+
 convertRgnForTerm = convertLower convertSameTerm
 
 substituteRgnForTerm = substituteLower (avoidType' convertHigherType) substituteSameTerm
+
+substituteRgnForTermGlobal = substituteLower (avoidType' convertHigherType) substituteLowerGlobalTerm
 
 avoidTerm = avoidTerm' convertTerm
 
@@ -708,6 +731,12 @@ instance FreeVariablesTermSource TermSource where
       go = freeVariablesTermSource
       go' = freeVariablesSameTermSource
       go'' = freeVariablesRgnSourceForTerm
+  freeVariablesGlobalTermSource (TermSource p (GlobalVariable x _)) = Variables $ Map.singleton x p
+  freeVariablesGlobalTermSource (TermSource _ e) = foldTermF mempty mempty mempty mempty go'' go go' go' go e
+    where
+      go = freeVariablesGlobalTermSource
+      go' = freeVariablesLowerGlobalTermSource
+      go'' = freeVariablesGlobalRGNSourceForTerm
 
 instance ConvertTerm (Term p v) where
   convertTerm ux x (TermCore p (TermRuntime (Variable x' θ))) | x == x' = TermCore p $ TermRuntime $ Variable ux θ
@@ -717,22 +746,28 @@ instance ConvertTerm (Term p v) where
       go' = convertSameTerm ux x
       go'' = convertRgnForTerm ux x
 
+applySchemeImpl (TermSchemeCore _ (TypeAbstraction λ)) (InstantiationCore (InstantiateType σ θ)) = applySchemeImpl (apply λ σ) θ
+  where
+    apply (Bound (TypePattern α _ _ _) e) σ = substituteType σ α e
+applySchemeImpl (TermSchemeCore _ (KindAbstraction λ)) (InstantiationCore (InstantiateKind κ θ)) = applySchemeImpl (apply λ κ) θ
+  where
+    apply (Bound (KindPattern α _) e) κ = substituteType κ α e
+applySchemeImpl (TermSchemeCore _ (MonoTerm e)) (InstantiationCore InstantiateEmpty) = e
+applySchemeImpl _ _ = error "unable to substitute"
+
 instance SubstituteTerm Term where
-  substituteTerm ux x (TermCore _ (TermRuntime (Variable x' θ))) | x == x' = go ux θ
-    where
-      go (TermSchemeCore _ (TypeAbstraction λ)) (InstantiationCore (InstantiateType σ θ)) = go (apply λ σ) θ
-        where
-          apply (Bound (TypePattern α _ _ _) e) σ = substituteType σ α e
-      go (TermSchemeCore _ (KindAbstraction λ)) (InstantiationCore (InstantiateKind κ θ)) = go (apply λ κ) θ
-        where
-          apply (Bound (KindPattern α _) e) κ = substituteType κ α e
-      go (TermSchemeCore _ (MonoTerm e)) (InstantiationCore InstantiateEmpty) = e
-      go _ _ = error "unable to substitute"
+  substituteTerm ux x (TermCore _ (TermRuntime (Variable x' θ))) | x == x' = applySchemeImpl ux θ
   substituteTerm ux x (TermCore p e) = TermCore p $ mapTermF absurd id id id go'' go go' go' go e
     where
       go = substituteTerm ux x
       go' = substituteSameTerm ux x
       go'' = substituteRgnForTerm ux x
+  substituteGlobalTerm ux x (TermCore _ (GlobalVariable x' θ)) | x == x' = applySchemeImpl ux θ
+  substituteGlobalTerm ux x (TermCore p e) = TermCore p $ mapTermF absurd id id id go'' go go' go' go e
+    where
+      go = substituteGlobalTerm ux x
+      go' = substituteLowerGlobalTerm ux x
+      go'' = substituteRgnForTermGlobal ux x
 
 instance FreeVariablesType (Term p v) where
   freeVariablesType (TermCore _ e) = foldTermF absurd go go go go'' go go' go' go e
@@ -766,10 +801,16 @@ instance FreeVariablesTermSource TermSchemeSource where
     where
       go = freeVariablesTermSource
       go' = freeVariablesLowerTermSource
+  freeVariablesGlobalTermSource (TermSchemeSource _ e) = foldTermSchemeF go' go' go e
+    where
+      go = freeVariablesGlobalTermSource
+      go' = freeVariablesLowerGlobalTermSource
 
 instance FreeVariablesTermSource TermControlSource where
   freeVariablesTermSource (TermAutoSource e) = freeVariablesTermSource e
   freeVariablesTermSource (TermManualSource e) = freeVariablesTermSource e
+  freeVariablesGlobalTermSource (TermAutoSource e) = freeVariablesGlobalTermSource e
+  freeVariablesGlobalTermSource (TermManualSource e) = freeVariablesGlobalTermSource e
 
 instance ConvertTerm (TermScheme p v) where
   convertTerm ux x (TermSchemeCore p e) = TermSchemeCore p $ mapTermSchemeF go' go' go e
@@ -782,6 +823,10 @@ instance SubstituteTerm TermScheme where
     where
       go = substituteTerm ux x
       go' = substituteLowerTerm avoidType ux x
+  substituteGlobalTerm ux x (TermSchemeCore p e) = TermSchemeCore p $ mapTermSchemeF go' go' go e
+    where
+      go = substituteGlobalTerm ux x
+      go' = substituteLowerGlobalTerm' avoidType ux x
 
 instance FreeVariablesType (TermScheme p v) where
   freeVariablesType (TermSchemeCore _ e) = foldTermSchemeF go' go' go e
@@ -915,6 +960,7 @@ sourceTerm (TermCore _ e) =
       Extern sym _ _ _ -> Extern sym () () ()
       PointerIncrement e e' _ -> PointerIncrement (sourceTerm e) (sourceTerm e') ()
     TermSugar _ invalid -> absurd invalid
+    GlobalVariable x _ -> GlobalVariable x ()
     FunctionLiteral λ -> FunctionLiteral (mapBound sourceTermRuntimePattern sourceTerm λ)
     Borrow e λ -> Borrow (sourceTerm e) (mapBound sourceTypePattern (mapBound sourceTermRuntimePattern sourceTerm) λ)
     InlineAbstraction λ -> InlineAbstraction (mapBound sourceTermPattern sourceTerm λ)

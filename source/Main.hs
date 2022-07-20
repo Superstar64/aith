@@ -135,7 +135,6 @@ compileItem (Global (GlobalInfer (Text σ e))) path = do
   fn <- codegen (mangle path) (simpleFunctionType σ) (simpleFunction e)
   pure [fn]
 compileItem (Global (GlobalInfer (Inline _ _))) _ = pure []
-compileItem (Global (GlobalInfer (Import _ _))) _ = pure []
 
 generateAll [] _ = pure ()
 generateAll (([], file) : remainder) code = do
@@ -153,7 +152,6 @@ uninfer = fmap (second nameGlobal)
     nameGlobal :: GlobalInfer [SourcePos] -> GlobalSource Internal
     nameGlobal (GlobalInfer (Inline ς e)) = GlobalSource $ Inline (Just $ sourceTypeScheme ς) (TermManualSource $ sourceTermScheme e)
     nameGlobal (GlobalInfer (Text ς e)) = GlobalSource $ Text (Just $ sourceTypeScheme ς) (TermManualSource $ sourceTermScheme e)
-    nameGlobal (GlobalInfer (Import _ path)) = GlobalSource $ Import Internal path
 
 data CommandLine = CommandLine
   { loadItem :: [([String], FilePath)],

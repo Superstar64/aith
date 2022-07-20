@@ -54,7 +54,6 @@ keywords =
       "let",
       "extern",
       "module",
-      "import",
       "function",
       "uses",
       "if",
@@ -171,6 +170,8 @@ semiPath = token "/" ≫ pathTail ∥ nil ⊣ always
     pathTail = cons ⊣ identifer ⊗ (token "/" ≫ pathTail ∥ nil ⊣ always)
 
 termIdentifier = Language.termIdentifier ⊣ identifer
+
+termGlobalIdentifier = Language.termGlobalIdentifier ⊣ path
 
 typeIdentifier = Language.typeIdentifier ⊣ identifer
 
@@ -449,7 +450,8 @@ termCore = Language.termSource ⊣ position ⊗ choice options ∥ betweenParens
     unit = Language.termSource ⊣ position ⊗ (Language.unitIntroduction ⊣ always)
     unit' = Language.termRuntimePatternSource ⊣ position ⊗ (Language.runtimePatternUnit ⊣ always)
     options =
-      [ Language.variable ⊣ termIdentifier ⊗ always,
+      [ Language.variable ⊣ termIdentifier,
+        Language.globalVariable ⊣ termGlobalIdentifier,
         Language.inlineAbstraction ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ termLambda,
         Language.functionLiteral ⊣ Language.bound ⊣ keyword "function" ≫ betweenParensElse unit' termRuntimePattern ⊗ termLambda,
         Language.extern ⊣ prefixKeyword "extern" ≫ symbol,
@@ -488,7 +490,6 @@ item name delimit footer footer' lambda =
   choice
     [ itemCore (keyword "module" ≫ space) (Module.modulex ⊣ lambda modulex),
       itemTerm (keyword "inline" ≫ space) (Module.global . Module.inline),
-      itemCore (keyword "import" ≫ space) (Module.global . Module.importx ⊣ position ⊗ path),
       itemTerm always (Module.global . Module.text)
     ]
   where
@@ -527,7 +528,7 @@ item name delimit footer footer' lambda =
 
 itemSingleton ::
   (Syntax δ, Position δ p) => δ (Module.Item (Module.GlobalSource p))
-itemSingleton = unit ⊣ item always (token ":::" ≫ line) always (token ";" ≫ line) id
+itemSingleton = unit ⊣ item always (token "::" ≫ line) always (token ";" ≫ line) id
 
 withSourcePos :: g (f SourcePos) -> g (f SourcePos)
 withSourcePos = id
