@@ -67,11 +67,11 @@ data TermSugar e
   | And e e
   | Or e e
   | Do e e
-  deriving (Show)
+  deriving (Show, Functor)
 
 data TermF sourceOnly θ σauto σ λrgn_e λσe λe λrun_e e
   = TermRuntime (TermRuntime θ σauto σauto σauto λrun_e e)
-  | TermSugar (TermSugar e) sourceOnly
+  | TermSugar (TermSugar e)
   | GlobalVariable TermGlobalIdentifier θ
   | FunctionLiteral λrun_e
   | Borrow e λrgn_e
@@ -172,7 +172,7 @@ traverseTermF ::
 traverseTermF y d z f r k h m i e =
   case e of
     TermRuntime e -> pure TermRuntime <*> traverseTermRuntime d z z z m i e
-    TermSugar e source -> pure TermSugar <*> traverseTermSugar i e <*> y source
+    TermSugar e -> pure TermSugar <*> traverseTermSugar i e
     GlobalVariable x θ -> pure GlobalVariable <*> pure x <*> d θ
     FunctionLiteral λ -> pure FunctionLiteral <*> m λ
     Borrow e λ -> pure Borrow <*> i e <*> r λ
@@ -355,8 +355,8 @@ termRuntime = Prism TermRuntime $ \case
   (TermRuntime e) -> Just e
   _ -> Nothing
 
-termSugar = Prism (\e -> TermSugar e ()) $ \case
-  (TermSugar e ()) -> Just e
+termSugar = Prism (\e -> TermSugar e) $ \case
+  (TermSugar e) -> Just e
   _ -> Nothing
 
 variable = (termRuntime .) $
@@ -875,6 +875,7 @@ instance Reduce (Term p v) where
       reduce $ TermCore p $ PolyElimination (TermCore p $ PolyIntroduction $ applyKind λ κ) θ σ'
     where
       applyKind (Bound (KindPattern α _) e) σ = substituteType σ α e
+  reduce (TermCore p (TermSugar e)) = desugar p (fmap reduce e)
   reduce (TermCore p e) = TermCore p (mapTermF absurd go go go go go go go go e)
     where
       go = reduce
@@ -959,7 +960,7 @@ sourceTerm (TermCore _ e) =
       If e e' e'' -> If (sourceTerm e) (sourceTerm e') (sourceTerm e'')
       Extern sym _ _ _ -> Extern sym () () ()
       PointerIncrement e e' _ -> PointerIncrement (sourceTerm e) (sourceTerm e') ()
-    TermSugar _ invalid -> absurd invalid
+    TermSugar e -> TermSugar (fmap sourceTerm e)
     GlobalVariable x _ -> GlobalVariable x ()
     FunctionLiteral λ -> FunctionLiteral (mapBound sourceTermRuntimePattern sourceTerm λ)
     Borrow e λ -> Borrow (sourceTerm e) (mapBound sourceTypePattern (mapBound sourceTermRuntimePattern sourceTerm) λ)

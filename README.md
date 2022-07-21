@@ -128,7 +128,7 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 
 # Syntax
 
-Files start with `code` `:::`.
+Files start with `code` `::`.
 
 ## Modules(code)
 | Description | Syntax |

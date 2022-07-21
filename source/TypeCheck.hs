@@ -614,25 +614,25 @@ typeCheck (TermSource p e) = case e of
         (TermCore p $ TermRuntime $ PointerIncrement ep' ei' σ)
         (TypeCore $ Effect (TypeCore $ Shared (TypeCore $ Pointer σ τ) π2) π)
         (lΓ1 `combine` lΓ2)
-  TermSugar (Not e) () -> do
+  TermSugar (Not e) -> do
     Checked e' ((), π) lΓ <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck e
-    pure $ Checked (desugar p (Not e')) (TypeCore $ Effect (TypeCore Boolean) π) lΓ
-  TermSugar (And e ey) () -> do
+    pure $ Checked (TermCore p $ TermSugar $ Not e') (TypeCore $ Effect (TypeCore Boolean) π) lΓ
+  TermSugar (And e ey) -> do
     Checked e' ((), π) lΓ1 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck e
     Checked ey' ((), π') lΓ2 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck ey
     matchType p π π'
-    pure $ Checked (desugar p (And e' ey')) (TypeCore $ Effect (TypeCore Boolean) π) (lΓ1 `combine` (lΓ2 `branch` useNothing))
-  TermSugar (Or e en) () -> do
+    pure $ Checked (TermCore p $ TermSugar $ And e' ey') (TypeCore $ Effect (TypeCore Boolean) π) (lΓ1 `combine` (lΓ2 `branch` useNothing))
+  TermSugar (Or e en) -> do
     Checked e' ((), π) lΓ1 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck e
     Checked en' ((), π') lΓ2 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck en
     matchType p π π'
-    pure $ Checked (desugar p (And e' en')) (TypeCore $ Effect (TypeCore Boolean) π) (lΓ1 `combine` (useNothing `branch` lΓ2))
-  TermSugar (Do e1 e2) () -> do
+    pure $ Checked (TermCore p $ TermSugar $ Or e' en') (TypeCore $ Effect (TypeCore Boolean) π) (lΓ1 `combine` (useNothing `branch` lΓ2))
+  TermSugar (Do e1 e2) -> do
     Checked e1' (τ, π) lΓ1 <- traverse (checkEffect p) =<< typeCheck e1
     matchType p τ (TypeCore $ Tuple [])
     Checked e2' (σ, π') lΓ2 <- traverse (checkEffect p) =<< typeCheck e2
     matchType p π π'
-    pure $ Checked (desugar p $ Do e1' e2') (TypeCore $ Effect σ π) (lΓ1 `combine` lΓ2)
+    pure $ Checked (TermCore p $ TermSugar $ Do e1' e2') (TypeCore $ Effect σ π) (lΓ1 `combine` lΓ2)
 
 typeCheckScheme :: TermSchemeSource p -> Core p (CheckedScheme p TypeSchemeUnify)
 typeCheckScheme (TermSchemeSource p (TypeAbstraction (Bound (TypePatternSource p' α κpm c π) e))) = do
