@@ -15,17 +15,15 @@ As of now, this document is mostly for myself. Its missing a lot of prose and ex
 
 All valid terms have a type who's kind is of the form $ * $. \\
 \\
-All valid types have a kind who's sort is of the form $ \boxvoid^\mu $.\\
-\\
-All valid kinds have a sort who's super sort is of the from $ \Delta $.\\
-\\
-All types that are subtypable have a kind who's sort of the form $ \boxvoid^\text{Subtypable} $. \\
+All valid types have a kind who's sort is of the form $ \boxvoid^\mu_{\mu'} $.
+where $ \mu $ is an $ \text{Orderability} $ ($\text{Invariant} $ or $ \text{Subtypable}$)
+and $ \mu' $ is a $ \text{Transparency}$ ($\text{Transparent}$ or $\text{Opaque}$). \\
 \\
 Function literals and function literal types can not appear at runtime. They must be bound by a global "function" binding.
 This binding converts a function literal into an extern and a function literal type into a function pointer type. \\
 \\
 Terms with a type $ \sigma^\pi $ are runtime terms.
-Runtime terms are not reduced at compile time.
+Runtime terms are not reduced at compile time. \\
 \\
 Overlines are used to mean 0 or more. \\
 \\
@@ -49,7 +47,7 @@ After $ \beta $ reduction, terms not of type $ \sigma^\pi $ must either be a fre
 e \tag{Terms} \\
 x \tag{Variables} \\
 n \tag{Numbers} \\
-\sigma, \tau, \pi, \kappa, s, \rho, \mu \tag{Types, Kinds, and Sort} \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \tag{Types, Kinds, etc} \\
 \alpha, \beta \tag{Type and Kind Variables} \\
 c \tag{Constraints} \\
 \Gamma \tag{Type Environment} \\
@@ -59,8 +57,8 @@ c \tag{Constraints} \\
 
 
 \subsection{Judgment Forms}
-Term checking uses the checking direction from bidirectional type checking.
-Type and Kind checking uses synthesis mode.
+These rules are not syntax directed,
+though type and kind checking can be checked using synthesis mode.
 \begin{align*}
 \Phi \mid \Gamma \vdash \, & e : \sigma \tag{\text{Term Validation}} \\
 \Phi \vdash \, & \sigma : \kappa \tag{\text{Type Validation}} \\
@@ -84,35 +82,49 @@ Type and Kind checking uses synthesis mode.
 \begin{align*}
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & * \tag{Type} \\
-& \boxvoid^\mu \tag{Kind} \\
-& \Delta \tag{Sort} \\
+& \boxvoid^\mu_{\mu'} \tag{Kind} \\
 & \text{Invariant} \\
 & \text{Subtypable} \\
-& \text{Substitutability}
+& \text{Transparent} \\
+& \text{Opaque}
 \end{align*}
 
 \begin{gather*}
 \frac
 {}
-{\Phi \vdash * : \boxvoid^\text{Invariant}} \\
-\\
-\frac
-{\Phi \vdash \mu : \text{Substitutability}}
-{\Phi \vdash \boxvoid^\mu : \Delta} \\
-\\
-\frac
-{}
-{\Phi \vdash \text{Invariant} : \text{Substitutability}} \\
-\\
-\frac
-{}
-{\Phi \vdash \text{Subtypable} : \text{Substitutability}} \\
-\\
-\frac
-{}
-{\Phi \vdash \text{Substitutability} : \Delta}
+{\Phi \vdash * : \boxvoid^\text{Invariant}_{\text{Transparent}}} \\
 \end{gather*}
 
+\subsection{Meta (unused)}
+\begin{align*}
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
+& \Delta \tag{Sort} \\
+& \text{Orderability} \\
+& \text{Transparency}
+\end{align*}
+
+\begin{gather*}
+\frac
+{\Phi \vdash \mu : \text{Substitutability} \quad \Phi \vdash \mu' : \text{Orderability} }
+{\Phi \vdash \boxvoid^\mu_{\mu'} : \Delta} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Invariant} : \text{Orderability}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Subtypable} : \text{Orderability}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Transparent} : \text{Transparency}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Opaque} : \text{Transparency}}
+\end{gather*}
+    
 
 \subsubsection{Variables}
 \begin{align*}
@@ -152,9 +164,9 @@ e \Coloneqq & \\
 \begin{align*}
 e \Coloneqq & \\
 & \lambda^\uparrow x. e \tag{Macro Lambda}\\
-& e(^\uparrow e' : \sigma) \tag{Macro Application}\\
+& e(^\uparrow e') \tag{Macro Application}\\
 & !e \tag{Bang Introduction} \\
-& \text{let}^\uparrow \, !(x : \sigma) = e; e' \tag{Bang Elimination} \\
+& \text{let}^\uparrow \, !x = e; e' \tag{Bang Elimination} \\
 & \dots \\
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & \sigma \xrightarrow{\uparrow} \tau \tag{Macro} \\
@@ -169,16 +181,16 @@ e \Coloneqq & \\
 {\Phi | \Gamma \vdash \lambda^\uparrow x. e : \sigma \to \tau } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e_1 : \sigma \to \tau \quad \Phi | \Gamma' \vdash e_2 : \sigma \quad \Phi \vdash \sigma : *}
-{\Phi | \Gamma, \Gamma' \vdash e_1(^\uparrow e_2 : \sigma) : \tau} \\
+{\Phi | \Gamma \vdash e_1 : \sigma \to \tau \quad \Phi | \Gamma' \vdash e_2 : \sigma}
+{\Phi | \Gamma, \Gamma' \vdash e_1(^\uparrow e_2) : \tau} \\
 \\
 \frac
 {\Phi | \Gamma \vdash e : \sigma \quad \langle x : \tau \rangle \notin \Gamma }
 {\Phi | \Gamma \vdash !e : !\sigma } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : !\tau \quad \Phi | \Gamma', [x : \tau] \vdash e' : \sigma \quad \Phi \vdash \tau : * }
-{\Phi | \Gamma, \Gamma' \vdash \text{let}^\uparrow \, !(x : \tau) = e; e' : \sigma}  \\
+{\Phi | \Gamma \vdash e : !\tau \quad \Phi | \Gamma', [x : \tau] \vdash e' : \sigma }
+{\Phi | \Gamma, \Gamma' \vdash \text{let}^\uparrow \, !x = e; e' : \sigma}  \\
 \end{gather*}
 
 \begin{gather*}
@@ -195,13 +207,10 @@ e \Coloneqq & \\
 \begin{align*}
 e \Coloneqq & \\
 & \Lambda \alpha. e \tag{Type Lambda} \\
-& (e : \forall \alpha + \{ \overline c \} \succeq \{ \overline \pi \}. \tau) \sigma \tag{Type Application} \\
-& \Lambda \beta. e \tag{Kind Lambda} \\
-& (e : \forall \beta. \tau) \kappa \tag{Kind Application} \\
+& e (\sigma) \tag{Type Application} \\
 & \dots \\
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
-& \forall \alpha : \kappa + \{ \overline c \} \succeq \{ \overline \pi \}. \sigma \tag{Type Poly}\\ 
-& \forall \beta : \mu. \sigma \tag{Kind Poly}\\
+& \forall \alpha : \kappa + \{ \overline c \} \succeq \{ \overline \pi \}. \sigma \tag{Type Poly} \\
 & \dots
 \end{align*}
 
@@ -212,35 +221,23 @@ e \Coloneqq & \\
 \\
 \frac
 {\Phi | \Gamma \vdash e : \forall \alpha + \{ \overline c \} \succeq \{ \overline \pi \} : \kappa. \sigma \quad \Phi \vdash \tau : \kappa \quad \overline {\Phi \vdash c \tau} \quad \overline { \Phi \vdash \tau \succeq \pi }}
-{\Phi | \Gamma \vdash (e : \forall \alpha + \{ \overline c \} \succeq \{ \overline \pi \}. \sigma) \tau : \sigma [\tau/\alpha] } \\
-\\
-\frac
-{\Phi, \beta : \mu | \Gamma \vdash e : \sigma}
-{\Phi | \Gamma \vdash \Lambda \beta. e : \forall \beta : \mu. \sigma} \\
-\\
-\frac
-{\Phi | \Gamma \vdash e : \forall \beta : \mu. \sigma \quad \Phi \vdash \kappa : \mu}
-{\Phi | \Gamma \vdash (e : \forall \beta. \sigma) \kappa : \sigma [\kappa/\beta]} \\
+{\Phi | \Gamma \vdash e (\tau) : \sigma [\tau/\alpha] }
 \end{gather*}
 
 \begin{gather*}
 \frac
 {\splitfrac{\Phi, \alpha : \kappa + \{ \overline c \} \succeq \{ \overline \pi \}\vdash \sigma : * \quad \overline { \Phi \vdash c : \kappa \to \diamond} \quad \overline { \Phi \vdash \pi : \kappa}}
-{\splitfrac{\Phi \vdash \kappa : \boxvoid^\mu \quad \text{when $ \pi $ is empty}}
-{\Phi \vdash \kappa : \boxvoid^\text{Subtypable} \quad \text{when $ \pi $ is not empty} }}}
+{\splitfrac{\Phi \vdash \kappa : \boxvoid^\mu_{\mu'} \quad \text{when $ \pi $ is empty}}
+{\Phi \vdash \kappa : \boxvoid^\text{Subtypable}_{\mu'} \quad \text{when $ \pi $ is not empty} }}}
 {\Phi \vdash \forall \alpha : \kappa + \{ \overline c \}. \sigma : * } \\
-\\
-\frac
-{\Phi, \beta : \mu \vdash \sigma : * \quad \Phi \vdash \mu : \Delta}
-{\Phi \vdash \forall \beta : \mu. \sigma : * } \\
 \end{gather*}
 
 \subsection{Runtime}
 
 \begin{align*}
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
-& +^\rho \tag{Pretype Kind}\\
-& \text{Representation} \tag {Representation Sort}\\
+& +^\rho \tag{Pretype}\\
+& \text{Representation} \tag {Representation}\\
 & \dots
 \end{align*}
 
@@ -248,20 +245,19 @@ e \Coloneqq & \\
 \\
 \frac
 {\Phi \vdash \rho : \text{Representation}}
-{\Phi \vdash +^\rho : \boxvoid^\text{Invariant}} \\
+{\Phi \vdash +^\rho : \boxvoid^\text{Invariant}_\text{Transparent}} \\
 \\
 \frac
 {}
-{\Phi \vdash \text{Representation} : \Delta}
+{\Phi \vdash \text{Representation} : \boxvoid^\text{Invariant}_\text{Opaque}}
 \end{gather*}
 
 \subsubsection{Single Effect Regions}
 \begin{align*}
 e \Coloneqq & \\
-& \text{letRGN} \, (\Lambda \alpha e) \tag{Create Region} \\
-& \text{subRGN} \, \pi \, e \tag{Subtype Region} \\
-& \text{let}^\downarrow \, (x :: \tau) = e; e' \tag{Runtime Let} \\
-& \text{copy} \, (x :: \tau) = e; e' \tag{Runtime Copy Let} \\
+& \text{letRGN} \, (\Lambda \alpha. e) \tag{Create Region} \\
+& \text{let}^\downarrow \, x = e; e' \tag{Runtime Let} \\
+& \text{copy} \, x = e; e' \tag{Runtime Copy Let} \\
 & \dots \\
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & \sigma^\pi \tag{Region Effect} \\
@@ -276,17 +272,12 @@ e \Coloneqq & \\
 {\Phi | \Gamma \vdash \text{letRGN} \, (\Lambda \alpha. e) : \sigma^\pi} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \sigma^{\pi'} \quad \Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \pi \succeq \pi' }
-{\Phi | \Gamma \vdash \text{subRGN} \pi' \, e : \sigma^{\pi} } \\
+{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi | \Gamma', \langle x : \forall \alpha. \tau^\alpha \rangle \vdash e : \sigma^\pi}
+{\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow \, x = e; e' : \sigma^\pi} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi | \Gamma', \langle x : \forall \alpha. \tau^\alpha \rangle \vdash e : \sigma^\pi \quad \Phi \vdash \tau : +^{\rho}}
-{\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow \, (x : \tau) = e; e' : \sigma^\pi} \\
-\\
-\frac
-{\splitfrac{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi | \Gamma', [ x : \forall \alpha. \tau^\alpha ] \vdash e : \sigma^\pi \quad \Phi \vdash \tau : +^{\rho}}
-{\Phi \vdash \text{Copy}(\tau)}}
-{\Phi | \Gamma, \Gamma' \vdash \text{copy} \, (x : \tau) = e; e' : \sigma^\pi} \\
+{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi | \Gamma', [ x : \forall \alpha. \tau^\alpha ] \vdash e : \sigma^\pi \quad \Phi \vdash \text{Copy}(\tau)}
+{\Phi | \Gamma, \Gamma' \vdash \text{copy} \, x = e; e' : \sigma^\pi} \\
 \end{gather*}
 
 \begin{gather*}
@@ -300,13 +291,13 @@ e \Coloneqq & \\
 \\
 \frac
 {}
-{\Phi \vdash \text{Region} : \boxvoid^\text{Subtypable}} \\
+{\Phi \vdash \text{Region} : \boxvoid^\text{Subtypable}_\text{Transparent}} \\
 \end{gather*}
 
 \subsubsection{Boxed}
 \begin{align*}
 e \Coloneqq & \\
-& \text{borrow} (e) \text{as} \, \Lambda \alpha. (x) \{ e' \} \\
+& \text{borrow} (e) \text{as} \, \Lambda \alpha. \lambda x. \{ e' \} \\
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & \text{unique} \, \sigma \\
 & \sigma \, @ \, \pi \\
@@ -332,7 +323,7 @@ e \Coloneqq & \\
 \\
 \frac
 {}
-{\Phi \vdash - : \boxvoid} \\
+{\Phi \vdash - : \boxvoid^\text{Invariant}_\text{Transparent}} \\
 \\
 \frac
 {}
@@ -342,26 +333,24 @@ e \Coloneqq & \\
 \subsubsection{Pointers}
 \begin{align*}
 e \Coloneqq & \\
-& *(e :: \sigma) \tag{Read Pointer} \\
-& *(e :: \sigma) = e' \tag{Write Pointer} \\
+& *e \tag{Read Pointer} \\
+& *e = e' \tag{Write Pointer} \\
 & \& e [e'] \tag{Pointer Increment} \\
 & \dots \\
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & \sigma [\pi] \tag{Pointer} \\
-& : \tag{Unknown Length} \\
-& \text{Length}
+& : \tag{Unknown Capacity} \\
+& \text{Capacity}
 \end{align*}
 
 \begin{gather*}
 \frac
-{\splitfrac{\Phi | \Gamma \vdash e : (\sigma [\tau] \, @ \pi')^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
-{\Phi \vdash \tau : \text{Length} \quad \Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}}
-{\Phi | \Gamma \vdash * (e :: \sigma [\tau] @ \, {\pi'})  : \sigma^\pi} \\
+{\Phi | \Gamma \vdash e : (\sigma [\tau] \, @ \pi')^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
+{\Phi | \Gamma \vdash * e  : \sigma^\pi} \\
 \\
 \frac
-{\splitfrac{\Phi | \Gamma \vdash e : (\sigma [\tau] \, @ \pi')^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi  \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
-{\Phi \vdash \tau : \text{Length} \quad \Phi \vdash \pi' : \text{Region} \quad \Phi \vdash \sigma : +^{\rho}}}
-{\Phi | \Gamma \vdash *(e :: \sigma [\tau] @ \,{\pi'}) = e' : ()^\pi } \\
+{\Phi | \Gamma \vdash e : (\sigma [\tau] \, @ \pi')^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi  \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
+{\Phi | \Gamma \vdash *e  = e' : ()^\pi } \\
 \\
 \frac
 {\Phi | \Gamma \vdash e : (\sigma [:] @ \pi')^\pi \quad \Phi |
@@ -376,11 +365,11 @@ e \Coloneqq & \\
 \\
 \frac
 {}
-{\Phi \vdash (:) : \text{Length}} \\
+{\Phi \vdash (:) : \text{Capacity}} \\
 \\
 \frac
 {}
-{\Phi \vdash \text{Length} : \boxvoid}
+{\Phi \vdash \text{Capacity} : \boxvoid^\text{Invariant}_\text{Transparent}}
 \end{gather*}
 
 \subsubsection{Functions}
@@ -388,7 +377,7 @@ e \Coloneqq & \\
 \begin{align*}
 e \Coloneqq & \\
 & \text{extern} \, \text{sym} \tag{Extern Function} \\
-& (e :: \sigma) ^\downarrow e' \tag{Function Pointer Application} \\
+& e ^\downarrow (e') \tag{Function Pointer Application} \\
 & \text{function} (x). e \tag{Function Literal} \\
 & \dots \\
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
@@ -403,8 +392,8 @@ e \Coloneqq & \\
 {\Phi | \Gamma \vdash \text{extern} \, \text{sym} : (\tau \xrightarrow{\downarrow}_{\pi'} \sigma)^\pi} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\sigma \xrightarrow{\downarrow}_{\pi'} \tau)^\pi \quad \Phi | \Gamma' \vdash e' : \sigma^\pi \quad \Phi \vdash \sigma : +^{\rho} \quad \pi \succeq \pi'}
-{\Phi | \Gamma, \Gamma' \vdash (e :: \sigma \xrightarrow{\downarrow}_{\pi'} \tau)^\downarrow e' : \tau^\pi} \\
+{\Phi | \Gamma \vdash e : (\sigma \xrightarrow{\downarrow}_{\pi'} \tau)^\pi \quad \Phi | \Gamma' \vdash e' : \sigma^\pi \quad \pi \succeq \pi'}
+{\Phi | \Gamma, \Gamma' \vdash e^\downarrow (e') : \tau^\pi} \\
 \\
 \frac
 {\Phi | \Gamma, \langle x : \forall \alpha. \sigma^\alpha \rangle \vdash e : \tau^\pi}
@@ -425,7 +414,7 @@ e \Coloneqq & \\
 \begin{align*}
 e \Coloneqq & \\
 & (e, e') \tag{Pair Introduction} \\
-& \text{let}^\downarrow (x :: \tau, x' :: \tau') = e; e' \tag{Pair Elimination} \\
+& \text{let}^\downarrow (x, x') = e; e' \tag{Pair Elimination} \\
 & () \tag{Unit Introduction} \\
 & \text{let}^\downarrow () = e; e' \tag{Unit Elimination} \\
 & \dots \\
@@ -442,8 +431,7 @@ e \Coloneqq & \\
 {\Phi | \Gamma, \Gamma' \vdash (e, e') : (\sigma, \tau)^\pi } \\
 \\
 \frac
-{\splitfrac{\Phi | \Gamma \vdash e : (\tau, \tau')^\pi \quad \Phi | \Gamma , \langle x : \forall \alpha. \tau^\alpha \rangle, \langle x' : \forall \alpha. \tau'^\alpha \rangle \vdash e : \sigma^\pi}
-{\Phi \vdash \tau : +^{\rho} \quad \Phi \vdash \tau' : +^{\rho'} }}
+{\Phi | \Gamma \vdash e : (\tau, \tau')^\pi \quad \Phi | \Gamma , \langle x : \forall \alpha. \tau^\alpha \rangle, \langle x' : \forall \alpha. \tau'^\alpha \rangle \vdash e : \sigma^\pi}
 {\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow (x :: \tau, x' :: \tau') = e; e' : \sigma^\pi} \\
 \\
 \frac
@@ -478,12 +466,12 @@ e \Coloneqq & \\
 & e - e' \tag{Subtraction} \\
 & e * e' \tag{Multiplication} \\
 & e / e' \tag{Division} \\
-& e =^\sigma e' \tag {Equality} \\
-& e \neq^\sigma e' \tag {Inequality} \\
-& e <^\sigma e' \tag {Less Then} \\
-& e \leq^\sigma e' \tag {Less Then Equal} \\
-& e >^\sigma e' \tag {Greater Then} \\
-& e \geq^\sigma e' \tag {Greater Then Equal} \\
+& e = e' \tag {Equality} \\
+& e \neq e' \tag {Inequality} \\
+& e < e' \tag {Less Then} \\
+& e \leq e' \tag {Less Then Equal} \\
+& e > e' \tag {Greater Then} \\
+& e \geq e' \tag {Greater Then Equal} \\
 & \dots \\
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & \rho \, \text{integer} (\rho') \tag{Number} \\
@@ -511,9 +499,8 @@ e \Coloneqq & \\
 \dots \\
 \\
 \frac
-{\splitfrac{\Phi | \Gamma \vdash e : (\rho \, \text{integer}(\rho'))^\pi \quad \Phi | \Gamma, \Gamma' \vdash e' : (\rho \, \text{integer}(\rho'))^\pi}
-{\Phi \vdash \rho : \text{Signedness} \quad \Phi \vdash \rho' : \text{Size}}}
-{\Phi | \Gamma, \Gamma' \vdash e <^{(\rho \, \text{integer}(\rho'))} e' : \text{Boolean}^\pi} \\
+{\Phi | \Gamma \vdash e : (\rho \, \text{integer}(\rho'))^\pi \quad \Phi | \Gamma, \Gamma' \vdash e' : (\rho \, \text{integer}(\rho'))^\pi}
+{\Phi | \Gamma, \Gamma' \vdash e < e' : \text{Boolean}^\pi} \\
 \dots
 \end{gather*}
 
@@ -556,11 +543,11 @@ e \Coloneqq & \\
 \\
 \frac
 {}
-{\Phi \vdash \text{Size} : \Delta} \\
+{\Phi \vdash \text{Size} : \boxvoid^\text{Invariant}_\text{Opaque}} \\
 \\
 \frac
 {}
-{\Phi \vdash \text{Signedness} : \Delta}
+{\Phi \vdash \text{Signedness} : \boxvoid^\text{Invariant}_\text{Opaque}}
 \end{gather*}
 
 \subsubsection{Boolean Logic}
@@ -629,7 +616,7 @@ c \Coloneqq & \\
 \subsection{Subtyping}
 \begin{gather*}
 \frac
-{\Phi \vdash \sigma : \kappa \quad \Phi \vdash \kappa \vdash \boxvoid^\text{Subtypable}}
+{\Phi \vdash \sigma : \kappa \quad \Phi \vdash \kappa \vdash \boxvoid^\text{Subtypable}_{\mu'}}
 {\Phi \vdash \sigma \succeq \sigma} \\
 \\
 \frac

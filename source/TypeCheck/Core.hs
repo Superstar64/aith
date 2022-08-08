@@ -39,16 +39,26 @@ data TypeError p
   | ConstraintMismatch p Constraint TypeUnify
   | ConstraintKindError p Constraint TypeUnify
   | ExpectedFunctionLiteral p
-  | ExpectedTypeVariable p
   | NoCommonMeet p TypeSub TypeSub
   | MismatchedTypeLambdas p
-  | ExpectedFullAnnotation p
   | ExpectedTypeAbstraction p
   | ExpectedPlainType p
   | IncorrectRegionBounds p
   | NotTypable p
   | ExpectedSubtypable p
   | BadConstraintAnnotation p
+  | ExpectedSort p TypeInfer
+  | ExpectedKind p TypeInfer
+  | ExpectedType p TypeInfer
+  | ExpectedPretype p TypeInfer
+  | ExpectedBoxed p TypeInfer
+  | ExpectedLength p TypeInfer
+  | ExpectedRegion p TypeInfer
+  | ExpectedSubtypable' p TypeInfer
+  | ExpectedRepresentation p TypeInfer
+  | ExpectedSize p TypeInfer
+  | ExpectedSignedness p TypeInfer
+  | ExpectedSubstitutability p TypeInfer
   deriving (Show)
 
 newtype Core p a = Core {runCore'' :: ReaderT (CoreEnvironment p) (StateT (CoreState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
@@ -60,7 +70,7 @@ runCore c = (fmap fst .) . runCore' c
 
 data TermBinding p = TermBinding p Multiplicity TypeSchemeUnify deriving (Show, Functor)
 
-data TypeBinding p = TypeBinding p TypeUnify (Set Constraint) (Set TypeSub) Level deriving (Show, Functor)
+data TypeBinding p = TypeBinding p TypeInfer (Set Constraint) (Set TypeSub) Level deriving (Show, Functor)
 
 data CoreEnvironment p = CoreEnvironment
   { typeEnvironment :: Map TermIdentifier (TermBinding p),
@@ -134,8 +144,9 @@ augmentKindEnvironment p x κ c π lev f = do
     closure :: Set TypeSub -> Core p (Set TypeSub)
     closure x = fold <$> traverse lowerTypeBounds (Set.toList x)
 
-augmentKindUnify occurs p x κ = modifyKindEnvironment (Map.insert x (TypeBinding p κ c π (if occurs then minBound else maxBound)))
+augmentKindUnify occurs p x = modifyKindEnvironment (Map.insert x (TypeBinding p κ c π (if occurs then minBound else maxBound)))
   where
+    κ = error "kind used during unification"
     c = error "constraints used during unification"
     π = error "bottom used during unification"
 
@@ -144,14 +155,6 @@ augmentTypePatternLevel (TypePatternIntermediate p x κ c π) f = do
   useTypeVar x
   lev <- Level <$> currentLevel
   f' <- augmentKindEnvironment p x κ c (Set.fromList π) lev f
-  leaveLevel
-  pure f'
-
-augmentKindPatternLevel (KindPatternIntermediate p x μ) f = do
-  enterLevel
-  useTypeVar x
-  lev <- Level <$> currentLevel
-  f' <- augmentKindEnvironment p x μ Set.empty Set.empty lev f
   leaveLevel
   pure f'
 

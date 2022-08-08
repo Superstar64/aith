@@ -1,38 +1,33 @@
 digraph aith {
     // basic visualization of type system
     rankdir="BT"
+    
+    {
+        // sorts
+        rank=same
+        kindInvTrans[label="□ invariant transparent"]
+        kindInvOpa[label="□ invariant opaque"]
+        kindSubTrans[label="□ subtypable transparent"]
+        kindSubOpa[label="□ subtypable opaque"]
+    }
 
-    sort[label="/\\"]
-    kind[label="[κ]"]
-    representation
-    size
-    signedness
+    {
+        // kinds
+        rank=same
+        type[label="*"]
+        region
+        pretype[label="+[κ]"]
+        boxed[label="-"]
+        representation
+        size
+        signedness
+        capacity 
+    }
 
-    kind -> sort
-    representation -> sort
-    size -> sort
-    signedness -> sort
-    substitutability -> sort
-
-    type[label="*"]
-    region
-    pretype[label="+[κ]"]
-    boxed[label="-"]
-    capacity[label="capacity"]
-    pointerRep[label="pointer"]
-    structRep[label="struct (κ, κ', ...)"]
-    wordRep[label="κ word"]
-    byte [label="8bit"]
-    short [label="16bit"]
-    int [label="32bit"]
-    long [label="64bit"]
-    signed
-    unsigned
-
-    type -> kind
-    region -> kind
-    pretype -> kind
-    boxed -> kind
+    type -> kindInvTrans
+    region -> kindSubTrans
+    pretype -> kindInvTrans
+    boxed -> kindInvTrans
     pointerRep -> representation
     structRep -> representation
     wordRep -> representation
@@ -42,90 +37,106 @@ digraph aith {
     long -> size
     signed -> signedness
     unsigned -> signedness
-    capacity -> kind
-    invariant -> substitutability
-    subtypable -> substitutability
+    capacity -> kindInvTrans
+    representation -> kindInvOpa
+    size -> kindInvOpa
+    signedness -> kindInvOpa
 
-
-    inline[label="σ -> τ"]
-    poly[label="<...> σ"]
-    ofCourse[label="!σ"]
-    functionPointer[label="function*(σ) => τ uses π"]
-    functionLiteralType[label="function(σ) => τ uses π"]
-    pair[label="(σ, τ)"]
-    unit[label="()"]
-    effect[label="σ in π"]
-    unique[label="unique σ"]
-    shared[label="σ @ π"]
-    pointer[label="σ[τ]"]
-    number[label="κ integer(κ)'"]
-    boolean[label="bool"]
-    world[label="io"]
-    unknown[label=":"]
+    {
+        // types
+        rank=same
+        inline[label="σ -> τ"]
+        poly[label="<...> σ"]
+        ofCourse[label="!σ"]
+        functionPointer[label="function*(σ) => τ uses π"]
+        functionLiteralType[label="function(σ) => τ uses π"]
+        pair[label="(σ, τ)"]
+        unit[label="()"]
+        effect[label="σ in π"]
+        unique[label="unique σ"]
+        shared[label="σ @ π"]
+        pointer[label="σ[τ]"]
+        number[label="κ integer(κ)'"]
+        boolean[label="bool"]
+        world[label="io"]
+        unknown[label=":"]
+        pointerRep[label="pointer"]
+        structRep[label="struct (κ, κ', ...)"]
+        wordRep[label="κ word"]
+        byte [label="8bit"]
+        short [label="16bit"]
+        int [label="32bit"]
+        long [label="64bit"]
+        signed
+        unsigned
+    }
 
     inline -> type
     poly -> type
     ofCourse -> type
     functionPointer -> pretype
-    functionPointer -> pointerRep [style=dashed]
+    functionPointer -> pointerRep [color=lightcoral]
     functionLiteralType -> type
     pair -> pretype
-    pair -> structRep[style=dashed]
+    pair -> structRep[color=lightgreen]
     unit -> pretype
-    unit -> structRep[style=dashed]
+    unit -> structRep[color=lightgreen]
     effect -> type
     unique -> pretype
-    unique -> pointerRep[style=dashed]
+    unique -> pointerRep[color=lightcoral]
     shared -> pretype
-    shared -> pointerRep[style=dashed]
+    shared -> pointerRep[color=lightcoral]
     pointer -> boxed
     number -> pretype
-    number -> wordRep[style=dashed]
+    number -> wordRep[color=lightblue]
     boolean -> pretype
-    boolean -> wordRep[style=dashed]
+    boolean -> wordRep[color=lightblue]
     world -> region
     unknown -> capacity
 
-    let[label="let x = e; e'"]
-    extern[label="extern \"sym\""]
-    app[label="e (e')"]
-    pairIntro[label="(e,e')"]
-    unitIntro[label="()"]
-    read[label="*e"]
-    write[label="*e = e'"]
-    num[label="n"]
-    arith[label="e + e'"]
-    relate[label="e < e'"]
-    true
-    if[label="if e {e'} else {e''}"]
+    {
+        // terms
+        rank=same
+        let[label="let x = e; e'"]
+        extern[label="extern \"sym\""]
+        app[label="e (e')"]
+        pairIntro[label="(e,e')"]
+        unitIntro[label="()"]
+        read[label="*e"]
+        write[label="*e = e'"]
+        num[label="n"]
+        arith[label="e + e'"]
+        relate[label="e < e'"]
+        true
+        if[label="if e {e'} else {e''}"]
 
-    functionLiteral[label="function(x) { e }"]
-    inlineAbstraction[label="\\x => e"]
-    ofCourseIntro[label="!e"]
-    polyIntroduction[label="<...> e"]
-
+        functionLiteral[label="function(x) { e }"]
+        inlineAbstraction[label="\\x => e"]
+        ofCourseIntro[label="!e"]
+        polyIntroduction[label="<...> e"]
+    }
     
 
 
     let -> effect
     extern -> effect
-    extern -> functionPointer[style=dashed]
+    extern -> functionPointer[color=lavender]
     app -> effect
     pairIntro -> effect
-    pairIntro -> pair [style=dashed]
+    pairIntro -> pair [color=lavender]
     unitIntro -> effect
-    unitIntro -> unit [style=dashed]
+    unitIntro -> unit [color=lavender]
     read -> effect
     write -> effect
-    write -> unit[style=dashed]
+    write -> unit[color=lavender]
     num -> effect
-    num -> number[style=dashed]
+    num -> number[color=lavender]
     arith -> effect
-    arith -> number[style=dashed]
+    arith -> number[color=lavender]
     relate -> effect
-    relate -> boolean[style=dashed]
+    relate -> boolean[color=lavender]
     true -> effect
-    true -> boolean[style=dashed]
+    true -> boolean[color=lavender]
     if -> effect
 
     functionLiteral -> functionLiteralType

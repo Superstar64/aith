@@ -5,7 +5,12 @@ As of now Aith is very early stages and very little is implemented.
 
 | <img src="https://raw.githubusercontent.com/Superstar64/aith/images/rules/hierarchy.svg"> |
 | :--: |
-| visualization of (current) type system |
+| visualization of type system |
+
+| <img src="https://raw.githubusercontent.com/Superstar64/aith/images/rules/pure.svg"> |
+| :--: |
+| pure type system subset |
+
 
 # Features
 
@@ -205,9 +210,9 @@ Files start with `code` `::`.
 # Scheme(ς)
 | Description | Syntax |
 |-|-|
-| TypeScheme | ``<'pmκ, 'pmκ', ..., pmσ, pmσ', ...>`` |
+| TypeScheme | ``<pmσ, pmσ', ...>`` |
 
-## Types(σ, τ, π)
+## Types(σ, τ, π, s, κ, ρ, μ)
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
@@ -226,12 +231,12 @@ Files start with `code` `::`.
 | Number | ``ρ integer(ρ')`` |
 | Boolean | ``bool`` |
 | IO Region | ``io`` |
-| Type | ``*`` |
-| Pretype | ``+[s]`` |
-| Boxed | ``-`` |
+| Type | ``type`` |
+| Pretype | ``pretype<s>`` |
+| Boxed | ``boxed`` |
 | Capacity | ``capacity`` |
 | Region | ``region`` |
-| Pointer Representation | ``pointer``|
+| Pointer Representation | ``pointer`` |
 | Struct Representation | ``struct (ρ, ρ', ...)`` |
 | Word Representation | ``ρ word`` |
 | Signed | ``signed`` |
@@ -241,25 +246,31 @@ Files start with `code` `::`.
 | Int Size | ``32bit`` |
 | Long Size | ``64bit`` |
 | Native Size | ``native`` |
-| Kind | ``[κ]`` |
 | Representation | ``representation`` |
 | Signedness | ``signedness`` |
 | Size | ``size`` |
 
+# Types (Internal) (σ, τ, π, s, κ, ρ, μ)
+| Kind | ``kind κ κ`` |
+| Invariant |``invariant`` |
+| Subtypable |``subtypable`` |
+| Transpaent | ``transparent`` |
+| Opaque | ``opaque`` |
 
-# Types (Syntax Sugar) (σ, τ, π)
+
+# Types (Syntax Sugar) (σ, τ, π, s, κ, ρ, μ)
 | Description | Syntax | Meaning |
 |-|-|-|
-| Byte | ``byte`` | ``#signed byte`` |
-| Short | ``short`` | ``#signed short`` |
-| Int | ``int`` | ``#signed int`` |
-| Long | ``long`` | ``#signed long`` |
-| PtrDiff | ``ptrdiff`` | ``#signed native`` |
-| UByte | ``ubyte`` | ``#unsigned byte`` |
-| UShort | ``ushort`` | ``#unsigned short`` |
-| UInt | ``uint`` | ``#unsigned int`` |
-| ULong | ``ulong`` | ``#unsigned long`` |
-| Native | ``native`` | ``#unsigned native`` |
+| Byte | ``byte`` | ``signed integer(byte)`` |
+| Short | ``short`` | ``signed integer(short)`` |
+| Int | ``int`` | ``signed integer(int)`` |
+| Long | ``long`` | ``signed integer(long)`` |
+| PtrDiff | ``ptrdiff`` | ``signed integer(native)`` |
+| UByte | ``ubyte`` | ``unsigned integer(byte)`` |
+| UShort | ``ushort`` | ``unsigned integer(short)`` |
+| UInt | ``uint`` | ``unsigned integer(int)`` |
+| ULong | ``ulong`` | ``unsigned integer(long)`` |
+| Native | ``native`` | ``unsigned integer(native)`` |
 
 ## Type Pattern(pmσ)
 | Description | Syntax |
@@ -272,14 +283,6 @@ Files start with `code` `::`.
 | Description | Syntax |
 |-|-|
 | Copy | ``copy`` |
-
-
-
-# Kind Pattern (pmκ)
-| Description | Syntax |
-|-|-|
-| Variable Ascribe | ``x : μ`` |
-
 
 # C Compiler Requirements
 This list may be incomplete.

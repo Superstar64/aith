@@ -72,7 +72,12 @@ keywords =
       "borrow",
       "invariant",
       "subtypable",
-      "substitutability"
+      "transparent",
+      "opaque",
+      "kind",
+      "type",
+      "pretype",
+      "boxed"
     ]
 
 -- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
@@ -177,10 +182,6 @@ typeIdentifier = Language.typeIdentifier ⊣ identifer
 
 auto e = just ⊣ e ∥ nothing ⊣ token "_"
 
-kindPattern = Language.kindPatternSource ⊣ position ⊗ typeIdentifier ⊗ sort
-  where
-    sort = just ⊣ token ":" ≫ typex ∥ nothing ⊣ always
-
 constraint :: Syntax δ => δ Language.Constraint
 constraint = Language.copy ⊣ keyword "copy" ≫ always
 
@@ -200,7 +201,7 @@ typePattern ::
 typePattern =
   Language.typePatternSource ⊣ position ⊗ typeIdentifier ⊗ k ⊗ constraints ⊗ (lowerBounds typeCore)
   where
-    k = just ⊣ token ":" ≫ typex ∥ nothing ⊣ always
+    k = token ":" ≫ typex
 
 typeFull = foldlP pair ⊣ typex ⊗ many (token "," ≫ space ≫ typex)
   where
@@ -263,9 +264,9 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
         Language.ofCourse ⊣ betweenBangSquares typeFull,
         keyword "function" ≫ (funLiteral ∥ funPointer),
         Language.wildCard ⊣ token ":",
-        Language.typex ⊣ token "*",
-        Language.pretype ⊣ betweenPlusSquares typex,
-        Language.boxed ⊣ token "-",
+        Language.typex ⊣ keyword "type",
+        Language.pretype ⊣ keyword "pretype" ≫ betweenAngle typex,
+        Language.boxed ⊣ keyword "boxed",
         Language.region ⊣ keyword "region",
         Language.pointerRep ⊣ keyword "pointer",
         Language.structRep ⊣ prefixKeyword "struct" ≫ betweenParens (commaSeperatedMany typex),
@@ -277,14 +278,14 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
         Language.signed ⊣ keyword "signed",
         Language.unsigned ⊣ keyword "unsigned",
         Language.capacity ⊣ keyword "capacity",
-        Language.kind ⊣ betweenSquares typex,
+        Language.kind ⊣ keyword "kind" ≫ typeCore ⊗ typeCore,
         Language.representation ⊣ keyword "representation",
         Language.size ⊣ keyword "size",
         Language.signedness ⊣ keyword "signedness",
-        Language.sort ⊣ token "/\\",
         Language.invariant ⊣ keyword "invariant",
         Language.subtypable ⊣ keyword "subtypable",
-        Language.substitutability ⊣ keyword "substitutability"
+        Language.transparent ⊣ keyword "transparent",
+        Language.opaque ⊣ keyword "opaque"
       ]
     rotate = associate' . secondI swap . associate
     funLiteral = Language.functionLiteralType ⊣ rotate ⊣ betweenParensElse unit typeFull ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
@@ -292,15 +293,7 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
 
 typeAuto = auto typex
 
-newtype Scheme p = Scheme
-  { runScheme ::
-      [ ( p,
-          Either
-            (Language.TypePatternSource p)
-            (Language.KindPatternSource p)
-        )
-      ]
-  }
+newtype Scheme p = Scheme {runScheme :: [(p, Language.TypePatternSource p)]}
   deriving (Show)
 
 isoScheme = Isomorph Scheme runScheme
@@ -309,25 +302,25 @@ scheme :: (Syntax δ, Position δ p) => δ (Scheme p)
 scheme = isoScheme ⊣ schema
   where
     schema = betweenAngle $ cons ⊣ inverse nonEmpty ⊣ commaSeperatedSome (position ⊗ schemeCore) ∥ nil ⊣ always
-    schemeCore = typePattern ⊕ token "'" ≫ kindPattern
+    schemeCore = typePattern
 
 wrapType :: Isomorph (Scheme p, Language.TypeSource p) (Language.TypeSchemeSource p)
 wrapType =
-  wrap Language.typeSchemeSource Language.typeForall Language.kindForall
+  wrap Language.typeSchemeSource Language.typeForall
     . secondI
       (assumeIsomorph (toPrism Language.typeSchemeSource . secondP Language.monoType) . extractInfo location)
 
 wrapTerm :: Isomorph (Scheme p, Language.TermSource p) (Language.TermSchemeSource p)
 wrapTerm =
-  wrap Language.termSchemeSource Language.typeAbstraction Language.kindAbstraction
+  wrap Language.termSchemeSource Language.typeAbstraction
     . secondI
       (assumeIsomorph (toPrism Language.termSchemeSource . secondP Language.monoTerm) . extractInfo location)
 
-wrap c t k =
+wrap c t =
   foldrP
     ( toPrism c
         . secondP
-          ((t . toPrism Language.bound) `branchDistribute'` (k . toPrism Language.bound))
+          (t . toPrism Language.bound)
         . toPrism associate
     )
     . firstI (inverse isoScheme)
@@ -362,14 +355,14 @@ termFull = termPair
     termPair = foldlP pair ⊣ termAnnotate ⊗ many (token "," ≫ space ≫ termAnnotate)
       where
         pair = withInnerPosition Language.termSource Language.pairIntroduction
-    termAnnotate = apply ⊣ termStatement ⊗ (binaryToken "::" ≫ typeAuto ⊕ binaryToken ":" ≫ typeAuto ⊕ always)
+    termAnnotate = apply ⊣ termStatement ⊗ (binaryToken "::" ≫ typex ⊕ binaryToken ":" ≫ typex ⊕ always)
       where
         apply = preAnnotate `branchDistribute` annotate `branchDistribute` unit'
         annotate = withInnerPosition Language.termSource Language.typeAnnotation
         preAnnotate = withInnerPosition Language.termSource Language.preTypeAnnotation
 
 termStatement :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
-termStatement = Language.termSource ⊣ position ⊗ choice options ∥ apply ⊣ term ⊗ (token ";" ≫ termStatement ⊕ always)
+termStatement = Language.termSource ⊣ position ⊗ choice options ∥ apply ⊣ term ⊗ (token ";" ≫ line ≫ termStatement ⊕ always)
   where
     options =
       [ Language.bind ⊣ rotateBind ⊣ prefixKeyword "inline" ≫ termPattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ termStatement,

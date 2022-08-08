@@ -156,7 +156,7 @@ forwardDeclarations = mapMaybe forward
 
 validateDeclarations :: Module (TypeSchemeSource p) -> Either (TypeError p) (Module (p, TypeSchemeInfer))
 validateDeclarations = traverse $ \ς@(TypeSchemeSource p _) -> do
-  ς <- runCore (do (ς, _) <- kindCheckScheme ς; finish ς) emptyEnvironment emptyState
+  ς <- runCore (fst <$> kindCheckScheme SymbolMode ς) emptyEnvironment emptyState
   pure (p, ς)
 
 forwardDeclare :: Module (p, TypeSchemeInfer) -> CoreEnvironment p
@@ -204,28 +204,28 @@ typeCheckModule environment ((path@(Path heading _), item) : nodes) = do
   environment <- pure $ bindMembers heading environment
   (item', σ) <- case item of
     GlobalSource (Inline Nothing (TermAutoSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalAuto True e) environment emptyState
+      (e, σ) <- runCore (typeCheckGlobalAuto InlineMode e) environment emptyState
       pure (GlobalInfer $ Inline σ e, flexible σ)
     GlobalSource (Inline (Just σ) (TermAutoSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalScope e σ) environment emptyState
+      (e, σ) <- runCore (typeCheckGlobalScope InlineMode e σ) environment emptyState
       pure (GlobalInfer $ Inline σ e, flexible σ)
     GlobalSource (Inline Nothing (TermManualSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalSemi e) environment emptyState
+      (e, σ) <- runCore (typeCheckGlobalSemi InlineMode e) environment emptyState
       pure (GlobalInfer $ Inline σ e, flexible σ)
     GlobalSource (Inline (Just σ) (TermManualSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalManual e σ) environment emptyState
+      (e, σ) <- runCore (typeCheckGlobalManual InlineMode e σ) environment emptyState
       pure (GlobalInfer $ Inline σ e, flexible σ)
     GlobalSource (Text Nothing (TermAutoSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalAuto False e >>= syntaticCheck) environment emptyState
+      (e, σ) <- runCore (typeCheckGlobalAuto SymbolMode e >>= syntaticCheck) environment emptyState
       pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexible σ)
     GlobalSource (Text (Just σ) (TermAutoSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalScope e σ) environment emptyState
-      pure (GlobalInfer $ Inline σ e, convertFunctionLiteral $ flexible σ)
+      (e, σ) <- runCore (typeCheckGlobalScope SymbolMode e σ) environment emptyState
+      pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexible σ)
     GlobalSource (Text (Just σ) (TermManualSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalManual e σ >>= syntaticCheck) environment emptyState
+      (e, σ) <- runCore (typeCheckGlobalManual SymbolMode e σ >>= syntaticCheck) environment emptyState
       pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexible σ)
     GlobalSource (Text Nothing (TermManualSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalSemi e >>= syntaticCheck) environment emptyState
+      (e, σ) <- runCore (typeCheckGlobalSemi SymbolMode e >>= syntaticCheck) environment emptyState
       pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexible σ)
   let environment' =
         environment

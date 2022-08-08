@@ -168,8 +168,7 @@ convertTerm (TermCore _ (InlineApplication _ _ _)) = simpleFailTerm
 convertTerm (TermCore _ (OfCourseIntroduction _)) = simpleFailTerm
 convertTerm (TermCore _ (Bind _ _)) = simpleFailTerm
 convertTerm (TermCore _ (FunctionLiteral _)) = simpleFailTerm
-convertTerm (TermCore _ (TypeAnnotation _ _ invalid)) = absurd invalid
-convertTerm (TermCore _ (PretypeAnnotation _ _ invalid)) = absurd invalid
+convertTerm (TermCore _ (Annotation invalid)) = absurd invalid
 convertTerm (TermCore _ (TermSugar _)) = simpleFailTerm
 convertTerm (TermCore _ (GlobalVariable _ _)) = simpleFailTerm
 

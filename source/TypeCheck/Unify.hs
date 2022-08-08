@@ -41,22 +41,18 @@ reconstructF indexVariable indexLogical poly checkRuntime reconstruct = \case
   Boolean -> pure $ TypeCore $ Pretype $ TypeCore $ KindRuntime $ WordRep $ TypeCore $ KindSize $ Byte
   TypeSub World -> pure $ TypeCore $ Region
   Wildcard -> pure $ TypeCore $ Length
-  Type -> pure $ TypeCore $ Kind $ TypeCore $ Invariant
-  Region -> pure $ TypeCore $ Kind $ TypeCore $ Subtypable
-  Pretype _ -> pure $ TypeCore $ Kind $ TypeCore $ Invariant
-  Boxed -> pure $ TypeCore $ Kind $ TypeCore $ Invariant
-  Length -> pure $ TypeCore $ Kind $ TypeCore $ Invariant
+  Type -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Transparent)
+  Region -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Subtypable) (TypeCore $ Top Transparent)
+  Pretype _ -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Transparent)
+  Boxed -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Transparent)
+  Length -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Transparent)
   KindRuntime _ -> pure $ TypeCore $ Representation
   KindSize _ -> pure $ TypeCore $ Size
   KindSignedness _ -> pure $ TypeCore $ Signedness
-  Kind _ -> pure $ TypeCore Sort
-  Representation -> pure $ TypeCore Sort
-  Size -> pure $ TypeCore Sort
-  Signedness -> pure $ TypeCore Sort
-  Invariant -> pure $ TypeCore Substitutability
-  Subtypable -> pure $ TypeCore Substitutability
-  Substitutability -> pure $ TypeCore Sort
-  Sort -> error "reconstruct sort"
+  Representation -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Opaque)
+  Size -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Opaque)
+  Signedness -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Opaque)
+  Top _ -> error "reconstruct top"
 
 -- also changes logic type variable levels and check for escaping skolem variables
 typeOccursCheck :: forall p. p -> TypeLogical -> Level -> TypeUnify -> Core p ()
@@ -121,22 +117,21 @@ typeOccursCheck p x lev σ' = go σ'
         (KindRuntime (WordRep κ)) -> recurse κ
         (KindSize _) -> pure ()
         (KindSignedness _) -> pure ()
-        Kind κ -> recurse κ
         Representation -> pure ()
         Size -> pure ()
         Signedness -> pure ()
-        Invariant -> pure ()
-        Subtypable -> pure ()
-        Substitutability -> pure ()
-        Sort -> pure ()
+        Top (Kind σ τ) -> do
+          recurse σ
+          recurse τ
+        Top Invariant -> pure ()
+        Top Subtypable -> pure ()
+        Top Transparent -> pure ()
+        Top Opaque -> pure ()
     occursPoly (TypeSchemeCore ς) = case ς of
       MonoType σ -> recurse σ
-      TypeForall (Bound (TypePattern x κ _ π) ς) -> do
-        augmentKindUnify True p x κ $ occursPoly ς
+      TypeForall (Bound (TypePattern x _ _ π) ς) -> do
+        augmentKindUnify True p x $ occursPoly ς
         traverse recurse π
-        pure ()
-      KindForall (Bound (KindPattern x μ) ς) -> do
-        augmentKindUnify True p x μ $ occursPoly ς
         pure ()
 
 matchType :: p -> TypeUnify -> TypeUnify -> Core p ()
@@ -231,14 +226,16 @@ matchType p σ σ' = unify σ σ'
     unify (TypeCore (KindSize Native)) (TypeCore (KindSize Native)) = pure ()
     unify (TypeCore (KindSignedness Signed)) (TypeCore (KindSignedness Signed)) = pure ()
     unify (TypeCore (KindSignedness Unsigned)) (TypeCore (KindSignedness Unsigned)) = pure ()
-    unify (TypeCore (Kind κ)) (TypeCore (Kind κ')) = match p κ κ'
     unify (TypeCore Representation) (TypeCore Representation) = pure ()
     unify (TypeCore Size) (TypeCore Size) = pure ()
     unify (TypeCore Signedness) (TypeCore Signedness) = pure ()
-    unify (TypeCore Invariant) (TypeCore Invariant) = pure ()
-    unify (TypeCore Subtypable) (TypeCore Subtypable) = pure ()
-    unify (TypeCore Substitutability) (TypeCore Substitutability) = pure ()
-    unify (TypeCore Sort) (TypeCore Sort) = pure ()
+    unify (TypeCore (Top (Kind σ τ))) (TypeCore (Top (Kind σ' τ'))) = do
+      match p σ σ'
+      match p τ τ'
+    unify (TypeCore (Top Invariant)) (TypeCore (Top Invariant)) = pure ()
+    unify (TypeCore (Top Subtypable)) (TypeCore (Top Subtypable)) = pure ()
+    unify (TypeCore (Top Transparent)) (TypeCore (Top Transparent)) = pure ()
+    unify (TypeCore (Top Opaque)) (TypeCore (Top Opaque)) = pure ()
     unify σ σ' = quit $ TypeMismatch p σ σ'
 
     unifyPoly
@@ -254,19 +251,8 @@ matchType p σ σ' = unify σ σ'
           let αf = fresh vars α
           let ς2 = convertType αf α ς
           let ς'2 = convertType αf α' ς'
-          augmentKindUnify False p αf κ $ unifyPoly ς2 ς'2
+          augmentKindUnify False p αf $ unifyPoly ς2 ς'2
           sequence $ zipWith (match p) π π'
-          pure ()
-    unifyPoly
-      (TypeSchemeCore (KindForall (Bound (KindPattern β μ) ς)))
-      (TypeSchemeCore (KindForall (Bound (KindPattern β' μ') ς'))) =
-        do
-          match p μ μ'
-          vars <- Map.keysSet <$> kindEnvironment <$> askEnvironment
-          let βf = fresh vars β
-          let ς2 = convertType βf β ς
-          let ς'2 = convertType βf β' ς'
-          augmentKindUnify False p βf μ $ unifyPoly ς2 ς'2
           pure ()
     unifyPoly
       (TypeSchemeCore (MonoType σ))
@@ -293,7 +279,7 @@ constrain p c σ = predicate c σ
             True -> pure ()
     predicate c σ@(TypeCore (TypeSub (TypeVariable x))) = do
       TypeBinding _ κ cs _ _ <- indexKindEnvironment x
-      predicateKindCheck p c κ
+      predicateKindCheck p c (flexible κ)
       case Set.member c cs of
         False -> quit $ ConstraintMismatch p c σ
         True -> pure ()
@@ -372,7 +358,7 @@ lessThen p σ σ' = do
     else pure ()
 
 kindIsMember :: forall p. p -> TypeUnify -> TypeUnify -> Core p ()
-kindIsMember p (TypeCore Sort) _ = quit $ NotTypable p
+kindIsMember p (TypeCore (Top _)) _ = quit $ NotTypable p
 kindIsMember p σ κ = do
   κ' <- reconstruct p σ
   matchType p κ κ'
@@ -381,13 +367,12 @@ reconstruct :: forall p. p -> TypeUnify -> Core p TypeUnify
 reconstruct p (TypeCore σ) = go σ
   where
     go = reconstructF indexEnvironment indexLogicalMap poly checkRuntime (reconstruct p)
-    poly (TypeSchemeCore (TypeForall (Bound (TypePattern x κ _ _) ς))) = augmentKindUnify True p x κ $ poly ς
-    poly (TypeSchemeCore (KindForall (Bound (KindPattern x μ) ς))) = augmentKindUnify True p x μ $ poly ς
+    poly (TypeSchemeCore (TypeForall _)) = pure $ TypeCore $ Type
     poly (TypeSchemeCore (MonoType (TypeCore σ))) = go σ
 
     indexEnvironment x = kind <$> indexKindEnvironment x
       where
-        kind (TypeBinding _ κ _ _ _) = κ
+        kind (TypeBinding _ κ _ _ _) = flexible κ
     indexLogicalMap x = indexTypeLogicalMap x >>= index
     index (UnboundTypeLogical _ x _ _ _ _) = pure x
     index (LinkTypeLogical σ) = reconstruct p σ

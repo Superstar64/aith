@@ -12,27 +12,27 @@ module combinators = {
 };
 
 module systemf = {
-	inline ignored <B : *> : <A : *> B -> B;
-	inline ignored <B> = <A : *> \(x : B) => x;
+	inline ignored <B : type> : <A : type> B -> B;
+	inline ignored <B : type> = <A : type> \(x : B) => x;
 
-	inline idSysF = <A : *> \x : A => x;
+	inline idSysF = <A : type> \x : A => x;
 
 	inline runIdSysF = \f {
-		|< f : <A> A -> A >|
+		|< f : <A : type> A -> A >|
 	};
 
 	inline id = runIdSysF `idSysF;
 
-	inline constSysF = <A : *, B : *> \![x : A] => \![y : B] => x;
+	inline constSysF = <A : type, B : type> \![x : A] => \![y : B] => x;
 
-	inline const <A:*, B:*> : ![A] -> ![B] -> A;
-	inline const <A,B> = |< constSysF : <A, B> ![A] -> ![B] -> A >|;
+	inline const <A : type, B : type> : ![A] -> ![B] -> A;
+	inline const <A : type, B : type> = |< constSysF : <A : type, B : type> ![A] -> ![B] -> A >|;
 
 };
 
 module varSub = {
-	inline sub<R : +[pointer], A : region, B : region >= A, C:*> : ![R in A] -> ![R in B] -> C -> C;
-	inline sub<R,A,B,C> = \![a] => \![b] => \x => x;
+	inline sub<R : pretype<pointer>, A : region, B : region >= A, C:type> : ![R in A] -> ![R in B] -> C -> C;
+	inline sub = \![a] => \![b] => \x => x;
 
 
 	inline cycle = \![a] => \![b] => \![c] {
@@ -44,8 +44,6 @@ module varSub = {
 			)
 		)
 	};
-
-	inline polySub = <A, B >= A> \x => x;
 };
 
 module default = {
@@ -98,13 +96,13 @@ module boolean = {
 };
 
 module pair = {
-	inline fstSysF = <A : +[pointer], B : +[pointer] if copy> function(x :: A, y :: B) => x;
+	inline fstSysF = <A : pretype<pointer>, B : pretype<pointer> if copy> function(x :: A, y :: B) => x;
   
-	fst <A : +[pointer], B : +[pointer] if copy, R : region> :  function (A, B) => A uses R;
-	fst <A, B, R> = |< fstSysF : <A, B if copy> function (A,B) => A uses R >|;
+	fst <A : pretype<pointer>, B : pretype<pointer> if copy, R : region> :  function (A, B) => A uses R;
+	fst = |< fstSysF : <A : pretype<pointer>, B : pretype<pointer> if copy> function (A,B) => A uses R >|;
 	
-	snd <A : +[pointer] if copy, B : +[pointer], R : region> : function (A, B) => B uses R;
-	snd <A,B,R> = function(x, y) => y;
+	snd <A : pretype<pointer> if copy, B : pretype<pointer>, R : region> : function (A, B) => B uses R;
+	snd = function(x, y) => y;
 	
 	pattern = function (pair) {
 		(fst (pair), snd (pair))
@@ -116,8 +114,8 @@ module ptr = {
 		***x
 	};
 
-	deref <RA : region, RB : region >= RA, T : +[pointer] if copy, L : capacity> : function (T[L] @ RA) => T uses RB;
-	deref <RA : region, RB : region >= RA, T : +[pointer] if copy, L : capacity> = function (x) {
+	deref <RA : region, RB : region >= RA, T : pretype<pointer> if copy, L : capacity> : function (T[L] @ RA) => T uses RB;
+	deref <RA : region, RB : region >= RA, T : pretype<pointer> if copy, L : capacity> = function (x) {
 		*x
 	};
 
@@ -182,18 +180,18 @@ module fptr = {
 };
 
 module recurse = {
-	explode<R:region, A:+[pointer]> : function() => A uses R;
-	explode<R:region, A:+[pointer]> = function() {
+	explode<R:region, A:pretype<pointer>> : function() => A uses R;
+	explode<R:region, A:pretype<pointer>> = function() {
 		explode ()
 	};
 };
 
 module world = {
 	inline putchar<A:region> : function*(int) => int uses io in A;
-	inline putchar<A> = extern "putchar";
+	inline putchar<A:region> = extern "putchar";
 
 	putPtr<A:region >= io, L : capacity> : function(int[L] @ A) => int uses A;
-	putPtr<A,L> = function(ptr) {
+	putPtr = function(ptr) {
 		putchar (*ptr)
 	};
 };
@@ -214,8 +212,8 @@ module arrays = {
 		()
 	};
 
-	memcpyPtr <A : +[pointer] if copy, R : region> : function(A[:] @ R, A[:] @ R, unsigned integer(native)) => () uses R; 
-	memcpyPtr <A : +[pointer] if copy, R : region> = function(dst, src, i) {
+	memcpyPtr <A : pretype<pointer> if copy, R : region> : function(A[:] @ R, A[:] @ R, unsigned integer(native)) => () uses R; 
+	memcpyPtr <A : pretype<pointer> if copy, R : region> = function(dst, src, i) {
 		if(i != 0) {
 			*dst = (*src);
 			memcpyPtr (&dst[1], &src[1], i - 1)
@@ -252,7 +250,7 @@ module sort = {
 module borrowed = {
 	increment <R : region> : function(unique int[:]) => (unique int[:]) uses R;
 	increment <R : region> = function(p :: unique int[:]) {
-		let ((), p) = borrow p as <A >= R>(x :: int[:] @ A) {
+		let ((), p) = borrow p as <A : region >= R>(x :: int[:] @ A) {
 			*x = (*x + 1)
 		};
 		p
@@ -262,13 +260,13 @@ module borrowed = {
 module partial = {
 	inline auto = \x => x;
 	
-	inline semi<A> = \x : A => x;
+	inline semi<A : type> = \x : A => x;
 
-	inline scoped<A> : A -> A;
+	inline scoped<A : type> : A -> A;
 	inline scoped = \x : A => x;
 
-	inline manual<A> : A -> A;
-	inline manual<A> = \x => x;
+	inline manual<A : type> : A -> A;
+	inline manual<A : type> = \x => x;
 };
 
 module import = {
