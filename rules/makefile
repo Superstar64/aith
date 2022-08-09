@@ -11,4 +11,5 @@ pure.pdf : pure.tex
 	latexmk -pdf $<
 
 pure.svg : pure.pdf
-	inkscape --pdf-poppler pure.pdf --export-plain-svg -o pure.svg
+	pdf2svg pure.pdf pure.svg
+	python opaque.py pure.svg
