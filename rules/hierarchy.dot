@@ -5,19 +5,19 @@ digraph aith {
     {
         // sorts
         rank=same
-        kindInvTrans[label="□ invariant transparent"]
-        kindInvOpa[label="□ invariant opaque"]
-        kindSubTrans[label="□ subtypable transparent"]
-        kindSubOpa[label="□ subtypable opaque"]
+        kindInvTrans[label="kind invariant transparent"]
+        kindInvOpa[label="kind invariant opaque"]
+        kindSubTrans[label="kind subtypable transparent"]
+        kindSubOpa[label="kind subtypable opaque"]
     }
 
     {
         // kinds
         rank=same
-        type[label="*"]
+        type[label="type"]
         region
-        pretype[label="+[κ]"]
-        boxed[label="-"]
+        pretype[label="pretype<κ>"]
+        boxed[label="boxed"]
         representation
         size
         signedness
