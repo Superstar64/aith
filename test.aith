@@ -114,13 +114,13 @@ module ptr = {
 		***x
 	};
 
-	deref <RA : region, RB : region >= RA, T : pretype<pointer> if copy, L : capacity> : function (T[L] @ RA) => T uses RB;
-	deref <RA : region, RB : region >= RA, T : pretype<pointer> if copy, L : capacity> = function (x) {
+	deref <RA : region, RB : region >= RA, T : pretype<pointer> if copy> : function (T* @ RA) => T uses RB;
+	deref <RA : region, RB : region >= RA, T : pretype<pointer> if copy> = function (x) {
 		*x
 	};
 
-	write<A:region, B:region >= A, L : capacity> : function(int[L] @ A) => () uses B;
-	write<A:region, B:region >= A, L : capacity> = function(x :: int[L] @ A) {
+	write<A:region, B:region >= A> : function(int* @ A) => () uses B;
+	write<A:region, B:region >= A> = function(x :: int* @ A) {
 		*x = (1 :: int)
 	};
 
@@ -190,7 +190,7 @@ module world = {
 	inline putchar<A:region> : function*(int) => int uses io in A;
 	inline putchar<A:region> = extern "putchar";
 
-	putPtr<A:region >= io, L : capacity> : function(int[L] @ A) => int uses A;
+	putPtr<A:region >= io> : function(int* @ A) => int uses A;
 	putPtr = function(ptr) {
 		putchar (*ptr)
 	};
@@ -198,11 +198,11 @@ module world = {
 
 module arrays = {
 	inline get = \x => \i {
-		*&x[i]
+		* &* &x[i]
 	};
 
 	inline set = \x => \i => \a {
-		*&x[i] = a
+		* &* &x[i] = a
 	};
 
 	swap = function(a, b, i) {
@@ -212,10 +212,10 @@ module arrays = {
 		()
 	};
 
-	memcpyPtr <A : pretype<pointer> if copy, R : region> : function(A[:] @ R, A[:] @ R, unsigned integer(native)) => () uses R; 
+	memcpyPtr <A : pretype<pointer> if copy, R : region> : function(A[] @ R, A[] @ R, unsigned integer(native)) => () uses R; 
 	memcpyPtr <A : pretype<pointer> if copy, R : region> = function(dst, src, i) {
 		if(i != 0) {
-			*dst = (*src);
+			* &* dst = (* &* src);
 			memcpyPtr (&dst[1], &src[1], i - 1)
 		} else {
 			()
@@ -224,19 +224,26 @@ module arrays = {
 };
 
 module sort = {
-	insert<R : region> : function(int[:] @ R, unsigned integer(native)) => () uses R;
+
+	inline get = /arrays/get;
+
+	inline set = /arrays/set;
+
+	inline swap = /arrays/swap;
+
+	insert<R : region> : function(int[] @ R, unsigned integer(native)) => () uses R;
 	insert<R : region> = function(array, index) {
-		if (index > 0 & *&array[index] < *&array[index - 1]) {
-			let tmp = *&array[index];
-			*&array[index] = (*&array[index - 1]);
-			*&array[index - 1] = tmp;
+		if (index > 0 & get `array `index < get `array `(index - 1) ) {
+			let tmp = get `array `index;
+			set `array `index `(get `array `(index - 1));
+			set `array `(index - 1) `tmp;
 			insert(array, index - 1)
 		} else {
 			()
 		}
 	};
 
-	sort <R : region> : function(int[:] @ R, unsigned integer(native)) => () uses R;
+	sort <R : region> : function(int[] @ R, unsigned integer(native)) => () uses R;
 	sort <R : region> = function(array, length) {
 		if (length > 1) {
 			sort(array, length - 1);
@@ -248,9 +255,9 @@ module sort = {
 };
 
 module borrowed = {
-	increment <R : region> : function(unique int[:]) => (unique int[:]) uses R;
-	increment <R : region> = function(p :: unique int[:]) {
-		let ((), p) = borrow p as <A : region >= R>(x :: int[:] @ A) {
+	increment <R : region> : function(unique int*) => unique int* uses R;
+	increment <R : region> = function(p :: unique int*) {
+		let ((), p) = borrow p as <A : region >= R>(x :: int* @ A) {
 			*x = (*x + 1)
 		};
 		p

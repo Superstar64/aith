@@ -335,27 +335,31 @@ e \Coloneqq & \\
 e \Coloneqq & \\
 & *e \tag{Read Pointer} \\
 & *e = e' \tag{Write Pointer} \\
-& \& e [e'] \tag{Pointer Increment} \\
+& \& * \tag{Array to Pointer} \\
+& \& e [e'] \tag{Array Increment} \\
 & \dots \\
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
-& \sigma [\pi] \tag{Pointer} \\
-& : \tag{Unknown Capacity} \\
-& \text{Capacity}
+& \sigma* \tag{Pointer} \\
+& \sigma[] \tag{Array Pointer} \\
 \end{align*}
 
 \begin{gather*}
 \frac
-{\Phi | \Gamma \vdash e : (\sigma [\tau] \, @ \pi')^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
+{\Phi | \Gamma \vdash e : (\sigma* \, @ \pi')^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
 {\Phi | \Gamma \vdash * e  : \sigma^\pi} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\sigma [\tau] \, @ \pi')^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi  \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
+{\Phi | \Gamma \vdash e : (\sigma* \, @ \pi')^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi  \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
 {\Phi | \Gamma \vdash *e  = e' : ()^\pi } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\sigma [:] @ \pi')^\pi \quad \Phi |
+{\Phi | \Gamma \vdash e : (\sigma[] @ \pi') ^ \pi}
+{\Phi | \Gamma \vdash \& * e : (\sigma * @ \pi') ^ \pi}\\
+\\
+\frac
+{\Phi | \Gamma \vdash e : (\sigma [] @ \pi')^\pi \quad \Phi |
  \Gamma' \vdash e' : (\text{unsigned} \, \text{integer}(\text{native}))^\pi}
-{\Phi | \Gamma, \Gamma' \vdash \&e [e'] : (\sigma [\tau] @  \pi')^\pi} 
+{\Phi | \Gamma, \Gamma' \vdash \&e [e'] : (\sigma [] @  \pi')^\pi}
 \end{gather*}
 
 \begin{gather*}
@@ -410,52 +414,37 @@ e \Coloneqq & \\
 {\Phi \vdash \sigma \xrightarrow{\text{text}}_\pi \tau : *} \\
 \end{gather*}
 
-\subsubsection{Pairs}
+\subsubsection{Tuples}
 \begin{align*}
 e \Coloneqq & \\
-& (e, e') \tag{Pair Introduction} \\
-& \text{let}^\downarrow (x, x') = e; e' \tag{Pair Elimination} \\
-& () \tag{Unit Introduction} \\
-& \text{let}^\downarrow () = e; e' \tag{Unit Elimination} \\
+& (\overline e) \tag{Tuple Introduction} \\
+& \text{let}^\downarrow (\overline x) = e; e' \tag{Tuple Elimination} \\
 & \dots \\
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
-& (\sigma, \tau) \tag{Pair} \\
-& () \tag{Unit} \\
-& \text{Struct} \{ \rho, \rho', \dots \} \tag{Struct Representation} \\
+& (\overline \sigma) \tag{Tuple} \\
+& \text{Struct} \{ \overline \rho \} \tag{Struct Representation} \\
 & \dots
 \end{align*}
 
 \begin{gather*}
 \frac
-{\Phi | \Gamma \vdash e : \sigma^\pi \quad \Phi | \Gamma' \vdash e' : \tau^\pi}
-{\Phi | \Gamma, \Gamma' \vdash (e, e') : (\sigma, \tau)^\pi } \\
+{\Phi | \overline { \Gamma \vdash e : \sigma^\pi }}
+{\Phi | \overline \Gamma  \vdash (\overline e) : (\overline \sigma)^\pi } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\tau, \tau')^\pi \quad \Phi | \Gamma , \langle x : \forall \alpha. \tau^\alpha \rangle, \langle x' : \forall \alpha. \tau'^\alpha \rangle \vdash e : \sigma^\pi}
-{\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow (x :: \tau, x' :: \tau') = e; e' : \sigma^\pi} \\
+{\Phi | \Gamma \vdash e : (\overline \tau)^\pi \quad \Phi | \Gamma , \overline {\langle x : \forall \alpha. \tau^\alpha \rangle} \vdash e : \sigma^\pi}
+{\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow (\overline x) = e; e' : \sigma^\pi} \\
 \\
 \frac
-{}
-{\Phi | \Gamma \vdash () : ()^\pi} \\
-\\
-\frac
-{\Phi | \Gamma \vdash e : ()^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi}
-{\Phi | \Gamma \vdash \text{let}^\downarrow () = e; e' : \sigma^\pi} \\
-\\
-\frac
-{\Phi \vdash \tau : +^{\kappa} \quad \Phi \vdash \tau : +^{\kappa'} }
+{\Phi \vdash \overline {\tau : +^{\kappa}} }
 {\Phi \vdash (\sigma, \tau) : +^{\text{Struct} \{ \kappa,\kappa'\}}} \\
-\\
-\frac
-{}
-{\Phi \vdash () : +^{\text{Struct} \{\}}}
 \end{gather*}
 
 
 \begin{gather*}
 \frac
-{\Phi \vdash \rho : \text{Representation} \quad \Phi \vdash \rho' : \text{Representation} \quad \dots}
-{\Phi \vdash \text{Struct} \{ \rho, \rho', \dots \} : \text{Representation} } \\
+{\Phi \vdash \overline {\rho : \text{Representation}}}
+{\Phi \vdash \text{Struct} \{ \overline \rho \} : \text{Representation} } \\
 \end{gather*}
 
 \subsubsection{Integer Arithmatic}

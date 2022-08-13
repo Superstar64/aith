@@ -110,6 +110,9 @@ branch a b = Prism pick prefer
         (Just x) -> Just $ Right x
         Nothing -> Nothing
 
+branch' :: Prism a c -> Prism b c -> Prism (Either a b) c
+branch' = branch
+
 branchDistribute :: (ToPrism f, ToPrism g) => f (x, a) c -> g (x, b) c -> Prism (x, Either a b) c
 branchDistribute x y = branch x y . toPrism distribute
 

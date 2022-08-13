@@ -69,13 +69,18 @@ data TermSugar e
   | Do e e
   deriving (Show, Functor)
 
+data TermErasure λrgn_e e
+  = Borrow e λrgn_e
+  | IsolatePointer e
+  deriving (Show)
+
 data TermF ann θ σauto λrgn_e λσe λe λrun_e e
   = TermRuntime (TermRuntime θ σauto σauto σauto λrun_e e)
   | TermSugar (TermSugar e)
+  | TermErasure (TermErasure λrgn_e e)
   | Annotation ann
   | GlobalVariable TermGlobalIdentifier θ
   | FunctionLiteral λrun_e
-  | Borrow e λrgn_e
   | InlineAbstraction λe
   | InlineApplication e e σauto
   | OfCourseIntroduction e
@@ -173,7 +178,8 @@ traverseTermF y d z r k h m i e =
     Annotation e -> pure Annotation <*> y e
     GlobalVariable x θ -> pure GlobalVariable <*> pure x <*> d θ
     FunctionLiteral λ -> pure FunctionLiteral <*> m λ
-    Borrow e λ -> pure Borrow <*> i e <*> r λ
+    TermErasure (Borrow e λ) -> TermErasure <$> (Borrow <$> i e <*> r λ)
+    TermErasure (IsolatePointer e) -> TermErasure <$> (IsolatePointer <$> i e)
     InlineAbstraction λ -> pure InlineAbstraction <*> h λ
     InlineApplication e1 e2 σ -> pure InlineApplication <*> i e1 <*> i e2 <*> z σ
     OfCourseIntroduction e -> pure OfCourseIntroduction <*> i e
@@ -333,16 +339,9 @@ runtimePatternVariable =
     (RuntimePatternVariable x σ) -> Just (x, σ)
     _ -> Nothing
 
--- n-arity tuples are supported internally but only pairs are supposed in the surface language
-runtimePatternPair =
-  Prism (\(pm, pm') -> RuntimePatternTuple [pm, pm']) $ \case
-    (RuntimePatternTuple [pm, pm']) -> Just (pm, pm')
-    _ -> Nothing
-
-runtimePatternUnit =
-  Prism (const $ RuntimePatternTuple []) $ \case
-    (RuntimePatternTuple []) -> Just ()
-    _ -> Nothing
+runtimePatternTuple = Prism RuntimePatternTuple $ \case
+  (RuntimePatternTuple pms) -> Just pms
+  _ -> Nothing
 
 termSource = Isomorph (uncurry TermSource) $ \(TermSource p e) -> (p, e)
 
@@ -399,15 +398,9 @@ functionLiteral =
     (FunctionLiteral λ) -> Just λ
     _ -> Nothing
 
--- n-arity tuples are supported internally but only pairs are supposed in the surface language
-pairIntroduction = (termRuntime .) $
-  Prism (\(e1, e2) -> TupleIntroduction [e1, e2]) $ \case
-    (TupleIntroduction [e1, e2]) -> Just (e1, e2)
-    _ -> Nothing
-
-unitIntroduction = (termRuntime .) $
-  Prism (const $ TupleIntroduction []) $ \case
-    (TupleIntroduction []) -> Just ()
+tupleIntroduction = (termRuntime .) $
+  Prism TupleIntroduction $ \case
+    (TupleIntroduction es) -> Just es
     _ -> Nothing
 
 readReference = (termRuntime .) $
@@ -507,9 +500,19 @@ preTypeAnnotation = (annotation .) $
     (PretypeAnnotation e σ) -> Just (e, σ)
     _ -> Nothing
 
-borrow = Prism (uncurry Borrow) $ \case
-  (Borrow e λ) -> Just (e, λ)
+termErasure = Prism TermErasure $ \case
+  TermErasure e -> Just e
   _ -> Nothing
+
+borrow = (termErasure .) $
+  Prism (uncurry Borrow) $ \case
+    (Borrow e λ) -> Just (e, λ)
+    _ -> Nothing
+
+isolatePointer = (termErasure .) $
+  Prism IsolatePointer $ \case
+    IsolatePointer e -> Just e
+    _ -> Nothing
 
 termAutoSource = Prism TermAutoSource $ \case
   TermAutoSource e -> Just e
@@ -956,7 +959,8 @@ sourceTerm (TermCore _ e) =
     TermSugar e -> TermSugar (fmap sourceTerm e)
     GlobalVariable x _ -> GlobalVariable x ()
     FunctionLiteral λ -> FunctionLiteral (mapBound sourceTermRuntimePattern sourceTerm λ)
-    Borrow e λ -> Borrow (sourceTerm e) (mapBound sourceTypePattern (mapBound sourceTermRuntimePattern sourceTerm) λ)
+    TermErasure (Borrow e λ) -> TermErasure $ Borrow (sourceTerm e) (mapBound sourceTypePattern (mapBound sourceTermRuntimePattern sourceTerm) λ)
+    TermErasure (IsolatePointer e) -> TermErasure $ IsolatePointer (sourceTerm e)
     InlineAbstraction λ -> InlineAbstraction (mapBound sourceTermPattern sourceTerm λ)
     InlineApplication e e' σ -> InlineApplication (sourceTerm e) (sourceTermAnnotate TypeAnnotation e' σ) ()
     OfCourseIntroduction e -> OfCourseIntroduction (sourceTerm e)

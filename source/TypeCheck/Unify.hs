@@ -36,16 +36,14 @@ reconstructF indexVariable indexLogical poly checkRuntime reconstruct = \case
     pure $ TypeCore $ Pretype $ TypeCore $ KindRuntime $ PointerRep
   Number _ ρ -> do
     pure $ TypeCore $ Pretype $ TypeCore $ KindRuntime $ WordRep ρ
-  Pointer _ _ ->
-    pure $ TypeCore $ Boxed
+  Pointer _ -> pure $ TypeCore $ Boxed
+  Array _ -> pure $ TypeCore $ Boxed
   Boolean -> pure $ TypeCore $ Pretype $ TypeCore $ KindRuntime $ WordRep $ TypeCore $ KindSize $ Byte
   TypeSub World -> pure $ TypeCore $ Region
-  Wildcard -> pure $ TypeCore $ Length
   Type -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Transparent)
   Region -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Subtypable) (TypeCore $ Top Transparent)
   Pretype _ -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Transparent)
   Boxed -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Transparent)
-  Length -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Transparent)
   KindRuntime _ -> pure $ TypeCore $ Representation
   KindSize _ -> pure $ TypeCore $ Size
   KindSignedness _ -> pure $ TypeCore $ Signedness
@@ -100,18 +98,15 @@ typeOccursCheck p x lev σ' = go σ'
         Shared σ π -> do
           recurse σ
           recurse π
-        Pointer σ τ -> do
-          recurse σ
-          recurse τ
+        Pointer σ -> recurse σ
+        Array σ -> recurse σ
         Number _ _ -> pure ()
         Boolean -> pure ()
         TypeSub World -> pure ()
-        Wildcard -> pure ()
         Type -> pure ()
         Region -> pure ()
         Pretype κ -> recurse κ
         Boxed -> pure ()
-        Length -> pure ()
         (KindRuntime PointerRep) -> pure ()
         (KindRuntime (StructRep κs)) -> traverse recurse κs >> pure ()
         (KindRuntime (WordRep κ)) -> recurse κ
@@ -200,21 +195,20 @@ matchType p σ σ' = unify σ σ'
     unify (TypeCore (Shared σ π)) (TypeCore (Shared σ' π')) = do
       match p σ σ'
       match p π π'
-    unify (TypeCore (Pointer σ τ)) (TypeCore (Pointer σ' τ')) = do
+    unify (TypeCore (Pointer σ)) (TypeCore (Pointer σ')) = do
       match p σ σ'
-      match p τ τ'
+    unify (TypeCore (Array σ)) (TypeCore (Array σ')) = do
+      match p σ σ'
     unify (TypeCore (Number ρ1 ρ2)) (TypeCore (Number ρ1' ρ2')) = do
       match p ρ1 ρ1'
       match p ρ2 ρ2'
     unify (TypeCore Boolean) (TypeCore Boolean) = pure ()
     unify (TypeCore (TypeSub World)) (TypeCore (TypeSub World)) = pure ()
-    unify (TypeCore Wildcard) (TypeCore Wildcard) = pure ()
     unify (TypeCore Type) (TypeCore Type) = pure ()
     unify (TypeCore Region) (TypeCore Region) = pure ()
     unify (TypeCore (Pretype κ)) (TypeCore (Pretype κ')) = do
       match p κ κ'
     unify (TypeCore Boxed) (TypeCore Boxed) = pure ()
-    unify (TypeCore Length) (TypeCore Length) = pure ()
     unify (TypeCore (KindRuntime PointerRep)) (TypeCore (KindRuntime PointerRep)) = pure ()
     unify (TypeCore (KindRuntime (StructRep κs))) (TypeCore (KindRuntime (StructRep κs'))) | length κs == length κs' = do
       sequence_ $ zipWith (match p) κs κs'

@@ -154,13 +154,14 @@ convertTerm (TermCore p (TermRuntime (PointerIncrement ep ei σ))) = do
   ei <- convertTerm ei
   σ <- convertType σ
   pure $ SimpleTerm p $ PointerIncrement ep ei σ
-convertTerm (TermCore p (Borrow ep (Bound (TypePattern α κ _ _) (Bound pm@(TermRuntimePatternCore _ (RuntimePatternVariable x _)) e)))) = do
+convertTerm (TermCore p (TermErasure (Borrow ep (Bound (TypePattern α κ _ _) (Bound pm@(TermRuntimePatternCore _ (RuntimePatternVariable x _)) e))))) = do
   ep <- convertTerm ep
   withReaderT (Map.insert α κ) $ do
     pm <- convertTermPattern pm
     e <- convertTerm e
     pure $ SimpleTerm p $ Alias ep (Bound pm $ SimpleTerm p $ TupleIntroduction [e, SimpleTerm p $ Variable x ()])
-convertTerm (TermCore _ (Borrow _ _)) = simpleFailTerm
+convertTerm (TermCore _ (TermErasure (Borrow _ _))) = simpleFailTerm
+convertTerm (TermCore _ (TermErasure (IsolatePointer e))) = convertTerm e
 convertTerm (TermCore _ (PolyIntroduction _)) = simpleFailTerm
 convertTerm (TermCore _ (PolyElimination _ _ _)) = simpleFailPattern
 convertTerm (TermCore _ (InlineAbstraction _)) = simpleFailTerm

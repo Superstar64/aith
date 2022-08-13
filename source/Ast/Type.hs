@@ -74,15 +74,14 @@ data TypeF v λσ σ
   | Effect σ σ
   | Unique σ
   | Shared σ σ
-  | Pointer σ σ
+  | Pointer σ
+  | Array σ
   | Number σ σ
   | Boolean
-  | Wildcard
   | Type
   | Region
   | Pretype σ
   | Boxed
-  | Length
   | KindRuntime (KindRuntime σ σ)
   | KindSize (KindSize)
   | KindSignedness (KindSignedness)
@@ -152,16 +151,15 @@ traverseTypeF f i g σ = case σ of
   Effect σ π -> pure Effect <*> g σ <*> g π
   Unique σ -> pure Unique <*> g σ
   Shared σ π -> pure Shared <*> g σ <*> g π
-  Pointer σ τ -> pure Pointer <*> g σ <*> g τ
+  Pointer σ -> pure Pointer <*> g σ
+  Array σ -> pure Array <*> g σ
   Number ρ ρ' -> pure Number <*> g ρ <*> g ρ'
   Boolean -> pure Boolean
   TypeSub World -> pure (TypeSub World)
-  Wildcard -> pure Wildcard
   Type -> pure Type
   Region -> pure Region
   (Pretype κ) -> pure Pretype <*> g κ
   Boxed -> pure Boxed
-  Length -> pure Length
   KindRuntime PointerRep -> pure (KindRuntime PointerRep)
   KindRuntime (StructRep κs) -> pure (KindRuntime . StructRep) <*> traverse g κs
   KindRuntime (WordRep s) -> pure (KindRuntime . WordRep) <*> g s
@@ -308,13 +306,8 @@ functionLiteralType = Prism (uncurry $ uncurry FunctionLiteralType) $ \case
 copy = Prism (const Copy) $ \case
   Copy -> Just ()
 
--- n-arity tuples are supported internally but only pairs are supposed in the surface language
-pair = Prism (\(σ, τ) -> Tuple [σ, τ]) $ \case
-  (Tuple [σ, τ]) -> Just (σ, τ)
-  _ -> Nothing
-
-unit = Prism (const $ Tuple []) $ \case
-  (Tuple []) -> Just ()
+tuple = Prism Tuple $ \case
+  Tuple σ -> Just σ
   _ -> Nothing
 
 effect = Prism (uncurry Effect) $ \case
@@ -329,8 +322,12 @@ shared = Prism (uncurry Shared) $ \case
   (Shared σ π) -> Just (σ, π)
   _ -> Nothing
 
-pointer = Prism (uncurry Pointer) $ \case
-  (Pointer σ τ) -> Just (σ, τ)
+pointer = Prism Pointer $ \case
+  (Pointer σ) -> Just σ
+  _ -> Nothing
+
+array = Prism Array $ \case
+  (Array σ) -> Just σ
   _ -> Nothing
 
 number = Prism (uncurry Number) $ \case
@@ -345,10 +342,6 @@ world = (typeSub .) $
   Prism (const World) $ \case
     World -> Just ()
     _ -> Nothing
-
-wildCard = Prism (const Wildcard) $ \case
-  Wildcard -> Just ()
-  _ -> Nothing
 
 typeIdentifier = Isomorph TypeIdentifier runTypeIdentifier
 
@@ -366,10 +359,6 @@ pretype = Prism Pretype $ \case
 
 boxed = Prism (const Boxed) $ \case
   Boxed -> pure ()
-  _ -> Nothing
-
-capacity = Prism (const Length) $ \case
-  Length -> pure ()
   _ -> Nothing
 
 pointerRep = (kindRuntime .) $

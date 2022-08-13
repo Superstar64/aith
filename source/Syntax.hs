@@ -154,6 +154,17 @@ commaSeperatedMany e = seperatedMany e (token "," ≫ space)
 
 commaSeperatedSome e = seperatedSome e (token "," ≫ space)
 
+commaNonSingle :: (Syntax δ, Position δ p) => δ a -> δ (Either (p, [a]) a)
+commaNonSingle e =
+  token "("
+    ≫ ( left ⊣ position ⊗ (nil ⊣ token ")")
+          ∥ apply ⊣ e ⊗ (position ⊗ commaSome e ≪ token ")" ⊕ token ")")
+      )
+  where
+    apply = multi `branchDistribute` single
+    multi = left . secondP (cons . secondP cons) . toPrism associate . firstP (toPrism swap) . toPrism associate' . secondP (secondP (toPrism (inverse nonEmpty)))
+    single = right . toPrism unit'
+
 multiarg core = multiargExclusionary core ∥ singleton ⊣ core
 
 -- excludes single argument multiargs
@@ -203,9 +214,8 @@ typePattern =
   where
     k = token ":" ≫ typex
 
-typeFull = foldlP pair ⊣ typex ⊗ many (token "," ≫ space ≫ typex)
-  where
-    pair = withInnerPosition Language.typeSource Language.pair
+typeParen :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
+typeParen = branch' (toPrism Language.typeSource . secondP Language.tuple) id ⊣ commaNonSingle typex
 
 typex :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
 typex = typeLambda
@@ -223,12 +233,13 @@ typex = typeLambda
     typeUnique = Language.typeSource ⊣ position ⊗ unique ∥ typePtr
       where
         unique = Language.unique ⊣ prefixKeyword "unique" ≫ typePtr
-    typePtr = foldlP apply ⊣ typeInt ⊗ many (betweenSquares typex ⊕ binaryToken "@" ≫ typeInt)
+    typePtr = foldlP apply ⊣ typeInt ⊗ many (token "*" ⊕ token "[]" ⊕ binaryToken "@" ≫ typeInt)
       where
-        apply = ptr `branchDistribute` shared
-        ptr = withInnerPosition Language.typeSource Language.pointer
+        apply = ptr `branchDistribute` arr `branchDistribute` shared
+        ptr = withInnerPosition1 Language.typeSource Language.pointer
+        arr = withInnerPosition1 Language.typeSource Language.array
         shared = withInnerPosition Language.typeSource Language.shared
-    typeInt = integers ∥# apply ⊣ kindWord ⊗ (space ≫ keyword "integer" ≫ betweenParens typex ⊕ always)
+    typeInt = integers ∥# apply ⊣ kindWord ⊗ (space ≫ keyword "integer" ≫ typeParen ⊕ always)
       where
         apply = num `branchDistribute` unit'
         num = withInnerPosition Language.typeSource Language.number
@@ -254,16 +265,14 @@ integers =
         lit x = Language.typeSource ⊣ position ⊗ (x ⊣ always)
 
 typeCore :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
-typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers ∥ betweenParensElse unit typeFull
+typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers ∥ typeParen
   where
-    unit = Language.typeSource ⊣ position ⊗ (Language.unit ⊣ always)
     options =
       [ Language.typeVariable ⊣ typeIdentifier,
         Language.boolean ⊣ keyword "bool",
         Language.world ⊣ keyword "io",
-        Language.ofCourse ⊣ betweenBangSquares typeFull,
+        Language.ofCourse ⊣ betweenBangSquares typex,
         keyword "function" ≫ (funLiteral ∥ funPointer),
-        Language.wildCard ⊣ token ":",
         Language.typex ⊣ keyword "type",
         Language.pretype ⊣ keyword "pretype" ≫ betweenAngle typex,
         Language.boxed ⊣ keyword "boxed",
@@ -277,7 +286,6 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
         Language.native ⊣ keyword "native",
         Language.signed ⊣ keyword "signed",
         Language.unsigned ⊣ keyword "unsigned",
-        Language.capacity ⊣ keyword "capacity",
         Language.kind ⊣ keyword "kind" ≫ typeCore ⊗ typeCore,
         Language.representation ⊣ keyword "representation",
         Language.size ⊣ keyword "size",
@@ -288,8 +296,8 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
         Language.opaque ⊣ keyword "opaque"
       ]
     rotate = associate' . secondI swap . associate
-    funLiteral = Language.functionLiteralType ⊣ rotate ⊣ betweenParensElse unit typeFull ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
-    funPointer = Language.functionPointer ⊣ rotate ⊣ token "*" ≫ betweenParensElse unit typeFull ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
+    funLiteral = Language.functionLiteralType ⊣ rotate ⊣ typeParen ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
+    funPointer = Language.functionPointer ⊣ rotate ⊣ token "*" ≫ typeParen ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
 
 typeAuto = auto typex
 
@@ -301,7 +309,7 @@ isoScheme = Isomorph Scheme runScheme
 scheme :: (Syntax δ, Position δ p) => δ (Scheme p)
 scheme = isoScheme ⊣ schema
   where
-    schema = betweenAngle $ cons ⊣ inverse nonEmpty ⊣ commaSeperatedSome (position ⊗ schemeCore) ∥ nil ⊣ always
+    schema = betweenAngle $ commaSeperatedMany (position ⊗ schemeCore)
     schemeCore = typePattern
 
 wrapType :: Isomorph (Scheme p, Language.TypeSource p) (Language.TypeSchemeSource p)
@@ -327,15 +335,16 @@ wrap c t =
 
 typeAnnotate op = just ⊣ binaryToken op ≫ typex ∥ nothing ⊣ always
 
+termRuntimePatternParen :: (Position δ p, Syntax δ) => δ (Language.TermRuntimePatternSource p)
+termRuntimePatternParen =
+  branch' (toPrism Language.termRuntimePatternSource . secondP Language.runtimePatternTuple) id
+    ⊣ commaNonSingle termRuntimePattern
+
 termRuntimePattern :: (Position δ p, Syntax δ) => δ (Language.TermRuntimePatternSource p)
-termRuntimePattern = patternPair
+termRuntimePattern = patternCore
   where
-    patternPair = foldlP pair ⊣ patternCore ⊗ many (token "," ≫ space ≫ patternCore)
+    patternCore = Language.termRuntimePatternSource ⊣ position ⊗ choice options ∥ termRuntimePatternParen
       where
-        pair = withInnerPosition Language.termRuntimePatternSource Language.runtimePatternPair
-    patternCore = Language.termRuntimePatternSource ⊣ position ⊗ choice options ∥ betweenParensElse unit termRuntimePattern
-      where
-        unit = Language.termRuntimePatternSource ⊣ position ⊗ (Language.runtimePatternUnit ⊣ always)
         options =
           [ Language.runtimePatternVariable ⊣ termIdentifier ⊗ typeAnnotate "::"
           ]
@@ -350,16 +359,8 @@ termPattern = patternCore
             Language.patternOfCourse ⊣ betweenBangSquares termPattern
           ]
 
-termFull = termPair
-  where
-    termPair = foldlP pair ⊣ termAnnotate ⊗ many (token "," ≫ space ≫ termAnnotate)
-      where
-        pair = withInnerPosition Language.termSource Language.pairIntroduction
-    termAnnotate = apply ⊣ termStatement ⊗ (binaryToken "::" ≫ typex ⊕ binaryToken ":" ≫ typex ⊕ always)
-      where
-        apply = preAnnotate `branchDistribute` annotate `branchDistribute` unit'
-        annotate = withInnerPosition Language.termSource Language.typeAnnotation
-        preAnnotate = withInnerPosition Language.termSource Language.preTypeAnnotation
+termParen :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
+termParen = branch' (toPrism Language.termSource . secondP Language.tupleIntroduction) id ⊣ commaNonSingle termStatement
 
 termStatement :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
 termStatement = Language.termSource ⊣ position ⊗ choice options ∥ apply ⊣ term ⊗ (token ";" ≫ line ≫ termStatement ⊕ always)
@@ -375,9 +376,14 @@ termStatement = Language.termSource ⊣ position ⊗ choice options ∥ apply �
 term :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
 term = termLambda
   where
-    termLambda = Language.termSource ⊣ position ⊗ lambda ∥ termOr
+    termLambda = Language.termSource ⊣ position ⊗ lambda ∥ termAnnotate
       where
         lambda = Language.polyIntroduction ⊣ wrapTerm ⊣ scheme ≪ space ⊗ term
+    termAnnotate = apply ⊣ termOr ⊗ (binaryToken "::" ≫ typex ⊕ binaryToken ":" ≫ typex ⊕ always)
+      where
+        apply = preAnnotate `branchDistribute` annotate `branchDistribute` unit'
+        annotate = withInnerPosition Language.termSource Language.typeAnnotation
+        preAnnotate = withInnerPosition Language.termSource Language.preTypeAnnotation
     termOr = foldlP apply ⊣ termAnd ⊗ many (binaryToken "|" ≫ termAnd)
       where
         apply = withInnerPosition Language.termSource Language.or
@@ -420,7 +426,8 @@ term = termLambda
           choice
             [ Language.readReference ⊣ token "*" ≫ termPrefix,
               -- todo add proper lexer for tokens and use ! here
-              Language.not ⊣ token "~" ≫ termPrefix
+              Language.not ⊣ token "~" ≫ termPrefix,
+              Language.isolatePointer ⊣ token "&*" ≫ termPrefix
             ]
     termIndex = Language.termSource ⊣ position ⊗ index ∥ termApply
       where
@@ -431,35 +438,31 @@ term = termLambda
         application = withInnerPosition Language.termSource Language.inlineApplication
         rtApplication = withInnerPosition Language.termSource Language.functionApplication
         applySyntax = space ≫ token "`" ≫ termCore
-        rtApplySyntax = space ≫ betweenParensElse unit termFull
-          where
-            unit = Language.termSource ⊣ position ⊗ (Language.unitIntroduction ⊣ always)
+        rtApplySyntax = space ≫ termParen
 
 termLambda = lambda' termStatement term
 
 termCore :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
-termCore = Language.termSource ⊣ position ⊗ choice options ∥ betweenParensElse unit termFull
+termCore = Language.termSource ⊣ position ⊗ choice options ∥ termParen
   where
-    unit = Language.termSource ⊣ position ⊗ (Language.unitIntroduction ⊣ always)
-    unit' = Language.termRuntimePatternSource ⊣ position ⊗ (Language.runtimePatternUnit ⊣ always)
     options =
       [ Language.variable ⊣ termIdentifier,
         Language.globalVariable ⊣ termGlobalIdentifier,
         Language.inlineAbstraction ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ termLambda,
-        Language.functionLiteral ⊣ Language.bound ⊣ keyword "function" ≫ betweenParensElse unit' termRuntimePattern ⊗ termLambda,
+        Language.functionLiteral ⊣ Language.bound ⊣ keyword "function" ≫ termRuntimePatternParen ⊗ termLambda,
         Language.extern ⊣ prefixKeyword "extern" ≫ symbol,
-        Language.ofCourseIntroduction ⊣ betweenBangSquares termFull,
+        Language.ofCourseIntroduction ⊣ betweenBangSquares term,
         Language.numberLiteral ⊣ number,
         Language.truex ⊣ keyword "true",
         Language.falsex ⊣ keyword "false",
         borrow,
-        Language.polyElimination ⊣ betweenPipeAngles termFull
+        Language.polyElimination ⊣ betweenPipeAngles term
       ]
     borrow = Language.borrow ⊣ prefixKeyword "borrow" ≫ termCore ⊗ binaryKeyword "as" ≫ binding
       where
         binding = Language.bound ⊣ betweenAngle typePattern ⊗ binding'
           where
-            binding' = Language.bound ⊣ betweenParens termRuntimePattern ⊗ lambdaBrace termStatement
+            binding' = Language.bound ⊣ termRuntimePatternParen ⊗ lambdaBrace termStatement
 
 modulex ::
   (Syntax δ, Position δ p) =>
