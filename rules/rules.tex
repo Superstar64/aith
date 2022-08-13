@@ -364,16 +364,12 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi \vdash \sigma : +^{\rho} \quad \Phi \vdash \tau : \text{Length}}
-{\Phi \vdash \sigma [\tau] : -} \\
+{\Phi \vdash \sigma : +^{\rho}}
+{\Phi \vdash \sigma* : -} \\
 \\
 \frac
-{}
-{\Phi \vdash (:) : \text{Capacity}} \\
-\\
-\frac
-{}
-{\Phi \vdash \text{Capacity} : \boxvoid^\text{Invariant}_\text{Transparent}}
+{\Phi \vdash \sigma : +^{\rho}}
+{\Phi \vdash \sigma [] : -} \\
 \end{gather*}
 
 \subsubsection{Functions}
