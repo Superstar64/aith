@@ -281,7 +281,7 @@ maximal p (π, π') _ _ = quit $ NoCommonMeet p π π'
 meet p π π' = do
   lower1 <- lowerTypeBounds π
   lower2 <- lowerTypeBounds π'
-  maximal p (π, π') (Set.toList $ lower1 <> lower2) (Set.toList $ lower1 <> lower2)
+  maximal p (π, π') (Set.toList $ Set.intersection lower1 lower2) (Set.toList $ Set.intersection lower1 lower2)
 
 -- type that is subtypable
 plainType _ (TypeCore (TypeSub σ)) = pure σ
