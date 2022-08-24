@@ -70,7 +70,7 @@ convertKindImpl _ = simpleFailType
 simpleFailType = error "illegal simple type"
 
 convertKind :: TypeInfer -> SimpleType
-convertKind (TypeCore (Pretype κ)) = convertKindImpl κ
+convertKind (TypeCore (Pretype κ _)) = convertKindImpl κ
 convertKind _ = simpleFailType
 
 reconstruct :: Monad m => TypeInfer -> ReaderT (Map TypeIdentifier TypeInfer) m TypeInfer
@@ -80,7 +80,7 @@ reconstruct (TypeCore σ) = reconstructF index absurd todo checkRuntime reconstr
     index x = do
       map <- ask
       pure $ map ! x
-    checkRuntime (TypeCore (Pretype κ)) f = f κ
+    checkRuntime (TypeCore (Pretype κ _)) f = f κ
     checkRuntime _ _ = error $ "reconstruction of pair didn't return pretype"
 
 convertType σ = convertKind <$> reconstruct σ
@@ -154,7 +154,7 @@ convertTerm (TermCore p (TermRuntime (PointerIncrement ep ei σ))) = do
   ei <- convertTerm ei
   σ <- convertType σ
   pure $ SimpleTerm p $ PointerIncrement ep ei σ
-convertTerm (TermCore p (TermErasure (Borrow ep (Bound (TypePattern α κ _ _) (Bound pm@(TermRuntimePatternCore _ (RuntimePatternVariable x _)) e))))) = do
+convertTerm (TermCore p (TermErasure (Borrow ep (Bound (TypePattern α κ _) (Bound pm@(TermRuntimePatternCore _ (RuntimePatternVariable x _)) e))))) = do
   ep <- convertTerm ep
   withReaderT (Map.insert α κ) $ do
     pm <- convertTermPattern pm
@@ -166,7 +166,6 @@ convertTerm (TermCore _ (PolyIntroduction _)) = simpleFailTerm
 convertTerm (TermCore _ (PolyElimination _ _ _)) = simpleFailPattern
 convertTerm (TermCore _ (InlineAbstraction _)) = simpleFailTerm
 convertTerm (TermCore _ (InlineApplication _ _ _)) = simpleFailTerm
-convertTerm (TermCore _ (OfCourseIntroduction _)) = simpleFailTerm
 convertTerm (TermCore _ (Bind _ _)) = simpleFailTerm
 convertTerm (TermCore _ (FunctionLiteral _)) = simpleFailTerm
 convertTerm (TermCore _ (Annotation invalid)) = absurd invalid
@@ -176,7 +175,7 @@ convertTerm (TermCore _ (GlobalVariable _ _)) = simpleFailTerm
 simpleFailTerm = error "illegal simple term"
 
 convertFunctionType :: Monad m => TypeSchemeInfer -> ReaderT (Map TypeIdentifier TypeInfer) m SimpleFunctionType
-convertFunctionType (TypeSchemeCore (TypeForall (Bound (TypePattern x κ _ _) σ))) = withReaderT (Map.insert x κ) $ convertFunctionType σ
+convertFunctionType (TypeSchemeCore (TypeForall (Bound (TypePattern x κ _) σ))) = withReaderT (Map.insert x κ) $ convertFunctionType σ
 convertFunctionType (TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ _ τ)))) = do
   σ' <- convertType σ
   τ' <- convertType τ
@@ -184,7 +183,7 @@ convertFunctionType (TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ 
 convertFunctionType _ = error "failed to convert function type"
 
 convertFunction :: Monad m => TermSchemeInfer p -> ReaderT (Map TypeIdentifier TypeInfer) m (SimpleFunction p)
-convertFunction (TermSchemeCore _ (TypeAbstraction (Bound (TypePattern x κ _ _) e))) = withReaderT (Map.insert x κ) $ convertFunction e
+convertFunction (TermSchemeCore _ (TypeAbstraction (Bound (TypePattern x κ _) e))) = withReaderT (Map.insert x κ) $ convertFunction e
 convertFunction (TermSchemeCore _ (MonoTerm (TermCore p (FunctionLiteral (Bound pm e))))) = do
   pm' <- convertTermPattern pm
   e' <- convertTerm e

@@ -6,8 +6,8 @@ module combinators = {
 	inline flip = \f => \x => \y => f `y `x;
 	inline compose = \f => \g => \x => f `(g `x);
 	
-	inline readerPure = \x => \![r] => x;
-	inline readerBind = \m => \f => \![r] => f `(m `![r]) `![r];
+	inline readerPure = \x => \r => x;
+	inline readerBind = \m => \f => \r => f `(m `r) `r;
 	inline readerMap = \f => \m => readerBind `m `(compose `readerPure `f);
 };
 
@@ -23,22 +23,23 @@ module systemf = {
 
 	inline id = runIdSysF `idSysF;
 
-	inline constSysF = <A : type, B : type> \![x : A] => \![y : B] => x;
+	inline constSysF = <A : type, B : type> \x : A => \y : B => x;
 
-	inline const <A : type, B : type> : ![A] -> ![B] -> A;
-	inline const <A : type, B : type> = |< constSysF : <A : type, B : type> ![A] -> ![B] -> A >|;
+	inline const <A : type, B : type> : A -> B -> A;
+	inline const <A : type, B : type> = |< constSysF : <A : type, B : type> A -> B -> A >|;
 
 };
 
 module varSub = {
-	inline sub<R : pretype<pointer>, A : region, B : region >= A, C:type> : ![R in A] -> ![R in B] -> C -> C;
-	inline sub = \![a] => \![b] => \x => x;
+	inline sub<R : pretype<pointer, unrestricted>, A : region, B : region >= A, C:type>
+    : R in A -> R in B -> C -[linear]> C;
+	inline sub = \a => \b => \x => x;
 
 
-	inline cycle = \![a] => \![b] => \![c] {
-		sub `![a] `![b] `(
-			sub `![b] `![c] `(
-				sub `![c] `![a] `(
+	inline cycle = \a => \b => \c {
+		sub `a `b `(
+			sub `b `c `(
+				sub `c `a `(
 					\x => x
 				)
 			)
@@ -52,7 +53,7 @@ module default = {
 	};
 
 	ambigous = function(x) {
-		inline ![y] = ![1];
+		inline y = 1;
 		x
 	};
 };
@@ -87,7 +88,7 @@ module boolean = {
 	};
 
 	not = function(b) {
-		~b
+		!b
 	};
 
 	inBounds = function(x1, x2, x3) {
@@ -96,16 +97,12 @@ module boolean = {
 };
 
 module pair = {
-	inline fstSysF = <A : pretype<pointer>, B : pretype<pointer> if copy> function(x :: A, y :: B) => x;
-  
-	fst <A : pretype<pointer>, B : pretype<pointer> if copy, R : region> :  function (A, B) => A uses R;
-	fst = |< fstSysF : <A : pretype<pointer>, B : pretype<pointer> if copy> function (A,B) => A uses R >|;
-	
-	snd <A : pretype<pointer> if copy, B : pretype<pointer>, R : region> : function (A, B) => B uses R;
+	fst = function(x, y) => x;
+
 	snd = function(x, y) => y;
 	
 	pattern = function (pair) {
-		(fst (pair), snd (pair))
+		(fst(pair), snd(pair))
 	};
 };
 
@@ -114,8 +111,8 @@ module ptr = {
 		***x
 	};
 
-	deref <RA : region, RB : region >= RA, T : pretype<pointer> if copy> : function (T* @ RA) => T uses RB;
-	deref <RA : region, RB : region >= RA, T : pretype<pointer> if copy> = function (x) {
+	deref <RA : region, RB : region >= RA, T : pretype<pointer, unrestricted>> : function (T* @ RA) => T uses RB;
+	deref <RA : region, RB : region >= RA, T : pretype<pointer, unrestricted>> = function (x) {
 		*x
 	};
 
@@ -137,9 +134,9 @@ module ptr = {
 };
 
 module number = {
-	dotProduct = function(vector1P, vector2P) {
-		let (x1,y1,z1) = *vector1P;
-		let (x2,y2,z2) = *vector2P;
+	dotProduct = function(vector1, vector2) {
+		let (x1,y1,z1) = vector1;
+		let (x2,y2,z2) = vector2;
 		(x1 * x2 + y1 * y2 + z1 * z2)
 	};
   
@@ -180,8 +177,8 @@ module fptr = {
 };
 
 module recurse = {
-	explode<R:region, A:pretype<pointer>> : function() => A uses R;
-	explode<R:region, A:pretype<pointer>> = function() {
+	explode<L : multiplicity, R:region, A:pretype<pointer, L>> : function() => A uses R;
+	explode<L : multiplicity, R:region, A:pretype<pointer, L>> = function() {
 		explode ()
 	};
 };
@@ -212,8 +209,8 @@ module arrays = {
 		()
 	};
 
-	memcpyPtr <A : pretype<pointer> if copy, R : region> : function(A[] @ R, A[] @ R, unsigned integer(native)) => () uses R; 
-	memcpyPtr <A : pretype<pointer> if copy, R : region> = function(dst, src, i) {
+	memcpyPtr <A : pretype<pointer, unrestricted>, R : region> : function(A[] @ R, A[] @ R, unsigned integer(native)) => () uses R; 
+	memcpyPtr <A : pretype<pointer, unrestricted>, R : region> = function(dst, src, i) {
 		if(i != 0) {
 			* &* dst = (* &* src);
 			memcpyPtr (&dst[1], &src[1], i - 1)
@@ -279,6 +276,6 @@ module partial = {
 module import = {
 	inline id = \x => x;
 	module b = {
-		inline const = \![y] => /import/id;
+		inline const = \y => /import/id;
 	};
 };

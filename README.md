@@ -76,7 +76,7 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
       * [x] Relational Operators
     * [x] Pointers
       * [x] Shared
-        * [ ] Type
+        * [x] Type
         * [ ] Stack Allocation
         * [x] Get
         * [x] Set
@@ -95,17 +95,20 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
         * [x] Type
         * [ ] Heap Allocation
       * [x] Borrowing
+    * [ ] Tuples
+      * [x] Type
+      * [x] Construction
+      * [x] Destruction
+      * [x] Multiplicity Polymorphism
+      * [ ] Multiplicity Inference 
     * [x] Function Pointers
-    * [x] Pairs
     * [ ] Records
     * [ ] Tagged Unions
   * [ ] New Types
   * [x] Modules
   * [ ] Hindley Milner
     * [x] Syntatical Unification
-    * [ ] Higher Order Unification (System-F ω)
-    * [x] Builtin Typeclasses (evidence only)
-    * [ ] User Defined Typeclasses
+    * [ ] Typeclasses
   * [ ] Pattern Matching
     * [x] Destructure Products
     * [ ] Literals
@@ -114,13 +117,9 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 * [ ] System-F
   * [x] Levity Polymorphism
   * [x] Type Lambda / Application
-  * [x] Kind Lambda / Application
   * [ ] Type Lambda / Application for Runtime Terms
   * [ ] Higher Order Unification (System-F ω)
-* [ ] Linear / Unique Types
-  * [x] Basic Linear Types (at meta level)
-  * [ ] Multiplicity Polymorphism
-  * [x] Qualified Unique Types
+* [x] Linear / Unique Types
 * [ ] Effectful Regions
   * [x] Effects
   * [x] References
@@ -152,15 +151,13 @@ Files start with `code` `::`.
 | Inline Abstraction | `` \pm { e }`` |
 | Inline Abstraction | `` \pm => e`` |
 | Inline Application | ``e `e'``|
-| Of Course Introduction | ``![e]`` |
 | Inline Binding | ``inline pm = e; e'``|
 | Extern | ``extern "sym"`` |
 | Function Application | ``e (e')``|
 | Function Literal | ``function(pm) => e`` |
 | Function Literal | ``function(pm) { e }`` |
 | Runtime Binding | ``let pm = e; e'`` |
-| Pair Construction | ``e, e'`` |
-| Unit Construction | ``()`` |
+| Tuple Construction | ``(e, e', ...)`` |
 | Read Pointer | ``*e`` |
 | Write Pointer | ``*e = e'`` |
 | Array Increment | ``&e[e']`` |
@@ -187,7 +184,7 @@ Files start with `code` `::`.
 ## Terms (Syntax Sugar) (e)
 | Description | Syntax | Meaning |
 | - | - | - |
-| Not | ``~e`` | ``if e { false } else { true }`` |
+| Not | ``!e`` | ``if e { false } else { true }`` |
 | And | ``e & e'`` | ``if e { e' } else { false }`` |
 | Or | ``e \| e'`` | ``if e { true } else { e' }`` |
 | Do | ``e; e'`` | ``let () = e; e'`` |
@@ -204,8 +201,7 @@ Files start with `code` `::`.
 |-|-|
 | Variable | ``x``|
 | Variable Abscribe | ``x : σ`` |
-| Pair Destruction | ``pm , pm'`` |
-| Unit Destruction | ``()`` |
+| Tuple Destruction | ``(pm , pm', ...)`` |
 
 # Scheme(ς)
 | Description | Syntax |
@@ -216,13 +212,11 @@ Files start with `code` `::`.
 | Description | Syntax |
 |-|-|
 | Variable | ``x`` |
-| Inline Function | ``σ -> τ``|
+| Inline Function | ``σ -[π]> τ``|
 | Poly | ``ς σ`` |
-| Of Course | ``![σ]`` |
 | Function Pointer | ``function*(σ) => τ uses π`` |
 | Function Literal Type | ``function(σ) => τ uses π`` |
-| Pair | ``σ, σ'`` |
-| Unit | ``()`` |
+| Tuple | ``(σ, σ', ...) used π`` |
 | Effect | ``σ in π`` |
 | Unique | ``unique σ`` |
 | Shared | ``σ @ π`` |
@@ -275,14 +269,9 @@ Files start with `code` `::`.
 ## Type Pattern(pmσ)
 | Description | Syntax |
 |-|-|
-| Variable | ``x if c & c' & ... >= π & π' & ...`` |
-| Variable Ascribe | ``x : κ if c & c' & ... >= π & π' & ...`` |
+| Variable | ``x >= π & π' & ...`` |
+| Variable Ascribe | ``x : κ >= π & π' & ...`` |
 
-
-## Constraints (c)
-| Description | Syntax |
-|-|-|
-| Copy | ``copy`` |
 
 # C Compiler Requirements
 This list may be incomplete.
@@ -295,8 +284,8 @@ Useful / Inspirational papers:
 ## Implemented
 
 ### Linear / Unique Types
-* [A taste of linear logic](https://homepages.inf.ed.ac.uk/wadler/papers/lineartaste/lineartaste-revised.pdf)
-  * Faithfully implemented
+* [Linear Haskell](https://arxiv.org/pdf/1710.09756.pdf) [(video)](https://youtu.be/t0mhvd3-60Y)
+  * Implemented but with subtyping rather then multiplication
 ### Levity polymorphism
 * [Levity Polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/11/levity-pldi17.pdf) [(video)](https://youtu.be/lSJwXZ7vWBw)
   * Implemented with more restrictive representation lambda.
@@ -341,13 +330,13 @@ The major modification is that scope type variables are used rather then schemat
 * [An Introduction to Generalized Type Systems](https://www.researchgate.net/profile/Henk-hendrik-Barendregt/publication/216300104_An_Introduction_to_Generalized_Type_Systems/links/584c326d08aeb989251f7565/An-Introduction-to-Generalized-Type-Systems.pdf)
 * [The Structural Theory of Pure Type Systems](https://www.andrew.cmu.edu/user//fpv/papers/struct_pts.pdf) [(video)](https://youtu.be/8zuTuE9f9Jg)
 ### Linear / Unique Types
-* [Linear Haskell](https://arxiv.org/pdf/1710.09756.pdf) [(video)](https://youtu.be/t0mhvd3-60Y)
 *
   * [Making Uniqueness Typing Less Unique](http://edsko.net/pubs/thesis.pdf)
   * [Uniqueness Typing Redefined](http://www.edsko.net/pubs/ifl06-paper.pdf)
   * [Equality-Based Uniqueness Typing](http://www.edsko.net/pubs/tfp07-paper.pdf)
   * [Uniqueness Typing Simplified](http://www.edsko.net/pubs/ifl07-paper.pdf)
   * [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
+* [A taste of linear logic](https://homepages.inf.ed.ac.uk/wadler/papers/lineartaste/lineartaste-revised.pdf)
 ### Type Inference (First Class Polymorphism)
 *
   * [HMF: Simple type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2007-118.pdf)

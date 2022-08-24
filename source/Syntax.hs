@@ -11,7 +11,6 @@ import Control.Monad.Trans.Class
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Control.Monad.Trans.Writer.Strict (WriterT, runWriterT, tell)
 import Data.Maybe (fromJust)
-import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Void (Void)
 import Misc.Isomorph
@@ -77,7 +76,11 @@ keywords =
       "kind",
       "type",
       "pretype",
-      "boxed"
+      "boxed",
+      "linear",
+      "unrestricted",
+      "multiplicity",
+      "used"
     ]
 
 -- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
@@ -154,16 +157,24 @@ commaSeperatedMany e = seperatedMany e (token "," ≫ space)
 
 commaSeperatedSome e = seperatedSome e (token "," ≫ space)
 
+commaSeperatedManyLine e = indent ≫ seperatedMany (line ≫ e) (token ",") ≪ dedent ≪ line
+
 commaNonSingle :: (Syntax δ, Position δ p) => δ a -> δ (Either (p, [a]) a)
-commaNonSingle e =
+commaNonSingle e = imap2 unit' id ⊣ commaNonSingle' always e
+
+-- todo position is wrong, it should be at the start of the list
+commaNonSingle' :: (Syntax δ, Position δ p) => δ e -> δ a -> δ (Either ((p, [a]), e) a)
+commaNonSingle' ex e =
   token "("
-    ≫ ( left ⊣ position ⊗ (nil ⊣ token ")")
-          ∥ apply ⊣ e ⊗ (position ⊗ commaSome e ≪ token ")" ⊕ token ")")
+    ≫ ( left ⊣ position ⊗ (nil ⊣ token ")") ⊗ ex
+          ∥ apply ⊣ e ⊗ (position ⊗ commaSome e ≪ token ")" ⊗ ex ⊕ token ")")
       )
   where
     apply = multi `branchDistribute` single
-    multi = left . secondP (cons . secondP cons) . toPrism associate . firstP (toPrism swap) . toPrism associate' . secondP (secondP (toPrism (inverse nonEmpty)))
     single = right . toPrism unit'
+    multi = left . firstP (secondP packList . swapPosition) . toPrism associate'
+    swapPosition = toPrism associate . firstP (toPrism swap) . toPrism associate'
+    packList = cons . secondP cons . secondP (toPrism $ inverse nonEmpty)
 
 multiarg core = multiargExclusionary core ∥ singleton ⊣ core
 
@@ -176,6 +187,8 @@ multiargExclusionary core = apply ⊣ keyword "multiarg" ≫ betweenParens (core
 withInnerPosition1 core app = toPrism core . secondP app . toPrism (extractInfo $ location) . toPrism unit'
 
 withInnerPosition core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst)
+
+withInnerPosition3 core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst . fst) . toPrism associate'
 
 path = (Path.path . swapNonEmpty) ⊣ token "/" ≫ identifer ⊗ pathTail
   where
@@ -193,14 +206,6 @@ typeIdentifier = Language.typeIdentifier ⊣ identifer
 
 auto e = just ⊣ e ∥ nothing ⊣ token "_"
 
-constraint :: Syntax δ => δ Language.Constraint
-constraint = Language.copy ⊣ keyword "copy" ≫ always
-
-constraints :: Syntax δ => δ (Set Language.Constraint)
-constraints = orderlessSet ⊣ (items ∥ nil ⊣ always)
-  where
-    items = cons ⊣ inverse nonEmpty ⊣ binaryKeyword "if" ≫ seperatedSome (constraint) (binaryToken "&")
-
 lowerBounds :: Syntax δ => δ a -> δ [a]
 lowerBounds σ = items ∥ nil ⊣ always
   where
@@ -210,12 +215,16 @@ typePattern ::
   (Syntax δ, Position δ p) =>
   δ (Language.TypePatternSource p)
 typePattern =
-  Language.typePatternSource ⊣ position ⊗ typeIdentifier ⊗ k ⊗ constraints ⊗ (lowerBounds typeCore)
+  Language.typePatternSource ⊣ position ⊗ typeIdentifier ⊗ k ⊗ lowerBounds typeCore
   where
     k = token ":" ≫ typex
 
 typeParen :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
-typeParen = branch' (toPrism Language.typeSource . secondP Language.tuple) id ⊣ commaNonSingle typex
+typeParen = branch' (toPrism Language.typeSource . secondP Language.tuple . toPrism associate) id ⊣ commaNonSingle' ann typex
+  where
+    ann = unres ∥# binaryKeyword "used" ≫ typeCore ∥ unres
+      where
+        unres = Language.typeSource ⊣ position ⊗ (Language.unrestricted ⊣ always)
 
 typex :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
 typex = typeLambda
@@ -223,10 +232,14 @@ typex = typeLambda
     typeLambda = Language.typeSource ⊣ position ⊗ poly ∥ typeArrow
       where
         poly = Language.poly ⊣ wrapType ⊣ scheme ≪ space ⊗ typeLambda
-    typeArrow = applyBinary ⊣ typeEffect ⊗ (binaryToken "->" ≫ typeArrow ⊕ always)
+    typeArrow = applyBinary ⊣ typeEffect ⊗ ((partial ∥ full) ⊕ always)
       where
         applyBinary = inline `branchDistribute` unit'
-        inline = withInnerPosition Language.typeSource Language.inline
+        full = space ≫ token "-[" ≫ typex ⊗ token "]>" ≫ space ≫ typeArrow
+        partial = binaryToken "->" ≫ unres ⊗ typeArrow
+          where
+            unres = Language.typeSource ⊣ position ⊗ (Language.unrestricted ⊣ always)
+        inline = withInnerPosition3 Language.typeSource Language.inline
     typeEffect = effect `branchDistribute` unit' ⊣ typeUnique ⊗ (binaryKeyword "in" ≫ typeCore ⊕ always)
       where
         effect = withInnerPosition Language.typeSource Language.effect
@@ -271,10 +284,9 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
       [ Language.typeVariable ⊣ typeIdentifier,
         Language.boolean ⊣ keyword "bool",
         Language.world ⊣ keyword "io",
-        Language.ofCourse ⊣ betweenBangSquares typex,
         keyword "function" ≫ (funLiteral ∥ funPointer),
         Language.typex ⊣ keyword "type",
-        Language.pretype ⊣ keyword "pretype" ≫ betweenAngle typex,
+        Language.pretype ⊣ keyword "pretype" ≫ betweenAngle (typex ≪ token "," ⊗ space ≫ typex),
         Language.boxed ⊣ keyword "boxed",
         Language.region ⊣ keyword "region",
         Language.pointerRep ⊣ keyword "pointer",
@@ -293,7 +305,10 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
         Language.invariant ⊣ keyword "invariant",
         Language.subtypable ⊣ keyword "subtypable",
         Language.transparent ⊣ keyword "transparent",
-        Language.opaque ⊣ keyword "opaque"
+        Language.opaque ⊣ keyword "opaque",
+        Language.unrestricted ⊣ keyword "unrestricted",
+        Language.linear ⊣ keyword "linear",
+        Language.multiplicity ⊣ keyword "multiplicity"
       ]
     rotate = associate' . secondI swap . associate
     funLiteral = Language.functionLiteralType ⊣ rotate ⊣ typeParen ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
@@ -309,7 +324,7 @@ isoScheme = Isomorph Scheme runScheme
 scheme :: (Syntax δ, Position δ p) => δ (Scheme p)
 scheme = isoScheme ⊣ schema
   where
-    schema = betweenAngle $ commaSeperatedMany (position ⊗ schemeCore)
+    schema = betweenAngle $ commaSeperatedManyLine (position ⊗ schemeCore)
     schemeCore = typePattern
 
 wrapType :: Isomorph (Scheme p, Language.TypeSource p) (Language.TypeSchemeSource p)
@@ -355,8 +370,7 @@ termPattern = patternCore
     patternCore = Language.termPatternSource ⊣ position ⊗ choice options ∥ betweenParens termPattern
       where
         options =
-          [ Language.patternVariable ⊣ termIdentifier ⊗ typeAnnotate ":",
-            Language.patternOfCourse ⊣ betweenBangSquares termPattern
+          [ Language.patternVariable ⊣ termIdentifier ⊗ typeAnnotate ":"
           ]
 
 termParen :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
@@ -426,7 +440,7 @@ term = termLambda
           choice
             [ Language.readReference ⊣ token "*" ≫ termPrefix,
               -- todo add proper lexer for tokens and use ! here
-              Language.not ⊣ token "~" ≫ termPrefix,
+              Language.not ⊣ token "!" ≫ termPrefix,
               Language.isolatePointer ⊣ token "&*" ≫ termPrefix
             ]
     termIndex = Language.termSource ⊣ position ⊗ index ∥ termApply
@@ -451,7 +465,6 @@ termCore = Language.termSource ⊣ position ⊗ choice options ∥ termParen
         Language.inlineAbstraction ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ termLambda,
         Language.functionLiteral ⊣ Language.bound ⊣ keyword "function" ≫ termRuntimePatternParen ⊗ termLambda,
         Language.extern ⊣ prefixKeyword "extern" ≫ symbol,
-        Language.ofCourseIntroduction ⊣ betweenBangSquares term,
         Language.numberLiteral ⊣ number,
         Language.truex ⊣ keyword "true",
         Language.falsex ⊣ keyword "false",

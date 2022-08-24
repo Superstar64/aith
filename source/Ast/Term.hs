@@ -22,7 +22,6 @@ newtype TermGlobalIdentifier = TermGlobalIdentifier {runTermGlobalIdentifier :: 
 
 data TermPatternF σ pm
   = PatternVariable TermIdentifier σ
-  | PatternOfCourse pm
   deriving (Show)
 
 data TermRuntimePatternF σ pm
@@ -83,7 +82,6 @@ data TermF ann θ σauto λrgn_e λσe λe λrun_e e
   | FunctionLiteral λrun_e
   | InlineAbstraction λe
   | InlineApplication e e σauto
-  | OfCourseIntroduction e
   | Bind e λe
   | PolyIntroduction λσe
   | PolyElimination e θ σauto
@@ -100,9 +98,8 @@ traverseTermPatternF ::
   (pm -> m pm') ->
   TermPatternF σ pm ->
   m (TermPatternF σ' pm')
-traverseTermPatternF f g pm = case pm of
+traverseTermPatternF f _ pm = case pm of
   PatternVariable x σ -> pure PatternVariable <*> pure x <*> f σ
-  PatternOfCourse pm -> pure PatternOfCourse <*> g pm
 
 foldTermPatternF f h = getConst . traverseTermPatternF (Const . f) (Const . h)
 
@@ -182,7 +179,6 @@ traverseTermF y d z r k h m i e =
     TermErasure (IsolatePointer e) -> TermErasure <$> (IsolatePointer <$> i e)
     InlineAbstraction λ -> pure InlineAbstraction <*> h λ
     InlineApplication e1 e2 σ -> pure InlineApplication <*> i e1 <*> i e2 <*> z σ
-    OfCourseIntroduction e -> pure OfCourseIntroduction <*> i e
     Bind e λ -> pure Bind <*> i e <*> h λ
     PolyIntroduction λ -> pure PolyIntroduction <*> k λ
     PolyElimination e θ σ2 -> pure PolyElimination <*> i e <*> d θ <*> z σ2
@@ -325,14 +321,9 @@ termPatternSource = Isomorph (uncurry $ TermPatternSource) $ \(TermPatternSource
 
 termRuntimePatternSource = Isomorph (uncurry $ TermRuntimePatternSource) $ \(TermRuntimePatternSource p pm) -> (p, pm)
 
-patternOfCourse = Prism PatternOfCourse $ \case
-  (PatternOfCourse pm) -> Just pm
-  _ -> Nothing
-
 patternVariable =
   Prism (uncurry PatternVariable) $ \case
     (PatternVariable x σ) -> Just (x, σ)
-    _ -> Nothing
 
 runtimePatternVariable =
   Prism (uncurry RuntimePatternVariable) $ \case
@@ -368,10 +359,6 @@ inlineAbstraction = Prism (InlineAbstraction) $ \case
 
 inlineApplication = Prism (\(e, e') -> InlineApplication e e' ()) $ \case
   (InlineApplication e e' ()) -> Just (e, e')
-  _ -> Nothing
-
-ofCourseIntroduction = Prism (OfCourseIntroduction) $ \case
-  (OfCourseIntroduction e) -> Just e
   _ -> Nothing
 
 bind = Prism (uncurry $ Bind) $ \case
@@ -623,9 +610,6 @@ instance Functor TermSchemeSource where
 
 instance BindingsTerm (TermPatternSource p) where
   bindingsTerm (TermPatternSource _ (PatternVariable x _)) = Set.singleton x
-  bindingsTerm (TermPatternSource _ pm) = foldTermPatternF mempty go pm
-    where
-      go = bindingsTerm
 
 instance BindingsTerm (TermRuntimePatternSource p) where
   bindingsTerm (TermRuntimePatternSource _ (RuntimePatternVariable x _)) = Set.singleton x
@@ -635,9 +619,6 @@ instance BindingsTerm (TermRuntimePatternSource p) where
 
 instance BindingsTerm (TermPattern p v) where
   bindingsTerm (TermPatternCore _ (PatternVariable x _)) = Set.singleton x
-  bindingsTerm (TermPatternCore _ pm) = foldTermPatternF mempty go pm
-    where
-      go = bindingsTerm
 
 instance BindingsTerm (TermRuntimePattern p v) where
   bindingsTerm (TermRuntimePatternCore _ (RuntimePatternVariable x _)) = Set.singleton x
@@ -756,7 +737,7 @@ instance ConvertTerm (Term p v) where
 
 applySchemeImpl (TermSchemeCore _ (TypeAbstraction λ)) (InstantiationCore (InstantiateType σ θ)) = applySchemeImpl (apply λ σ) θ
   where
-    apply (Bound (TypePattern α _ _ _) e) σ = substituteType σ α e
+    apply (Bound (TypePattern α _ _) e) σ = substituteType σ α e
 applySchemeImpl (TermSchemeCore _ (MonoTerm e)) (InstantiationCore InstantiateEmpty) = e
 applySchemeImpl _ _ = error "unable to substitute"
 
@@ -859,9 +840,6 @@ instance SubstituteType (TermScheme p) where
 
 applyTerm (Bound (TermPatternCore _ (PatternVariable x _)) e@(TermCore p _)) ux =
   reduce $ substituteTerm (TermSchemeCore p (MonoTerm ux)) x e
-applyTerm (Bound (TermPatternCore _ (PatternOfCourse pm)) e) (TermCore _ (OfCourseIntroduction ux)) = applyTerm (Bound pm e) ux
--- todo find better position here
-applyTerm λ ux@(TermCore p _) = TermCore p $ Bind ux λ
 
 instance Reduce (Term p v) where
   reduce (TermCore _ (Bind e λ)) = applyTerm (reduce λ) (reduce e)
@@ -873,7 +851,7 @@ instance Reduce (Term p v) where
         reduce e1 =
       reduce $ TermCore p $ PolyElimination (TermCore p $ PolyIntroduction $ applyType λ σ) θ σ'
     where
-      applyType (Bound (TypePattern α _ _ _) e) σ = substituteType σ α e
+      applyType (Bound (TypePattern α _ _) e) σ = substituteType σ α e
   reduce (TermCore p (TermSugar e)) = desugar p (fmap reduce e)
   reduce (TermCore p e) = TermCore p (mapTermF absurd go go go go go go go e)
     where
@@ -963,7 +941,6 @@ sourceTerm (TermCore _ e) =
     TermErasure (IsolatePointer e) -> TermErasure $ IsolatePointer (sourceTerm e)
     InlineAbstraction λ -> InlineAbstraction (mapBound sourceTermPattern sourceTerm λ)
     InlineApplication e e' σ -> InlineApplication (sourceTerm e) (sourceTermAnnotate TypeAnnotation e' σ) ()
-    OfCourseIntroduction e -> OfCourseIntroduction (sourceTerm e)
     Bind e λ -> Bind (sourceTerm e) (mapBound sourceTermPattern sourceTerm λ)
     PolyIntroduction λ -> PolyIntroduction (sourceTermScheme λ)
     PolyElimination e _ σ ->

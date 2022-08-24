@@ -5,7 +5,6 @@ import Ast.Term
 import Ast.Type hiding (Inline)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 import Data.Traversable (for)
 import Misc.Isomorph
 import Misc.Path
@@ -162,7 +161,7 @@ validateDeclarations = traverse $ \ς@(TypeSchemeSource p _) -> do
 forwardDeclare :: Module (p, TypeSchemeInfer) -> CoreEnvironment p
 forwardDeclare declarations = emptyEnvironment {typeGlobalEnviroment = globals}
   where
-    globals = Map.mapKeysMonotonic TermGlobalIdentifier $ Map.map (\(p, ς) -> TermBinding p Unrestricted $ convertFunctionLiteral $ flexible ς) $ flatten declarations
+    globals = Map.mapKeysMonotonic TermGlobalIdentifier $ Map.map (\(p, ς) -> TermBinding p (TypeCore $ TypeSub Unrestricted) $ convertFunctionLiteral $ flexible ς) $ flatten declarations
 
 convertFunctionLiteral ς = case ς of
   TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ π τ))) -> polyEffect "R" (TypeCore $ FunctionPointer σ π τ)
@@ -183,10 +182,10 @@ makeExtern path p ς = case ς of
   TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ π τ))) ->
     TermSchemeCore p $
       TypeAbstraction
-        ( Bound (TypePattern (TypeIdentifier "R") (TypeCore Region) Set.empty []) (TermSchemeCore p $ MonoTerm $ TermCore p (TermRuntime $ Extern (mangle path) σ π τ))
+        ( Bound (TypePattern (TypeIdentifier "R") (TypeCore Region) []) (TermSchemeCore p $ MonoTerm $ TermCore p (TermRuntime $ Extern (mangle path) σ π τ))
         )
-  TypeSchemeCore (TypeForall (Bound (TypePattern x κ c π) e)) ->
-    TermSchemeCore p (TypeAbstraction (Bound (TypePattern x κ c π) $ makeExtern path p e))
+  TypeSchemeCore (TypeForall (Bound (TypePattern x κ π) e)) ->
+    TermSchemeCore p (TypeAbstraction (Bound (TypePattern x κ π) $ makeExtern path p e))
   _ -> error "not function literal"
 
 bindMembers :: [String] -> CoreEnvironment p -> CoreEnvironment p
@@ -229,7 +228,7 @@ typeCheckModule environment ((path@(Path heading _), item) : nodes) = do
       pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexible σ)
   let environment' =
         environment
-          { typeGlobalEnviroment = Map.insert (TermGlobalIdentifier path) (TermBinding (location item) Unrestricted σ) $ typeGlobalEnviroment environment
+          { typeGlobalEnviroment = Map.insert (TermGlobalIdentifier path) (TermBinding (location item) (TypeCore $ TypeSub Unrestricted) σ) $ typeGlobalEnviroment environment
           }
   ((path, item') :) <$> typeCheckModule environment' nodes
 

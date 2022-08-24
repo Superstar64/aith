@@ -1,6 +1,7 @@
 module Misc.Isomorph where
 
 import Control.Category (Category, id, (.))
+import Data.Bifunctor (bimap)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -127,6 +128,8 @@ maybe' = Isomorph g f
     f (Just x) = Right x
 
 imap (Isomorph f g) = Isomorph (fmap f) (fmap g)
+
+imap2 (Isomorph f g) (Isomorph f' g') = Isomorph (bimap f f') (bimap g g')
 
 -- some helpers need by syntax
 

@@ -26,13 +26,11 @@ data InstantiationF σ θ
   | InstantiateEmpty
   deriving (Show)
 
-data Constraint
-  = Copy
-  deriving (Eq, Ord, Show)
-
 data TypeSub
   = TypeVariable TypeIdentifier
   | World
+  | Linear
+  | Unrestricted
   deriving (Show, Eq, Ord)
 
 data KindSize
@@ -65,12 +63,11 @@ data Top σ
 data TypeF v λσ σ
   = TypeSub TypeSub
   | TypeLogical v
-  | Inline σ σ
+  | Inline σ σ σ
   | Poly λσ
-  | OfCourse σ
   | FunctionPointer σ σ σ
   | FunctionLiteralType σ σ σ
-  | Tuple [σ]
+  | Tuple [σ] σ
   | Effect σ σ
   | Unique σ
   | Shared σ σ
@@ -80,7 +77,8 @@ data TypeF v λσ σ
   | Boolean
   | Type
   | Region
-  | Pretype σ
+  | Multiplicity
+  | Pretype σ σ
   | Boxed
   | KindRuntime (KindRuntime σ σ)
   | KindSize (KindSize)
@@ -140,14 +138,13 @@ traverseTypeF ::
   TypeF v λσ σ ->
   m (TypeF v' λσ' σ')
 traverseTypeF f i g σ = case σ of
-  TypeSub (TypeVariable x) -> pure (TypeSub $ TypeVariable x)
+  TypeSub σ -> pure (TypeSub σ)
   TypeLogical v -> pure TypeLogical <*> f v
-  Inline σ τ -> pure Inline <*> g σ <*> g τ
+  Inline σ π τ -> pure Inline <*> g σ <*> g π <*> g τ
   Poly λ -> pure Poly <*> i λ
-  OfCourse σ -> pure OfCourse <*> g σ
   FunctionPointer σ π τ -> pure FunctionPointer <*> g σ <*> g π <*> g τ
   FunctionLiteralType σ π τ -> pure FunctionLiteralType <*> g σ <*> g π <*> g τ
-  Tuple σs -> pure Tuple <*> traverse g σs
+  Tuple σs τ -> pure Tuple <*> traverse g σs <*> g τ
   Effect σ π -> pure Effect <*> g σ <*> g π
   Unique σ -> pure Unique <*> g σ
   Shared σ π -> pure Shared <*> g σ <*> g π
@@ -155,11 +152,11 @@ traverseTypeF f i g σ = case σ of
   Array σ -> pure Array <*> g σ
   Number ρ ρ' -> pure Number <*> g ρ <*> g ρ'
   Boolean -> pure Boolean
-  TypeSub World -> pure (TypeSub World)
   Type -> pure Type
   Region -> pure Region
-  (Pretype κ) -> pure Pretype <*> g κ
+  (Pretype κ κ') -> pure Pretype <*> g κ <*> g κ'
   Boxed -> pure Boxed
+  Multiplicity -> pure Multiplicity
   KindRuntime PointerRep -> pure (KindRuntime PointerRep)
   KindRuntime (StructRep κs) -> pure (KindRuntime . StructRep) <*> traverse g κs
   KindRuntime (WordRep s) -> pure (KindRuntime . WordRep) <*> g s
@@ -228,14 +225,14 @@ type TypeUnify = Type TypeLogical
 
 type TypeInfer = Type Void
 
-data TypePatternSource p = TypePatternSource p TypeIdentifier (TypeSource p) (Set Constraint) [TypeSource p]
+data TypePatternSource p = TypePatternSource p TypeIdentifier (TypeSource p) [TypeSource p]
   deriving (Show, Functor)
 
 data TypePatternIntermediate p
-  = TypePatternIntermediate p TypeIdentifier TypeInfer (Set Constraint) [TypeSub]
+  = TypePatternIntermediate p TypeIdentifier TypeInfer [TypeSub]
   deriving (Show)
 
-data TypePattern v = TypePattern TypeIdentifier (Type v) (Set Constraint) [Type v] deriving (Show)
+data TypePattern v = TypePattern TypeIdentifier (Type v) [Type v] deriving (Show)
 
 type TypePatternUnify = TypePattern TypeLogical
 
@@ -267,8 +264,8 @@ typeSource = Isomorph (uncurry TypeSource) $ \(TypeSource p σ) -> (p, σ)
 
 typePatternSource =
   Isomorph
-    (\((((p, x), κ), c), π) -> TypePatternSource p x κ c π)
-    (\(TypePatternSource p x κ c π) -> ((((p, x), κ), c), π))
+    (\(((p, x), κ), π) -> TypePatternSource p x κ π)
+    (\(TypePatternSource p x κ π) -> (((p, x), κ), π))
 
 typeSub = Prism TypeSub $ \case
   (TypeSub σ) -> Just σ
@@ -283,16 +280,12 @@ typeExtra = Prism TypeLogical $ \case
   (TypeLogical v) -> Just v
   _ -> Nothing
 
-inline = Prism (uncurry Inline) $ \case
-  (Inline σ τ) -> Just (σ, τ)
+inline = Prism (uncurry $ uncurry Inline) $ \case
+  (Inline σ π τ) -> Just ((σ, π), τ)
   _ -> Nothing
 
 poly = Prism Poly $ \case
   (Poly λ) -> Just λ
-  _ -> Nothing
-
-ofCourse = Prism OfCourse $ \case
-  (OfCourse σ) -> Just σ
   _ -> Nothing
 
 functionPointer = Prism (uncurry $ uncurry FunctionPointer) $ \case
@@ -303,11 +296,8 @@ functionLiteralType = Prism (uncurry $ uncurry FunctionLiteralType) $ \case
   (FunctionLiteralType σ π τ) -> Just ((σ, π), τ)
   _ -> Nothing
 
-copy = Prism (const Copy) $ \case
-  Copy -> Just ()
-
-tuple = Prism Tuple $ \case
-  Tuple σ -> Just σ
+tuple = Prism (uncurry Tuple) $ \case
+  Tuple σ τ -> Just (σ, τ)
   _ -> Nothing
 
 effect = Prism (uncurry Effect) $ \case
@@ -343,6 +333,16 @@ world = (typeSub .) $
     World -> Just ()
     _ -> Nothing
 
+linear = (typeSub .) $
+  Prism (const Linear) $ \case
+    Linear -> Just ()
+    _ -> Nothing
+
+unrestricted = (typeSub .) $
+  Prism (const Unrestricted) $ \case
+    Unrestricted -> Just ()
+    _ -> Nothing
+
 typeIdentifier = Isomorph TypeIdentifier runTypeIdentifier
 
 typex = Prism (const Type) $ \case
@@ -353,12 +353,16 @@ region = Prism (const Region) $ \case
   Region -> Just ()
   _ -> Nothing
 
-pretype = Prism Pretype $ \case
-  Pretype κ -> Just κ
+pretype = Prism (uncurry Pretype) $ \case
+  Pretype κ κ' -> Just (κ, κ')
   _ -> Nothing
 
 boxed = Prism (const Boxed) $ \case
-  Boxed -> pure ()
+  Boxed -> Just ()
+  _ -> Nothing
+
+multiplicity = Prism (const Multiplicity) $ \case
+  Multiplicity -> Just ()
   _ -> Nothing
 
 pointerRep = (kindRuntime .) $
@@ -498,7 +502,7 @@ avoidTypeConvert = avoidTypeConvert' convertType
 
 avoidTypeConvert' = Avoid bindingsType renameType Set.singleton
 
-toTypePattern (TypePatternIntermediate _ x κ c π) = TypePattern x (flexible κ) c (map (flexible . TypeCore . TypeSub) π)
+toTypePattern (TypePatternIntermediate _ x κ π) = TypePattern x (flexible κ) (map (flexible . TypeCore . TypeSub) π)
 
 instance Fresh TypeIdentifier where
   fresh c (TypeIdentifier x) = TypeIdentifier $ Util.fresh (Set.mapMonotonic runTypeIdentifier c) x
@@ -521,17 +525,17 @@ instance Functor TypeSource where
         σ
 
 instance BindingsType (TypePatternSource p) where
-  bindingsType (TypePatternSource _ x _ _ _) = Set.singleton x
+  bindingsType (TypePatternSource _ x _ _) = Set.singleton x
 
 instance RenameType (TypePatternSource p) where
-  renameType ux x (TypePatternSource p x' κ c π) | x == x' = TypePatternSource p ux κ c π
+  renameType ux x (TypePatternSource p x' κ π) | x == x' = TypePatternSource p ux κ π
   renameType _ _ λ = λ
 
 instance BindingsType (TypePattern v) where
-  bindingsType (TypePattern x _ _ _) = Set.singleton x
+  bindingsType (TypePattern x _ _) = Set.singleton x
 
 instance RenameType (TypePattern v) where
-  renameType ux x (TypePattern x' κ c π) | x == x' = TypePattern ux κ c π
+  renameType ux x (TypePattern x' κ π) | x == x' = TypePattern ux κ π
   renameType _ _ λ = λ
 
 instance ConvertType σ => ConvertType (Maybe σ) where
@@ -601,17 +605,17 @@ instance SubstituteType (Instantiation) where
       go = substituteType ux x
 
 instance FreeVariablesType (TypePattern v) where
-  freeVariablesType (TypePattern _ κ _ π) = freeVariablesType κ <> foldMap freeVariablesType π
+  freeVariablesType (TypePattern _ κ π) = freeVariablesType κ <> foldMap freeVariablesType π
 
 instance ConvertType (TypePatternSource p) where
-  convertType ux x (TypePatternSource p x' κ c π) =
-    TypePatternSource p x' (convertType ux x κ) c (map (convertType ux x) π)
+  convertType ux x (TypePatternSource p x' κ π) =
+    TypePatternSource p x' (convertType ux x κ) (map (convertType ux x) π)
 
 instance ConvertType (TypePattern v) where
-  convertType ux x (TypePattern x' κ c π) = TypePattern x' (convertType ux x κ) c (map (convertType ux x) π)
+  convertType ux x (TypePattern x' κ π) = TypePattern x' (convertType ux x κ) (map (convertType ux x) π)
 
 instance SubstituteType TypePattern where
-  substituteType ux x (TypePattern x' κ c π) = TypePattern x' (substituteType ux x κ) c (map (substituteType ux x) π)
+  substituteType ux x (TypePattern x' κ π) = TypePattern x' (substituteType ux x κ) (map (substituteType ux x) π)
 
 instance ZonkType Type where
   zonkType f (TypeCore (TypeLogical v)) = f v
@@ -637,8 +641,8 @@ instance ZonkType Instantiation where
       <*> traverseInstantiationF (zonkType f) (zonkType f) θ
 
 instance ZonkType TypePattern where
-  zonkType f (TypePattern x κ c π) =
-    pure TypePattern <*> pure x <*> zonkType f κ <*> pure c <*> traverse (zonkType f) π
+  zonkType f (TypePattern x κ π) =
+    pure TypePattern <*> pure x <*> zonkType f κ <*> traverse (zonkType f) π
 
 instance Reduce (Instantiation v) where
   reduce (InstantiationCore θ) = InstantiationCore $ mapInstantiationF reduce reduce θ
@@ -650,7 +654,7 @@ instance Location TypeSource where
   location (TypeSource p _) = p
 
 instance Reduce (TypePattern v) where
-  reduce (TypePattern x κ c π) = TypePattern x (reduce κ) c (map reduce π)
+  reduce (TypePattern x κ π) = TypePattern x (reduce κ) (map reduce π)
 
 freeTypeLogical = getConst . zonkType (Const . Set.singleton)
 
@@ -665,7 +669,7 @@ sourceType (TypeCore σ) =
 
 sourceTypeAuto = Just . sourceType
 
-sourceTypePattern (TypePattern x κ c π) = TypePatternSource mempty x (sourceType κ) c (map sourceType π)
+sourceTypePattern (TypePattern x κ π) = TypePatternSource mempty x (sourceType κ) (map sourceType π)
 
 sourceTypeScheme :: Monoid p => TypeScheme Void -> TypeSchemeSource p
 sourceTypeScheme (TypeSchemeCore ς) =

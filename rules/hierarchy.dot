@@ -16,12 +16,13 @@ digraph aith {
         rank=same
         type[label="type"]
         region
-        pretype[label="pretype<κ>"]
+        pretype[label="pretype<κ, κ'>"]
         boxed[label="boxed"]
         representation
         size
         signedness
-        capacity 
+        capacity
+        multiplicity
     }
 
     type -> kindInvTrans
@@ -41,6 +42,7 @@ digraph aith {
     representation -> kindInvOpa
     size -> kindInvOpa
     signedness -> kindInvOpa
+    multiplicity -> kindSubTrans
 
     {
         // types
@@ -50,8 +52,7 @@ digraph aith {
         ofCourse[label="!σ"]
         functionPointer[label="function*(σ) => τ uses π"]
         functionLiteralType[label="function(σ) => τ uses π"]
-        pair[label="(σ, τ)"]
-        unit[label="()"]
+        tuple[label="(σ, τ, ...)"]
         effect[label="σ in π"]
         unique[label="unique σ"]
         shared[label="σ @ π"]
@@ -69,6 +70,8 @@ digraph aith {
         long [label="64bit"]
         signed
         unsigned
+        linear
+        unrestricted
     }
 
     inline -> type
@@ -77,10 +80,8 @@ digraph aith {
     functionPointer -> pretype
     functionPointer -> pointerRep [color=lightcoral]
     functionLiteralType -> type
-    pair -> pretype
-    pair -> structRep[color=lightgreen]
-    unit -> pretype
-    unit -> structRep[color=lightgreen]
+    tuple -> pretype
+    tuple -> structRep[color=lightgreen]
     effect -> type
     unique -> pretype
     unique -> pointerRep[color=lightcoral]
@@ -93,6 +94,8 @@ digraph aith {
     boolean -> wordRep[color=lightblue]
     world -> region
     unknown -> capacity
+    linear -> multiplicity
+    unrestricted -> multiplicity
 
     {
         // terms
@@ -100,8 +103,7 @@ digraph aith {
         let[label="let x = e; e'"]
         extern[label="extern \"sym\""]
         app[label="e (e')"]
-        pairIntro[label="(e,e')"]
-        unitIntro[label="()"]
+        tupleIntro[label="(e,e', ...)"]
         read[label="*e"]
         write[label="*e = e'"]
         num[label="n"]
@@ -122,13 +124,11 @@ digraph aith {
     extern -> effect
     extern -> functionPointer[color=lavender]
     app -> effect
-    pairIntro -> effect
-    pairIntro -> pair [color=lavender]
-    unitIntro -> effect
-    unitIntro -> unit [color=lavender]
+    tupleIntro -> effect
+    tupleIntro -> tuple [color=lavender]
     read -> effect
     write -> effect
-    write -> unit[color=lavender]
+    write -> tuple[color=lavender]
     num -> effect
     num -> number[color=lavender]
     arith -> effect

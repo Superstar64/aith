@@ -4,7 +4,7 @@ import Ast.Common
 import Ast.Term
 import Ast.Type
 import Control.Monad (filterM, (<=<))
-import Data.Foldable (for_)
+import Data.Bifunctor (second)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import Data.Set (Set)
@@ -18,7 +18,7 @@ import TypeCheck.Unify
 
 data Mode = InlineMode | SymbolMode
 
-freshTypeVariable p κ = (TypeCore . TypeLogical) <$> (Level <$> levelCounter <$> getState >>= freshTypeVariableRaw p κ Set.empty [] Nothing)
+freshTypeVariable p κ = (TypeCore . TypeLogical) <$> (Level <$> levelCounter <$> getState >>= freshTypeVariableRaw p κ [] Nothing)
 
 freshRepresentationKindVariable p = freshTypeVariable p (TypeCore Representation)
 
@@ -32,6 +32,9 @@ checkKind' p μ = quit $ ExpectedKind p μ
 checkRepresentation' _ (TypeCore Representation) = pure ()
 checkRepresentation' p μ = quit $ ExpectedRepresentation p μ
 
+checkMultiplicity' _ (TypeCore Multiplicity) = pure ()
+checkMultiplicity' p μ = quit $ ExpectedMultiplicity p μ
+
 checkSize' _ (TypeCore Size) = pure ()
 checkSize' p μ = quit $ ExpectedSize p μ
 
@@ -41,8 +44,14 @@ checkSignedness' p μ = quit $ ExpectedSignedness p μ
 checkType' _ (TypeCore Type) = pure ()
 checkType' p κ = quit $ ExpectedType p κ
 
-checkPretype' _ (TypeCore (Pretype κ)) = pure κ
+checkPretype' _ (TypeCore (Pretype κ τ)) = pure (κ, τ)
 checkPretype' p κ = quit $ ExpectedPretype p κ
+
+checkPretype p σ = do
+  κ <- freshRepresentationKindVariable p
+  τ <- freshMultiplicityKindVariable p
+  matchType p σ (TypeCore $ Pretype κ τ)
+  pure (κ, τ)
 
 checkBoxed' _ (TypeCore Boxed) = pure ()
 checkBoxed' p κ = quit $ ExpectedBoxed p κ
@@ -56,9 +65,13 @@ checkSubtypable' p κ = quit $ ExpectedSubtypable' p κ
 freshMetaTypeVariable p = do
   freshTypeVariable p (TypeCore Type)
 
+freshMultiplicityKindVariable p = do
+  freshTypeVariable p (TypeCore Multiplicity)
+
 freshPretypeTypeVariable p = do
   s <- freshRepresentationKindVariable p
-  freshTypeVariable p (TypeCore $ Pretype s)
+  τ <- freshMultiplicityKindVariable p
+  freshTypeVariable p (TypeCore $ Pretype s τ)
 
 freshBoxedTypeVariable p = do
   freshTypeVariable p (TypeCore Boxed)
@@ -66,16 +79,12 @@ freshBoxedTypeVariable p = do
 freshRegionTypeVariable p = do
   freshTypeVariable p $ TypeCore $ Region
 
-enforcePretype p σt = do
-  σ <- freshPretypeTypeVariable p
-  matchType p σt σ
-  pure σ
-
 checkInline p σt = do
   σ <- freshMetaTypeVariable p
+  π <- freshMultiplicityKindVariable p
   τ <- freshMetaTypeVariable p
-  matchType p σt (TypeCore (Inline σ τ))
-  pure (σ, τ)
+  matchType p σt (TypeCore (Inline σ π τ))
+  pure (σ, π, τ)
 
 checkFunctionPointer p σt = do
   σ <- freshPretypeTypeVariable p
@@ -129,44 +138,47 @@ checkBoolean p σt = do
 
 augmentVariableLinear p x l ς check = do
   Checked e σ lΓ <- augmentTypeEnvironment x p l ς check
-  case l of
-    Unrestricted -> pure ()
-    Linear -> case count x lΓ of
-      Single -> pure ()
-      _ -> quit $ InvalidUsage p x
-    Automatic σ -> case count x lΓ of
-      Single -> pure ()
-      _ -> constrain p Copy σ
+  case count x lΓ of
+    Single -> pure ()
+    _ -> matchType p l (TypeCore $ TypeSub Unrestricted)
   pure $ Checked e σ (Remove x lΓ)
 
-capture p lΓ = do
+capture p base lΓ = do
   let captures = variablesUsed lΓ
   for (Set.toList captures) $ \x -> do
     (TermBinding _ l _) <- fromJust <$> lookupTypeEnviroment x
-    case l of
-      Unrestricted -> pure ()
-      Linear -> quit $ CaptureLinear p x
-      Automatic σ -> constrain p Copy σ
+    lessThen p base l
+    pure ()
   pure ()
 
-augmentMetaTermPattern pm = go Linear pm
-  where
-    go l (TermPatternCore p (PatternVariable x σ)) = augmentVariableLinear p x l (TypeSchemeCore $ MonoType σ)
-    go _ (TermPatternCore _ (PatternOfCourse pm)) = go Unrestricted pm
+requireUnrestricted p σ = do
+  κ <- reconstruct p σ
+  (_, l) <- checkPretype p κ
+  matchType p l (TypeCore $ TypeSub Unrestricted)
+  pure ()
 
-polyEffect name σ = TypeSchemeCore $ TypeForall (Bound (TypePattern freshVar (TypeCore Region) Set.empty []) bounded)
+makeTuple p σs = do
+  π <- freshMultiplicityKindVariable p
+  for σs $ \σ -> do
+    κ <- reconstruct p σ
+    (_, π') <- checkPretype p κ
+    lessThen p π π'
+  pure $ TypeCore $ Tuple σs π
+
+augmentMetaTermPattern l (TermPatternCore p (PatternVariable x σ)) = augmentVariableLinear p x l (TypeSchemeCore $ MonoType σ)
+
+polyEffect name σ = TypeSchemeCore $ TypeForall (Bound (TypePattern freshVar (TypeCore Region) []) bounded)
   where
     bounded = TypeSchemeCore $ MonoType $ TypeCore $ Effect σ (TypeCore $ TypeSub $ TypeVariable freshVar)
     freshVar = fresh (freeVariablesType σ) (TypeIdentifier name)
 
 augmentRuntimeTermPattern pm = go pm
   where
-    go (TermRuntimePatternCore p (RuntimePatternVariable x σ)) = augmentVariableLinear p x (Automatic σ) (polyEffect "R" σ)
+    go (TermRuntimePatternCore p (RuntimePatternVariable x σ)) = \e -> do
+      κ <- reconstruct p σ
+      (_, l) <- checkPretype p κ
+      augmentVariableLinear p x l (polyEffect "R" σ) e
     go (TermRuntimePatternCore _ (RuntimePatternTuple pms)) = foldr (.) id (map go pms)
-
-checkConstraints :: p -> Set Constraint -> TypeUnify -> Core p ()
-checkConstraints p c κ = for_ (Set.toList c) $ \c -> do
-  predicateKindCheck p c κ
 
 typeCheckMetaPattern = \case
   (TermPatternSource p (PatternVariable x σ)) -> do
@@ -176,9 +188,6 @@ typeCheckMetaPattern = \case
         (σ', _) <- secondM (checkType' p) =<< kindCheck σ
         pure (flexible σ')
     pure (TermPatternCore p $ (PatternVariable x σ'), σ')
-  (TermPatternSource p (PatternOfCourse pm)) -> do
-    (pm', σ) <- typeCheckMetaPattern pm
-    pure (TermPatternCore p (PatternOfCourse pm'), TypeCore (OfCourse σ))
 
 typeCheckRuntimePattern = \case
   (TermRuntimePatternSource p (RuntimePatternVariable x σ)) -> do
@@ -190,7 +199,8 @@ typeCheckRuntimePattern = \case
     pure ((TermRuntimePatternCore p $ RuntimePatternVariable x σ', σ'))
   (TermRuntimePatternSource p (RuntimePatternTuple pms)) -> do
     (pms, σs) <- unzip <$> traverse typeCheckRuntimePattern pms
-    pure ((TermRuntimePatternCore p $ RuntimePatternTuple pms, TypeCore $ Tuple σs))
+    τ <- makeTuple p σs
+    pure ((TermRuntimePatternCore p $ RuntimePatternTuple pms, τ))
 
 kindCheckScheme :: Mode -> TypeSchemeSource p -> Core p (TypeSchemeInfer, TypeInfer)
 kindCheckScheme mode =
@@ -205,12 +215,11 @@ kindCheckScheme mode =
         pure $ (TypeSchemeCore $ TypeForall (Bound (toTypePattern pm') σ'), TypeCore $ Type)
 
 kindCheckPattern :: Mode -> TypePatternSource p -> Core p (TypePatternIntermediate p, TypeInfer)
-kindCheckPattern mode (TypePatternSource p x κ c π) = do
+kindCheckPattern mode (TypePatternSource p x κ π) = do
   (κ, (μ, σ)) <- secondM (checkKind' p) =<< kindCheck κ
   case mode of
     SymbolMode -> matchType p (flexible σ) (TypeCore $ Top Transparent)
     InlineMode -> pure ()
-  checkConstraints p c (flexible κ)
   (π, κ') <- unzip <$> traverse kindCheckSub π
   traverse (matchType p (flexible κ)) (map flexible κ')
   if Prelude.not $ null π
@@ -218,7 +227,7 @@ kindCheckPattern mode (TypePatternSource p x κ c π) = do
       checkSubtypable' p μ
       pure ()
     else pure ()
-  pure (TypePatternIntermediate p x κ c π, κ)
+  pure (TypePatternIntermediate p x κ π, κ)
 
 kindCheckSub :: TypeSource p -> Core p (TypeSub, TypeInfer)
 kindCheckSub σ@(TypeSource p _) = do
@@ -232,42 +241,43 @@ kindCheck (TypeSource p σ) = case σ of
   TypeSub (TypeVariable x) -> do
     κ <- lookupKindEnvironment x
     case κ of
-      Just (TypeBinding _ κ _ _ _) -> pure (TypeCore $ TypeSub $ TypeVariable x, κ)
+      Just (TypeBinding _ κ _ _) -> pure (TypeCore $ TypeSub $ TypeVariable x, κ)
       Nothing -> quit $ UnknownTypeIdentifier p x
-  Inline σ τ -> do
+  Inline σ π τ -> do
     (σ', _) <- secondM (checkType' p) =<< kindCheck σ
+    (π', _) <- secondM (checkMultiplicity' p) =<< kindCheck π
     (τ', _) <- secondM (checkType' p) =<< kindCheck τ
-    pure (TypeCore $ Inline σ' τ', TypeCore $ Type)
+    pure (TypeCore $ Inline σ' π' τ', TypeCore $ Type)
   Poly λ -> do
     (ς, κ) <- kindCheckScheme InlineMode λ
     pure (TypeCore $ Poly ς, κ)
-  OfCourse σ -> do
-    (σ', _) <- secondM (checkType' p) =<< kindCheck σ
-    pure (TypeCore $ OfCourse σ', TypeCore $ Type)
   FunctionPointer σ π τ -> do
     (σ', _) <- secondM (checkPretype' p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion' p) =<< kindCheck π
     (τ', _) <- secondM (checkPretype' p) =<< kindCheck τ
-    pure (TypeCore $ FunctionPointer σ' π' τ', TypeCore $ Pretype $ TypeCore $ KindRuntime $ PointerRep)
+    pure (TypeCore $ FunctionPointer σ' π' τ', TypeCore $ Pretype (TypeCore $ KindRuntime $ PointerRep) (TypeCore $ TypeSub Unrestricted))
   FunctionLiteralType σ π τ -> do
     (σ', _) <- secondM (checkPretype' p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion' p) =<< kindCheck π
     (τ', _) <- secondM (checkPretype' p) =<< kindCheck τ
     pure (TypeCore $ FunctionLiteralType σ' π' τ', TypeCore $ Type)
-  Tuple σs -> do
-    (σs, ρs) <- unzip <$> traverse (secondM (checkPretype' p) <=< kindCheck) σs
-    pure (TypeCore $ Tuple σs, TypeCore $ Pretype $ TypeCore $ KindRuntime $ StructRep ρs)
+  Tuple σs τ -> do
+    (σs, (ρs, τs)) <- second unzip <$> unzip <$> traverse (secondM (checkPretype' p) <=< kindCheck) σs
+    (τ', _) <- secondM (checkMultiplicity' p) =<< kindCheck τ
+    for τs $ \τs -> do
+      lessThen p (flexible τ') (flexible τs)
+    pure (TypeCore $ Tuple σs τ', TypeCore $ Pretype (TypeCore $ KindRuntime $ StructRep ρs) τ')
   Effect σ π -> do
     (σ', _) <- secondM (checkPretype' p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion' p) =<< kindCheck π
     pure (TypeCore $ Effect σ' π', TypeCore $ Type)
   Unique σ -> do
     (σ', _) <- secondM (checkBoxed' p) =<< kindCheck σ
-    pure (TypeCore $ Unique σ', TypeCore $ Pretype $ TypeCore $ KindRuntime $ PointerRep)
+    pure (TypeCore $ Unique σ', TypeCore $ Pretype (TypeCore $ KindRuntime $ PointerRep) (TypeCore $ TypeSub Linear))
   Shared σ π -> do
     (σ', _) <- secondM (checkBoxed' p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion' p) =<< kindCheck π
-    pure (TypeCore $ Shared σ' π', TypeCore $ Pretype $ TypeCore $ KindRuntime $ PointerRep)
+    pure (TypeCore $ Shared σ' π', TypeCore $ Pretype (TypeCore $ KindRuntime $ PointerRep) (TypeCore $ TypeSub Unrestricted))
   Pointer σ -> do
     (σ', _) <- secondM (checkPretype' p) =<< kindCheck σ
     pure (TypeCore $ Pointer σ', TypeCore $ Boxed)
@@ -277,11 +287,15 @@ kindCheck (TypeSource p σ) = case σ of
   Number ρ1 ρ2 -> do
     ρ1' <- fmap fst $ secondM (checkSignedness' p) =<< kindCheck ρ1
     ρ2' <- fmap fst $ secondM (checkSize' p) =<< kindCheck ρ2
-    pure (TypeCore $ Number ρ1' ρ2', TypeCore $ Pretype $ TypeCore $ KindRuntime $ WordRep ρ2')
+    pure (TypeCore $ Number ρ1' ρ2', TypeCore $ Pretype (TypeCore $ KindRuntime $ WordRep ρ2') (TypeCore $ TypeSub Unrestricted))
   Boolean -> do
-    pure (TypeCore $ Boolean, TypeCore $ Pretype $ TypeCore $ KindRuntime $ WordRep $ TypeCore $ KindSize $ Byte)
+    pure (TypeCore $ Boolean, TypeCore $ Pretype (TypeCore $ KindRuntime $ WordRep $ TypeCore $ KindSize $ Byte) (TypeCore $ TypeSub Unrestricted))
   TypeSub World -> do
     pure (TypeCore $ TypeSub World, TypeCore Region)
+  TypeSub Linear -> do
+    pure (TypeCore $ TypeSub Linear, TypeCore Multiplicity)
+  TypeSub Unrestricted -> do
+    pure (TypeCore $ TypeSub Unrestricted, TypeCore Multiplicity)
   TypeLogical v -> absurd v
   Type -> do
     pure (TypeCore Type, TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Transparent))
@@ -295,11 +309,14 @@ kindCheck (TypeSource p σ) = case σ of
     pure (TypeCore (KindRuntime (WordRep κ')), TypeCore Representation)
   KindSize κ -> pure (TypeCore (KindSize κ), TypeCore Size)
   KindSignedness κ -> pure (TypeCore (KindSignedness κ), TypeCore Signedness)
-  Pretype κ -> do
+  Pretype κ τ -> do
     (κ', _) <- secondM (checkRepresentation' p) =<< kindCheck κ
-    pure (TypeCore $ Pretype κ', TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Transparent))
+    (τ', _) <- secondM (checkMultiplicity' p) =<< kindCheck τ
+    pure (TypeCore $ Pretype κ' τ', TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Transparent))
   Boxed -> do
     pure (TypeCore $ Boxed, TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Transparent))
+  Multiplicity -> do
+    pure (TypeCore $ Multiplicity, TypeCore $ Top $ Kind (TypeCore $ Top Subtypable) (TypeCore $ Top Transparent))
   Representation -> pure (TypeCore Representation, TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Opaque))
   Size -> pure (TypeCore Size, TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Opaque))
   Signedness -> pure (TypeCore Signedness, TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Opaque))
@@ -307,10 +324,8 @@ kindCheck (TypeSource p σ) = case σ of
 
 instantiate p (TypeSchemeCore ς) = case ς of
   MonoType σ -> pure (σ, InstantiationCore InstantiateEmpty)
-  TypeForall (Bound (TypePattern x κ c π) σ) -> do
+  TypeForall (Bound (TypePattern x κ π) σ) -> do
     τ <- freshTypeVariable p κ
-    for (Set.toList c) $ \c -> do
-      constrain p c τ
     for π $ \π -> do
       lessThen p π τ
     (ς, θ) <- instantiate p $ substituteType τ x σ
@@ -355,23 +370,23 @@ typeCheck (TermSource p e) = case e of
       Nothing -> quit $ UnknownGlobalIdentifier p x
   InlineAbstraction (Bound pm e) -> do
     (pm', σ) <- typeCheckMetaPattern pm
-    Checked e' τ lΓ <- augmentMetaTermPattern pm' (typeCheck e)
-    pure $ Checked (TermCore p $ InlineAbstraction $ Bound pm' e') (TypeCore $ Inline σ τ) lΓ
+    π <- freshMultiplicityKindVariable p
+    Checked e' τ lΓ <- augmentMetaTermPattern π pm' (typeCheck e)
+    pure $ Checked (TermCore p $ InlineAbstraction $ Bound pm' e') (TypeCore $ Inline σ π τ) lΓ
   InlineApplication e1 e2 () -> do
-    Checked e1' (σ, τ) lΓ1 <- traverse (checkInline p) =<< typeCheck e1
+    Checked e1' (σ, π, τ) lΓ1 <- traverse (checkInline p) =<< typeCheck e1
     Checked e2' σ' lΓ2 <- typeCheck e2
     matchType p σ σ'
+    capture p π lΓ2
     pure $ Checked (TermCore p $ InlineApplication e1' e2' σ) τ (lΓ1 `combine` lΓ2)
   Bind e1 (Bound pm e2) -> do
     Checked e1' τ lΓ1 <- typeCheck e1
     (pm', τ') <- typeCheckMetaPattern pm
     matchType p τ τ'
-    Checked e2' σ lΓ2 <- augmentMetaTermPattern pm' $ typeCheck e2
+    π <- freshMultiplicityKindVariable p
+    Checked e2' σ lΓ2 <- augmentMetaTermPattern π pm' $ typeCheck e2
+    capture p π lΓ1
     pure $ Checked (TermCore p $ Bind e1' $ Bound pm' e2') σ (lΓ1 `combine` lΓ2)
-  OfCourseIntroduction e -> do
-    Checked e' σ lΓ <- typeCheck e
-    capture p lΓ
-    pure $ Checked (TermCore p $ OfCourseIntroduction e') (TypeCore $ OfCourse $ σ) lΓ
   PolyIntroduction λ -> do
     CheckedScheme eς σ lΓ <- typeCheckScheme InlineMode λ
     pure $ Checked (TermCore p $ PolyIntroduction $ eς) (TypeCore $ Poly σ) lΓ
@@ -410,20 +425,21 @@ typeCheck (TermSource p e) = case e of
     checked <- traverse (traverse (checkEffect p) <=< typeCheck) es
     π <- freshRegionTypeVariable p
 
-    (es, σs, lΓs) <- fmap unzip3 $
-      for checked $ \(Checked e (σ, π') lΓ) -> do
-        matchType p π π'
-        σ <- enforcePretype p σ
-        pure (e, σ, lΓ)
+    for checked $ \(Checked _ (_, π') _) -> do
+      matchType p π π'
+      pure ()
+
+    let (es, σs, lΓs) = unzip3 $ map (\(Checked es (σ, _) lΓ) -> (es, σ, lΓ)) checked
+    τ <- makeTuple p σs
 
     pure $
       Checked
         (TermCore p $ TermRuntime $ TupleIntroduction es)
-        (TypeCore $ Effect (TypeCore $ Tuple σs) π)
+        (TypeCore $ Effect τ π)
         (combineAll lΓs)
   TermRuntime (ReadReference e) -> do
     Checked e' ((σ, π2), π) lΓ <- traverse (firstM (firstM (checkPointer p) <=< checkShared p) <=< checkEffect p) =<< typeCheck e
-    constrain p Copy σ
+    requireUnrestricted p σ
     lessThen p π2 π
     pure $ Checked (TermCore p $ TermRuntime $ ReadReference e') (TypeCore $ Effect σ π) lΓ
   TermRuntime (WriteReference ep ev ()) -> do
@@ -432,11 +448,12 @@ typeCheck (TermSource p e) = case e of
     matchType p σ σ'
     matchType p π π'
     lessThen p π2 π
-    constrain p Copy σ
+    requireUnrestricted p σ
+    μ <- makeTuple p []
     pure $
       Checked
         (TermCore p $ TermRuntime $ WriteReference ep ev σ)
-        (TypeCore $ Effect (TypeCore $ Tuple []) π)
+        (TypeCore $ Effect μ π)
         (lΓ1 `combine` lΓ2)
   TermRuntime (NumberLiteral v) -> do
     π <- freshRegionTypeVariable p
@@ -473,17 +490,17 @@ typeCheck (TermSource p e) = case e of
     (pm', σ) <- typeCheckRuntimePattern pm
     Checked e' (τ, π) lΓ <- traverse (checkEffect p) =<< augmentRuntimeTermPattern pm' (typeCheck e)
     pure $ Checked (TermCore p $ FunctionLiteral $ Bound pm' e') (TypeCore $ FunctionLiteralType σ π τ) lΓ
-  TermErasure (Borrow eu (Bound (TypePatternSource p' α κpm c πs) (Bound pm e))) -> do
+  TermErasure (Borrow eu (Bound (TypePatternSource p' α κpm πs) (Bound pm e))) -> do
     -- Shadowing type variables is prohibited
 
     vars <- Map.keysSet <$> kindEnvironment <$> askEnvironment
     let α' = fresh vars α
-    let pmσ = TypePatternSource p' α' κpm c πs
+    let pmσ = TypePatternSource p' α' κpm πs
     pm <- pure $ convertType α' α pm
     e <- pure $ convertType α' α e
     πs <- pure $ fmap (convertType α' α) πs
-    π <- case (c, πs) of
-      (c, [π]) | Set.null c -> pure π
+    π <- case πs of
+      [π] -> pure π
       _ -> quit $ IncorrectRegionBounds p
 
     (π, κ) <- kindCheckSub π
@@ -503,7 +520,12 @@ typeCheck (TermSource p e) = case e of
         Checked e' (σ, α'') lΓ2 <- traverse (checkEffect p) =<< typeCheck e
         matchType p σ σ'
         matchType p (TypeCore $ TypeSub $ TypeVariable α) α''
-        pure $ Checked (TermCore p $ TermErasure $ Borrow eu' (Bound (flexible $ toTypePattern pmσ') (Bound pm' e'))) (TypeCore $ Effect (TypeCore $ Tuple [σ, TypeCore $ Unique τ]) π') (lΓ1 `combine` lΓ2)
+        μ <- makeTuple p [σ, TypeCore $ Unique τ]
+        pure $
+          Checked
+            (TermCore p $ TermErasure $ Borrow eu' (Bound (flexible $ toTypePattern pmσ') (Bound pm' e')))
+            (TypeCore $ Effect μ π')
+            (lΓ1 `combine` lΓ2)
   Annotation (TypeAnnotation e σ') -> do
     Checked e σ lΓ <- typeCheck e
     σ' <- fst <$> kindCheck σ'
@@ -559,17 +581,18 @@ typeCheck (TermSource p e) = case e of
     pure $ Checked (TermCore p $ TermSugar $ Or e' en') (TypeCore $ Effect (TypeCore Boolean) π) (lΓ1 `combine` (useNothing `branch` lΓ2))
   TermSugar (Do e1 e2) -> do
     Checked e1' (τ, π) lΓ1 <- traverse (checkEffect p) =<< typeCheck e1
-    matchType p τ (TypeCore $ Tuple [])
+    μ <- makeTuple p []
+    matchType p τ μ
     Checked e2' (σ, π') lΓ2 <- traverse (checkEffect p) =<< typeCheck e2
     matchType p π π'
     pure $ Checked (TermCore p $ TermSugar $ Do e1' e2') (TypeCore $ Effect σ π) (lΓ1 `combine` lΓ2)
 
 typeCheckScheme :: Mode -> TermSchemeSource p -> Core p (CheckedScheme p TypeSchemeUnify)
-typeCheckScheme mode (TermSchemeSource p (TypeAbstraction (Bound (TypePatternSource p' α κpm c π) e))) = do
+typeCheckScheme mode (TermSchemeSource p (TypeAbstraction (Bound (TypePatternSource p' α κpm π) e))) = do
   -- Shadowing type variables is prohibited
   vars <- Map.keysSet <$> kindEnvironment <$> askEnvironment
   let α' = fresh vars α
-  let pm = TypePatternSource p' α' κpm c π
+  let pm = TypePatternSource p' α' κpm π
   e <- pure $ convertType α' α e
 
   (pm', _) <- kindCheckPattern mode pm
@@ -585,14 +608,15 @@ typeCheckScheme _ (TermSchemeSource p (MonoTerm e)) = do
   Checked e σ lΓ <- typeCheck e
   pure $ CheckedScheme (TermSchemeCore p $ MonoTerm e) (TypeSchemeCore $ MonoType σ) lΓ
 
-defaultType _ _ _ (Just upper) = pure $ TypeCore $ TypeSub upper
-defaultType p μ _ Nothing = do
+defaultType _ _ (Just upper) = pure $ TypeCore $ TypeSub upper
+defaultType p μ Nothing = do
   μ'@(TypeCore μ) <- finish μ
   case μ of
     Representation -> pure $ TypeCore $ KindRuntime $ PointerRep
     Size -> pure $ TypeCore $ KindSize $ Int
     Signedness -> pure $ TypeCore $ KindSignedness $ Signed
     Region -> pure $ TypeCore $ TypeSub World
+    Multiplicity -> pure $ TypeCore $ TypeSub Unrestricted
     (TypeLogical v) -> absurd v
     _ -> quit $ AmbiguousType p μ'
 
@@ -602,8 +626,8 @@ finish σ = zonkType go σ
     go x =
       indexTypeLogicalMap x >>= \case
         LinkTypeLogical σ -> finish σ
-        UnboundTypeLogical p κ c _ upper _ -> do
-          σ <- defaultType p κ c upper
+        UnboundTypeLogical p κ _ upper _ -> do
+          σ <- defaultType p κ upper
           modifyState $ \state -> state {typeLogicalMap = Map.insert x (LinkTypeLogical (flexible σ)) $ typeLogicalMap state}
           pure (flexible σ)
 
@@ -615,7 +639,7 @@ topologicalBoundsSort vars = sortTopological id quit children vars
       indexTypeLogicalMap x >>= \case
         (LinkTypeLogical σ) -> do
           Set.toList <$> unsolvedTypeLogical σ
-        (UnboundTypeLogical _ κ _ vars _ _) -> do
+        (UnboundTypeLogical _ κ vars _ _) -> do
           α <- foldMap Set.toList <$> traverse unsolvedTypeLogical vars
           β <- Set.toList <$> unsolvedTypeLogical κ
           pure $ α <> β
@@ -626,7 +650,7 @@ unsolvedTypeLogical σ = do
   α <- for α $ \x ->
     indexTypeLogicalMap x >>= \case
       LinkTypeLogical σ -> unsolvedTypeLogical σ
-      UnboundTypeLogical _ _ _ _ Nothing _ -> pure $ Set.singleton x
+      UnboundTypeLogical _ _ _ Nothing _ -> pure $ Set.singleton x
       _ -> pure $ Set.empty
   pure $ Set.unions α
 
@@ -637,11 +661,11 @@ generalize' [] _ _ = error "names not infinite"
 generalize' (n : names) (x : xs) (e, σ) = do
   (e, σ) <- generalize' names xs (e, σ)
   indexTypeLogicalMap x >>= \case
-    UnboundTypeLogical p κ c π _ _ -> do
+    UnboundTypeLogical p κ π _ _ -> do
       modifyTypeLogicalMap $ \σΓ -> Map.insert x (LinkTypeLogical $ TypeCore $ TypeSub $ TypeVariable $ TypeIdentifier n) σΓ
       pure
-        ( TermSchemeCore p $ TypeAbstraction (Bound (TypePattern (TypeIdentifier n) κ c π) e),
-          TypeSchemeCore $ TypeForall (Bound (TypePattern (TypeIdentifier n) κ c π) σ)
+        ( TermSchemeCore p $ TypeAbstraction (Bound (TypePattern (TypeIdentifier n) κ π) e),
+          TypeSchemeCore $ TypeForall (Bound (TypePattern (TypeIdentifier n) κ π) σ)
         )
     _ -> error "generalization error"
 
@@ -654,7 +678,7 @@ generalize mode (e@(TermCore p _), σ) = do
       SymbolMode -> do
         flip filterM vars $ \x -> do
           indexTypeLogicalMap x >>= \case
-            UnboundTypeLogical p κ _ _ _ _ -> do
+            UnboundTypeLogical p κ _ _ _ -> do
               TypeCore μ <- reconstruct p κ
               case μ of
                 Top (Kind _ (TypeCore (Top Opaque))) -> pure False
@@ -704,19 +728,17 @@ typeCheckGlobalManual mode e ς = do
       matchType p (flexible σ) σ'
       pure (TermSchemeCore p $ MonoTerm e)
     go
-      (TypeSchemeCore (TypeForall (Bound (TypePattern x κ c π) ς)))
-      (TermSchemeSource _ (TypeAbstraction (Bound (TypePatternSource p x' κ' c' π') e))) = do
+      (TypeSchemeCore (TypeForall (Bound (TypePattern x κ π) ς)))
+      (TermSchemeSource _ (TypeAbstraction (Bound (TypePatternSource p x' κ' π') e))) = do
         (κ', _) <- kindCheck κ'
         matchType p (flexible κ) (flexible κ')
 
         (π', _) <- unzip <$> traverse kindCheck π'
         sequence $ zipWith (matchType p) (map flexible π) (map flexible π')
-        case c' of
-          c' | Set.null c' || c == c' -> pure ()
-          _ -> quit $ BadConstraintAnnotation p
+
         π <- pure $ map assumeSub π
-        e' <- augmentKindEnvironment p x' κ c (Set.fromList π) minBound $ go (convertType x' x ς) e
-        pure $ TermSchemeCore p $ TypeAbstraction (Bound (TypePattern x' (flexible κ) c (map (TypeCore . TypeSub) π)) e')
+        e' <- augmentKindEnvironment p x' κ (Set.fromList π) minBound $ go (convertType x' x ς) e
+        pure $ TermSchemeCore p $ TypeAbstraction (Bound (TypePattern x' (flexible κ) (map (TypeCore . TypeSub) π)) e')
         where
           assumeSub (TypeCore (TypeSub σ)) = σ
           assumeSub _ = error "not sub"
@@ -740,11 +762,11 @@ typeCheckGlobalScope mode e@(TermSource p _) ς = do
       matchType p (flexible σ) σ'
       pure (TermSchemeCore p $ MonoTerm e)
     go
-      (TypeSchemeCore (TypeForall (Bound (TypePattern x κ c π) ς))) =
+      (TypeSchemeCore (TypeForall (Bound (TypePattern x κ π) ς))) =
         do
           π <- pure $ map assumeSub π
-          e' <- augmentKindEnvironment p x κ c (Set.fromList π) minBound $ go ς
-          pure $ TermSchemeCore p $ TypeAbstraction (Bound (TypePattern x (flexible κ) c (map (TypeCore . TypeSub) π)) e')
+          e' <- augmentKindEnvironment p x κ (Set.fromList π) minBound $ go ς
+          pure $ TermSchemeCore p $ TypeAbstraction (Bound (TypePattern x (flexible κ) (map (TypeCore . TypeSub) π)) e')
         where
           assumeSub (TypeCore (TypeSub σ)) = σ
           assumeSub _ = error "not sub"

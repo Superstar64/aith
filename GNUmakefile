@@ -2,8 +2,8 @@
 
 # build directory, inside dist-newstyle by default to avoid 2 build directories
 build:=dist-newstyle/aith
-# limit memory usage to 64 mb incase compiler explodes
-aith_flags:=+RTS -M67108864 -K67108864 -RTS
+# limit memory usage to 128 mb incase compiler explodes
+aith_flags:=+RTS -M134217728 -K134217728 -RTS
 # copy / link command 
 cp:=cp -l
 

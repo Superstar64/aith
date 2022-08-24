@@ -13,8 +13,6 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 
-data Multiplicity = Linear | Unrestricted | Automatic TypeUnify deriving (Show)
-
 -- levels are inspired from "How OCaml type checker works -- or what polymorphism and garbage collection have in common"
 -- however, rather then using levels for let generalization, levels here are used for skolemization
 -- where each level can be thought of as a ∀α ∃ βγδ... qualifier in unification under a mixed prefix
@@ -36,8 +34,6 @@ data TypeError p
   | EscapingSkolemType p TypeIdentifier TypeUnify
   | CaptureLinear p TermIdentifier
   | ExpectedTypeAnnotation p
-  | ConstraintMismatch p Constraint TypeUnify
-  | ConstraintKindError p Constraint TypeUnify
   | ExpectedFunctionLiteral p
   | NoCommonMeet p TypeSub TypeSub
   | MismatchedTypeLambdas p
@@ -46,7 +42,6 @@ data TypeError p
   | IncorrectRegionBounds p
   | NotTypable p
   | ExpectedSubtypable p
-  | BadConstraintAnnotation p
   | ExpectedSort p TypeInfer
   | ExpectedKind p TypeInfer
   | ExpectedType p TypeInfer
@@ -59,6 +54,7 @@ data TypeError p
   | ExpectedSize p TypeInfer
   | ExpectedSignedness p TypeInfer
   | ExpectedSubstitutability p TypeInfer
+  | ExpectedMultiplicity p TypeInfer
   deriving (Show)
 
 newtype Core p a = Core {runCore'' :: ReaderT (CoreEnvironment p) (StateT (CoreState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
@@ -68,9 +64,14 @@ runCore' c = runStateT . runReaderT (runCore'' c)
 runCore :: Core p a -> CoreEnvironment p -> CoreState p -> Either (TypeError p) a
 runCore c = (fmap fst .) . runCore' c
 
-data TermBinding p = TermBinding p Multiplicity TypeSchemeUnify deriving (Show, Functor)
+data TermBinding p = TermBinding
+  { termPosition :: p,
+    termMultiplicity :: TypeUnify,
+    termType :: TypeSchemeUnify
+  }
+  deriving (Show, Functor)
 
-data TypeBinding p = TypeBinding p TypeInfer (Set Constraint) (Set TypeSub) Level deriving (Show, Functor)
+data TypeBinding p = TypeBinding p TypeInfer (Set TypeSub) Level deriving (Show, Functor)
 
 data CoreEnvironment p = CoreEnvironment
   { typeEnvironment :: Map TermIdentifier (TermBinding p),
@@ -80,7 +81,7 @@ data CoreEnvironment p = CoreEnvironment
   deriving (Functor, Show)
 
 data TypeLogicalState p
-  = UnboundTypeLogical p TypeUnify (Set Constraint) [TypeUnify] (Maybe TypeSub) Level
+  = UnboundTypeLogical p TypeUnify [TypeUnify] (Maybe TypeSub) Level
   | LinkTypeLogical TypeUnify
   deriving (Show, Functor)
 
@@ -111,7 +112,7 @@ lookupTypeGlobalEnviroment x = do
   xΓ <- Core ask
   pure $ Map.lookup x (typeGlobalEnviroment xΓ)
 
-augmentTypeEnvironment :: TermIdentifier -> p -> Multiplicity -> TypeSchemeUnify -> Core p a -> Core p a
+augmentTypeEnvironment :: TermIdentifier -> p -> TypeUnify -> TypeSchemeUnify -> Core p a -> Core p a
 augmentTypeEnvironment x p l σ = modifyTypeEnvironment (Map.insert x (TermBinding p l σ))
   where
     modifyTypeEnvironment f (Core r) = Core $ withReaderT (\env -> env {typeEnvironment = f (typeEnvironment env)}) r
@@ -130,31 +131,32 @@ indexKindEnvironment x = do
 
 lowerTypeBounds :: TypeSub -> Core p (Set TypeSub)
 lowerTypeBounds (TypeVariable x) = do
-  TypeBinding _ _ _ π _ <- indexKindEnvironment x
+  TypeBinding _ _ π _ <- indexKindEnvironment x
   pure π
 lowerTypeBounds World = pure (Set.singleton World)
+lowerTypeBounds Linear = pure (Set.singleton Linear)
+lowerTypeBounds Unrestricted = pure (Set.fromList [Linear, Unrestricted])
 
 modifyKindEnvironment f (Core r) = Core $ withReaderT (\env -> env {kindEnvironment = f (kindEnvironment env)}) r
 
 -- todo assertions to avoid shadowing
-augmentKindEnvironment p x κ c π lev f = do
+augmentKindEnvironment p x κ π lev f = do
   πs <- Set.insert (TypeVariable x) <$> closure π
-  modifyKindEnvironment (Map.insert x (TypeBinding p κ c πs lev)) f
+  modifyKindEnvironment (Map.insert x (TypeBinding p κ πs lev)) f
   where
     closure :: Set TypeSub -> Core p (Set TypeSub)
     closure x = fold <$> traverse lowerTypeBounds (Set.toList x)
 
-augmentKindUnify occurs p x = modifyKindEnvironment (Map.insert x (TypeBinding p κ c π (if occurs then minBound else maxBound)))
+augmentKindUnify occurs p x = modifyKindEnvironment (Map.insert x (TypeBinding p κ π (if occurs then minBound else maxBound)))
   where
     κ = error "kind used during unification"
-    c = error "constraints used during unification"
-    π = error "bottom used during unification"
+    π = error "bounds used during unification"
 
-augmentTypePatternLevel (TypePatternIntermediate p x κ c π) f = do
+augmentTypePatternLevel (TypePatternIntermediate p x κ π) f = do
   enterLevel
   useTypeVar x
   lev <- Level <$> currentLevel
-  f' <- augmentKindEnvironment p x κ c (Set.fromList π) lev f
+  f' <- augmentKindEnvironment p x κ (Set.fromList π) lev f
   leaveLevel
   pure f'
 
@@ -185,8 +187,8 @@ leaveLevel = modifyLevelCounter (subtract 1)
 
 currentLevel = levelCounter <$> getState
 
-freshTypeVariableRaw :: p -> TypeUnify -> Set Constraint -> [TypeUnify] -> Maybe TypeSub -> Level -> Core p TypeLogical
-freshTypeVariableRaw p κ c lower upper lev = do
+freshTypeVariableRaw :: p -> TypeUnify -> [TypeUnify] -> Maybe TypeSub -> Level -> Core p TypeLogical
+freshTypeVariableRaw p κ lower upper lev = do
   v <- TypeLogicalRaw <$> newFreshType
   insertTypeLogicalMap v
   pure $ v
@@ -198,9 +200,9 @@ freshTypeVariableRaw p κ c lower upper lev = do
       pure i
     insertTypeLogicalMap x = do
       state <- getState
-      putState state {typeLogicalMap = Map.insert x (UnboundTypeLogical p κ c lower upper lev) $ typeLogicalMap state}
+      putState state {typeLogicalMap = Map.insert x (UnboundTypeLogical p κ lower upper lev) $ typeLogicalMap state}
 
-freshKindVariableRaw p μ lev = freshTypeVariableRaw p μ Set.empty [] Nothing lev
+freshKindVariableRaw p μ lev = freshTypeVariableRaw p μ [] Nothing lev
 
 indexTypeLogicalMap :: TypeLogical -> Core p (TypeLogicalState p)
 indexTypeLogicalMap x = do

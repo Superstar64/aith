@@ -36,7 +36,6 @@ nameType = sourceType . runIdentity . zonkType nameTypeLogical
 prettyError :: TypeError [SourcePos] -> String
 prettyError (UnknownIdentifier p (TermIdentifier x)) = "Unknown identifer " ++ x ++ positions p
 prettyError (TypeMismatch p σ σ') = "Type mismatch between ``" ++ pretty typex (nameType σ) ++ "`` and ``" ++ pretty typex (nameType σ') ++ "``" ++ positions p
-prettyError (ConstraintMismatch p c σ) = "Unable to proof ``" ++ pretty constraint c ++ "(" ++ pretty typex (nameType σ) ++ ")``" ++ positions p
 prettyError (TypeMisrelation p σ σ') = "Unable to subtype ``" ++ pretty typex (nameType (TypeCore $ TypeSub σ')) ++ "`` >= ``" ++ pretty typex (nameType (TypeCore $ TypeSub σ)) ++ "``" ++ positions p
 prettyError e = show e
 
