@@ -21,7 +21,6 @@ digraph aith {
         representation
         size
         signedness
-        capacity
         multiplicity
     }
 
@@ -38,7 +37,6 @@ digraph aith {
     long -> size
     signed -> signedness
     unsigned -> signedness
-    capacity -> kindInvTrans
     representation -> kindInvOpa
     size -> kindInvOpa
     signedness -> kindInvOpa

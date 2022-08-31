@@ -730,17 +730,17 @@ instance ZonkType TypePattern where
   zonkType f (TypePattern x κ π) =
     pure TypePattern <*> pure x <*> zonkType f κ <*> traverse (zonkType f) π
 
-instance Reduce (Instantiation v) where
-  reduce (InstantiationCore θ) = InstantiationCore $ mapInstantiationF reduce reduce θ
-
-instance Reduce (Type v) where
-  reduce = id
-
 instance Location TypeSource where
   location (TypeSource p _) = p
 
+instance Reduce (Instantiation v) where
+  reduce = id
+
 instance Reduce (TypePattern v) where
-  reduce (TypePattern x κ π) = TypePattern x (reduce κ) (map reduce π)
+  reduce = id
+
+instance Reduce (Type v) where
+  reduce = id
 
 freeTypeLogical = getConst . zonkType (Const . Set.singleton)
 
