@@ -521,6 +521,7 @@ class RenameTerm pm where
 
 class FreeVariablesTerm u where
   freeVariablesTerm :: u -> Set TermIdentifier
+  freeVariablesGlobalTerm :: u -> Set TermGlobalIdentifier
 
 class FreeVariablesTermSource u where
   freeVariablesTermSource :: Semigroup p => u p -> Variables TermIdentifier p
@@ -536,6 +537,8 @@ class SubstituteTerm u where
 freeVariablesSameTerm = freeVariablesSame bindingsTerm freeVariablesTerm
 
 freeVariablesSameTermSource = freeVariablesSameSource bindingsTerm freeVariablesTermSource
+
+freeVariablesLowerGlobalTerm = freeVariablesLower freeVariablesGlobalTerm
 
 freeVariablesLowerGlobalTermSource = freeVariablesLower freeVariablesGlobalTermSource
 
@@ -556,6 +559,8 @@ substituteLowerGlobalTerm = substituteLowerGlobalTerm' avoidTerm
 substituteLowerGlobalTerm' avoid = substituteLower avoid substituteGlobalTerm
 
 freeVariablesRgnForTerm = freeVariablesLower freeVariablesSameTerm
+
+freeVariablesGlobalRgnForTerm = freeVariablesLower freeVariablesLowerGlobalTerm
 
 freeVariablesRgnSourceForTerm = freeVariablesLower freeVariablesSameTermSource
 
@@ -638,6 +643,12 @@ instance RenameTerm (TermPattern p v) where
     where
       go = renameTerm ux x
 
+instance FreeVariablesTypeSource TermAnnotation where
+  freeVariablesTypeSource (TypeAnnotation e σ) = freeVariablesTypeSource e <> freeVariablesTypeSource σ
+  freeVariablesTypeSource (PretypeAnnotation e σ) = freeVariablesTypeSource e <> freeVariablesTypeSource σ
+  freeVariablesGlobalTypeSource (TypeAnnotation e σ) = freeVariablesGlobalTypeSource e <> freeVariablesGlobalTypeSource σ
+  freeVariablesGlobalTypeSource (PretypeAnnotation e σ) = freeVariablesGlobalTypeSource e <> freeVariablesGlobalTypeSource σ
+
 instance ConvertType (TermAnnotation p) where
   convertType ux x (TypeAnnotation e σ) = TypeAnnotation (convertType ux x e) (convertType ux x σ)
   convertType ux x (PretypeAnnotation e σ) = PretypeAnnotation (convertType ux x e) (convertType ux x σ)
@@ -649,15 +660,37 @@ instance ConvertType (TermSource p) where
       go' = convertHigherType ux x
       go'' = convertRgnForType ux x
 
+instance FreeVariablesTypeSource TermPatternSource where
+  freeVariablesTypeSource (TermPatternSource _ pm) = foldTermPatternF (foldMap go) go pm
+    where
+      go = freeVariablesTypeSource
+  freeVariablesGlobalTypeSource (TermPatternSource _ pm) = foldTermPatternF (foldMap go) go pm
+    where
+      go = freeVariablesGlobalTypeSource
+
+instance FreeVariablesTypeSource TermRuntimePatternSource where
+  freeVariablesTypeSource (TermRuntimePatternSource _ pm) = foldTermRuntimePatternF (foldMap go) go pm
+    where
+      go = freeVariablesTypeSource
+  freeVariablesGlobalTypeSource (TermRuntimePatternSource _ pm) = foldTermRuntimePatternF (foldMap go) go pm
+    where
+      go = freeVariablesGlobalTypeSource
+
 instance FreeVariablesType (TermPattern p v) where
   freeVariablesType (TermPatternCore _ pm) = foldTermPatternF go go pm
     where
       go = freeVariablesType
+  freeVariablesGlobalType (TermPatternCore _ pm) = foldTermPatternF go go pm
+    where
+      go = freeVariablesGlobalType
 
 instance SubstituteType (TermPattern p) where
   substituteType ux x (TermPatternCore p pm) = TermPatternCore p $ mapTermPatternF go go pm
     where
       go = substituteType ux x
+  substituteGlobalType ux x (TermPatternCore p pm) = TermPatternCore p $ mapTermPatternF go go pm
+    where
+      go = substituteGlobalType ux x
 
 instance ConvertType (TermPattern p v) where
   convertType ux x (TermPatternCore p pm) = TermPatternCore p $ mapTermPatternF go go pm
@@ -673,6 +706,9 @@ instance FreeVariablesType (TermRuntimePattern p v) where
   freeVariablesType (TermRuntimePatternCore _ pm) = foldTermRuntimePatternF go go pm
     where
       go = freeVariablesType
+  freeVariablesGlobalType (TermRuntimePatternCore _ pm) = foldTermRuntimePatternF go go pm
+    where
+      go = freeVariablesGlobalType
 
 instance ConvertType (TermPatternSource p) where
   convertType ux x (TermPatternSource p pm) = TermPatternSource p $ mapTermPatternF go go pm
@@ -693,6 +729,9 @@ instance SubstituteType (TermRuntimePattern p) where
   substituteType ux x (TermRuntimePatternCore p pm) = TermRuntimePatternCore p $ mapTermRuntimePatternF go go pm
     where
       go = substituteType ux x
+  substituteGlobalType ux x (TermRuntimePatternCore p pm) = TermRuntimePatternCore p $ mapTermRuntimePatternF go go pm
+    where
+      go = substituteGlobalType ux x
 
 instance Reduce (TermRuntimePattern p v) where
   reduce (TermRuntimePatternCore p pm) = TermRuntimePatternCore p $ mapTermRuntimePatternF go go pm
@@ -706,6 +745,12 @@ instance FreeVariablesTerm (Term p v) where
       go = freeVariablesTerm
       go' = freeVariablesSameTerm
       go'' = freeVariablesRgnForTerm
+  freeVariablesGlobalTerm (TermCore _ (GlobalVariable x _)) = Set.singleton x
+  freeVariablesGlobalTerm (TermCore _ e) = foldTermF absurd mempty mempty go'' go go' go' go e
+    where
+      go = freeVariablesGlobalTerm
+      go' = freeVariablesLowerGlobalTerm
+      go'' = freeVariablesGlobalRgnForTerm
 
 instance FreeVariablesTermSource TermAnnotation where
   freeVariablesTermSource (TypeAnnotation e _) = freeVariablesTermSource e
@@ -755,12 +800,29 @@ instance SubstituteTerm Term where
       go' = substituteLowerGlobalTerm ux x
       go'' = substituteRgnForTermGlobal ux x
 
+instance FreeVariablesTypeSource TermSource where
+  freeVariablesTypeSource (TermSource _ e) = foldTermF go mempty mempty go'' go go' go' go e
+    where
+      go = freeVariablesTypeSource
+      go' = freeVariablesHigherTypeSource
+      go'' = freeVariablesRgnForTypeSource
+  freeVariablesGlobalTypeSource (TermSource _ e) = foldTermF go mempty mempty go'' go go' go' go e
+    where
+      go = freeVariablesGlobalTypeSource
+      go' = freeVariablesGlobalHigherTypeSource
+      go'' = freeVariablesGlobalRgnForTypeSource
+
 instance FreeVariablesType (Term p v) where
   freeVariablesType (TermCore _ e) = foldTermF absurd go go go'' go go' go' go e
     where
       go = freeVariablesType
       go' = freeVariablesHigherType
       go'' = freeVariablesRgnForType
+  freeVariablesGlobalType (TermCore _ e) = foldTermF absurd go go go'' go go' go' go e
+    where
+      go = freeVariablesGlobalType
+      go' = freeVariablesGlobalHigherType
+      go'' = freeVariablesGlobalRgnForType
 
 instance ConvertType (Term p v) where
   convertType ux x (TermCore p e) = TermCore p $ mapTermF absurd go go go'' go go' go' go e
@@ -775,12 +837,21 @@ instance SubstituteType (Term p) where
       go = substituteType ux x
       go' = substituteHigherType ux x
       go'' = substituteRgnForType ux x
+  substituteGlobalType ux x (TermCore p e) = TermCore p $ mapTermF absurd go go go'' go go' go' go e
+    where
+      go = substituteGlobalType ux x
+      go' = substituteGlobalHigherType ux x
+      go'' = substituteGlobalRgnForType ux x
 
 instance FreeVariablesTerm (TermScheme p v) where
   freeVariablesTerm (TermSchemeCore _ e) = foldTermSchemeF go' go e
     where
       go = freeVariablesTerm
       go' = freeVariablesLowerTerm
+  freeVariablesGlobalTerm (TermSchemeCore _ e) = foldTermSchemeF go' go e
+    where
+      go = freeVariablesGlobalTerm
+      go' = freeVariablesLowerGlobalTerm
 
 instance FreeVariablesTermSource TermSchemeSource where
   freeVariablesTermSource (TermSchemeSource _ e) = foldTermSchemeF go' go e
@@ -814,11 +885,31 @@ instance SubstituteTerm TermScheme where
       go = substituteGlobalTerm ux x
       go' = substituteLowerGlobalTerm' avoidType ux x
 
+instance FreeVariablesTypeSource TermControlSource where
+  freeVariablesTypeSource (TermAutoSource e) = freeVariablesTypeSource e
+  freeVariablesTypeSource (TermManualSource e) = freeVariablesTypeSource e
+  freeVariablesGlobalTypeSource (TermAutoSource e) = freeVariablesGlobalTypeSource e
+  freeVariablesGlobalTypeSource (TermManualSource e) = freeVariablesGlobalTypeSource e
+
+instance FreeVariablesTypeSource TermSchemeSource where
+  freeVariablesTypeSource (TermSchemeSource _ e) = foldTermSchemeF go' go e
+    where
+      go = freeVariablesTypeSource
+      go' = freeVariablesSameTypeSource
+  freeVariablesGlobalTypeSource (TermSchemeSource _ e) = foldTermSchemeF go' go e
+    where
+      go = freeVariablesGlobalTypeSource
+      go' = freeVariablesGlobalHigherTypeSource
+
 instance FreeVariablesType (TermScheme p v) where
   freeVariablesType (TermSchemeCore _ e) = foldTermSchemeF go' go e
     where
       go = freeVariablesType
       go' = freeVariablesSameType
+  freeVariablesGlobalType (TermSchemeCore _ e) = foldTermSchemeF go' go e
+    where
+      go = freeVariablesGlobalType
+      go' = freeVariablesGlobalHigherType
 
 instance ConvertType (TermSchemeSource p) where
   convertType ux x (TermSchemeSource p e) = TermSchemeSource p $ mapTermSchemeF go' go e
@@ -837,6 +928,10 @@ instance SubstituteType (TermScheme p) where
     where
       go = substituteType ux x
       go' = substituteSameType ux x
+  substituteGlobalType ux x (TermSchemeCore p e) = TermSchemeCore p $ mapTermSchemeF go' go e
+    where
+      go = substituteGlobalType ux x
+      go' = substituteGlobalSemiDependType ux x
 
 applyTerm (Bound (TermPatternCore _ (PatternVariable x _)) e@(TermCore p _)) ux =
   reduce $ substituteTerm (TermSchemeCore p (MonoTerm ux)) x e

@@ -23,11 +23,19 @@ module systemf = {
 
 	inline id = runIdSysF `idSysF;
 
-	inline constSysF = <A : type, B : type> \x : A => \y : B => x;
+	type natural = <A : type> A -> (A -> A) -> A;
 
-	inline const <A : type, B : type> : A -> B -> A;
-	inline const <A : type, B : type> = |< constSysF : <A : type, B : type> A -> B -> A >|;
+	inline zero<> : natural;
+	inline zero = <A : type> \z : A => \inc : A -> A => z;
 
+	inline inc<> : natural -> natural;
+	inline inc = \n => <A : type> \z : A => \inc : A -> A => inc `(|< n : natural >| `z `inc);
+
+	inline one<> : natural;
+	inline one = inc `zero;
+
+	inline two<> : natural;
+	inline two = inc `one;
 };
 
 module varSub = {
@@ -133,10 +141,12 @@ module ptr = {
 	};
 };
 
+
 module number = {
-	dotProduct = function(vector1, vector2) {
-		let (x1,y1,z1) = vector1;
-		let (x2,y2,z2) = vector2;
+	type point = (int, int, int);
+
+	dotProduct <R : region> : function(point, point) => int uses R;
+	dotProduct = function((x1,y1,z1), (x2, y2, z2)) {
 		(x1 * x2 + y1 * y2 + z1 * z2)
 	};
   

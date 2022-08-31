@@ -26,12 +26,14 @@ data TypeError p
   = UnknownIdentifier p TermIdentifier
   | UnknownGlobalIdentifier p TermGlobalIdentifier
   | UnknownTypeIdentifier p TypeIdentifier
+  | UnknownTypeGlobalIdentifier p TypeGlobalIdentifier
   | InvalidUsage p TermIdentifier
   | TypeMismatch p TypeUnify TypeUnify
   | TypeMisrelation p TypeSub TypeSub
   | TypeOccursCheck p TypeLogical TypeUnify
   | AmbiguousType p TypeInfer
   | EscapingSkolemType p TypeIdentifier TypeUnify
+  | EscapingSkolemTypeGlobal p TypeGlobalIdentifier TypeUnify
   | CaptureLinear p TermIdentifier
   | ExpectedTypeAnnotation p
   | ExpectedFunctionLiteral p
@@ -71,12 +73,16 @@ data TermBinding p = TermBinding
   }
   deriving (Show, Functor)
 
-data TypeBinding p = TypeBinding p TypeInfer (Set TypeSub) Level deriving (Show, Functor)
+data TypeBinding p
+  = TypeBinding p TypeInfer (Set TypeSub) Level
+  | LinkTypeBinding TypeInfer
+  deriving (Show, Functor)
 
 data CoreEnvironment p = CoreEnvironment
   { typeEnvironment :: Map TermIdentifier (TermBinding p),
     kindEnvironment :: Map TypeIdentifier (TypeBinding p),
-    typeGlobalEnviroment :: Map TermGlobalIdentifier (TermBinding p)
+    typeGlobalEnvironment :: Map TermGlobalIdentifier (TermBinding p),
+    kindGlobalEnvironment :: Map TypeGlobalIdentifier (TypeBinding p)
   }
   deriving (Functor, Show)
 
@@ -96,7 +102,7 @@ data CoreState p = CoreState
 
 quit e = Core $ lift $ lift $ Left e
 
-emptyEnvironment = CoreEnvironment Map.empty Map.empty Map.empty
+emptyEnvironment = CoreEnvironment Map.empty Map.empty Map.empty Map.empty
 
 askEnvironment = Core ask
 
@@ -107,10 +113,10 @@ lookupTypeEnviroment x = do
   xΓ <- Core ask
   pure $ Map.lookup x (typeEnvironment xΓ)
 
-lookupTypeGlobalEnviroment :: TermGlobalIdentifier -> Core p (Maybe (TermBinding p))
-lookupTypeGlobalEnviroment x = do
+lookuptypeGlobalEnvironment :: TermGlobalIdentifier -> Core p (Maybe (TermBinding p))
+lookuptypeGlobalEnvironment x = do
   xΓ <- Core ask
-  pure $ Map.lookup x (typeGlobalEnviroment xΓ)
+  pure $ Map.lookup x (typeGlobalEnvironment xΓ)
 
 augmentTypeEnvironment :: TermIdentifier -> p -> TypeUnify -> TypeSchemeUnify -> Core p a -> Core p a
 augmentTypeEnvironment x p l σ = modifyTypeEnvironment (Map.insert x (TermBinding p l σ))
@@ -122,6 +128,10 @@ lookupKindEnvironment x = do
   xΓ <- Core ask
   pure $ Map.lookup x (kindEnvironment xΓ)
 
+lookupKindGlobalEnvironment x = do
+  xΓ <- Core ask
+  pure $ Map.lookup x (kindGlobalEnvironment xΓ)
+
 indexKindEnvironment :: TypeIdentifier -> Core p (TypeBinding p)
 indexKindEnvironment x = do
   xΓ <- Core ask
@@ -129,10 +139,25 @@ indexKindEnvironment x = do
     then error $ "Bad Type Variable " ++ show x
     else pure $ kindEnvironment xΓ ! x
 
+indexKindGlobalEnvironment x = do
+  xΓ <- Core ask
+  if x `Map.notMember` kindGlobalEnvironment xΓ
+    then error $ "Bad Type Variable " ++ show x
+    else pure $ kindGlobalEnvironment xΓ ! x
+
 lowerTypeBounds :: TypeSub -> Core p (Set TypeSub)
 lowerTypeBounds (TypeVariable x) = do
-  TypeBinding _ _ π _ <- indexKindEnvironment x
-  pure π
+  indexKindEnvironment x >>= \case
+    TypeBinding _ _ π _ -> do
+      pure π
+    LinkTypeBinding (TypeCore (TypeSub σ)) -> lowerTypeBounds σ
+    LinkTypeBinding _ -> error "unexpected subtypable"
+lowerTypeBounds (TypeGlobalVariable x) = do
+  indexKindGlobalEnvironment x >>= \case
+    TypeBinding _ _ π _ -> do
+      pure π
+    LinkTypeBinding (TypeCore (TypeSub σ)) -> lowerTypeBounds σ
+    LinkTypeBinding _ -> error "unexpected subtypable"
 lowerTypeBounds World = pure (Set.singleton World)
 lowerTypeBounds Linear = pure (Set.singleton Linear)
 lowerTypeBounds Unrestricted = pure (Set.fromList [Linear, Unrestricted])

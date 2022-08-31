@@ -204,6 +204,8 @@ termGlobalIdentifier = Language.termGlobalIdentifier ⊣ path
 
 typeIdentifier = Language.typeIdentifier ⊣ identifer
 
+typeGlobalIdentifier = Language.typeGlobalIdentifier ⊣ path
+
 auto e = just ⊣ e ∥ nothing ⊣ token "_"
 
 lowerBounds :: Syntax δ => δ a -> δ [a]
@@ -282,6 +284,7 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
   where
     options =
       [ Language.typeVariable ⊣ typeIdentifier,
+        Language.typeGlobalVariable ⊣ typeGlobalIdentifier,
         Language.boolean ⊣ keyword "bool",
         Language.world ⊣ keyword "io",
         keyword "function" ≫ (funLiteral ∥ funPointer),
@@ -499,7 +502,8 @@ item name delimit footer footer' lambda =
   choice
     [ itemCore (keyword "module" ≫ space) (Module.modulex ⊣ lambda modulex),
       itemTerm (keyword "inline" ≫ space) (Module.global . Module.inline),
-      itemTerm always (Module.global . Module.text)
+      itemTerm always (Module.global . Module.text),
+      itemCore (keyword "type" ≫ space) (Module.global ⊣ Module.synonym ⊣ typex)
     ]
   where
     itemCore brand inner = brand ≫ name ≪ delimit ⊗ inner ≪ footer

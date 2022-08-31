@@ -74,12 +74,13 @@ convertKind (TypeCore (Pretype κ _)) = convertKindImpl κ
 convertKind _ = simpleFailType
 
 reconstruct :: Monad m => TypeInfer -> ReaderT (Map TypeIdentifier TypeInfer) m TypeInfer
-reconstruct (TypeCore σ) = reconstructF index absurd todo checkRuntime reconstruct σ
+reconstruct (TypeCore σ) = reconstructF index indexGlobal absurd todo checkRuntime reconstruct σ
   where
     todo = error "todo fix when type variable are allowed inside runtime types"
     index x = do
       map <- ask
       pure $ map ! x
+    indexGlobal _ = error "global"
     checkRuntime (TypeCore (Pretype κ _)) f = f κ
     checkRuntime _ _ = error $ "reconstruction of pair didn't return pretype"
 

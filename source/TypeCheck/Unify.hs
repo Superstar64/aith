@@ -8,9 +8,11 @@ import qualified Data.Set as Set
 import Data.Traversable
 import TypeCheck.Core
 
-reconstructF indexVariable indexLogical poly checkRuntime reconstruct = \case
+reconstructF indexVariable indexGlobalVariable indexLogical poly checkRuntime reconstruct = \case
   TypeSub (TypeVariable x) -> do
     indexVariable x
+  TypeSub (TypeGlobalVariable x) -> do
+    indexGlobalVariable x
   TypeLogical v -> do
     indexLogical v
   Inline _ _ _ -> do
@@ -64,10 +66,19 @@ typeOccursCheck p x lev σ' = go σ'
     go (TypeCore σ) = do
       case σ of
         TypeSub (TypeVariable x') -> do
-          TypeBinding _ _ _ lev' <- indexKindEnvironment x'
-          if lev' > lev
-            then quit $ EscapingSkolemType p x' σ'
-            else pure ()
+          indexKindEnvironment x' >>= \case
+            TypeBinding _ _ _ lev' ->
+              if lev' > lev
+                then quit $ EscapingSkolemType p x' σ'
+                else pure ()
+            LinkTypeBinding _ -> pure ()
+        TypeSub (TypeGlobalVariable x') -> do
+          indexKindGlobalEnvironment x' >>= \case
+            TypeBinding _ _ _ lev' ->
+              if lev' > lev
+                then quit $ EscapingSkolemTypeGlobal p x' σ'
+                else pure ()
+            LinkTypeBinding _ -> pure ()
         TypeLogical x' | x == x' -> quit $ TypeOccursCheck p x σ'
         TypeLogical x' ->
           indexTypeLogicalMap x' >>= \case
@@ -142,7 +153,6 @@ typeOccursCheck p x lev σ' = go σ'
 matchType :: p -> TypeUnify -> TypeUnify -> Core p ()
 matchType p σ σ' = unify σ σ'
   where
-    match p σ σ' = matchType p σ σ'
     reunifyBounds p (TypeCore (TypeLogical x)) =
       indexTypeLogicalMap x >>= \case
         LinkTypeLogical σ -> reunifyBounds p σ
@@ -178,50 +188,60 @@ matchType p σ σ' = unify σ σ'
             (LinkTypeLogical σ') -> unify σ' σ
     unify σ σ'@(TypeCore (TypeLogical _)) = unify σ' σ
     unify (TypeCore (TypeSub σ)) (TypeCore (TypeSub σ')) | σ == σ' = pure ()
+    unify σ@(TypeCore (TypeSub (TypeVariable x))) σ' =
+      indexKindEnvironment x >>= \case
+        TypeBinding _ _ _ _ -> quit $ TypeMismatch p σ σ'
+        LinkTypeBinding σ -> unify (flexible σ) σ'
+    unify σ@(TypeCore (TypeSub (TypeGlobalVariable x))) σ' =
+      indexKindGlobalEnvironment x >>= \case
+        TypeBinding _ _ _ _ -> quit $ TypeMismatch p σ σ'
+        LinkTypeBinding σ -> unify (flexible σ) σ'
+    unify σ σ'@(TypeCore (TypeSub (TypeVariable _))) = unify σ' σ
+    unify σ σ'@(TypeCore (TypeSub (TypeGlobalVariable _))) = unify σ' σ
     unify (TypeCore (Inline σ π τ)) (TypeCore (Inline σ' π' τ')) = do
-      match p σ σ'
-      match p π π'
-      match p τ τ'
+      unify σ σ'
+      unify π π'
+      unify τ τ'
     unify (TypeCore (Poly ς)) (TypeCore (Poly ς')) = unifyPoly ς ς'
     unify (TypeCore (FunctionPointer σ π τ)) (TypeCore (FunctionPointer σ' π' τ')) = do
-      match p σ σ'
-      match p π π'
-      match p τ τ'
+      unify σ σ'
+      unify π π'
+      unify τ τ'
     unify (TypeCore (FunctionLiteralType σ π τ)) (TypeCore (FunctionLiteralType σ' π' τ')) = do
-      match p σ σ'
-      match p π π'
-      match p τ τ'
+      unify σ σ'
+      unify π π'
+      unify τ τ'
     unify (TypeCore (Tuple σs τ)) (TypeCore (Tuple σs' τ')) | length σs == length σs' = do
-      sequence $ zipWith (match p) σs σs'
-      match p τ τ'
+      sequence $ zipWith (unify) σs σs'
+      unify τ τ'
       pure ()
     unify (TypeCore (Effect σ π)) (TypeCore (Effect σ' π')) = do
-      match p σ σ'
-      match p π π'
+      unify σ σ'
+      unify π π'
     unify (TypeCore (Unique σ)) (TypeCore (Unique σ')) = do
-      match p σ σ'
+      unify σ σ'
     unify (TypeCore (Shared σ π)) (TypeCore (Shared σ' π')) = do
-      match p σ σ'
-      match p π π'
+      unify σ σ'
+      unify π π'
     unify (TypeCore (Pointer σ)) (TypeCore (Pointer σ')) = do
-      match p σ σ'
+      unify σ σ'
     unify (TypeCore (Array σ)) (TypeCore (Array σ')) = do
-      match p σ σ'
+      unify σ σ'
     unify (TypeCore (Number ρ1 ρ2)) (TypeCore (Number ρ1' ρ2')) = do
-      match p ρ1 ρ1'
-      match p ρ2 ρ2'
+      unify ρ1 ρ1'
+      unify ρ2 ρ2'
     unify (TypeCore Boolean) (TypeCore Boolean) = pure ()
     unify (TypeCore Type) (TypeCore Type) = pure ()
     unify (TypeCore Region) (TypeCore Region) = pure ()
     unify (TypeCore (Pretype κ τ)) (TypeCore (Pretype κ' τ')) = do
-      match p κ κ'
-      match p τ τ'
+      unify κ κ'
+      unify τ τ'
     unify (TypeCore Boxed) (TypeCore Boxed) = pure ()
     unify (TypeCore Multiplicity) (TypeCore Multiplicity) = pure ()
     unify (TypeCore (KindRuntime PointerRep)) (TypeCore (KindRuntime PointerRep)) = pure ()
     unify (TypeCore (KindRuntime (StructRep κs))) (TypeCore (KindRuntime (StructRep κs'))) | length κs == length κs' = do
-      sequence_ $ zipWith (match p) κs κs'
-    unify (TypeCore (KindRuntime (WordRep κ))) (TypeCore (KindRuntime (WordRep κ'))) = match p κ κ'
+      sequence_ $ zipWith (unify) κs κs'
+    unify (TypeCore (KindRuntime (WordRep κ))) (TypeCore (KindRuntime (WordRep κ'))) = unify κ κ'
     unify (TypeCore (KindSize Byte)) (TypeCore (KindSize Byte)) = pure ()
     unify (TypeCore (KindSize Short)) (TypeCore (KindSize Short)) = pure ()
     unify (TypeCore (KindSize Int)) (TypeCore (KindSize Int)) = pure ()
@@ -233,8 +253,8 @@ matchType p σ σ' = unify σ σ'
     unify (TypeCore Size) (TypeCore Size) = pure ()
     unify (TypeCore Signedness) (TypeCore Signedness) = pure ()
     unify (TypeCore (Top (Kind σ τ))) (TypeCore (Top (Kind σ' τ'))) = do
-      match p σ σ'
-      match p τ τ'
+      unify σ σ'
+      unify τ τ'
     unify (TypeCore (Top Invariant)) (TypeCore (Top Invariant)) = pure ()
     unify (TypeCore (Top Subtypable)) (TypeCore (Top Subtypable)) = pure ()
     unify (TypeCore (Top Transparent)) (TypeCore (Top Transparent)) = pure ()
@@ -245,7 +265,7 @@ matchType p σ σ' = unify σ σ'
       (TypeSchemeCore (TypeForall (Bound (TypePattern α κ π) ς)))
       (TypeSchemeCore (TypeForall (Bound (TypePattern α' κ' π') ς')))
         | length π == length π' = do
-          match p κ κ'
+          unify κ κ'
           -- A logical variable inside of this forall may have been equated with a type that contains this forall's binding.
           -- To prevent a capture, this forall is alpha converted to  new rigid variable that doesn't exist in the current environment.
           -- This alpha renaming does not convert under logic variables.
@@ -254,7 +274,7 @@ matchType p σ σ' = unify σ σ'
           let ς2 = convertType αf α ς
           let ς'2 = convertType αf α' ς'
           augmentKindUnify False p αf $ unifyPoly ς2 ς'2
-          sequence $ zipWith (match p) π π'
+          sequence $ zipWith (unify) π π'
           pure ()
     unifyPoly
       (TypeSchemeCore (MonoType σ))
@@ -284,6 +304,11 @@ meet p π π' = do
   maximal p (π, π') (Set.toList $ Set.intersection lower1 lower2) (Set.toList $ Set.intersection lower1 lower2)
 
 -- type that is subtypable
+plainType :: p -> Type v -> Core p TypeSub
+plainType p (TypeCore (TypeSub σ@(TypeVariable x))) =
+  indexKindEnvironment x >>= \case
+    TypeBinding _ _ _ _ -> pure σ
+    LinkTypeBinding σ -> plainType p σ
 plainType _ (TypeCore (TypeSub σ)) = pure σ
 plainType p _ = quit $ ExpectedPlainType p
 
@@ -294,7 +319,6 @@ plainType' p σ@(TypeCore (TypeLogical x)) =
 plainType' p σ = TypeCore <$> TypeSub <$> plainType p σ
 
 -- todo switch to greater then
-
 lessThen :: p -> TypeUnify -> TypeUnify -> Core p ()
 lessThen p σ (TypeCore (TypeLogical x)) = do
   σ <- plainType' p σ
@@ -336,13 +360,18 @@ kindIsMember p σ κ = do
 reconstruct :: forall p. p -> TypeUnify -> Core p TypeUnify
 reconstruct p (TypeCore σ) = go σ
   where
-    go = reconstructF indexEnvironment indexLogicalMap poly checkRuntime (reconstruct p)
+    go = reconstructF indexEnvironment indexGlobalEnvironment indexLogicalMap poly checkRuntime (reconstruct p)
     poly (TypeSchemeCore (TypeForall _)) = pure $ TypeCore $ Type
     poly (TypeSchemeCore (MonoType (TypeCore σ))) = go σ
 
-    indexEnvironment x = kind <$> indexKindEnvironment x
+    indexEnvironment x = indexKindEnvironment x >>= kind
       where
-        kind (TypeBinding _ κ _ _) = flexible κ
+        kind (TypeBinding _ κ _ _) = pure $ flexible κ
+        kind (LinkTypeBinding σ) = reconstruct p (flexible σ)
+    indexGlobalEnvironment x = indexKindGlobalEnvironment x >>= kind
+      where
+        kind (TypeBinding _ κ _ _) = pure $ flexible κ
+        kind (LinkTypeBinding σ) = reconstruct p (flexible σ)
     indexLogicalMap x = indexTypeLogicalMap x >>= index
     index (UnboundTypeLogical _ x _ _ _) = pure x
     index (LinkTypeLogical σ) = reconstruct p σ

@@ -7,6 +7,7 @@ import qualified C.Ast as C
 import qualified C.Print as C
 import Codegen
 import Control.Monad
+import Control.Monad.Trans.State
 import Data.Bifunctor (second)
 import Data.Foldable
 import Data.Functor.Identity (runIdentity)
@@ -134,6 +135,7 @@ compileItem (Global (GlobalInfer (Text σ e))) path = do
   fn <- codegen (mangle path) (simpleFunctionType σ) (simpleFunction e)
   pure [fn]
 compileItem (Global (GlobalInfer (Inline _ _))) _ = pure []
+compileItem (Global (GlobalInfer (Synonym _))) _ = pure []
 
 generateAll [] _ = pure ()
 generateAll (([], file) : remainder) code = do
@@ -151,6 +153,7 @@ uninfer = fmap (second nameGlobal)
     nameGlobal :: GlobalInfer [SourcePos] -> GlobalSource Internal
     nameGlobal (GlobalInfer (Inline ς e)) = GlobalSource $ Inline (Just $ sourceTypeScheme ς) (TermManualSource $ sourceTermScheme e)
     nameGlobal (GlobalInfer (Text ς e)) = GlobalSource $ Text (Just $ sourceTypeScheme ς) (TermManualSource $ sourceTermScheme e)
+    nameGlobal (GlobalInfer (Synonym σ)) = GlobalSource $ Synonym (sourceType σ)
 
 data CommandLine = CommandLine
   { loadItem :: [([String], FilePath)],
@@ -260,16 +263,17 @@ processCmd cmd t = case (findLoad t, findOutput t, working $ findWorking t, coun
 baseMain command = do
   code <- fmap (fmap (: [])) <$> addAll (loadItem command) :: IO (Module (GlobalSource [SourcePos]))
   formatAll (fmap (fmap (const Internal)) code) (prettyItem command)
-  ordering <- handleModuleError $ order code
-  let declare = forwardDeclarations code
-  declare <- handleTypeError $ validateDeclarations declare
-  ordering' <- handleTypeError $ typeCheckModule (forwardDeclare declare) ordering
-  let code' = unorder $ uninfer $ ordering'
-  formatAll code' (prettyItemAnnotated command)
-  let ordering'' = reduceModule (forwardDefine declare) ordering'
-  let code'' = unorder $ uninfer $ ordering''
-  formatAll code'' (prettyItemReduced command)
-  generateAll (generateCItem command) (unorder $ ordering'')
+  let forward = forwardDeclarations code
+  forward <- handleModuleError $ orderForward forward
+  (forward, environment) <- handleTypeError $ runStateT (typeCheckModuleForward forward) emptyEnvironment
+  let reducer = reduceModuleForword forward
+
+  code <- handleModuleError $ order code
+  code <- handleTypeError $ evalStateT (typeCheckModule code) environment
+  formatAll (fmap cleanScheme $ unorder $ uninfer $ code) (prettyItemAnnotated command)
+  code <- pure $ reduceModule reducer code
+  formatAll (fmap cleanScheme $ unorder $ uninfer $ code) (prettyItemReduced command)
+  generateAll (generateCItem command) (unorder $ code)
   where
     handleModuleError (Left e) = die $ prettyModuleError e
     handleModuleError (Right e) = pure e

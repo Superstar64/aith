@@ -3,6 +3,8 @@ module Module where
 import Ast.Common
 import Ast.Term
 import Ast.Type hiding (Inline)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.State (StateT, get, modify)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Traversable (for)
@@ -39,26 +41,46 @@ flatten = Map.fromList . go
           (Path path name, item) <- go code
           pure (Path (root : path) name, item)
 
-data GlobalF ς p e
+data GlobalF σ ς e
   = Inline ς e
   | Text ς e
+  | Synonym σ
   deriving (Show)
 
-data GlobalSource p = GlobalSource (GlobalF (TypeSchemeAuto p) p (TermControlSource p)) deriving (Show)
+data GlobalSource p = GlobalSource (GlobalF (TypeSource p) (TypeSchemeAuto p) (TermControlSource p)) deriving (Show)
 
 instance Location GlobalSource where
   location (GlobalSource (Inline _ (TermManualSource (TermSchemeSource p _)))) = p
   location (GlobalSource (Inline _ (TermAutoSource (TermSource p _)))) = p
   location (GlobalSource (Text _ (TermManualSource (TermSchemeSource p _)))) = p
   location (GlobalSource (Text _ (TermAutoSource (TermSource p _)))) = p
+  location (GlobalSource (Synonym (TypeSource p _))) = p
 
 instance Functor GlobalSource where
   fmap f (GlobalSource (Inline ς e)) = GlobalSource $ Inline (fmap (fmap f) ς) (fmap f e)
   fmap f (GlobalSource (Text ς e)) = GlobalSource $ Text (fmap (fmap f) ς) (fmap f e)
+  fmap f (GlobalSource (Synonym σ)) = GlobalSource $ Synonym (fmap f σ)
 
-data GlobalInfer p = GlobalInfer (GlobalF TypeSchemeInfer p (TermSchemeInfer p))
+data GlobalInfer p = GlobalInfer (GlobalF TypeInfer TypeSchemeInfer (TermSchemeInfer p))
 
 coreModule = Isomorph CoreModule $ \(CoreModule code) -> code
+
+data ForwardGlobalF σ ς
+  = ForwardText ς
+  | ForwardSymonym σ
+  deriving (Show)
+
+data ForwardGlobalSource p = ForwardGlobalSource (ForwardGlobalF (TypeSource p) (TypeSchemeSource p)) deriving (Show)
+
+instance Location ForwardGlobalSource where
+  location (ForwardGlobalSource (ForwardSymonym (TypeSource p _))) = p
+  location (ForwardGlobalSource (ForwardText (TypeSchemeSource p _))) = p
+
+instance Functor ForwardGlobalSource where
+  fmap f (ForwardGlobalSource (ForwardSymonym σ)) = ForwardGlobalSource (ForwardSymonym (fmap f σ))
+  fmap f (ForwardGlobalSource (ForwardText σ)) = ForwardGlobalSource (ForwardText (fmap f σ))
+
+data ForwardGlobalInfer = ForwardGlobalInfer (ForwardGlobalF TypeInfer TypeSchemeInfer) deriving (Show)
 
 modulex = Prism Module $ \case
   (Module code) -> Just code
@@ -76,6 +98,10 @@ text = Prism (uncurry Text) $ \case
   (Text σ e) -> Just (σ, e)
   _ -> Nothing
 
+synonym = Prism Synonym $ \case
+  Synonym σ -> Just σ
+  _ -> Nothing
+
 data ModuleError p
   = IllegalPath p Path
   | IncompletePath p Path
@@ -83,36 +109,88 @@ data ModuleError p
   | Cycle p Path
   deriving (Show)
 
+cleanScheme :: GlobalSource p -> GlobalSource p
+cleanScheme i
+  | (GlobalSource (Inline (Just ς) (TermManualSource e))) <- i,
+    Just e' <- matchSchemes ς e =
+    GlobalSource (Inline (Just ς) (TermAutoSource e'))
+  | (GlobalSource (Text (Just ς) (TermManualSource e))) <- i,
+    Just e' <- matchSchemes ς e =
+    GlobalSource (Text (Just ς) (TermAutoSource e'))
+  | otherwise = i
+  where
+    matchSchemes (TypeSchemeSource _ (MonoType _)) (TermSchemeSource _ (MonoTerm e)) = Just e
+    matchSchemes
+      (TypeSchemeSource _ (TypeForall (Bound (TypePatternSource _ x _ _) σ)))
+      (TermSchemeSource _ (TypeAbstraction (Bound (TypePatternSource _ x' _ _) e)))
+        | x == x' =
+          matchSchemes σ e
+    matchSchemes _ _ = Nothing
+
 -- nodes without dependencies are at the start of the list
 order :: Semigroup p => Module (GlobalSource p) -> Either (ModuleError p) [(Path, GlobalSource p)]
-order code = sortTopological view quit children globals
+order = order' forward depend
+  where
+    extractTerm = Map.mapKeysMonotonic (\(TermIdentifier x) -> x)
+    extractType = Map.mapKeysMonotonic (\(TypeIdentifier x) -> x)
+    extractGlobalTerm = Map.mapKeysMonotonic (\(TermGlobalIdentifier x) -> x)
+    extractGlobalType = Map.mapKeysMonotonic (\(TypeGlobalIdentifier x) -> x)
+
+    forward (GlobalSource (Text (Just _) _)) = True
+    forward _ = False
+
+    depend :: Semigroup p => GlobalSource p -> Path -> Map Path p
+    depend item (Path heading _)
+      | (GlobalSource (Inline ς e)) <- item = freeTerm ς e
+      | (GlobalSource (Text ς e)) <- item = freeTerm ς e
+      | (GlobalSource (Synonym σ)) <- item = freeType σ
+      where
+        scope = Map.mapKeysMonotonic (Path heading)
+        freeTerm ς e
+          | (Just ς') <- ς, (TermAutoSource _) <- e = Map.unionWith (<>) common (remove ς' freeTVars)
+          | otherwise = Map.unionWith (<>) common freeTVars
+          where
+            common =
+              foldr
+                (Map.unionWith (<>))
+                Map.empty
+                [freeVars, freeGlobalVars, freeTVarsAnn, freeGlobalTVarsAnn, freeGlobalTVars]
+            freeVars = scope $ extractTerm $ runVariables $ freeVariablesTermSource e
+            freeGlobalVars = extractGlobalTerm $ runVariables $ freeVariablesGlobalTermSource e
+            freeTVarsAnn = case ς of
+              Nothing -> Map.empty
+              Just ς -> scope $ extractType $ runVariables $ freeVariablesTypeSource ς
+            freeTVars = scope $ extractType $ runVariables $ freeVariablesTypeSource e
+            freeGlobalTVarsAnn = case ς of
+              Just ς -> extractGlobalType $ runVariables $ freeVariablesGlobalTypeSource ς
+              Nothing -> Map.empty
+            freeGlobalTVars = extractGlobalType $ runVariables $ freeVariablesGlobalTypeSource e
+            remove (TypeSchemeSource _ (MonoType _)) vars = vars
+            remove (TypeSchemeSource _ (TypeForall (Bound (TypePatternSource _ (TypeIdentifier x) _ _) σ))) vars =
+              Map.delete (Path heading x) $ remove σ vars
+        freeType σ = dependType heading σ
+
+dependType heading σ =
+  Map.unionWith
+    (<>)
+    (scope $ extractType $ runVariables $ freeVariablesTypeSource σ)
+    (extractGlobalType $ runVariables $ freeVariablesGlobalTypeSource σ)
+  where
+    scope = Map.mapKeysMonotonic (Path heading)
+    extractType = Map.mapKeysMonotonic (\(TypeIdentifier x) -> x)
+    extractGlobalType = Map.mapKeysMonotonic (\(TypeGlobalIdentifier x) -> x)
+
+order' forward depend code = sortTopological view quit children globals
   where
     globals = items [] code
     view (path, _) = path
     quit (path, global) = Left $ Cycle (location global) path
-    children (path, global) = fmap concat $
-      for (Map.toList $ depend global path) $ \(path, p) -> do
-        global <- resolve p code path
-        case global of
-          GlobalSource (Text (Just _) _) -> pure []
-          _ -> pure [(path, global)]
+    children (path, global) =
+      fmap (filter $ Prelude.not . forward . snd) $
+        for (Map.toList $ depend global path) $ \(path, p) -> do
+          global <- resolve p code path
+          pure (path, global)
 
-    extractTerm (TermIdentifier x) = x
-    extractGlobalTerm (TermGlobalIdentifier x) = x
-
-    depend :: Semigroup p => GlobalSource p -> Path -> Map Path p
-    depend (GlobalSource (Inline _ e)) (Path location _) = Map.unionWith (<>) freeTerm freeGlobalTerm
-      where
-        freeTerm = Map.mapKeysMonotonic (Path location) freeTerm'
-        freeTerm' = Map.mapKeysMonotonic extractTerm $ runVariables $ freeVariablesTermSource e
-        freeGlobalTerm = Map.mapKeysMonotonic extractGlobalTerm $ runVariables $ freeVariablesGlobalTermSource e
-    depend (GlobalSource (Text _ e)) (Path location _) = Map.unionWith (<>) freeTerm freeGlobalTerm
-      where
-        freeTerm = Map.mapKeysMonotonic (Path location) freeTerm'
-        freeTerm' = Map.mapKeysMonotonic extractTerm $ runVariables $ freeVariablesTermSource e
-        freeGlobalTerm = Map.mapKeysMonotonic extractGlobalTerm $ runVariables $ freeVariablesGlobalTermSource e
-
-    resolve :: p -> Module (GlobalSource p) -> Path -> Either (ModuleError p) (GlobalSource p)
     resolve p (CoreModule code) path = go code path
       where
         go code (Path [] name) = case Map.lookup name code of
@@ -124,7 +202,6 @@ order code = sortTopological view quit children globals
           Just (Global _) -> Left $ IndexingGlobal p path
           Just (Module (CoreModule code')) -> go code' (Path remainder name)
 
-    items :: [String] -> Module (GlobalSource p) -> [(Path, GlobalSource p)]
     items heading (CoreModule code) = do
       (name, item) <- Map.toList code
       case item of
@@ -147,31 +224,57 @@ mangle (Path path name) = Symbol $ (concat $ map (++ "_") $ extract <$> path) ++
   where
     extract x = x
 
-forwardDeclarations :: Module (GlobalSource p) -> Module (TypeSchemeSource p)
+forwardDeclarations :: Module (GlobalSource p) -> Module (ForwardGlobalSource p)
 forwardDeclarations = mapMaybe forward
   where
-    forward (GlobalSource (Text (Just σ) _)) = Just σ
+    forward (GlobalSource (Text (Just σ) _)) = Just $ ForwardGlobalSource $ ForwardText σ
+    forward (GlobalSource (Synonym σ)) = Just $ ForwardGlobalSource $ ForwardSymonym σ
     forward _ = Nothing
 
-validateDeclarations :: Module (TypeSchemeSource p) -> Either (TypeError p) (Module (p, TypeSchemeInfer))
-validateDeclarations = traverse $ \ς@(TypeSchemeSource p _) -> do
-  ς <- runCore (fst <$> kindCheckScheme SymbolMode ς) emptyEnvironment emptyState
-  pure (p, ς)
-
-forwardDeclare :: Module (p, TypeSchemeInfer) -> CoreEnvironment p
-forwardDeclare declarations = emptyEnvironment {typeGlobalEnviroment = globals}
+orderForward :: Semigroup p => Module (ForwardGlobalSource p) -> Either (ModuleError p) [(Path, ForwardGlobalSource p)]
+orderForward = order' (const False) depend
   where
-    globals = Map.mapKeysMonotonic TermGlobalIdentifier $ Map.map (\(p, ς) -> TermBinding p (TypeCore $ TypeSub Unrestricted) $ convertFunctionLiteral $ flexible ς) $ flatten declarations
+    depend (ForwardGlobalSource (ForwardSymonym σ)) (Path heading _) = dependType heading σ
+    depend (ForwardGlobalSource (ForwardText σ)) (Path heading _) = dependType heading σ
+
+typeCheckModuleForward ::
+  [(Path, ForwardGlobalSource p)] ->
+  StateT
+    (CoreEnvironment p)
+    (Either (TypeError p))
+    [(Path, (p, ForwardGlobalInfer))]
+typeCheckModuleForward [] = pure []
+typeCheckModuleForward ((path@(Path heading _), item) : nodes) = do
+  environment <- bindMembers heading <$> get
+  (item', σ) <- case item of
+    ForwardGlobalSource (ForwardText σ) -> do
+      (σ, _) <- lift $ runCore (kindCheckScheme SymbolMode σ) environment emptyState
+      pure (ForwardGlobalInfer $ ForwardText σ, Right $ flexible $ convertFunctionLiteral σ)
+    ForwardGlobalSource (ForwardSymonym σ) -> do
+      (σ, _) <- lift $ runCore (kindCheck σ) environment emptyState
+      pure (ForwardGlobalInfer $ ForwardSymonym σ, Left σ)
+  modify (updateEnvironment path (location item) σ)
+  ((path, (location item, item')) :) <$> typeCheckModuleForward nodes
 
 convertFunctionLiteral ς = case ς of
   TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ π τ))) -> polyEffect "R" (TypeCore $ FunctionPointer σ π τ)
   TypeSchemeCore (TypeForall (Bound pm ς)) -> TypeSchemeCore $ TypeForall (Bound pm $ convertFunctionLiteral ς)
   _ -> error "not function literal"
 
-forwardDefine :: Module (p, TypeSchemeInfer) -> Map TermGlobalIdentifier (TermSchemeInfer p, TypeSchemeInfer)
-forwardDefine = Map.mapKeysMonotonic TermGlobalIdentifier . Map.mapWithKey definition . flatten
+reduceModuleForword :: [(Path, (p, ForwardGlobalInfer))] -> (Reducer p)
+reduceModuleForword [] = Reducer Map.empty Map.empty
+reduceModuleForword ((path, (p, item)) : nodes) = case item of
+  ForwardGlobalInfer (ForwardSymonym σ) ->
+    reducer
+      { reducerTypes = Map.insert (TypeGlobalIdentifier path) σ $ reducerTypes reducer
+      }
+  ForwardGlobalInfer (ForwardText σ) ->
+    reducer
+      { reducerTerms = Map.insert (TermGlobalIdentifier path) (makeExtern path p σ) $ reducerTerms reducer
+      }
   where
-    definition path (p, ς) = (makeExtern path p ς, ς)
+    reducer = reduceModuleForword nodes
+
 
 makeExtern ::
   Path ->
@@ -189,67 +292,131 @@ makeExtern path p ς = case ς of
   _ -> error "not function literal"
 
 bindMembers :: [String] -> CoreEnvironment p -> CoreEnvironment p
-bindMembers heading environment = environment {typeEnvironment = Map.foldrWithKey bind Map.empty (typeGlobalEnviroment environment)}
+bindMembers heading environment =
+  environment
+    { typeEnvironment = Map.foldrWithKey bind Map.empty (typeGlobalEnvironment environment),
+      kindEnvironment = Map.foldrWithKey bindType Map.empty (kindGlobalEnvironment environment)
+    }
   where
     bind (TermGlobalIdentifier (Path heading' name)) e σΓ | heading == heading' = Map.insert (TermIdentifier name) e σΓ
     bind _ _ σΓ = σΓ
+    bindType (TypeGlobalIdentifier (Path heading' name)) e σΓ | heading == heading' = Map.insert (TypeIdentifier name) e σΓ
+    bindType _ _ σΓ = σΓ
+
+updateEnvironment path p σ environment = case σ of
+  Right σ ->
+    environment
+      { typeGlobalEnvironment =
+          Map.insert
+            (TermGlobalIdentifier path)
+            (TermBinding p (TypeCore $ TypeSub Unrestricted) σ)
+            $ typeGlobalEnvironment environment
+      }
+  Left σ ->
+    environment
+      { kindGlobalEnvironment =
+          Map.insert
+            (TypeGlobalIdentifier path)
+            (LinkTypeBinding σ)
+            $ kindGlobalEnvironment environment
+      }
 
 typeCheckModule ::
-  CoreEnvironment p ->
   [(Path, GlobalSource p)] ->
-  Either (TypeError p) [(Path, GlobalInfer p)]
-typeCheckModule _ [] = pure []
-typeCheckModule environment ((path@(Path heading _), item) : nodes) = do
-  environment <- pure $ bindMembers heading environment
+  StateT
+    (CoreEnvironment p)
+    (Either (TypeError p))
+    [(Path, GlobalInfer p)]
+typeCheckModule [] = pure []
+typeCheckModule ((path@(Path heading _), item) : nodes) = do
+  environment <- bindMembers heading <$> get
   (item', σ) <- case item of
     GlobalSource (Inline Nothing (TermAutoSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalAuto InlineMode e) environment emptyState
-      pure (GlobalInfer $ Inline σ e, flexible σ)
+      (e, σ) <- lift $ runCore (typeCheckGlobalAuto InlineMode e) environment emptyState
+      pure (GlobalInfer $ Inline σ e, Right $ flexible σ)
     GlobalSource (Inline (Just σ) (TermAutoSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalScope InlineMode e σ) environment emptyState
-      pure (GlobalInfer $ Inline σ e, flexible σ)
+      (e, σ) <- lift $ runCore (typeCheckGlobalScope InlineMode e σ) environment emptyState
+      pure (GlobalInfer $ Inline σ e, Right $ flexible σ)
     GlobalSource (Inline Nothing (TermManualSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalSemi InlineMode e) environment emptyState
-      pure (GlobalInfer $ Inline σ e, flexible σ)
+      (e, σ) <- lift $ runCore (typeCheckGlobalSemi InlineMode e) environment emptyState
+      pure (GlobalInfer $ Inline σ e, Right $ flexible σ)
     GlobalSource (Inline (Just σ) (TermManualSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalManual InlineMode e σ) environment emptyState
-      pure (GlobalInfer $ Inline σ e, flexible σ)
+      (e, σ) <- lift $ runCore (typeCheckGlobalManual InlineMode e σ) environment emptyState
+      pure (GlobalInfer $ Inline σ e, Right $ flexible σ)
     GlobalSource (Text Nothing (TermAutoSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalAuto SymbolMode e >>= syntaticCheck) environment emptyState
-      pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexible σ)
+      (e, σ) <- lift $ runCore (typeCheckGlobalAuto SymbolMode e >>= syntaticCheck) environment emptyState
+      pure (GlobalInfer $ Text σ e, Right $ convertFunctionLiteral $ flexible σ)
     GlobalSource (Text (Just σ) (TermAutoSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalScope SymbolMode e σ) environment emptyState
-      pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexible σ)
+      (e, σ) <- lift $ runCore (typeCheckGlobalScope SymbolMode e σ) environment emptyState
+      pure (GlobalInfer $ Text σ e, Right $ convertFunctionLiteral $ flexible σ)
     GlobalSource (Text (Just σ) (TermManualSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalManual SymbolMode e σ >>= syntaticCheck) environment emptyState
-      pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexible σ)
+      (e, σ) <- lift $ runCore (typeCheckGlobalManual SymbolMode e σ >>= syntaticCheck) environment emptyState
+      pure (GlobalInfer $ Text σ e, Right $ convertFunctionLiteral $ flexible σ)
     GlobalSource (Text Nothing (TermManualSource e)) -> do
-      (e, σ) <- runCore (typeCheckGlobalSemi SymbolMode e >>= syntaticCheck) environment emptyState
-      pure (GlobalInfer $ Text σ e, convertFunctionLiteral $ flexible σ)
-  let environment' =
-        environment
-          { typeGlobalEnviroment = Map.insert (TermGlobalIdentifier path) (TermBinding (location item) (TypeCore $ TypeSub Unrestricted) σ) $ typeGlobalEnviroment environment
-          }
-  ((path, item') :) <$> typeCheckModule environment' nodes
+      (e, σ) <- lift $ runCore (typeCheckGlobalSemi SymbolMode e >>= syntaticCheck) environment emptyState
+      pure (GlobalInfer $ Text σ e, Right $ convertFunctionLiteral $ flexible σ)
+    GlobalSource (Synonym σ) -> do
+      (σ, _) <- lift $ runCore (kindCheck σ) environment emptyState
+      pure (GlobalInfer $ Synonym σ, Left σ)
+
+  modify (updateEnvironment path (location item) σ)
+  ((path, item') :) <$> typeCheckModule nodes
+
+data Reducer p = Reducer
+  { reducerTerms :: Map TermGlobalIdentifier (TermSchemeInfer p),
+    reducerTypes :: Map TypeGlobalIdentifier TypeInfer
+  }
+  deriving (Show)
 
 reduceModule ::
-  Map TermGlobalIdentifier (TermSchemeInfer p, TypeSchemeInfer) ->
+  Reducer p ->
   [(Path, GlobalInfer p)] ->
   [(Path, GlobalInfer p)]
 reduceModule _ [] = []
 reduceModule globals ((path@(Path heading _), item) : nodes) =
   (path, item') : reduceModule globals' nodes
   where
-    reduceGlobal e = reduce $ foldr substitute e $ Map.toList $ globals
-    substitute (x@(TermGlobalIdentifier (Path heading' name')), (ex, _))
-      | heading == heading' =
-        substituteTerm ex (TermIdentifier name') . substituteGlobalTerm ex x
-      | otherwise = substituteGlobalTerm ex x
-    (item', (σ', e')) = case item of
+    (item', binding) = case item of
       GlobalInfer (Inline σ e) ->
-        let e' = reduceGlobal e
-         in (GlobalInfer (Inline σ e'), (σ, e'))
+        let
+           e' = reduce $ applyGlobalTypes $ applyGlobalTerms e
+           σ' = applyGlobalTypes σ
+         in (GlobalInfer (Inline σ' e'), Right e')
       GlobalInfer (Text σ e@(TermSchemeCore p _)) ->
-        let e' = reduceGlobal e
-         in (GlobalInfer (Text σ e'), (convertFunctionLiteral σ, makeExtern path p σ))
-    globals' = Map.insert (TermGlobalIdentifier path) (e', σ') globals
+        let
+           e' = reduce $ applyGlobalTypes $ applyGlobalTerms e
+           σ' = applyGlobalTypes σ
+         in (GlobalInfer (Text σ' e'), Right (makeExtern path p σ))
+      -- todo reduce synonyms
+      GlobalInfer (Synonym σ) ->
+        let σ' = applyGlobalTypes σ
+         in (GlobalInfer (Synonym σ'), Left σ')
+
+    applyGlobalTerms e = foldr applyTermGlobal (foldr applyTerm e (freeVariablesTerm e)) (freeVariablesGlobalTerm e)
+    applyGlobalTypes σ = foldr applyTypeGlobal (foldr applyType σ (freeVariablesType σ)) (freeVariablesGlobalType σ)
+
+    applyTerm x@(TermIdentifier name) e = case Map.lookup (TermGlobalIdentifier (Path heading name)) (reducerTerms globals) of
+      Just ex -> substituteTerm ex x e
+      Nothing -> e
+
+    applyTermGlobal x e = case Map.lookup x (reducerTerms globals) of
+      Just ex -> substituteGlobalTerm ex x e
+      Nothing -> e
+
+    applyType x@(TypeIdentifier name) e = case Map.lookup (TypeGlobalIdentifier (Path heading name)) (reducerTypes globals) of
+      Just σx -> substituteType σx x e
+      Nothing -> e
+
+    applyTypeGlobal x e = case Map.lookup x (reducerTypes globals) of
+      Just ex -> substituteGlobalType ex x e
+      Nothing -> e
+
+    globals' = case binding of
+      Right e ->
+        globals
+          { reducerTerms = Map.insert (TermGlobalIdentifier path) e $ reducerTerms globals
+          }
+      Left σ ->
+        globals
+          { reducerTypes = Map.insert (TypeGlobalIdentifier path) σ $ reducerTypes globals
+          }

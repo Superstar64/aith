@@ -68,6 +68,16 @@ freeVariablesBound ::
 freeVariablesBound bindings freeVariablespm freeVariables (Bound pm e) =
   foldr Set.delete (freeVariablespm pm <> freeVariables e) (Set.toList $ bindings pm)
 
+freeVariablesBoundSource ::
+  (Ord x, Semigroup p) =>
+  (pm -> Set x) ->
+  (pm -> Variables x p) ->
+  (e -> Variables x p) ->
+  Bound pm e ->
+  Variables x p
+freeVariablesBoundSource bindings freeVariablespm freeVariables (Bound pm e) =
+  foldr (\b m -> Variables $ Map.delete b $ runVariables $ m) (freeVariablespm pm <> freeVariables e) (Set.toList $ bindings pm)
+
 substituteBound ::
   (x -> pm -> Bool) ->
   (σ -> Bound pm e -> Bound pm e) ->
@@ -105,6 +115,8 @@ freeVariablesHigher ::
   Set x
 freeVariablesHigher = freeVariablesBound mempty
 
+freeVariablesHigherSource = freeVariablesBoundSource mempty
+
 substituteHigher ::
   (σ -> x -> pm -> pm) ->
   (σ -> x -> e -> e) ->
@@ -123,9 +135,7 @@ freeVariablesSame ::
   Set x
 freeVariablesSame bindings freeVariables = freeVariablesBound bindings mempty freeVariables
 
-freeVariablesSameSource bindings freeVariables (Bound pm e) = foldr delete (freeVariables e) (Set.toList $ bindings pm)
-  where
-    delete x (Variables m) = Variables $ Map.delete x m
+freeVariablesSameSource bindings freeVariables = freeVariablesBoundSource bindings mempty freeVariables
 
 substituteSame ::
   (Ord x, Fresh x) =>

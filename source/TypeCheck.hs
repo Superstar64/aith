@@ -5,6 +5,7 @@ import Ast.Term
 import Ast.Type
 import Control.Monad (filterM, (<=<))
 import Data.Bifunctor (second)
+import Data.Functor.Identity (runIdentity)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import Data.Set (Set)
@@ -26,26 +27,37 @@ freshSizeKindVariable p = freshTypeVariable p (TypeCore Size)
 
 freshSignednessKindVariable p = freshTypeVariable p (TypeCore Signedness)
 
-checkKind' _ (TypeCore (Top (Kind σ τ))) = pure (σ, τ)
-checkKind' p μ = quit $ ExpectedKind p μ
+check' error f p σ = case f σ of
+  Just σ -> pure σ
+  Nothing -> quit $ error p σ
 
-checkRepresentation' _ (TypeCore Representation) = pure ()
-checkRepresentation' p μ = quit $ ExpectedRepresentation p μ
+checkKind' = check' ExpectedKind $ \case
+  (TypeCore (Top (Kind σ τ))) -> Just (σ, τ)
+  _ -> Nothing
 
-checkMultiplicity' _ (TypeCore Multiplicity) = pure ()
-checkMultiplicity' p μ = quit $ ExpectedMultiplicity p μ
+checkRepresentation' = check' ExpectedRepresentation $ \case
+  (TypeCore Representation) -> Just ()
+  _ -> Nothing
 
-checkSize' _ (TypeCore Size) = pure ()
-checkSize' p μ = quit $ ExpectedSize p μ
+checkMultiplicity' = check' ExpectedMultiplicity $ \case
+  (TypeCore Multiplicity) -> Just ()
+  _ -> Nothing
 
-checkSignedness' _ (TypeCore Signedness) = pure ()
-checkSignedness' p μ = quit $ ExpectedSignedness p μ
+checkSize' = check' ExpectedSize $ \case
+  (TypeCore Size) -> Just ()
+  _ -> Nothing
 
-checkType' _ (TypeCore Type) = pure ()
-checkType' p κ = quit $ ExpectedType p κ
+checkSignedness' = check' ExpectedSignedness $ \case
+  (TypeCore Signedness) -> Just ()
+  _ -> Nothing
 
-checkPretype' _ (TypeCore (Pretype κ τ)) = pure (κ, τ)
-checkPretype' p κ = quit $ ExpectedPretype p κ
+checkType' = check' ExpectedType $ \case
+  (TypeCore Type) -> Just ()
+  _ -> Nothing
+
+checkPretype' = check' ExpectedPretype $ \case
+  (TypeCore (Pretype κ τ)) -> Just (κ, τ)
+  _ -> Nothing
 
 checkPretype p σ = do
   κ <- freshRepresentationKindVariable p
@@ -53,14 +65,17 @@ checkPretype p σ = do
   matchType p σ (TypeCore $ Pretype κ τ)
   pure (κ, τ)
 
-checkBoxed' _ (TypeCore Boxed) = pure ()
-checkBoxed' p κ = quit $ ExpectedBoxed p κ
+checkBoxed' = check' ExpectedBoxed $ \case
+  (TypeCore Boxed) -> Just ()
+  _ -> Nothing
 
-checkRegion' _ (TypeCore Region) = pure ()
-checkRegion' p κ = quit $ ExpectedRegion p κ
+checkRegion' = check' ExpectedRegion $ \case
+  (TypeCore Region) -> Just ()
+  _ -> Nothing
 
-checkSubtypable' _ (TypeCore (Top Subtypable)) = pure ()
-checkSubtypable' p κ = quit $ ExpectedSubtypable' p κ
+checkSubtypable' = check' ExpectedSubtypable' $ \case
+  (TypeCore (Top Subtypable)) -> Just ()
+  _ -> Nothing
 
 freshMetaTypeVariable p = do
   freshTypeVariable p (TypeCore Type)
@@ -242,7 +257,18 @@ kindCheck (TypeSource p σ) = case σ of
     κ <- lookupKindEnvironment x
     case κ of
       Just (TypeBinding _ κ _ _) -> pure (TypeCore $ TypeSub $ TypeVariable x, κ)
+      Just (LinkTypeBinding σ) -> do
+        κ <- reconstruct p (flexible σ)
+        pure (TypeCore $ TypeSub $ TypeVariable x, runIdentity $ zonkType (error "unexpected logical") κ)
       Nothing -> quit $ UnknownTypeIdentifier p x
+  TypeSub (TypeGlobalVariable x) -> do
+    κ <- lookupKindGlobalEnvironment x
+    case κ of
+      Just (TypeBinding _ κ _ _) -> pure (TypeCore $ TypeSub $ TypeGlobalVariable x, κ)
+      Just (LinkTypeBinding σ) -> do
+        κ <- reconstruct p (flexible σ)
+        pure (TypeCore $ TypeSub $ TypeGlobalVariable x, runIdentity $ zonkType (error "unexpected logical") κ)
+      Nothing -> quit $ UnknownTypeGlobalIdentifier p x
   Inline σ π τ -> do
     (σ', _) <- secondM (checkType' p) =<< kindCheck σ
     (π', _) <- secondM (checkMultiplicity' p) =<< kindCheck π
@@ -361,7 +387,7 @@ typeCheck (TermSource p e) = case e of
         pure $ Checked (TermCore p $ TermRuntime $ Variable x θ) τ (Use x)
       Nothing -> quit $ UnknownIdentifier p x
   GlobalVariable x () -> do
-    mσ <- lookupTypeGlobalEnviroment x
+    mσ <- lookuptypeGlobalEnvironment x
     case mσ of
       Just (TermBinding _ _ σ) -> do
         (τ, θ) <- instantiate p σ
@@ -392,11 +418,16 @@ typeCheck (TermSource p e) = case e of
     pure $ Checked (TermCore p $ PolyIntroduction $ eς) (TypeCore $ Poly σ) lΓ
   PolyElimination e () () -> do
     Checked e ς lΓ <- typeCheckPlain e
-    case ς of
-      TypeCore (Poly ς') -> do
+    go e ς lΓ ς
+    where
+      go e ς lΓ (TypeCore (TypeSub (TypeVariable x))) =
+        indexKindEnvironment x >>= \case
+          LinkTypeBinding σ -> go e ς lΓ (flexible σ)
+          _ -> quit $ ExpectedTypeAbstraction p
+      go e ς lΓ (TypeCore (Poly ς')) = do
         (σ, θ) <- instantiate p ς'
         pure $ Checked (TermCore p $ PolyElimination e θ ς) σ lΓ
-      _ -> quit $ ExpectedTypeAbstraction p
+      go _ _ _ _ = quit $ ExpectedTypeAbstraction p
   TermRuntime (Alias e1 (Bound pm e2)) -> do
     (pm', τ) <- typeCheckRuntimePattern pm
     Checked e1' (τ', π) lΓ1 <- traverse (checkEffect p) =<< typeCheck e1

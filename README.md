@@ -106,6 +106,7 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
     * [ ] Records
     * [ ] Tagged Unions
   * [ ] New Types
+  * [x] Type Synonyms
   * [x] Modules
   * [ ] Hindley Milner
     * [x] Syntatical Unification
@@ -143,6 +144,7 @@ Files start with `code` `::`.
 | Inline Term Ascribe | ``inline x ς : σ; x ς = e; ``|
 | Function | ``x = e;`` |
 | Function Ascribe | ``x ς : σ; x ς = e;``|
+| Synonym | ``type x = σ;`` |
 
 ## Terms(e)
 | Description | Syntax |

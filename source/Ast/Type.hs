@@ -4,15 +4,19 @@ import Ast.Common
 import Control.Category ((.))
 import Data.Functor.Const (Const (..), getConst)
 import Data.Functor.Identity (Identity (..), runIdentity)
+import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Void (Void, absurd)
 import Misc.Isomorph
+import Misc.Path
 import Misc.Prism
 import qualified Misc.Util as Util
 import Prelude hiding ((.))
 
 newtype TypeIdentifier = TypeIdentifier {runTypeIdentifier :: String} deriving (Show, Eq, Ord)
+
+newtype TypeGlobalIdentifier = TypeGlobalIdentifier {runTypeGlobalIdentifier :: Path} deriving (Show, Eq, Ord)
 
 newtype TypeLogical = TypeLogicalRaw Int deriving (Eq, Ord, Show)
 
@@ -28,6 +32,7 @@ data InstantiationF σ θ
 
 data TypeSub
   = TypeVariable TypeIdentifier
+  | TypeGlobalVariable TypeGlobalIdentifier
   | World
   | Linear
   | Unrestricted
@@ -276,6 +281,11 @@ typeVariable = (typeSub .) $
     (TypeVariable x) -> Just x
     _ -> Nothing
 
+typeGlobalVariable = (typeSub .) $
+  Prism TypeGlobalVariable $ \case
+    (TypeGlobalVariable x) -> Just x
+    _ -> Nothing
+
 typeExtra = Prism TypeLogical $ \case
   (TypeLogical v) -> Just v
   _ -> Nothing
@@ -344,6 +354,8 @@ unrestricted = (typeSub .) $
     _ -> Nothing
 
 typeIdentifier = Isomorph TypeIdentifier runTypeIdentifier
+
+typeGlobalIdentifier = Isomorph TypeGlobalIdentifier runTypeGlobalIdentifier
 
 typex = Prism (const Type) $ \case
   Type -> Just ()
@@ -458,12 +470,18 @@ opaque = (top .) $
 
 class FreeVariablesType u where
   freeVariablesType :: u -> Set TypeIdentifier
+  freeVariablesGlobalType :: u -> Set TypeGlobalIdentifier
+
+class FreeVariablesTypeSource u where
+  freeVariablesTypeSource :: Semigroup p => u p -> Variables TypeIdentifier p
+  freeVariablesGlobalTypeSource :: Semigroup p => u p -> Variables TypeGlobalIdentifier p
 
 class ConvertType u where
   convertType :: TypeIdentifier -> TypeIdentifier -> u -> u
 
 class SubstituteType u where
   substituteType :: Type v -> TypeIdentifier -> u v -> u v
+  substituteGlobalType :: Type v -> TypeGlobalIdentifier -> u v -> u v
 
 -- traverse and monadic bind
 class ZonkType u where
@@ -477,22 +495,42 @@ class RenameType u where
 
 freeVariablesHigherType = freeVariablesHigher freeVariablesType freeVariablesType
 
+freeVariablesHigherTypeSource = freeVariablesHigherSource freeVariablesTypeSource freeVariablesTypeSource
+
 convertHigherType = substituteHigher convertType convertType
 
 substituteHigherType = substituteHigher substituteType substituteType
 
+substituteGlobalHigherType = substituteHigher substituteGlobalType substituteGlobalType
+
 freeVariablesSameType = freeVariablesBound bindingsType freeVariablesType freeVariablesType
+
+freeVariablesGlobalHigherType = freeVariablesHigher freeVariablesGlobalType freeVariablesGlobalType
 
 convertSameType = substituteDependent avoidTypeConvert convertType convertType
 
 substituteSameType = substituteDependent avoidType substituteType substituteType
 
+substituteGlobalSemiDependType = substituteBound skip (avoidCapture avoidType) substituteGlobalType substituteGlobalType
+
+freeVariablesSameTypeSource = freeVariablesBoundSource bindingsType freeVariablesTypeSource freeVariablesTypeSource
+
+freeVariablesGlobalHigherTypeSource = freeVariablesHigherSource freeVariablesGlobalTypeSource freeVariablesGlobalTypeSource
+
 -- todo, shouldn't this be dependent?
-freeVariablesRgnForType = freeVariablesSame bindingsType freeVariablesHigherType
+freeVariablesRgnForType = freeVariablesBound bindingsType freeVariablesType freeVariablesHigherType
+
+freeVariablesRgnForTypeSource = freeVariablesBoundSource bindingsType freeVariablesTypeSource freeVariablesHigherTypeSource
+
+freeVariablesGlobalRgnForType = freeVariablesHigher freeVariablesGlobalType freeVariablesGlobalHigherType
+
+freeVariablesGlobalRgnForTypeSource = freeVariablesHigherSource freeVariablesGlobalTypeSource freeVariablesGlobalHigherTypeSource
 
 convertRgnForType = substituteDependent (avoidTypeConvert' convertHigherType) convertType convertHigherType
 
 substituteRgnForType = substituteDependent (avoidType' convertHigherType) substituteType substituteHigherType
+
+substituteGlobalRgnForType = substituteBound skip (avoidCapture (avoidType' convertHigherType)) substituteGlobalType substituteGlobalHigherType
 
 avoidType = avoidType' convertType
 
@@ -546,6 +584,20 @@ instance FreeVariablesType (TypeScheme v) where
     where
       go = freeVariablesType
       go' = freeVariablesSameType
+  freeVariablesGlobalType (TypeSchemeCore σ) = foldTypeSchemeF go' go σ
+    where
+      go = freeVariablesGlobalType
+      go' = freeVariablesGlobalHigherType
+
+instance FreeVariablesTypeSource TypeSchemeSource where
+  freeVariablesTypeSource (TypeSchemeSource _ σ) = foldTypeSchemeF go' go σ
+    where
+      go = freeVariablesTypeSource
+      go' = freeVariablesSameTypeSource
+  freeVariablesGlobalTypeSource (TypeSchemeSource _ σ) = foldTypeSchemeF go' go σ
+    where
+      go = freeVariablesGlobalTypeSource
+      go' = freeVariablesGlobalHigherTypeSource
 
 instance ConvertType (TypeSchemeSource p) where
   convertType ux x (TypeSchemeSource p σ) = TypeSchemeSource p $ mapTypeSchemeF go' go σ
@@ -564,12 +616,30 @@ instance SubstituteType TypeScheme where
     where
       go = substituteType ux x
       go' = substituteSameType ux x
+  substituteGlobalType ux x (TypeSchemeCore σ) = TypeSchemeCore $ mapTypeSchemeF go' go σ
+    where
+      go = substituteGlobalType ux x
+      go' = substituteGlobalSemiDependType ux x
 
 instance FreeVariablesType (Type v) where
   freeVariablesType (TypeCore (TypeSub (TypeVariable x))) = Set.singleton x
   freeVariablesType (TypeCore σ) = foldTypeF mempty go go σ
     where
       go = freeVariablesType
+  freeVariablesGlobalType (TypeCore (TypeSub (TypeGlobalVariable x))) = Set.singleton x
+  freeVariablesGlobalType (TypeCore σ) = foldTypeF mempty go go σ
+    where
+      go = freeVariablesGlobalType
+
+instance FreeVariablesTypeSource TypeSource where
+  freeVariablesTypeSource (TypeSource p (TypeSub (TypeVariable x))) = Variables $ Map.singleton x p
+  freeVariablesTypeSource (TypeSource _ σ) = foldTypeF mempty go go σ
+    where
+      go = freeVariablesTypeSource
+  freeVariablesGlobalTypeSource (TypeSource p (TypeSub (TypeGlobalVariable x))) = Variables $ Map.singleton x p
+  freeVariablesGlobalTypeSource (TypeSource _ σ) = foldTypeF mempty go go σ
+    where
+      go = freeVariablesGlobalTypeSource
 
 instance ConvertType (TypeSource p) where
   convertType ux x (TypeSource p (TypeSub (TypeVariable x'))) | x == x' = TypeSource p $ TypeSub $ TypeVariable ux
@@ -583,16 +653,23 @@ instance ConvertType (Type v) where
     where
       go = convertType ux x
 
-instance SubstituteType (Type) where
+instance SubstituteType Type where
   substituteType ux x (TypeCore (TypeSub (TypeVariable x'))) | x == x' = ux
   substituteType ux x (TypeCore σ) = TypeCore $ mapTypeF id go go σ
     where
       go = substituteType ux x
+  substituteGlobalType ux x (TypeCore (TypeSub (TypeGlobalVariable x'))) | x == x' = ux
+  substituteGlobalType ux x (TypeCore σ) = TypeCore $ mapTypeF id go go σ
+    where
+      go = substituteGlobalType ux x
 
 instance FreeVariablesType (Instantiation v) where
   freeVariablesType (InstantiationCore θ) = foldInstantiationF go go θ
     where
       go = freeVariablesType
+  freeVariablesGlobalType (InstantiationCore θ) = foldInstantiationF go go θ
+    where
+      go = freeVariablesGlobalType
 
 instance ConvertType (Instantiation v) where
   convertType ux x (InstantiationCore θ) = InstantiationCore $ mapInstantiationF go go θ
@@ -603,9 +680,17 @@ instance SubstituteType (Instantiation) where
   substituteType ux x (InstantiationCore θ) = InstantiationCore $ mapInstantiationF go go θ
     where
       go = substituteType ux x
+  substituteGlobalType ux x (InstantiationCore θ) = InstantiationCore $ mapInstantiationF go go θ
+    where
+      go = substituteGlobalType ux x
+
+instance FreeVariablesTypeSource TypePatternSource where
+  freeVariablesTypeSource (TypePatternSource _ _ κ π) = freeVariablesTypeSource κ <> foldMap freeVariablesTypeSource π
+  freeVariablesGlobalTypeSource (TypePatternSource _ _ κ π) = freeVariablesGlobalTypeSource κ <> foldMap freeVariablesGlobalTypeSource π
 
 instance FreeVariablesType (TypePattern v) where
   freeVariablesType (TypePattern _ κ π) = freeVariablesType κ <> foldMap freeVariablesType π
+  freeVariablesGlobalType (TypePattern _ κ π) = freeVariablesGlobalType κ <> foldMap freeVariablesGlobalType π
 
 instance ConvertType (TypePatternSource p) where
   convertType ux x (TypePatternSource p x' κ π) =
@@ -616,6 +701,7 @@ instance ConvertType (TypePattern v) where
 
 instance SubstituteType TypePattern where
   substituteType ux x (TypePattern x' κ π) = TypePattern x' (substituteType ux x κ) (map (substituteType ux x) π)
+  substituteGlobalType ux x (TypePattern x' κ π) = TypePattern x' (substituteGlobalType ux x κ) (map (substituteGlobalType ux x) π)
 
 instance ZonkType Type where
   zonkType f (TypeCore (TypeLogical v)) = f v
