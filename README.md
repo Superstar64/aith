@@ -248,6 +248,8 @@ Files start with `code` `::`.
 | Size | ``size`` |
 
 # Types (Internal) (σ, τ, π, s, κ, ρ, μ)
+| Description | Syntax |
+| - | - |
 | Kind | ``kind κ κ`` |
 | Invariant |``invariant`` |
 | Subtypable |``subtypable`` |
