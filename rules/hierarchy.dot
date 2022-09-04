@@ -47,18 +47,17 @@ digraph aith {
         rank=same
         inline[label="σ -> τ"]
         poly[label="<...> σ"]
-        ofCourse[label="!σ"]
         functionPointer[label="function*(σ) => τ uses π"]
         functionLiteralType[label="function(σ) => τ uses π"]
         tuple[label="(σ, τ, ...)"]
         effect[label="σ in π"]
         unique[label="unique σ"]
         shared[label="σ @ π"]
-        pointer[label="σ[τ]"]
+        pointer[label="σ*"]
+        array[label="σ[]"]
         number[label="κ integer(κ)'"]
         boolean[label="bool"]
         world[label="io"]
-        unknown[label=":"]
         pointerRep[label="pointer"]
         structRep[label="struct (κ, κ', ...)"]
         wordRep[label="κ word"]
@@ -74,7 +73,6 @@ digraph aith {
 
     inline -> type
     poly -> type
-    ofCourse -> type
     functionPointer -> pretype
     functionPointer -> pointerRep [color=lightcoral]
     functionLiteralType -> type
@@ -86,12 +84,12 @@ digraph aith {
     shared -> pretype
     shared -> pointerRep[color=lightcoral]
     pointer -> boxed
+    array -> boxed
     number -> pretype
     number -> wordRep[color=lightblue]
     boolean -> pretype
     boolean -> wordRep[color=lightblue]
     world -> region
-    unknown -> capacity
     linear -> multiplicity
     unrestricted -> multiplicity
 
@@ -112,7 +110,6 @@ digraph aith {
 
         functionLiteral[label="function(x) { e }"]
         inlineAbstraction[label="\\x => e"]
-        ofCourseIntro[label="!e"]
         polyIntroduction[label="<...> e"]
     }
     
@@ -139,6 +136,5 @@ digraph aith {
 
     functionLiteral -> functionLiteralType
     inlineAbstraction -> inline
-    ofCourseIntro -> ofCourse
     polyIntroduction -> poly
 }
