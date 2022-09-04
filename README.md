@@ -23,7 +23,7 @@ When a generic is used in these languages they will generate code for each insta
 Rather then do this, Aith uses levity polymorphism, which can be seen as a generalization of Java's type erasure generics.
 In Aith, a type's kind, which is the type of a type, determines how (and if) it will be represented at runtime.
 
-## Generalized Inline Functions (staging)
+## First Class Inline Functions (staging)
 Aith has first class inline functions, a unique (as far as I can tell) take on staging.
 In Aith, inline functions can take inline functions as argument and return inline functions,
 all of which is completely erased at runtime.
