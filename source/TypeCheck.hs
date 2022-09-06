@@ -608,16 +608,16 @@ typeCheck (TermSource p e) = case e of
   TermRuntime (Continue e) -> do
     Checked e (σ, π) lΓ <- traverse (checkEffect p) =<< typeCheck e
     τ <- freshPretypeTypeVariable p
-    pure $ Checked (TermCore p $ TermRuntime $ Continue e) (TypeCore $ Effect (TypeCore $ Step σ τ) π) lΓ
+    pure $ Checked (TermCore p $ TermRuntime $ Continue e) (TypeCore $ Effect (TypeCore $ Step τ σ) π) lΓ
   TermRuntime (Break e) -> do
     Checked e (τ, π) lΓ <- traverse (checkEffect p) =<< typeCheck e
     σ <- freshPretypeTypeVariable p
-    pure $ Checked (TermCore p $ TermRuntime $ Break e) (TypeCore $ Effect (TypeCore $ Step σ τ) π) lΓ
+    pure $ Checked (TermCore p $ TermRuntime $ Break e) (TypeCore $ Effect (TypeCore $ Step τ σ) π) lΓ
   TermRuntime (Loop e1 (Bound pm e2)) -> do
     (pm, σ) <- typeCheckRuntimePattern pm
     Checked e1 (σ', π) lΓ1 <- traverse (checkEffect p) =<< typeCheck e1
     matchType p σ σ'
-    Checked e2 ((σ'', τ), π') lΓ2 <- traverse (firstM (checkStep p) <=< checkEffect p) =<< augmentRuntimeTermPattern pm (typeCheck e2)
+    Checked e2 ((τ, σ''), π') lΓ2 <- traverse (firstM (checkStep p) <=< checkEffect p) =<< augmentRuntimeTermPattern pm (typeCheck e2)
     matchType p π π'
     matchType p σ σ''
     capture p (TypeCore $ TypeSub $ Unrestricted) lΓ2

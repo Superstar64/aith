@@ -6,9 +6,7 @@ import Ast.Type hiding (convertType)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReader, withReaderT)
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
-import Data.Set (Set, singleton)
 import Data.Void (absurd)
-import Misc.Symbol (Symbol (Symbol))
 import TypeCheck.Unify hiding (reconstruct)
 
 data SimpleType = SimpleType (KindRuntime KindSize SimpleType) deriving (Eq, Ord)
@@ -30,26 +28,6 @@ data SimpleTerm p
 data SimpleFunction p = SimpleFunction p (Bound (SimplePattern p) (SimpleTerm p))
 
 data SimpleFunctionType = SimpleFunctionType SimpleType SimpleType
-
-externalImpl :: SimpleTerm p -> Set String
-externalImpl (SimpleTerm _ (Variable _ ())) = mempty
-externalImpl (SimpleTerm _ (Extern (Symbol sym) _ _ _)) = singleton sym
-externalImpl (SimpleTerm _ (Alias e (Bound _ e'))) = externalImpl e <> externalImpl e'
-externalImpl (SimpleTerm _ (FunctionApplication e e' _)) = externalImpl e <> externalImpl e'
-externalImpl (SimpleTerm _ (TupleIntroduction es)) = foldMap externalImpl es
-externalImpl (SimpleTerm _ (ReadReference e)) = externalImpl e
-externalImpl (SimpleTerm _ (WriteReference ep ev _)) = externalImpl ep <> externalImpl ev
-externalImpl (SimpleTerm _ (NumberLiteral _)) = mempty
-externalImpl (SimpleTerm _ (Arithmatic _ e e' _)) = externalImpl e <> externalImpl e'
-externalImpl (SimpleTerm _ (Relational _ e e' _ _)) = externalImpl e <> externalImpl e'
-externalImpl (SimpleTerm _ (BooleanLiteral _)) = mempty
-externalImpl (SimpleTerm _ (If eb et ef)) = externalImpl eb <> externalImpl et <> externalImpl ef
-externalImpl (SimpleTerm _ (PointerIncrement ep ei _)) = externalImpl ep <> externalImpl ei
-externalImpl (SimpleTerm _ (Continue e)) = externalImpl e
-externalImpl (SimpleTerm _ (Break e)) = externalImpl e
-externalImpl (SimpleTerm _ (Loop e (Bound _ e'))) = externalImpl e <> externalImpl e'
-
-external (SimpleFunction _ (Bound _ e)) = externalImpl e
 
 mangleType :: SimpleType -> String
 mangleType (SimpleType PointerRep) = "p"

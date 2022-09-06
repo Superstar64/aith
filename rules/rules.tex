@@ -587,14 +587,14 @@ e \Coloneqq & \\
 \begin{gather*}
 \frac
 {\Phi | \Gamma \vdash e : \sigma^\pi }
-{\Phi | \Gamma \vdash \text{continue} \, e : (\text{Step} \, \sigma \, \tau)^\pi } \\
+{\Phi | \Gamma \vdash \text{continue} \, e : (\text{Step} \, \tau \, \sigma)^\pi } \\
 \\
 \frac
 {\Phi | \Gamma \vdash e : \tau^\pi }
-{\Phi | \Gamma \vdash \text{break} \, e : (\text{Step} \, \sigma \, \tau)^\pi } \\
+{\Phi | \Gamma \vdash \text{break} \, e : (\text{Step} \, \tau \, \sigma)^\pi } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \sigma^\pi \quad \Phi | \Gamma', x :^1 \forall \alpha. \sigma^\alpha \vdash e' : (\text{Step} \, \sigma \, \tau) ^\pi \quad \Gamma' \succeq \omega }
+{\Phi | \Gamma \vdash e : \sigma^\pi \quad \Phi | \Gamma', x :^1 \forall \alpha. \sigma^\alpha \vdash e' : (\text{Step} \, \tau \, \sigma) ^\pi \quad \Gamma' \succeq \omega }
 {\Phi | \Gamma, \Gamma' \vdash \text{loop} (\text{let} \, x = e) \{ e' \} : \tau^\pi } \\
 \\
 \frac

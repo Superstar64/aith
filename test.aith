@@ -236,8 +236,6 @@ module sort = {
 
 	inline set = /arrays/set;
 
-	inline swap = /arrays/swap;
-
 	insert<R : region> : function(int[] @ R, unsigned integer(native)) => () uses R;
 	insert<R : region> = function(array, index) {
 		loop (let (array, index) = (array,index)) {

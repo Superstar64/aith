@@ -5,6 +5,7 @@ import Ast.Term
 import Ast.Type (KindRuntime (..), KindSignedness (..), KindSize (..))
 import qualified C.Ast as C
 import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT, withReaderT)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, put)
 import Control.Monad.Trans.Writer.Strict (Writer, WriterT (..), runWriter, runWriterT, tell)
 import Data.Map (Map, (!))
@@ -12,7 +13,6 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Misc.Symbol
-import Misc.Util
 import Simple
 
 data Nominal
@@ -25,29 +25,27 @@ newtype Dependency a = Dependency (StateT (Set Nominal) (Writer [C.Statement]) a
 runDependency :: Dependency a -> (a, [C.Statement])
 runDependency (Dependency m) = runWriter $ evalStateT m (Set.empty)
 
-data CodegenState = CodegenState
-  { temporaryCounter :: Int,
-    variables :: Map TermIdentifier String,
-    cLocals :: Set String
+newtype Codegen a = Codegen
+  { runCodegen' ::
+      ReaderT
+        (Map TermIdentifier (C.Expression))
+        (StateT Int Dependency)
+        a
   }
+  deriving (Functor, Applicative, Monad)
 
-newtype Codegen a = Codegen (StateT CodegenState Dependency a) deriving (Functor, Applicative, Monad)
-
-runCodegen :: Codegen a -> Set String -> Dependency a
-runCodegen (Codegen m) symbols = evalStateT m $ CodegenState 0 Map.empty symbols
+runCodegen :: Codegen a -> Dependency a
+runCodegen (Codegen m) = evalStateT (runReaderT m Map.empty) 0
 
 lookupVariable x = do
-  CodegenState _ variables _ <- Codegen get
+  variables <- Codegen ask
   pure $ variables ! x
 
--- todo, search symbols if any symbol begins with _n, where n is an integer
 temporary = do
-  state@(CodegenState i _ _) <- Codegen get
+  i <- Codegen $ lift get
   let name = "_" ++ show i
-  Codegen $ put state {temporaryCounter = i + 1}
+  Codegen $ lift $ put $ i + 1
   pure name
-
-fields = Just <$> map (\x -> '_' : show x) [0 ..]
 
 ctype' :: SimpleType -> Dependency C.Type
 ctype' (SimpleType PointerRep) = pure $ C.Composite $ C.Pointer $ C.Base C.Void
@@ -56,6 +54,7 @@ ctype' σ
   | (SimpleType (StructRep σs)) <- σ = nominal Struct C.Struct "s" σs
   | (SimpleType (UnionRep σs)) <- σ = nominal Union C.Union "u" σs
   where
+    fields = Just <$> map (\x -> '_' : show x) [0 ..]
     nominal struct cstruct prefix σs = do
       solved <- Dependency $ get
       let mangling = prefix ++ (σs >>= mangleType)
@@ -75,7 +74,7 @@ ctype' (SimpleType (WordRep Long)) = pure $ C.Base C.Long
 ctype' (SimpleType (WordRep Native)) = pure $ C.Base C.Size
 
 ctype :: SimpleType -> Codegen C.Type
-ctype = Codegen . lift . ctype'
+ctype = Codegen . lift . lift . ctype'
 
 cint :: KindSize -> KindSignedness -> C.Type
 cint Byte Signed = C.Base C.Byte
@@ -90,17 +89,19 @@ cint Long Unsigned = C.Base C.ULong
 cint Native Unsigned = C.Base C.Size
 
 -- only effectless expressions can be passed in
-compilePattern :: SimplePattern p -> C.Expression -> Codegen [C.Statement]
-compilePattern pm@(SimplePattern _ (RuntimePatternVariable x@(TermIdentifier base) _)) target = do
-  let σ = simplePatternType pm
-  state@(CodegenState _ variables cLocals) <- Codegen get
-  let name = fresh cLocals base
-  Codegen $ put state {variables = Map.insert x name variables, cLocals = Set.insert name cLocals}
-  σ <- ctype σ
-  pure [C.Binding (C.Declaration σ (Just name)) (C.Initializer $ C.Scalar target)]
-compilePattern (SimplePattern _ (RuntimePatternTuple pms)) target = do
-  pms <- sequence $ zipWith compilePattern pms ((\i -> C.Member target ("_" ++ show i)) <$> [0 ..])
-  pure $ concat pms
+augmentPattern' augment target (SimplePattern _ (RuntimePatternVariable x _)) f = do
+  augment x target $ do
+    f
+augmentPattern' augment target (SimplePattern _ (RuntimePatternTuple pms)) f = do
+  foldr (uncurry (augmentPattern' augment)) f $ zip [C.Member target ("_" ++ show i) | i <- [0 ..]] pms
+
+augmentPattern = augmentPattern' augmentPatternImpl
+
+augmentPatternImpl x target f = Codegen $ withReaderT (Map.insert x target) $ runCodegen' f
+
+augmentPatternW = augmentPattern' go
+  where
+    go x target f = WriterT $ augmentPatternImpl x target $ runWriterT f
 
 putIntoVariable :: SimpleType -> C.Expression -> WriterT [C.Statement] Codegen C.Expression
 putIntoVariable σ e = putIntoVariableInit σ (C.Scalar e)
@@ -115,11 +116,10 @@ putIntoVariableRaw σ e = do
   tell [C.Binding (C.Declaration σ (Just result)) (C.Initializer e)]
   pure $ C.Variable result
 
--- always returns effectless expressions
 compileTerm :: SimpleTerm p -> SimpleType -> WriterT [C.Statement] Codegen C.Expression
 compileTerm (SimpleTerm _ (Variable x ())) _ = do
   x' <- lift $ lookupVariable x
-  pure $ C.Variable x'
+  pure $ x'
 compileTerm (SimpleTerm _ (Extern (Symbol name) σ () τ)) _ = do
   τ <- lift $ ctype τ
   σ <- lift $ ctype σ
@@ -138,9 +138,8 @@ compileTerm (SimpleTerm _ (FunctionApplication e1 e2 τ)) σ = do
 compileTerm (SimpleTerm _ (Alias e1 (Bound pm e2))) σ = do
   let τ = simplePatternType pm
   e1' <- putIntoVariable τ =<< compileTerm e1 τ
-  bindings <- lift $ compilePattern pm e1'
-  tell bindings
-  compileTerm e2 σ
+  augmentPatternW e1' pm $ do
+    compileTerm e2 σ
 compileTerm (SimpleTerm _ (TupleIntroduction [])) (SimpleType (StructRep [])) = do
   pure $ C.IntegerLiteral 0
 compileTerm (SimpleTerm _ (TupleIntroduction es)) σ@(SimpleType (StructRep τs)) | length es == length τs = do
@@ -206,42 +205,42 @@ compileTerm (SimpleTerm _ (PointerIncrement ep ei σ)) (SimpleType PointerRep) =
   ei <- compileTerm ei (SimpleType $ WordRep $ Native)
   ei <- putIntoVariableRaw (cint Native Unsigned) (C.Scalar ei)
   pure $ C.Addition ep ei
-compileTerm (SimpleTerm _ (Continue e)) μ@(SimpleType (StructRep [_, SimpleType (UnionRep [σ, _])])) = do
+compileTerm (SimpleTerm _ (Continue e)) μ@(SimpleType (StructRep [_, SimpleType (UnionRep [_, σ])])) = do
   e <- compileTerm e σ
-  putIntoVariableInit μ (C.Brace [C.Scalar (C.IntegerLiteral 0), C.Designator [("_0", C.Scalar e)]])
-compileTerm (SimpleTerm _ (Break e)) μ@(SimpleType (StructRep [_, SimpleType (UnionRep [_, τ])])) = do
-  e <- compileTerm e τ
   putIntoVariableInit μ (C.Brace [C.Scalar (C.IntegerLiteral 1), C.Designator [("_1", C.Scalar e)]])
+compileTerm (SimpleTerm _ (Break e)) μ@(SimpleType (StructRep [_, SimpleType (UnionRep [τ, _])])) = do
+  e <- compileTerm e τ
+  putIntoVariableInit μ (C.Brace [C.Scalar (C.IntegerLiteral 0), C.Designator [("_0", C.Scalar e)]])
 compileTerm (SimpleTerm _ (Loop es (Bound pm el))) τ = do
   let σ = simplePatternType pm
-  let μ = SimpleType $ StructRep [SimpleType $ WordRep $ Byte, SimpleType $ UnionRep [σ, τ]]
+  let μ = SimpleType $ StructRep [SimpleType $ WordRep $ Byte, SimpleType $ UnionRep [τ, σ]]
   μ' <- lift $ ctype μ
 
   es <- compileTerm es σ
   x <- lift $ temporary
   (el, depend) <- lift $
-    runWriterT $ do
-      bindings <- lift $ compilePattern pm (C.Member (C.Member (C.Variable x) "_1") "_0")
-      tell bindings
-      compileTerm el μ
+    augmentPattern (C.Member (C.Member (C.Variable x) "_1") "_1") pm $
+      runWriterT $ do
+        compileTerm el μ
   depend <- pure $ depend ++ [C.Expression $ C.Assign (C.Variable x) el]
   tell
     [ C.Binding (C.Declaration μ' $ Just x) C.Uninitialized,
-      C.Expression $ C.Assign (C.Member (C.Member (C.Variable x) "_1") "_0") es,
-      C.DoWhile depend (C.Equal (C.IntegerLiteral 0) $ C.Member (C.Variable x) "_0")
+      C.Expression $ C.Assign (C.Member (C.Member (C.Variable x) "_1") "_1") es,
+      C.DoWhile depend (C.Member (C.Variable x) "_0")
     ]
-  pure $ C.Member (C.Member (C.Variable x) "_1") "_1"
+  pure $ C.Member (C.Member (C.Variable x) "_1") "_0"
 compileTerm _ _ = error "invalid type for simple term"
 
 compileFunction :: Symbol -> SimpleFunction p -> SimpleFunctionType -> Codegen C.Statement
 compileFunction (Symbol name) (SimpleFunction _ (Bound pm e)) (SimpleFunctionType σ τ) = do
   argumentName <- temporary
-  bindings <- compilePattern pm (C.Variable argumentName)
+  (result, depend) <- augmentPattern (C.Variable argumentName) pm $ do
+    runWriterT (compileTerm e τ)
+
   σ <- ctype σ
-  let arguments = [C.Declaration σ (Just argumentName)]
-  (result, depend) <- runWriterT (compileTerm e τ)
-  let body = bindings ++ depend ++ [C.Return result]
   τ <- ctype τ
+  let arguments = [C.Declaration σ (Just argumentName)]
+  let body = depend ++ [C.Return result]
   pure $ C.Binding (C.Declaration (C.Composite $ C.Function τ arguments) (Just name)) (C.FunctionBody body)
 
-codegen sym σ e = runCodegen (compileFunction sym e σ) (external e)
+codegen sym σ e = runCodegen (compileFunction sym e σ)
