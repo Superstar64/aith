@@ -38,6 +38,7 @@ keywords =
       "region",
       "pointer",
       "struct",
+      "union",
       "integer",
       "byte",
       "short",
@@ -80,7 +81,11 @@ keywords =
       "linear",
       "unrestricted",
       "multiplicity",
-      "used"
+      "used",
+      "step",
+      "break",
+      "continue",
+      "loop"
     ]
 
 -- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
@@ -294,6 +299,7 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
         Language.region ⊣ keyword "region",
         Language.pointerRep ⊣ keyword "pointer",
         Language.structRep ⊣ prefixKeyword "struct" ≫ betweenParens (commaSeperatedMany typex),
+        Language.unionRep ⊣ prefixKeyword "union" ≫ betweenParens (commaSeperatedMany typex),
         Language.byte ⊣ token "8bit",
         Language.short ⊣ token "16bit",
         Language.int ⊣ token "32bit",
@@ -311,7 +317,8 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
         Language.opaque ⊣ keyword "opaque",
         Language.unrestricted ⊣ keyword "unrestricted",
         Language.linear ⊣ keyword "linear",
-        Language.multiplicity ⊣ keyword "multiplicity"
+        Language.multiplicity ⊣ keyword "multiplicity",
+        Language.step ⊣ keyword "step" ≫ betweenAngle (typex ≪ token "," ≪ space ⊗ typex)
       ]
     rotate = associate' . secondI swap . associate
     funLiteral = Language.functionLiteralType ⊣ rotate ⊣ typeParen ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
@@ -385,6 +392,7 @@ termStatement = Language.termSource ⊣ position ⊗ choice options ∥ apply �
     options =
       [ Language.bind ⊣ rotateBind ⊣ prefixKeyword "inline" ≫ termPattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ termStatement,
         Language.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ termRuntimePattern ≪ binaryToken "=" ⊗ term ≪ token ";" ≪ line ⊗ termStatement,
+        Language.loop ⊣ rotateBind ⊣ prefixKeyword "loop" ≫ betweenParens (prefixKeyword "let" ≫ termRuntimePattern ≪ binaryToken "=" ⊗ term) ⊗ lambdaBrace termStatement,
         Language.ifx ⊣ prefixKeyword "if" ≫ termCore ⊗ lambdaBrace termStatement ≪ binaryKeyword "else" ⊗ lambdaBrace termStatement
       ]
     rotateBind = secondI Language.bound . associate . firstI swap
@@ -472,7 +480,9 @@ termCore = Language.termSource ⊣ position ⊗ choice options ∥ termParen
         Language.truex ⊣ keyword "true",
         Language.falsex ⊣ keyword "false",
         borrow,
-        Language.polyElimination ⊣ betweenPipeAngles term
+        Language.polyElimination ⊣ betweenPipeAngles term,
+        Language.break ⊣ prefixKeyword "break" ≫ termCore,
+        Language.continue ⊣ prefixKeyword "continue" ≫ termCore
       ]
     borrow = Language.borrow ⊣ prefixKeyword "borrow" ≫ termCore ⊗ binaryKeyword "as" ≫ binding
       where

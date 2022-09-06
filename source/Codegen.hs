@@ -15,12 +15,15 @@ import Misc.Symbol
 import Misc.Util
 import Simple
 
-newtype DependencyState = DependencyState (Set [SimpleType])
+data Nominal
+  = Struct [SimpleType]
+  | Union [SimpleType]
+  deriving (Eq, Ord)
 
-newtype Dependency a = Dependency (StateT DependencyState (Writer [C.Statement]) a) deriving (Functor, Applicative, Monad)
+newtype Dependency a = Dependency (StateT (Set Nominal) (Writer [C.Statement]) a) deriving (Functor, Applicative, Monad)
 
 runDependency :: Dependency a -> (a, [C.Statement])
-runDependency (Dependency m) = runWriter $ evalStateT m (DependencyState $ Set.empty)
+runDependency (Dependency m) = runWriter $ evalStateT m (Set.empty)
 
 data CodegenState = CodegenState
   { temporaryCounter :: Int,
@@ -44,28 +47,35 @@ temporary = do
   Codegen $ put state {temporaryCounter = i + 1}
   pure name
 
-ctype :: SimpleType -> Codegen C.Type
-ctype (SimpleType PointerRep) = pure $ C.Composite $ C.Pointer $ C.Base C.Void
-ctype (SimpleType (StructRep [])) = pure $ C.Base C.Byte
-ctype (SimpleType (StructRep σs)) = do
-  DependencyState solved <- Codegen $ lift $ Dependency $ get
-  let mangling = σs >>= mangleType
-  if σs `Set.notMember` solved
-    then do
-      Codegen $ lift $ Dependency $ put $ DependencyState (Set.insert σs solved)
-      members <- traverse ctype σs
-      let σ = (C.Base $ C.Struct $ C.StructDefinition mangling (zipWith C.Declaration members fields))
-      let binding = C.Binding (C.Declaration σ Nothing) C.Uninitialized
-      Codegen $ lift $ Dependency $ lift $ tell [binding]
-    else pure ()
-  pure $ C.Base $ C.Struct $ C.StructUse mangling
+fields = Just <$> map (\x -> '_' : show x) [0 ..]
+
+ctype' :: SimpleType -> Dependency C.Type
+ctype' (SimpleType PointerRep) = pure $ C.Composite $ C.Pointer $ C.Base C.Void
+ctype' (SimpleType (StructRep [])) = pure $ C.Base C.Byte
+ctype' σ
+  | (SimpleType (StructRep σs)) <- σ = nominal Struct C.Struct "s" σs
+  | (SimpleType (UnionRep σs)) <- σ = nominal Union C.Union "u" σs
   where
-    fields = Just <$> map (\x -> '_' : show x) [0 ..]
-ctype (SimpleType (WordRep Byte)) = pure $ C.Base C.Byte
-ctype (SimpleType (WordRep Short)) = pure $ C.Base C.Short
-ctype (SimpleType (WordRep Int)) = pure $ C.Base C.Int
-ctype (SimpleType (WordRep Long)) = pure $ C.Base C.Long
-ctype (SimpleType (WordRep Native)) = pure $ C.Base C.Size
+    nominal struct cstruct prefix σs = do
+      solved <- Dependency $ get
+      let mangling = prefix ++ (σs >>= mangleType)
+      if struct σs `Set.notMember` solved
+        then do
+          Dependency $ put $ (Set.insert (struct σs) solved)
+          members <- traverse ctype' σs
+          let σ = (C.Base $ cstruct $ C.StructDefinition mangling (zipWith C.Declaration members fields))
+          let binding = C.Binding (C.Declaration σ Nothing) C.Uninitialized
+          Dependency $ lift $ tell [binding]
+        else pure ()
+      pure $ C.Base $ cstruct $ C.StructUse mangling
+ctype' (SimpleType (WordRep Byte)) = pure $ C.Base C.Byte
+ctype' (SimpleType (WordRep Short)) = pure $ C.Base C.Short
+ctype' (SimpleType (WordRep Int)) = pure $ C.Base C.Int
+ctype' (SimpleType (WordRep Long)) = pure $ C.Base C.Long
+ctype' (SimpleType (WordRep Native)) = pure $ C.Base C.Size
+
+ctype :: SimpleType -> Codegen C.Type
+ctype = Codegen . lift . ctype'
 
 cint :: KindSize -> KindSignedness -> C.Type
 cint Byte Signed = C.Base C.Byte
@@ -93,9 +103,12 @@ compilePattern (SimplePattern _ (RuntimePatternTuple pms)) target = do
   pure $ concat pms
 
 putIntoVariable :: SimpleType -> C.Expression -> WriterT [C.Statement] Codegen C.Expression
-putIntoVariable σ e = do
+putIntoVariable σ e = putIntoVariableInit σ (C.Scalar e)
+
+putIntoVariableInit :: SimpleType -> C.Initializer -> WriterT [C.Statement] Codegen C.Expression
+putIntoVariableInit σ e = do
   σ <- lift $ ctype σ
-  putIntoVariableRaw σ (C.Scalar e)
+  putIntoVariableRaw σ e
 
 putIntoVariableRaw σ e = do
   result <- lift temporary
@@ -124,16 +137,15 @@ compileTerm (SimpleTerm _ (FunctionApplication e1 e2 τ)) σ = do
   putIntoVariable σ $ C.Call e1 [e2]
 compileTerm (SimpleTerm _ (Alias e1 (Bound pm e2))) σ = do
   let τ = simplePatternType pm
-  e1' <- compileTerm e1 τ
+  e1' <- putIntoVariable τ =<< compileTerm e1 τ
   bindings <- lift $ compilePattern pm e1'
-  tell $ bindings
+  tell bindings
   compileTerm e2 σ
 compileTerm (SimpleTerm _ (TupleIntroduction [])) (SimpleType (StructRep [])) = do
   pure $ C.IntegerLiteral 0
 compileTerm (SimpleTerm _ (TupleIntroduction es)) σ@(SimpleType (StructRep τs)) | length es == length τs = do
   es <- sequence $ zipWith compileTerm es τs
-  σ <- lift $ ctype σ
-  putIntoVariableRaw σ (C.Brace $ map C.Scalar es)
+  putIntoVariableInit σ (C.Brace $ map C.Scalar es)
 compileTerm (SimpleTerm _ (ReadReference e)) σ = do
   σ' <- lift $ ctype σ
   e <- compileTerm e (SimpleType PointerRep)
@@ -194,6 +206,31 @@ compileTerm (SimpleTerm _ (PointerIncrement ep ei σ)) (SimpleType PointerRep) =
   ei <- compileTerm ei (SimpleType $ WordRep $ Native)
   ei <- putIntoVariableRaw (cint Native Unsigned) (C.Scalar ei)
   pure $ C.Addition ep ei
+compileTerm (SimpleTerm _ (Continue e)) μ@(SimpleType (StructRep [_, SimpleType (UnionRep [σ, _])])) = do
+  e <- compileTerm e σ
+  putIntoVariableInit μ (C.Brace [C.Scalar (C.IntegerLiteral 0), C.Designator [("_0", C.Scalar e)]])
+compileTerm (SimpleTerm _ (Break e)) μ@(SimpleType (StructRep [_, SimpleType (UnionRep [_, τ])])) = do
+  e <- compileTerm e τ
+  putIntoVariableInit μ (C.Brace [C.Scalar (C.IntegerLiteral 1), C.Designator [("_1", C.Scalar e)]])
+compileTerm (SimpleTerm _ (Loop es (Bound pm el))) τ = do
+  let σ = simplePatternType pm
+  let μ = SimpleType $ StructRep [SimpleType $ WordRep $ Byte, SimpleType $ UnionRep [σ, τ]]
+  μ' <- lift $ ctype μ
+
+  es <- compileTerm es σ
+  x <- lift $ temporary
+  (el, depend) <- lift $
+    runWriterT $ do
+      bindings <- lift $ compilePattern pm (C.Member (C.Member (C.Variable x) "_1") "_0")
+      tell bindings
+      compileTerm el μ
+  depend <- pure $ depend ++ [C.Expression $ C.Assign (C.Variable x) el]
+  tell
+    [ C.Binding (C.Declaration μ' $ Just x) C.Uninitialized,
+      C.Expression $ C.Assign (C.Member (C.Member (C.Variable x) "_1") "_0") es,
+      C.DoWhile depend (C.Equal (C.IntegerLiteral 0) $ C.Member (C.Variable x) "_0")
+    ]
+  pure $ C.Member (C.Member (C.Variable x) "_1") "_1"
 compileTerm _ _ = error "invalid type for simple term"
 
 compileFunction :: Symbol -> SimpleFunction p -> SimpleFunctionType -> Codegen C.Statement

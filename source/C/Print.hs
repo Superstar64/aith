@@ -21,6 +21,7 @@ instance SyntaxBase Printer where
   never = Printer $ const Nothing
   always = Printer $ \() -> Just $ ""
 
+string op | elem op [";", "{", "}"] = Printer $ \() -> Just $ op ++ "\n"
 string op = Printer $ \() -> Just $ op ++ " "
 
 line = Printer $ \() -> Just $ "\n"
@@ -62,7 +63,8 @@ base =
       C.uint ⊣ string "uint32_t",
       C.ulong ⊣ string "uint64_t",
       C.size ⊣ string "size_t",
-      C.struct ⊣ string "struct" ≫ struct
+      C.struct ⊣ string "struct" ≫ struct,
+      C.union ⊣ string "union" ≫ struct
     ]
 
 declaration :: Printer C.Declaration
@@ -91,7 +93,12 @@ definition =
       C.uninitialized ⊣ always
     ]
 
-initializer = C.scalar ⊣ expression ∥ C.brace ⊣ betweenBraces (commaSeperatedMany initializer)
+initializer =
+  choice
+    [ C.scalar ⊣ expression,
+      C.brace ⊣ betweenBraces (commaSeperatedMany initializer),
+      C.designator ⊣ betweenBraces (commaSeperatedMany (string "." ≫ identifer ≪ string "=" ⊗ initializer))
+    ]
 
 statement :: Printer C.Statement
 statement =
@@ -99,6 +106,7 @@ statement =
     [ C.binding ⊣ declaration ⊗ definition ≪ string ";",
       C.returnx ⊣ string "return" ≫ expression ≪ string ";",
       C.ifx ⊣ string "if" ≫ betweenParens expression ⊗ statements ≪ string "else" ⊗ statements,
+      C.doWhile ⊣ string "do" ≫ statements ⊗ string "while" ≫ betweenParens expression ≪ string ";",
       C.expression ⊣ expression ≪ string ";"
     ]
 

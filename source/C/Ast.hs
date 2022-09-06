@@ -19,6 +19,7 @@ data Base
   | ULong
   | Size
   | Struct Struct
+  | Union Struct
   deriving (Show)
 
 data Struct
@@ -42,6 +43,7 @@ data Declaration = Declaration Type (Maybe String) deriving (Show)
 data Initializer
   = Scalar Expression
   | Brace [Initializer]
+  | Designator [(String, Initializer)]
   deriving (Show)
 
 data Definition
@@ -54,6 +56,7 @@ data Statement
   = Return Expression
   | Binding Declaration Definition
   | If Expression [Statement] [Statement]
+  | DoWhile [Statement] Expression
   | Expression Expression
   deriving (Show)
 
@@ -134,6 +137,10 @@ struct = Prism (Struct) $ \case
   (Struct body) -> Just body
   _ -> Nothing
 
+union = Prism (Union) $ \case
+  (Union body) -> Just body
+  _ -> Nothing
+
 anonymous = Prism Anonymous $ \case
   Anonymous body -> Just body
   _ -> Nothing
@@ -152,6 +159,10 @@ scalar = Prism Scalar $ \case
 
 brace = Prism Brace $ \case
   Brace expr -> Just expr
+  _ -> Nothing
+
+designator = Prism Designator $ \case
+  Designator expr -> Just expr
   _ -> Nothing
 
 functionBody = Prism FunctionBody $ \case
@@ -179,7 +190,11 @@ binding = Prism (uncurry Binding) $ \case
   _ -> Nothing
 
 ifx = Prism (uncurry $ uncurry If) $ \case
-  If bool true false -> pure ((bool, true), false)
+  If bool true false -> Just ((bool, true), false)
+  _ -> Nothing
+
+doWhile = Prism (uncurry DoWhile) $ \case
+  DoWhile run check -> Just (run, check)
   _ -> Nothing
 
 expression = Prism Expression $ \case

@@ -151,6 +151,12 @@ checkNumber p σt = do
 checkBoolean p σt = do
   matchType p σt (TypeCore $ Boolean)
 
+checkStep p σt = do
+  σ <- freshPretypeTypeVariable p
+  τ <- freshPretypeTypeVariable p
+  matchType p σt (TypeCore $ Step σ τ)
+  pure (σ, τ)
+
 augmentVariableLinear p x l ς check = do
   Checked e σ lΓ <- augmentTypeEnvironment x p l ς check
   case count x lΓ of
@@ -293,6 +299,12 @@ kindCheck (TypeSource p σ) = case σ of
     for τs $ \τs -> do
       lessThen p (flexible τ') (flexible τs)
     pure (TypeCore $ Tuple σs τ', TypeCore $ Pretype (TypeCore $ KindRuntime $ StructRep ρs) τ')
+  Step σ τ -> do
+    (σ, (κ, _)) <- secondM (checkPretype' p) =<< kindCheck σ
+    (τ, (μ, _)) <- secondM (checkPretype' p) =<< kindCheck τ
+    let union = TypeCore $ KindRuntime $ UnionRep $ [κ, μ]
+    let wrap = TypeCore $ KindRuntime $ StructRep $ [TypeCore $ KindRuntime $ WordRep $ TypeCore $ KindSize $ Byte, union]
+    pure (TypeCore $ Step σ τ, TypeCore $ Pretype wrap $ TypeCore $ TypeSub $ Linear)
   Effect σ π -> do
     (σ', _) <- secondM (checkPretype' p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion' p) =<< kindCheck π
@@ -330,6 +342,9 @@ kindCheck (TypeSource p σ) = case σ of
   KindRuntime (StructRep κs) -> do
     (κs', _) <- unzip <$> traverse (secondM (checkRepresentation' p) <=< kindCheck) κs
     pure (TypeCore (KindRuntime (StructRep κs')), TypeCore Representation)
+  KindRuntime (UnionRep κs) -> do
+    (κs', _) <- unzip <$> traverse (secondM (checkRepresentation' p) <=< kindCheck) κs
+    pure (TypeCore (KindRuntime (UnionRep κs')), TypeCore Representation)
   KindRuntime (WordRep κ) -> do
     (κ', _) <- secondM (checkSize' p) =<< kindCheck κ
     pure (TypeCore (KindRuntime (WordRep κ')), TypeCore Representation)
@@ -590,6 +605,23 @@ typeCheck (TermSource p e) = case e of
         (TermCore p $ TermRuntime $ PointerIncrement ep' ei' σ)
         (TypeCore $ Effect (TypeCore $ Shared (TypeCore $ Array σ) π2) π)
         (lΓ1 `combine` lΓ2)
+  TermRuntime (Continue e) -> do
+    Checked e (σ, π) lΓ <- traverse (checkEffect p) =<< typeCheck e
+    τ <- freshPretypeTypeVariable p
+    pure $ Checked (TermCore p $ TermRuntime $ Continue e) (TypeCore $ Effect (TypeCore $ Step σ τ) π) lΓ
+  TermRuntime (Break e) -> do
+    Checked e (τ, π) lΓ <- traverse (checkEffect p) =<< typeCheck e
+    σ <- freshPretypeTypeVariable p
+    pure $ Checked (TermCore p $ TermRuntime $ Break e) (TypeCore $ Effect (TypeCore $ Step σ τ) π) lΓ
+  TermRuntime (Loop e1 (Bound pm e2)) -> do
+    (pm, σ) <- typeCheckRuntimePattern pm
+    Checked e1 (σ', π) lΓ1 <- traverse (checkEffect p) =<< typeCheck e1
+    matchType p σ σ'
+    Checked e2 ((σ'', τ), π') lΓ2 <- traverse (firstM (checkStep p) <=< checkEffect p) =<< augmentRuntimeTermPattern pm (typeCheck e2)
+    matchType p π π'
+    matchType p σ σ''
+    capture p (TypeCore $ TypeSub $ Unrestricted) lΓ2
+    pure $ Checked (TermCore p $ TermRuntime $ Loop e1 (Bound pm e2)) (TypeCore $ Effect τ π) (combine lΓ1 lΓ2)
   TermErasure (IsolatePointer e) -> do
     Checked e ((σ, π2), π) lΓ <- traverse (firstM (firstM (checkArray p) <=< checkShared p) <=< checkEffect p) =<< typeCheck e
     pure $

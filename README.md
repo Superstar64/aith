@@ -105,6 +105,9 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
     * [x] Function Pointers
     * [ ] Records
     * [ ] Tagged Unions
+      * [x] Union Representation
+      * [ ] Tagged Union Type
+    * [x] Loops
   * [ ] New Types
   * [x] Type Synonyms
   * [x] Modules
@@ -183,6 +186,9 @@ Files start with `code` `::`.
 | Borrow | ``borrow e as <α >= π>(pm) { e }`` |
 | Type Annotation | ``e : σ`` |
 | Pretype Annotation | ``e :: σ`` |
+| Continue | ``continue e`` |
+| Break | ``break e`` |
+| Loop | ``loop (let pm = e) { e' }`` |
 
 ## Terms (Syntax Sugar) (e)
 | Description | Syntax | Meaning |
@@ -228,6 +234,7 @@ Files start with `code` `::`.
 | Number | ``ρ integer(ρ')`` |
 | Boolean | ``bool`` |
 | IO Region | ``io`` |
+| Step | ``step<σ, τ>`` |
 | Type | ``type`` |
 | Pretype | ``pretype<s>`` |
 | Boxed | ``boxed`` |
@@ -235,6 +242,7 @@ Files start with `code` `::`.
 | Region | ``region`` |
 | Pointer Representation | ``pointer`` |
 | Struct Representation | ``struct (ρ, ρ', ...)`` |
+| Union Representation | ``union (ρ, ρ', ...)`` |
 | Word Representation | ``ρ word`` |
 | Signed | ``signed`` |
 | Unsigned | ``unsigned`` |

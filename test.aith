@@ -240,13 +240,15 @@ module sort = {
 
 	insert<R : region> : function(int[] @ R, unsigned integer(native)) => () uses R;
 	insert<R : region> = function(array, index) {
-		if (index > 0 & get `array `index < get `array `(index - 1) ) {
-			let tmp = get `array `index;
-			set `array `index `(get `array `(index - 1));
-			set `array `(index - 1) `tmp;
-			insert(array, index - 1)
-		} else {
-			()
+		loop (let (array, index) = (array,index)) {
+			if (index > 0 & get `array `index < get `array `(index - 1) ) {
+				let tmp = get `array `index;
+				set `array `index `(get `array `(index - 1));
+				set `array `(index - 1) `tmp;
+				continue (array, index - 1)
+			} else {
+				break ()
+			}
 		}
 	};
 
@@ -287,5 +289,31 @@ module import = {
 	inline id = \x => x;
 	module b = {
 		inline const = \y => /import/id;
+	};
+};
+
+module levity = {
+	idPolyPair<A : pretype<struct(pointer, 32bit word) ,linear>> = function(x :: A) {
+		x
+	};
+
+	idPolyUnion<A : pretype<union(pointer, 32bit word) ,linear>> = function(x :: A) {
+		x
+	};
+
+	useId = function(ptr) {
+		idPolyPair(ptr, 0)
+	};
+};
+
+module sum = {
+	triangular = function(start, end) {
+		loop (let (i, total) = (start, 0)) {
+			if (i <= end) {
+				continue (i + 1, total + i)
+			} else {
+				break (total)
+			}
+		}
 	};
 };

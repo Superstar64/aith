@@ -275,7 +275,6 @@ reduceModuleForword ((path, (p, item)) : nodes) = case item of
   where
     reducer = reduceModuleForword nodes
 
-
 makeExtern ::
   Path ->
   p ->
@@ -378,14 +377,12 @@ reduceModule globals ((path@(Path heading _), item) : nodes) =
   where
     (item', binding) = case item of
       GlobalInfer (Inline σ e) ->
-        let
-           e' = reduce $ applyGlobalTypes $ applyGlobalTerms e
-           σ' = applyGlobalTypes σ
+        let e' = reduce $ applyGlobalTypes $ applyGlobalTerms e
+            σ' = applyGlobalTypes σ
          in (GlobalInfer (Inline σ' e'), Right e')
       GlobalInfer (Text σ e@(TermSchemeCore p _)) ->
-        let
-           e' = reduce $ applyGlobalTypes $ applyGlobalTerms e
-           σ' = applyGlobalTypes σ
+        let e' = reduce $ applyGlobalTypes $ applyGlobalTerms e
+            σ' = applyGlobalTypes σ
          in (GlobalInfer (Text σ' e'), Right (makeExtern path p σ))
       -- todo reduce synonyms
       GlobalInfer (Synonym σ) ->

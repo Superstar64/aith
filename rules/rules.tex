@@ -435,6 +435,19 @@ e \Coloneqq & \\
 {\Phi \vdash \text{Struct} \{ \overline \rho \} : \text{Representation} } \\
 \end{gather*}
 
+\subsubsection{Choices}
+\begin{align*}
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
+& \text{Union} \{ \overline \rho \} \tag{Union Representation} \\
+& \dots
+\end{align*}
+
+\begin{gather*}
+\frac
+{\Phi \vdash \overline {\rho : \text{Representation}}}
+{\Phi \vdash \text{Union} \{ \overline \rho \} : \text{Representation} } \\
+\end{gather*}
+
 \subsubsection{Integer Arithmatic}
 \begin{align*}
 e \Coloneqq & \\
@@ -537,7 +550,7 @@ e \Coloneqq & \\
 & \text{true} \\
 & \text{false} \\
 & \text{if} (e) \{ e' \} \text{else} \{ e'' \} \\
-\sigma, \tau, \pi \Coloneqq & \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & \text{Boolean}
 \end{align*}
 
@@ -559,6 +572,34 @@ e \Coloneqq & \\
 \frac
 {}
 { \Phi \vdash \text{Boolean} : +^{\text{Word}(8)}_\omega}
+\end{gather*}
+
+\subsubsection{Loops}
+\begin{align*}
+e \Coloneqq & \\
+& \text{continue} \, e \tag{continue} \\
+& \text{break} \, e \tag{break} \\
+& \text{loop} (\text{let} \, x = e) \{ e' \} \tag{loop} \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
+& \text{Step} \, \sigma \, \tau \tag{Loop Instruction}
+\end{align*}
+
+\begin{gather*}
+\frac
+{\Phi | \Gamma \vdash e : \sigma^\pi }
+{\Phi | \Gamma \vdash \text{continue} \, e : (\text{Step} \, \sigma \, \tau)^\pi } \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : \tau^\pi }
+{\Phi | \Gamma \vdash \text{break} \, e : (\text{Step} \, \sigma \, \tau)^\pi } \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : \sigma^\pi \quad \Phi | \Gamma', x :^1 \forall \alpha. \sigma^\alpha \vdash e' : (\text{Step} \, \sigma \, \tau) ^\pi \quad \Gamma' \succeq \omega }
+{\Phi | \Gamma, \Gamma' \vdash \text{loop} (\text{let} \, x = e) \{ e' \} : \tau^\pi } \\
+\\
+\frac
+{\Phi \vdash \sigma : +^{\rho}_{\pi} \quad \Phi \vdash \tau : +^{\mu}_{\pi'} }
+{\Phi \vdash \text{Step} \, \sigma \, \tau : +^{\text{Struct} (\text{Word} (8), \text{Union} (\rho, \mu) ) }_1 }
 \end{gather*}
 
 \subsection{Subtyping}
@@ -600,9 +641,12 @@ e \Coloneqq & \\
 & \text{false} \\
 & \text{if} (e) {e'} \text{else} {e''} \\
 & \&e[e']^\sigma \\
+& \text{continue} \, e \\
+& \text{break} \, e \\
 \sigma \Coloneqq & \\
 & \text{void}* \\ 
 & (\sigma, \sigma', \dots) \\
+& \text{union} (\sigma, \sigma', \dots) \\
 & \text{word} \, s \\
 s \Coloneqq & \, \text{char} \, | \, \text{short} \, | \, \text{int} \, | \, \text{long} | \, \text{size} \\
 z \Coloneqq & \, \text{signed} \, | \, \text{unsigned}
@@ -667,6 +711,14 @@ z \Coloneqq & \, \text{signed} \, | \, \text{unsigned}
 \frac
 {\Gamma \vdash e : \text{void}* \quad \Gamma \vdash e' : \text{word} \, \text{size}}
 {\Gamma \vdash \& e [e']^\sigma : \text{void}*} \\
+\\
+\frac
+{\Gamma \vdash e : \sigma}
+{\Gamma \vdash \text{continue} \, e : (\text{char}, \text{union} (\sigma, \tau))} \\
+\\
+\frac
+{\Gamma \vdash e : \tau}
+{\Gamma \vdash \text{continue} \, e : (\text{char}, \text{union} (\sigma, \tau))}
 \end{gather*}
 
 \end{document}

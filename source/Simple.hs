@@ -45,12 +45,16 @@ externalImpl (SimpleTerm _ (Relational _ e e' _ _)) = externalImpl e <> external
 externalImpl (SimpleTerm _ (BooleanLiteral _)) = mempty
 externalImpl (SimpleTerm _ (If eb et ef)) = externalImpl eb <> externalImpl et <> externalImpl ef
 externalImpl (SimpleTerm _ (PointerIncrement ep ei _)) = externalImpl ep <> externalImpl ei
+externalImpl (SimpleTerm _ (Continue e)) = externalImpl e
+externalImpl (SimpleTerm _ (Break e)) = externalImpl e
+externalImpl (SimpleTerm _ (Loop e (Bound _ e'))) = externalImpl e <> externalImpl e'
 
 external (SimpleFunction _ (Bound _ e)) = externalImpl e
 
 mangleType :: SimpleType -> String
 mangleType (SimpleType PointerRep) = "p"
 mangleType (SimpleType (StructRep σs)) = "s" ++ (σs >>= mangleType) ++ "e"
+mangleType (SimpleType (UnionRep σs)) = "u" ++ (σs >>= mangleType) ++ "e"
 mangleType (SimpleType (WordRep Byte)) = "b"
 mangleType (SimpleType (WordRep Short)) = "s"
 mangleType (SimpleType (WordRep Int)) = "i"
@@ -60,6 +64,7 @@ mangleType (SimpleType (WordRep Native)) = "n"
 convertKindImpl :: TypeInfer -> SimpleType
 convertKindImpl (TypeCore (KindRuntime PointerRep)) = SimpleType $ PointerRep
 convertKindImpl (TypeCore (KindRuntime (StructRep ρs))) = SimpleType $ StructRep (convertKindImpl <$> ρs)
+convertKindImpl (TypeCore (KindRuntime (UnionRep ρs))) = SimpleType $ UnionRep (convertKindImpl <$> ρs)
 convertKindImpl (TypeCore (KindRuntime (WordRep (TypeCore (KindSize Byte))))) = SimpleType $ WordRep Byte
 convertKindImpl (TypeCore (KindRuntime (WordRep (TypeCore (KindSize Short))))) = SimpleType $ WordRep Short
 convertKindImpl (TypeCore (KindRuntime (WordRep (TypeCore (KindSize Int))))) = SimpleType $ WordRep Int
@@ -81,8 +86,8 @@ reconstruct (TypeCore σ) = reconstructF index indexGlobal absurd todo checkRunt
       map <- ask
       pure $ map ! x
     indexGlobal _ = error "global"
-    checkRuntime (TypeCore (Pretype κ _)) f = f κ
-    checkRuntime _ _ = error $ "reconstruction of pair didn't return pretype"
+    checkRuntime (TypeCore (Pretype κ _)) = pure κ
+    checkRuntime _ = error $ "reconstruction of pair didn't return pretype"
 
 convertType σ = convertKind <$> reconstruct σ
 
@@ -155,6 +160,17 @@ convertTerm (TermCore p (TermRuntime (PointerIncrement ep ei σ))) = do
   ei <- convertTerm ei
   σ <- convertType σ
   pure $ SimpleTerm p $ PointerIncrement ep ei σ
+convertTerm (TermCore p (TermRuntime (Continue e))) = do
+  e <- convertTerm e
+  pure $ SimpleTerm p $ Continue e
+convertTerm (TermCore p (TermRuntime (Break e))) = do
+  e <- convertTerm e
+  pure $ SimpleTerm p $ Break e
+convertTerm (TermCore p (TermRuntime (Loop e1 (Bound pm e2)))) = do
+  e1' <- convertTerm e1
+  pm' <- convertTermPattern pm
+  e2' <- convertTerm e2
+  pure $ SimpleTerm p $ Loop e1' (Bound pm' e2')
 convertTerm (TermCore p (TermErasure (Borrow ep (Bound (TypePattern α κ _) (Bound pm@(TermRuntimePatternCore _ (RuntimePatternVariable x _)) e))))) = do
   ep <- convertTerm ep
   withReaderT (Map.insert α κ) $ do

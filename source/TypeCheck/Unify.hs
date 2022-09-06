@@ -24,13 +24,14 @@ reconstructF indexVariable indexGlobalVariable indexLogical poly checkRuntime re
   FunctionLiteralType _ _ _ -> do
     pure $ TypeCore $ Type
   Tuple σs τ -> do
-    σs <- go σs []
+    σs <- traverse (checkRuntime <=< reconstruct) σs
     pure $ TypeCore $ Pretype (TypeCore $ KindRuntime $ StructRep σs) τ
-    where
-      go [] κs = pure κs
-      go (σ : σs) κs = do
-        κ <- reconstruct σ
-        checkRuntime κ $ \κ -> go σs (κs ++ [κ])
+  Step σ τ -> do
+    κ <- checkRuntime =<< reconstruct σ
+    μ <- checkRuntime =<< reconstruct τ
+    let union = TypeCore $ KindRuntime $ UnionRep $ [κ, μ]
+    let wrap = TypeCore $ KindRuntime $ StructRep $ [TypeCore $ KindRuntime $ WordRep $ TypeCore $ KindSize $ Byte, union]
+    pure (TypeCore $ Pretype wrap $ TypeCore $ TypeSub $ Linear)
   Effect _ _ -> pure $ TypeCore $ Type
   Unique _ ->
     pure $ TypeCore $ Pretype (TypeCore $ KindRuntime $ PointerRep) (TypeCore $ TypeSub Linear)
@@ -117,6 +118,9 @@ typeOccursCheck p x lev σ' = go σ'
         Array σ -> recurse σ
         Number _ _ -> pure ()
         Boolean -> pure ()
+        Step σ τ -> do
+          recurse σ
+          recurse τ
         TypeSub World -> pure ()
         TypeSub Linear -> pure ()
         TypeSub Unrestricted -> pure ()
@@ -129,6 +133,7 @@ typeOccursCheck p x lev σ' = go σ'
         Multiplicity -> pure ()
         (KindRuntime PointerRep) -> pure ()
         (KindRuntime (StructRep κs)) -> traverse recurse κs >> pure ()
+        (KindRuntime (UnionRep κs)) -> traverse recurse κs >> pure ()
         (KindRuntime (WordRep κ)) -> recurse κ
         (KindSize _) -> pure ()
         (KindSignedness _) -> pure ()
@@ -231,6 +236,9 @@ matchType p σ σ' = unify σ σ'
       unify ρ1 ρ1'
       unify ρ2 ρ2'
     unify (TypeCore Boolean) (TypeCore Boolean) = pure ()
+    unify (TypeCore (Step σ τ)) (TypeCore (Step σ' τ')) = do
+      unify σ σ'
+      unify τ τ'
     unify (TypeCore Type) (TypeCore Type) = pure ()
     unify (TypeCore Region) (TypeCore Region) = pure ()
     unify (TypeCore (Pretype κ τ)) (TypeCore (Pretype κ' τ')) = do
@@ -240,6 +248,8 @@ matchType p σ σ' = unify σ σ'
     unify (TypeCore Multiplicity) (TypeCore Multiplicity) = pure ()
     unify (TypeCore (KindRuntime PointerRep)) (TypeCore (KindRuntime PointerRep)) = pure ()
     unify (TypeCore (KindRuntime (StructRep κs))) (TypeCore (KindRuntime (StructRep κs'))) | length κs == length κs' = do
+      sequence_ $ zipWith (unify) κs κs'
+    unify (TypeCore (KindRuntime (UnionRep κs))) (TypeCore (KindRuntime (UnionRep κs'))) | length κs == length κs' = do
       sequence_ $ zipWith (unify) κs κs'
     unify (TypeCore (KindRuntime (WordRep κ))) (TypeCore (KindRuntime (WordRep κ'))) = unify κ κ'
     unify (TypeCore (KindSize Byte)) (TypeCore (KindSize Byte)) = pure ()
@@ -375,8 +385,8 @@ reconstruct p (TypeCore σ) = go σ
     indexLogicalMap x = indexTypeLogicalMap x >>= index
     index (UnboundTypeLogical _ x _ _ _) = pure x
     index (LinkTypeLogical σ) = reconstruct p σ
-    checkRuntime κ f = do
+    checkRuntime κ = do
       α <- (TypeCore . TypeLogical) <$> freshKindVariableRaw p (TypeCore Representation) maxBound
       β <- (TypeCore . TypeLogical) <$> freshKindVariableRaw p (TypeCore Multiplicity) maxBound
       matchType p κ (TypeCore $ Pretype α β)
-      f α
+      pure α
