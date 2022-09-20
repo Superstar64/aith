@@ -8,10 +8,10 @@ import qualified C.Print as C
 import Codegen
 import Control.Monad
 import Control.Monad.Trans.State
-import Data.Bifunctor (second)
 import Data.Foldable
 import Data.Functor.Identity (runIdentity)
 import Data.List
+import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Traversable (for)
 import Misc.Path hiding (path)
@@ -126,34 +126,33 @@ formatItem code path file = do
 formatAll :: Module (GlobalSource Internal) -> [([String], String)] -> IO ()
 formatAll code = traverse_ (uncurry $ formatItem code)
 
-compileModule :: Module (GlobalInfer p) -> [String] -> Dependency [C.Statement]
-compileModule (CoreModule code) heading = concat <$> traverse (\(name, item) -> compileItem item (Path heading name)) (Map.toList code)
+compileModule :: Map TypeGlobalIdentifier TypeInfer -> Module (GlobalInfer p) -> [String] -> Dependency [C.Statement]
+compileModule newtypes (CoreModule code) heading = concat <$> traverse (\(name, item) -> compileItem newtypes item (Path heading name)) (Map.toList code)
 
-compileItem :: Item (GlobalInfer p) -> Path -> Dependency [C.Statement]
-compileItem (Module items) (Path path name) = compileModule items (path ++ [name])
-compileItem (Global (GlobalInfer (Text σ e))) path = do
-  fn <- codegen (mangle path) (simpleFunctionType σ) (simpleFunction e)
+compileItem :: Map TypeGlobalIdentifier TypeInfer -> Item (GlobalInfer p) -> Path -> Dependency [C.Statement]
+compileItem newtypes (Module items) (Path path name) = compileModule newtypes items (path ++ [name])
+compileItem newtypes (Global (GlobalInfer (Text σ e))) path = do
+  fn <- codegen (mangle path) (runSimplify (convertFunctionType σ) Map.empty newtypes) (runSimplify (convertFunction e) Map.empty newtypes)
   pure [fn]
-compileItem (Global (GlobalInfer (Inline _ _))) _ = pure []
-compileItem (Global (GlobalInfer (Synonym _))) _ = pure []
+compileItem _ (Global (GlobalInfer (Inline _ _))) _ = pure []
+compileItem _ (Global (GlobalInfer (Synonym _))) _ = pure []
+compileItem _ (Global (GlobalInfer (NewType _ _))) _ = pure []
 
-generateAll [] _ = pure ()
-generateAll (([], file) : remainder) code = do
-  generateAll remainder code
-  let (functions, structs) = runDependency $ compileModule code []
-  writeFile file (C.emit C.code $ structs ++ functions)
-generateAll ((path, file) : remainder) code = do
-  generateAll remainder code
-  item <- pickItem code path
-  let (functions, structs) = runDependency $ compileItem item (Path (init path) (last path))
-  writeFile file (C.emit C.code $ structs ++ functions)
-
-uninfer = fmap (second nameGlobal)
+newtypes :: Module (GlobalInfer p) -> Map TypeGlobalIdentifier TypeInfer
+newtypes = Map.mapKeysMonotonic TypeGlobalIdentifier . flatten . mapMaybe new
   where
-    nameGlobal :: GlobalInfer [SourcePos] -> GlobalSource Internal
-    nameGlobal (GlobalInfer (Inline ς e)) = GlobalSource $ Inline (Just $ sourceTypeScheme ς) (TermManualSource $ sourceTermScheme e)
-    nameGlobal (GlobalInfer (Text ς e)) = GlobalSource $ Text (Just $ sourceTypeScheme ς) (TermManualSource $ sourceTermScheme e)
-    nameGlobal (GlobalInfer (Synonym σ)) = GlobalSource $ Synonym (sourceType σ)
+    new (GlobalInfer (NewType κ _)) = Just κ
+    new _ = Nothing
+
+generateItem code [] file = do
+  let (functions, structs) = runDependency $ compileModule (newtypes code) code []
+  writeFile file (C.emit C.code $ structs ++ functions)
+generateItem code path file = do
+  item <- pickItem code path
+  let (functions, structs) = runDependency $ compileItem (newtypes code) item (Path (init path) (last path))
+  writeFile file (C.emit C.code $ structs ++ functions)
+
+generateAll code = traverse_ (uncurry $ generateItem code)
 
 data CommandLine = CommandLine
   { loadItem :: [([String], FilePath)],
@@ -262,18 +261,18 @@ processCmd cmd t = case (findLoad t, findOutput t, working $ findWorking t, coun
 
 baseMain command = do
   code <- fmap (fmap (: [])) <$> addAll (loadItem command) :: IO (Module (GlobalSource [SourcePos]))
+
   formatAll (fmap (fmap (const Internal)) code) (prettyItem command)
-  let forward = forwardDeclarations code
-  forward <- handleModuleError $ orderForward forward
-  (forward, environment) <- handleTypeError $ runStateT (typeCheckModuleForward forward) emptyEnvironment
-  let reducer = reduceModuleForword forward
 
   code <- handleModuleError $ order code
-  code <- handleTypeError $ evalStateT (typeCheckModule code) environment
-  formatAll (fmap cleanScheme $ unorder $ uninfer $ code) (prettyItemAnnotated command)
-  code <- pure $ reduceModule reducer code
-  formatAll (fmap cleanScheme $ unorder $ uninfer $ code) (prettyItemReduced command)
-  generateAll (generateCItem command) (unorder $ code)
+  code <- handleTypeError $ evalStateT (typeCheckModule code) emptyEnvironment
+
+  formatAll (cleanScheme . sourceGlobal <$> unorder code) (prettyItemAnnotated command)
+
+  code <- pure $ reduceModule (Reducer Map.empty Map.empty) code
+
+  formatAll (cleanScheme . sourceGlobal <$> unorder code) (prettyItemReduced command)
+  generateAll (unorder code) (generateCItem command)
   where
     handleModuleError (Left e) = die $ prettyModuleError e
     handleModuleError (Right e) = pure e

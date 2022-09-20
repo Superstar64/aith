@@ -68,14 +68,14 @@ typeOccursCheck p x lev σ' = go σ'
       case σ of
         TypeSub (TypeVariable x') -> do
           indexKindEnvironment x' >>= \case
-            TypeBinding _ _ _ lev' ->
+            TypeBinding _ _ _ lev' _ ->
               if lev' > lev
                 then quit $ EscapingSkolemType p x' σ'
                 else pure ()
             LinkTypeBinding _ -> pure ()
         TypeSub (TypeGlobalVariable x') -> do
           indexKindGlobalEnvironment x' >>= \case
-            TypeBinding _ _ _ lev' ->
+            TypeBinding _ _ _ lev' _ ->
               if lev' > lev
                 then quit $ EscapingSkolemTypeGlobal p x' σ'
                 else pure ()
@@ -195,11 +195,11 @@ matchType p σ σ' = unify σ σ'
     unify (TypeCore (TypeSub σ)) (TypeCore (TypeSub σ')) | σ == σ' = pure ()
     unify σ@(TypeCore (TypeSub (TypeVariable x))) σ' =
       indexKindEnvironment x >>= \case
-        TypeBinding _ _ _ _ -> quit $ TypeMismatch p σ σ'
+        TypeBinding _ _ _ _ _ -> quit $ TypeMismatch p σ σ'
         LinkTypeBinding σ -> unify (flexible σ) σ'
     unify σ@(TypeCore (TypeSub (TypeGlobalVariable x))) σ' =
       indexKindGlobalEnvironment x >>= \case
-        TypeBinding _ _ _ _ -> quit $ TypeMismatch p σ σ'
+        TypeBinding _ _ _ _ _ -> quit $ TypeMismatch p σ σ'
         LinkTypeBinding σ -> unify (flexible σ) σ'
     unify σ σ'@(TypeCore (TypeSub (TypeVariable _))) = unify σ' σ
     unify σ σ'@(TypeCore (TypeSub (TypeGlobalVariable _))) = unify σ' σ
@@ -317,7 +317,7 @@ meet p π π' = do
 plainType :: p -> Type v -> Core p TypeSub
 plainType p (TypeCore (TypeSub σ@(TypeVariable x))) =
   indexKindEnvironment x >>= \case
-    TypeBinding _ _ _ _ -> pure σ
+    TypeBinding _ _ _ _ _ -> pure σ
     LinkTypeBinding σ -> plainType p σ
 plainType _ (TypeCore (TypeSub σ)) = pure σ
 plainType p _ = quit $ ExpectedPlainType p
@@ -376,11 +376,11 @@ reconstruct p (TypeCore σ) = go σ
 
     indexEnvironment x = indexKindEnvironment x >>= kind
       where
-        kind (TypeBinding _ κ _ _) = pure $ flexible κ
+        kind (TypeBinding _ κ _ _ _) = pure $ flexible κ
         kind (LinkTypeBinding σ) = reconstruct p (flexible σ)
     indexGlobalEnvironment x = indexKindGlobalEnvironment x >>= kind
       where
-        kind (TypeBinding _ κ _ _) = pure $ flexible κ
+        kind (TypeBinding _ κ _ _ _) = pure $ flexible κ
         kind (LinkTypeBinding σ) = reconstruct p (flexible σ)
     indexLogicalMap x = indexTypeLogicalMap x >>= index
     index (UnboundTypeLogical _ x _ _ _) = pure x

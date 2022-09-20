@@ -108,7 +108,7 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
       * [x] Union Representation
       * [ ] Tagged Union Type
     * [x] Loops
-  * [ ] New Types
+  * [x] New Types
   * [x] Type Synonyms
   * [x] Modules
   * [ ] Hindley Milner
@@ -148,6 +148,7 @@ Files start with `code` `::`.
 | Function | ``x = e;`` |
 | Function Ascribe | ``x ς : σ; x ς = e;``|
 | Synonym | ``type x = σ;`` |
+| New Type | ``wrapper x :: κ; wrapper x = σ;`` |
 
 ## Terms(e)
 | Description | Syntax |
@@ -189,6 +190,8 @@ Files start with `code` `::`.
 | Continue | ``continue e`` |
 | Break | ``break e`` |
 | Loop | ``loop (let pm = e) { e' }`` |
+| Wrap | ``wrap e :: σ`` |
+| Unwrap | ``unwrap (e :: σ) ``|
 
 ## Terms (Syntax Sugar) (e)
 | Description | Syntax | Meaning |

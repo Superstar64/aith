@@ -26,7 +26,10 @@ Terms with a type $ \sigma^\pi $ are runtime terms. \\
 \\
 Overlines are used to mean 0 or more. \\
 \\
+New types definitions are module only and are not included in these rules. \\
+\\
 After $ \beta $ reduction, terms not of type $ \sigma^\pi $ must either be a free variable or correspond to these $ \beta $ normal forms. \\
+\\
 \begin{gather*}
 \begin{array}{c | c}
 \text{Type} & \text{Term} \\
@@ -50,7 +53,8 @@ n \tag{Numbers} \\
 \alpha, \beta \tag{Type and Kind Variables} \\
 \Gamma \tag{Type Environment} \\
 \Phi \tag{Misc Environment} \\
-\text{sym} \tag{Symbol}
+\text{sym} \tag{Symbol} \\
+\text{data} \tag{NewType}
 \end{align*}
 
 
@@ -70,8 +74,12 @@ The type checking can be checked using synthesis mode.
 & \Gamma, x :^\pi \sigma \\
 & \emptyset \\
 \Phi \Coloneqq & \\
-& \Phi, \alpha : \kappa \succeq \{ \overline \pi \} \\
+& \Phi, \alpha : \kappa \succeq \{ \overline \pi \} = \text{data} \\
 & \emptyset \\
+\\
+\text{data} \Coloneqq & \\
+& \text{wrap} (\sigma) \\
+& \emptyset
 \end{align*}
 
 \subsection{Meta}
@@ -166,7 +174,7 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{(\alpha : \kappa \succeq \{ \overline \pi \} ) \in \Phi}
+{(\alpha : \kappa \succeq \{ \overline \pi \} = \text{data} ) \in \Phi}
 {\Phi \vdash \alpha : \kappa}
 \end{gather*}
 
@@ -211,7 +219,7 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi, \alpha : \kappa  \succeq \{ \overline \pi \} | \Gamma \vdash e : \sigma}
+{\Phi, \alpha : \kappa  \succeq \{ \overline \pi \} = \emptyset \, | \, \Gamma \vdash e : \sigma}
 {\Phi | \Gamma \vdash \Lambda \alpha. e : \forall \alpha : \kappa \succeq \{ \overline \pi \} . \sigma } \\
 \\
 \frac
@@ -262,7 +270,7 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi , \alpha : \text{Region} \, \succeq \{ \pi \} | \Gamma \vdash e : \sigma^\alpha \quad \alpha \notin \text{Free}(\sigma, \pi)}
+{\Phi , \alpha : \text{Region} \, \succeq \{ \pi \} = \emptyset \, | \, \Gamma \vdash e : \sigma^\alpha \quad \alpha \notin \text{Free}(\sigma, \pi)}
 {\Phi | \Gamma \vdash \text{letRGN} \, (\Lambda \alpha. e) : \sigma^\pi} \\
 \\
 \frac
@@ -301,7 +309,7 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi | \Gamma \vdash e : (\text{unique} \, \tau)^\pi \quad \Phi,\alpha : \text{Region} \, \succeq \{ \pi \} \, | \, \Gamma', x :^\omega \forall \alpha'. (\tau @ \alpha)^{\alpha'} \vdash e' : \sigma^\alpha \quad \alpha \notin \text{Free}(\sigma, \pi)}
+{\Phi | \Gamma \vdash e : (\text{unique} \, \tau)^\pi \quad \Phi,\alpha : \text{Region} \, \succeq \{ \pi \} = \emptyset \, | \, \Gamma', x :^\omega \forall \alpha'. (\tau @ \alpha)^{\alpha'} \vdash e' : \sigma^\alpha \quad \alpha \notin \text{Free}(\sigma, \pi)}
 {\Phi | \Gamma, \Gamma' \vdash \text{borrow} (e) \text{as} \, \Lambda \alpha. (x) \{ e' \} : (\sigma, \text{unique} \, \tau)^\pi }
 \end{gather*}
 
@@ -600,6 +608,24 @@ e \Coloneqq & \\
 \frac
 {\Phi \vdash \sigma : +^{\rho}_{\pi} \quad \Phi \vdash \tau : +^{\mu}_{\pi'} }
 {\Phi \vdash \text{Step} \, \sigma \, \tau : +^{\text{Struct} (\text{Word} (8), \text{Union} (\rho, \mu) ) }_1 }
+\end{gather*}
+
+\subsubsection{Newtypes}
+
+\begin{align*}
+e \Coloneqq & \\
+& \text{wrap} [\sigma] (e) \\
+& \text{unwrap} [\sigma] (e) \\
+\end{align*}
+
+\begin{gather*}
+\frac
+{\Phi | \Gamma \vdash e : \sigma^\pi \quad (\alpha : +^\rho_\mu \succeq \{\} = \text{wrap} (\sigma)) \in \Phi}
+{\Phi | \Gamma \vdash \text{wrap} [\alpha] e : \alpha^\pi} \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : \alpha^\pi \quad (\alpha : +^\rho_\mu \succeq \{\} = \text{wrap} (\sigma)) \in \Phi}
+{\Phi | \Gamma \vdash \text{unwrap} [\alpha] e : \sigma^\pi}
 \end{gather*}
 
 \subsection{Subtyping}

@@ -315,3 +315,22 @@ module sum = {
 		}
 	};
 };
+
+module newtype = {
+	wrapper num : pretype<32bit word, unrestricted>;
+	wrapper num = int;
+
+	makeNum = function() {
+		wrap 1 :: num
+	};
+
+
+	wrapper linked : pretype<pointer, unrestricted>;
+	wrapper linked = linked2* @ io;
+
+	type linked2 = linked;
+
+	read = function (x) {
+		*unwrap (x :: linked)
+	};
+};

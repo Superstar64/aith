@@ -85,7 +85,10 @@ keywords =
       "step",
       "break",
       "continue",
-      "loop"
+      "loop",
+      "wrapper",
+      "wrap",
+      "unwrap"
     ]
 
 -- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
@@ -99,6 +102,7 @@ class SyntaxBase δ => Syntax δ where
 
   -- todo make this more general
   redundent :: Eq a => String -> δ (Maybe (a, x), (a, y)) -> δ ((a, Maybe x), y)
+  redundent' :: Eq a => String -> δ ((a, x), (a, y)) -> δ ((a, x), y)
 
   -- parser only methods
   try :: δ a -> δ a
@@ -482,7 +486,9 @@ termCore = Language.termSource ⊣ position ⊗ choice options ∥ termParen
         borrow,
         Language.polyElimination ⊣ betweenPipeAngles term,
         Language.break ⊣ prefixKeyword "break" ≫ termCore,
-        Language.continue ⊣ prefixKeyword "continue" ≫ termCore
+        Language.continue ⊣ prefixKeyword "continue" ≫ termCore,
+        Language.wrap ⊣ prefixKeyword "wrap" ≫ termCore,
+        Language.unwrap ⊣ prefixKeyword "unwrap" ≫ termCore
       ]
     borrow = Language.borrow ⊣ prefixKeyword "borrow" ≫ termCore ⊗ binaryKeyword "as" ≫ binding
       where
@@ -513,15 +519,23 @@ item name delimit footer footer' lambda =
     [ itemCore (keyword "module" ≫ space) (Module.modulex ⊣ lambda modulex),
       itemTerm (keyword "inline" ≫ space) (Module.global . Module.inline),
       itemTerm always (Module.global . Module.text),
-      itemCore (keyword "type" ≫ space) (Module.global ⊣ Module.synonym ⊣ typex)
+      itemCore (keyword "type" ≫ space) (Module.global ⊣ Module.synonym ⊣ typex),
+      itemNewtype (keyword "wrapper" ≫ space) (Module.global . Module.newtypex)
     ]
   where
     itemCore brand inner = brand ≫ name ≪ delimit ⊗ inner ≪ footer
+
+    itemNewtype :: δ () -> Prism (Language.TypeSource p, Language.TypeSource p) b -> δ (a, b)
+    itemNewtype brand wrap = secondP wrap ⊣ associate ⊣ item
+      where
+        item = redundent' "Kind annotation doesn't match definition" (annotation ⊗ definition)
+        annotation = brand ≫ name ⊗ binaryToken ":" ≫ typex ≪ footer'
+        definition = brand ≫ name ⊗ delimit ≫ typex ≪ footer
+
     itemTerm :: δ () -> Prism (Maybe (Language.TypeSchemeSource p), Language.TermControlSource p) b -> δ (a, b)
     itemTerm brand wrap = secondP wrap ⊣ associate ⊣ item
       where
-        item =
-          redundent "Type annotation doesn't match definition" declaration
+        item = redundent "Type annotation doesn't match definition" declaration
 
         declaration :: δ (Maybe (a, Language.TypeSchemeSource p), (a, Language.TermControlSource p))
         declaration = typed `branchDistribute` semiAutomatic `branchDistribute` auto ⊣ decleration'
@@ -614,6 +628,11 @@ instance Syntax Parser where
       (Nothing, (a, y)) -> pure ((a, Nothing), y)
       (Just (a, _), (a', _)) | a /= a' -> fail message
       (Just (a, x), (_, y)) | otherwise -> pure ((a, Just x), y)
+  redundent' message (Parser p) = Parser $ do
+    v <- p
+    case v of
+      ((a, _), (a', _)) | a /= a' -> fail message
+      ((a, x), (_, y)) | otherwise -> pure ((a, x), y)
 
 newtype Printer a = Printer (a -> Maybe (WriterT String (State Int) ()))
 
@@ -670,6 +689,7 @@ instance Syntax Printer where
   redundent _ (Printer f) = Printer $ \case
     ((a, Nothing), y) -> f (Nothing, (a, y))
     ((a, Just x), y) -> f (Just (a, x), (a, y))
+  redundent' _ (Printer f) = Printer $ \((a, x), y) -> f ((a, x), (a, y))
 
 instance Position Printer Internal where
   position = Printer $ \Internal -> Just $ pure ()

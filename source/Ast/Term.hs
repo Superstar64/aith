@@ -71,15 +71,17 @@ data TermSugar e
   | Do e e
   deriving (Show, Functor)
 
-data TermErasure λrgn_e e
+data TermErasure σauto λrgn_e e
   = Borrow e λrgn_e
   | IsolatePointer e
+  | Wrap σauto e
+  | Unwrap σauto e
   deriving (Show)
 
 data TermF ann θ σauto λrgn_e λσe λe λrun_e e
   = TermRuntime (TermRuntime θ σauto σauto σauto λrun_e e)
   | TermSugar (TermSugar e)
-  | TermErasure (TermErasure λrgn_e e)
+  | TermErasure (TermErasure σauto λrgn_e e)
   | Annotation ann
   | GlobalVariable TermGlobalIdentifier θ
   | FunctionLiteral λrun_e
@@ -183,6 +185,8 @@ traverseTermF y d z r k h m i e =
     FunctionLiteral λ -> pure FunctionLiteral <*> m λ
     TermErasure (Borrow e λ) -> TermErasure <$> (Borrow <$> i e <*> r λ)
     TermErasure (IsolatePointer e) -> TermErasure <$> (IsolatePointer <$> i e)
+    TermErasure (Wrap σ e) -> TermErasure <$> (Wrap <$> z σ <*> i e)
+    TermErasure (Unwrap σ e) -> TermErasure <$> (Unwrap <$> z σ <*> i e)
     InlineAbstraction λ -> pure InlineAbstraction <*> h λ
     InlineApplication e1 e2 σ -> pure InlineApplication <*> i e1 <*> i e2 <*> z σ
     Bind e λ -> pure Bind <*> i e <*> h λ
@@ -520,6 +524,16 @@ borrow = (termErasure .) $
 isolatePointer = (termErasure .) $
   Prism IsolatePointer $ \case
     IsolatePointer e -> Just e
+    _ -> Nothing
+
+wrap = (termErasure .) $
+  Prism (Wrap ()) $ \case
+    Wrap () e -> Just e
+    _ -> Nothing
+
+unwrap = (termErasure .) $
+  Prism (Unwrap ()) $ \case
+    Unwrap () e -> Just e
     _ -> Nothing
 
 termAutoSource = Prism TermAutoSource $ \case
@@ -1066,6 +1080,8 @@ sourceTerm (TermCore _ e) =
     FunctionLiteral λ -> FunctionLiteral (mapBound sourceTermRuntimePattern sourceTerm λ)
     TermErasure (Borrow e λ) -> TermErasure $ Borrow (sourceTerm e) (mapBound sourceTypePattern (mapBound sourceTermRuntimePattern sourceTerm) λ)
     TermErasure (IsolatePointer e) -> TermErasure $ IsolatePointer (sourceTerm e)
+    TermErasure (Wrap σ e) -> Annotation $ PretypeAnnotation (TermSource mempty $ TermErasure $ Wrap () (sourceTerm e)) (sourceType σ)
+    TermErasure (Unwrap σ e) -> TermErasure $ Unwrap () (sourceTermAnnotate PretypeAnnotation e σ)
     InlineAbstraction λ -> InlineAbstraction (mapBound sourceTermPattern sourceTerm λ)
     InlineApplication e e' σ -> InlineApplication (sourceTerm e) (sourceTermAnnotate TypeAnnotation e' σ) ()
     Bind e λ -> Bind (sourceTerm e) (mapBound sourceTermPattern sourceTerm λ)

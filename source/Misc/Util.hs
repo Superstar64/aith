@@ -36,6 +36,9 @@ data Mark = Temporary | Permanent deriving (Eq)
 -- dualed topological sort
 -- if there is an edge from node `a` to `b`
 -- then `b` will appear before `a`
+
+-- nodes my depend on items not in given list
+-- ie `topological [a,b]`, where `a` depends on `c`
 sortTopological ::
   (Monad m, Ord k) =>
   (n -> k) ->

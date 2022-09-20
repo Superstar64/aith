@@ -3,13 +3,26 @@ module Simple where
 import Ast.Common
 import Ast.Term hiding (convertTerm)
 import Ast.Type hiding (convertType)
-import Control.Monad.Trans.Reader (ReaderT, ask, runReader, withReaderT)
+import Control.Monad.Trans.Class (lift)
+import Control.Monad.Trans.Reader (Reader, ReaderT, ask, runReader, runReaderT, withReaderT)
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Void (absurd)
 import TypeCheck.Unify hiding (reconstruct)
 
-data SimpleType = SimpleType (KindRuntime KindSize SimpleType) deriving (Eq, Ord)
+newtype Simplify a = Simplify
+  { runSimplify' ::
+      ReaderT (Map TypeIdentifier TypeInfer) (Reader (Map TypeGlobalIdentifier TypeInfer)) a
+  }
+  deriving (Functor, Applicative, Monad)
+
+withSimplify :: (Map TypeIdentifier TypeInfer -> Map TypeIdentifier TypeInfer) -> Simplify a -> Simplify a
+withSimplify f (Simplify s) = Simplify $ withReaderT f s
+
+runSimplify :: Simplify a -> Map TypeIdentifier TypeInfer -> Map TypeGlobalIdentifier TypeInfer -> a
+runSimplify (Simplify s) = runReader . runReaderT s
+
+newtype SimpleType = SimpleType (KindRuntime KindSize SimpleType) deriving (Eq, Ord)
 
 data SimplePattern p = SimplePattern p (TermRuntimePatternF SimpleType (SimplePattern p))
 
@@ -56,20 +69,20 @@ convertKind :: TypeInfer -> SimpleType
 convertKind (TypeCore (Pretype κ _)) = convertKindImpl κ
 convertKind _ = simpleFailType
 
-reconstruct :: Monad m => TypeInfer -> ReaderT (Map TypeIdentifier TypeInfer) m TypeInfer
 reconstruct (TypeCore σ) = reconstructF index indexGlobal absurd todo checkRuntime reconstruct σ
   where
-    todo = error "todo fix when type variable are allowed inside runtime types"
+    todo = error "poly type in runtime types"
     index x = do
-      map <- ask
+      map <- Simplify ask
       pure $ map ! x
-    indexGlobal _ = error "global"
+    indexGlobal x = do
+      map <- Simplify $ lift ask
+      pure $ map ! x
     checkRuntime (TypeCore (Pretype κ _)) = pure κ
-    checkRuntime _ = error $ "reconstruction of pair didn't return pretype"
+    checkRuntime _ = error "reconstruction of pair didn't return pretype"
 
 convertType σ = convertKind <$> reconstruct σ
 
-convertTermPattern :: Monad m => TermRuntimePatternInfer p -> ReaderT (Map TypeIdentifier TypeInfer) m (SimplePattern p)
 convertTermPattern (TermRuntimePatternCore p (RuntimePatternVariable x σ)) = do
   σ' <- convertType σ
   pure $ SimplePattern p $ RuntimePatternVariable x σ'
@@ -79,7 +92,6 @@ convertTermPattern (TermRuntimePatternCore p (RuntimePatternTuple pms)) = do
 
 simpleFailPattern = error "illegal simple pattern"
 
-convertTerm :: Monad m => TermInfer p -> ReaderT (Map TypeIdentifier TypeInfer) m (SimpleTerm p)
 convertTerm (TermCore p (TermRuntime (Variable x _))) = pure $ SimpleTerm p (Variable x ())
 convertTerm (TermCore p (TermRuntime (Extern sym σ _ τ))) = do
   σ' <- convertType σ
@@ -151,10 +163,12 @@ convertTerm (TermCore p (TermRuntime (Loop e1 (Bound pm e2)))) = do
   pure $ SimpleTerm p $ Loop e1' (Bound pm' e2')
 convertTerm (TermCore p (TermErasure (Borrow ep (Bound (TypePattern α κ _) (Bound pm@(TermRuntimePatternCore _ (RuntimePatternVariable x _)) e))))) = do
   ep <- convertTerm ep
-  withReaderT (Map.insert α κ) $ do
+  withSimplify (Map.insert α κ) $ do
     pm <- convertTermPattern pm
     e <- convertTerm e
     pure $ SimpleTerm p $ Alias ep (Bound pm $ SimpleTerm p $ TupleIntroduction [e, SimpleTerm p $ Variable x ()])
+convertTerm (TermCore _ (TermErasure (Wrap _ e))) = convertTerm e
+convertTerm (TermCore _ (TermErasure (Unwrap _ e))) = convertTerm e
 convertTerm (TermCore _ (TermErasure (Borrow _ _))) = simpleFailTerm
 convertTerm (TermCore _ (TermErasure (IsolatePointer e))) = convertTerm e
 convertTerm (TermCore _ (PolyIntroduction _)) = simpleFailTerm
@@ -169,16 +183,14 @@ convertTerm (TermCore _ (GlobalVariable _ _)) = simpleFailTerm
 
 simpleFailTerm = error "illegal simple term"
 
-convertFunctionType :: Monad m => TypeSchemeInfer -> ReaderT (Map TypeIdentifier TypeInfer) m SimpleFunctionType
-convertFunctionType (TypeSchemeCore (TypeForall (Bound (TypePattern x κ _) σ))) = withReaderT (Map.insert x κ) $ convertFunctionType σ
+convertFunctionType (TypeSchemeCore (TypeForall (Bound (TypePattern x κ _) σ))) = withSimplify (Map.insert x κ) $ convertFunctionType σ
 convertFunctionType (TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ _ τ)))) = do
   σ' <- convertType σ
   τ' <- convertType τ
   pure $ SimpleFunctionType σ' τ'
 convertFunctionType _ = error "failed to convert function type"
 
-convertFunction :: Monad m => TermSchemeInfer p -> ReaderT (Map TypeIdentifier TypeInfer) m (SimpleFunction p)
-convertFunction (TermSchemeCore _ (TypeAbstraction (Bound (TypePattern x κ _) e))) = withReaderT (Map.insert x κ) $ convertFunction e
+convertFunction (TermSchemeCore _ (TypeAbstraction (Bound (TypePattern x κ _) e))) = withSimplify (Map.insert x κ) $ convertFunction e
 convertFunction (TermSchemeCore _ (MonoTerm (TermCore p (FunctionLiteral (Bound pm e))))) = do
   pm' <- convertTermPattern pm
   e' <- convertTerm e
@@ -188,9 +200,3 @@ convertFunction _ = error "failed to convert function"
 simplePatternType :: SimplePattern p -> SimpleType
 simplePatternType (SimplePattern _ (RuntimePatternVariable _ σ)) = σ
 simplePatternType (SimplePattern _ (RuntimePatternTuple pms)) = SimpleType $ StructRep $ map simplePatternType pms
-
-simpleFunction :: TermSchemeInfer p -> SimpleFunction p
-simpleFunction e = runReader (convertFunction e) Map.empty
-
-simpleFunctionType :: TypeSchemeInfer -> SimpleFunctionType
-simpleFunctionType σ = runReader (convertFunctionType σ) Map.empty

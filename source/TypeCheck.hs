@@ -262,7 +262,7 @@ kindCheck (TypeSource p σ) = case σ of
   TypeSub (TypeVariable x) -> do
     κ <- lookupKindEnvironment x
     case κ of
-      Just (TypeBinding _ κ _ _) -> pure (TypeCore $ TypeSub $ TypeVariable x, κ)
+      Just (TypeBinding _ κ _ _ _) -> pure (TypeCore $ TypeSub $ TypeVariable x, κ)
       Just (LinkTypeBinding σ) -> do
         κ <- reconstruct p (flexible σ)
         pure (TypeCore $ TypeSub $ TypeVariable x, runIdentity $ zonkType (error "unexpected logical") κ)
@@ -270,7 +270,7 @@ kindCheck (TypeSource p σ) = case σ of
   TypeSub (TypeGlobalVariable x) -> do
     κ <- lookupKindGlobalEnvironment x
     case κ of
-      Just (TypeBinding _ κ _ _) -> pure (TypeCore $ TypeSub $ TypeGlobalVariable x, κ)
+      Just (TypeBinding _ κ _ _ _) -> pure (TypeCore $ TypeSub $ TypeGlobalVariable x, κ)
       Just (LinkTypeBinding σ) -> do
         κ <- reconstruct p (flexible σ)
         pure (TypeCore $ TypeSub $ TypeGlobalVariable x, runIdentity $ zonkType (error "unexpected logical") κ)
@@ -439,6 +439,10 @@ typeCheck (TermSource p e) = case e of
         indexKindEnvironment x >>= \case
           LinkTypeBinding σ -> go e ς lΓ (flexible σ)
           _ -> quit $ ExpectedTypeAbstraction p
+      go e ς lΓ (TypeCore (TypeSub (TypeGlobalVariable x))) =
+        indexKindGlobalEnvironment x >>= \case
+          LinkTypeBinding σ -> go e ς lΓ (flexible σ)
+          _ -> quit $ ExpectedTypeAbstraction p
       go e ς lΓ (TypeCore (Poly ς')) = do
         (σ, θ) <- instantiate p ς'
         pure $ Checked (TermCore p $ PolyElimination e θ ς) σ lΓ
@@ -572,6 +576,41 @@ typeCheck (TermSource p e) = case e of
             (TermCore p $ TermErasure $ Borrow eu' (Bound (flexible $ toTypePattern pmσ') (Bound pm' e')))
             (TypeCore $ Effect μ π')
             (lΓ1 `combine` lΓ2)
+  Annotation (PretypeAnnotation (TermSource p (TermErasure (Wrap () e))) σ) -> do
+    (σ, _) <- kindCheck σ
+    go σ
+    where
+      go σ
+        | (TypeCore (TypeSub (TypeVariable x))) <- σ = indexKindEnvironment x >>= go'
+        | (TypeCore (TypeSub (TypeGlobalVariable x))) <- σ = indexKindGlobalEnvironment x >>= go'
+        where
+          go' (TypeBinding _ _ _ _ (Named τ)) = do
+            Checked e (τ', π) lΓ <- traverse (checkEffect p) =<< typeCheck e
+            matchType p (flexible τ) τ'
+            pure $ Checked (TermCore p (TermErasure (Wrap (flexible σ) e))) (TypeCore $ Effect (flexible σ) π) lΓ
+          go' (TypeBinding _ _ _ _ Unnamed) = quit $ ExpectedNewtype p σ
+          go' (LinkTypeBinding σ) = go σ
+      go σ = quit $ ExpectedNewtype p σ
+  TermErasure (Wrap _ _) -> do
+    quit $ ExpectedTypeAnnotation p
+  -- can't use typecheck plain, need to expect pretype annotation
+  TermErasure (Unwrap () (TermSource _ (Annotation (PretypeAnnotation e σ)))) -> do
+    (σ, _) <- kindCheck σ
+    go σ
+    where
+      go σ
+        | (TypeCore (TypeSub (TypeVariable x))) <- σ = indexKindEnvironment x >>= go'
+        | (TypeCore (TypeSub (TypeGlobalVariable x))) <- σ = indexKindGlobalEnvironment x >>= go'
+        where
+          go' (TypeBinding _ _ _ _ (Named τ)) = do
+            Checked e (σ', π) lΓ <- traverse (checkEffect p) =<< typeCheck e
+            matchType p (flexible σ) σ'
+            pure $ Checked (TermCore p (TermErasure (Unwrap (flexible σ) e))) (TypeCore $ Effect (flexible τ) π) lΓ
+          go' (TypeBinding _ _ _ _ Unnamed) = quit $ ExpectedNewtype p σ
+          go' (LinkTypeBinding σ) = go σ
+      go σ = quit $ ExpectedNewtype p σ
+  TermErasure (Unwrap _ (TermSource p _)) -> do
+    quit $ ExpectedTypeAnnotation p
   Annotation (TypeAnnotation e σ') -> do
     Checked e σ lΓ <- typeCheck e
     σ' <- fst <$> kindCheck σ'

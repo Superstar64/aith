@@ -57,6 +57,7 @@ data TypeError p
   | ExpectedSignedness p TypeInfer
   | ExpectedSubstitutability p TypeInfer
   | ExpectedMultiplicity p TypeInfer
+  | ExpectedNewtype p TypeInfer
   deriving (Show)
 
 newtype Core p a = Core {runCore'' :: ReaderT (CoreEnvironment p) (StateT (CoreState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
@@ -73,8 +74,13 @@ data TermBinding p = TermBinding
   }
   deriving (Show, Functor)
 
+data NominalBinding
+  = Unnamed
+  | Named TypeInfer
+  deriving (Show)
+
 data TypeBinding p
-  = TypeBinding p TypeInfer (Set TypeSub) Level
+  = TypeBinding p TypeInfer (Set TypeSub) Level NominalBinding
   | LinkTypeBinding TypeInfer
   deriving (Show, Functor)
 
@@ -148,13 +154,13 @@ indexKindGlobalEnvironment x = do
 lowerTypeBounds :: TypeSub -> Core p (Set TypeSub)
 lowerTypeBounds (TypeVariable x) = do
   indexKindEnvironment x >>= \case
-    TypeBinding _ _ π _ -> do
+    TypeBinding _ _ π _ _ -> do
       pure π
     LinkTypeBinding (TypeCore (TypeSub σ)) -> lowerTypeBounds σ
     LinkTypeBinding _ -> error "unexpected subtypable"
 lowerTypeBounds (TypeGlobalVariable x) = do
   indexKindGlobalEnvironment x >>= \case
-    TypeBinding _ _ π _ -> do
+    TypeBinding _ _ π _ _ -> do
       pure π
     LinkTypeBinding (TypeCore (TypeSub σ)) -> lowerTypeBounds σ
     LinkTypeBinding _ -> error "unexpected subtypable"
@@ -167,12 +173,12 @@ modifyKindEnvironment f (Core r) = Core $ withReaderT (\env -> env {kindEnvironm
 -- todo assertions to avoid shadowing
 augmentKindEnvironment p x κ π lev f = do
   πs <- Set.insert (TypeVariable x) <$> closure π
-  modifyKindEnvironment (Map.insert x (TypeBinding p κ πs lev)) f
+  modifyKindEnvironment (Map.insert x (TypeBinding p κ πs lev Unnamed)) f
   where
     closure :: Set TypeSub -> Core p (Set TypeSub)
     closure x = fold <$> traverse lowerTypeBounds (Set.toList x)
 
-augmentKindUnify occurs p x = modifyKindEnvironment (Map.insert x (TypeBinding p κ π (if occurs then minBound else maxBound)))
+augmentKindUnify occurs p x = modifyKindEnvironment (Map.insert x (TypeBinding p κ π (if occurs then minBound else maxBound) Unnamed))
   where
     κ = error "kind used during unification"
     π = error "bounds used during unification"
