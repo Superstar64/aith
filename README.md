@@ -353,6 +353,7 @@ The major modification is that scope type variables are used rather then schemat
   * [Uniqueness Typing Simplified](http://www.edsko.net/pubs/ifl07-paper.pdf)
   * [Modelling Unique and Affine Typing using Polymorphism](http://www.edsko.net/pubs/modelling-unique-and-affine.pdf)
 * [A taste of linear logic](https://homepages.inf.ed.ac.uk/wadler/papers/lineartaste/lineartaste-revised.pdf)
+* [Linearity and Uniqueness: An Entente Cordiale](https://granule-project.github.io/papers/esop22-paper.pdf)
 ### Type Inference (First Class Polymorphism)
 *
   * [HMF: Simple type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2007-118.pdf)
