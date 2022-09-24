@@ -1,6 +1,5 @@
 module Syntax where
 
-import Ast.Common (Internal (..), location)
 import qualified Ast.Common as Language
 import qualified Ast.Term as Language
 import qualified Ast.Type as Language
@@ -193,11 +192,11 @@ multiargExclusionary core = apply ⊣ keyword "multiarg" ≫ betweenParens (core
   where
     apply = branch (cons . secondP (cons . toPrism (inverse nonEmpty))) nil
 
-withInnerPosition1 core app = toPrism core . secondP app . toPrism (extractInfo $ location) . toPrism unit'
+withInnerPosition1 location core app = toPrism core . secondP app . toPrism (extractInfo $ location) . toPrism unit'
 
-withInnerPosition core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst)
+withInnerPosition location core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst)
 
-withInnerPosition3 core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst . fst) . toPrism associate'
+withInnerPosition3 location core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst . fst) . toPrism associate'
 
 path = (Path.path . swapNonEmpty) ⊣ token "/" ≫ identifer ⊗ pathTail
   where
@@ -250,26 +249,26 @@ typex = typeLambda
         partial = binaryToken "->" ≫ unres ⊗ typeArrow
           where
             unres = Language.typeSource ⊣ position ⊗ (Language.unrestricted ⊣ always)
-        inline = withInnerPosition3 Language.typeSource Language.inline
+        inline = withInnerPosition3 Language.positionType Language.typeSource Language.inline
     typeEffect = effect `branchDistribute` unit' ⊣ typeUnique ⊗ (binaryKeyword "in" ≫ typeCore ⊕ always)
       where
-        effect = withInnerPosition Language.typeSource Language.effect
+        effect = withInnerPosition Language.positionType Language.typeSource Language.effect
     typeUnique = Language.typeSource ⊣ position ⊗ unique ∥ typePtr
       where
         unique = Language.unique ⊣ prefixKeyword "unique" ≫ typePtr
     typePtr = foldlP apply ⊣ typeInt ⊗ many (token "*" ⊕ token "[]" ⊕ binaryToken "@" ≫ typeInt)
       where
         apply = ptr `branchDistribute` arr `branchDistribute` shared
-        ptr = withInnerPosition1 Language.typeSource Language.pointer
-        arr = withInnerPosition1 Language.typeSource Language.array
-        shared = withInnerPosition Language.typeSource Language.shared
+        ptr = withInnerPosition1 Language.positionType Language.typeSource Language.pointer
+        arr = withInnerPosition1 Language.positionType Language.typeSource Language.array
+        shared = withInnerPosition Language.positionType Language.typeSource Language.shared
     typeInt = integers ∥# apply ⊣ kindWord ⊗ (space ≫ keyword "integer" ≫ typeParen ⊕ always)
       where
         apply = num `branchDistribute` unit'
-        num = withInnerPosition Language.typeSource Language.number
+        num = withInnerPosition Language.positionType Language.typeSource Language.number
     kindWord = (word `branchDistribute` unit') ⊣ typeCore ⊗ (space ≫ keyword "word" ⊕ always)
       where
-        word = withInnerPosition1 Language.typeSource Language.wordRep
+        word = withInnerPosition1 Language.positionType Language.typeSource Language.wordRep
 
 integers =
   Language.typeSource ⊣ position
@@ -345,13 +344,13 @@ wrapType :: Isomorph (Scheme p, Language.TypeSource p) (Language.TypeSchemeSourc
 wrapType =
   wrap Language.typeSchemeSource Language.typeForall
     . secondI
-      (assumeIsomorph (toPrism Language.typeSchemeSource . secondP Language.monoType) . extractInfo location)
+      (assumeIsomorph (toPrism Language.typeSchemeSource . secondP Language.monoType) . extractInfo Language.positionType)
 
 wrapTerm :: Isomorph (Scheme p, Language.TermSource p) (Language.TermSchemeSource p)
 wrapTerm =
   wrap Language.termSchemeSource Language.typeAbstraction
     . secondI
-      (assumeIsomorph (toPrism Language.termSchemeSource . secondP Language.monoTerm) . extractInfo location)
+      (assumeIsomorph (toPrism Language.termSchemeSource . secondP Language.monoTerm) . extractInfo Language.positionTerm)
 
 wrap c t =
   foldrP
@@ -362,7 +361,7 @@ wrap c t =
     )
     . firstI (inverse isoScheme)
 
-typeAnnotate op = just ⊣ binaryToken op ≫ typex ∥ nothing ⊣ always
+typeAnnotate op = Language.source ⊣ just ⊣ binaryToken op ≫ typex ∥ Language.source ⊣ nothing ⊣ always
 
 termRuntimePatternParen :: (Position δ p, Syntax δ) => δ (Language.TermRuntimePatternSource p)
 termRuntimePatternParen =
@@ -400,28 +399,29 @@ termStatement = Language.termSource ⊣ position ⊗ choice options ∥ apply �
         Language.ifx ⊣ prefixKeyword "if" ≫ termCore ⊗ lambdaBrace termStatement ≪ binaryKeyword "else" ⊗ lambdaBrace termStatement
       ]
     rotateBind = secondI Language.bound . associate . firstI swap
-    apply = withInnerPosition Language.termSource Language.dox `branchDistribute` unit'
+    apply = withInnerPosition Language.positionTerm Language.termSource Language.dox `branchDistribute` unit'
 
-term :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
+term :: forall δ p. (Position δ p, Syntax δ) => δ (Language.TermSource p)
 term = termLambda
   where
     termLambda = Language.termSource ⊣ position ⊗ lambda ∥ termAnnotate
       where
         lambda = Language.polyIntroduction ⊣ wrapTerm ⊣ scheme ≪ space ⊗ term
+    termAnnotate :: δ (Language.TermSource p)
     termAnnotate = apply ⊣ termOr ⊗ (binaryToken "::" ≫ typex ⊕ binaryToken ":" ≫ typex ⊕ always)
       where
         apply = preAnnotate `branchDistribute` annotate `branchDistribute` unit'
-        annotate = withInnerPosition Language.termSource Language.typeAnnotation
-        preAnnotate = withInnerPosition Language.termSource Language.preTypeAnnotation
+        annotate = withInnerPosition Language.positionTerm Language.termSource Language.typeAnnotation
+        preAnnotate = withInnerPosition Language.positionTerm Language.termSource Language.preTypeAnnotation
     termOr = foldlP apply ⊣ termAnd ⊗ many (binaryToken "|" ≫ termAnd)
       where
-        apply = withInnerPosition Language.termSource Language.or
+        apply = withInnerPosition Language.positionTerm Language.termSource Language.or
     termAnd = foldlP apply ⊣ termEqual ⊗ many (binaryToken "&" ≫ termEqual)
       where
-        apply = withInnerPosition Language.termSource Language.and
+        apply = withInnerPosition Language.positionTerm Language.termSource Language.and
     termEqual = apply ⊣ termAdd ⊗ operators
       where
-        i o = withInnerPosition Language.termSource (Language.relational o)
+        i o = withInnerPosition Language.positionTerm Language.termSource (Language.relational o)
         r op = binaryToken op ≫ termAdd
         b = branchDistribute
         apply = equal `b` notEqual `b` lessThenEqual `b` lessThen `b` greaterThenEqual `b` greaterThen `b` unit'
@@ -438,13 +438,13 @@ term = termLambda
     termAdd = foldlP applyAdd ⊣ termMul ⊗ many (binaryToken "+" ≫ termMul ⊕ binaryToken "-" ≫ termMul)
       where
         applyAdd = add `branchDistribute` sub
-        add = withInnerPosition Language.termSource (Language.arithmatic Language.Addition)
-        sub = withInnerPosition Language.termSource (Language.arithmatic Language.Subtraction)
+        add = withInnerPosition Language.positionTerm Language.termSource (Language.arithmatic Language.Addition)
+        sub = withInnerPosition Language.positionTerm Language.termSource (Language.arithmatic Language.Subtraction)
     termMul = foldlP applyMul ⊣ termDeref ⊗ many (binaryToken "*" ≫ termDeref ⊕ binaryToken "/" ≫ termDeref)
       where
         applyMul = mul `branchDistribute` div
-        mul = withInnerPosition Language.termSource (Language.arithmatic Language.Multiplication)
-        div = withInnerPosition Language.termSource (Language.arithmatic Language.Division)
+        mul = withInnerPosition Language.positionTerm Language.termSource (Language.arithmatic Language.Multiplication)
+        div = withInnerPosition Language.positionTerm Language.termSource (Language.arithmatic Language.Division)
     termDeref = Language.termSource ⊣ position ⊗ deref ∥ termPrefix
       where
         apply = branchDistribute (Language.writeReference) (Language.readReference . toPrism unit')
@@ -464,14 +464,14 @@ term = termLambda
     termApply = foldlP applyBinary ⊣ termCore ⊗ many (applySyntax ⊕ rtApplySyntax)
       where
         applyBinary = application `branchDistribute` rtApplication
-        application = withInnerPosition Language.termSource Language.inlineApplication
-        rtApplication = withInnerPosition Language.termSource Language.functionApplication
+        application = withInnerPosition Language.positionTerm Language.termSource Language.inlineApplication
+        rtApplication = withInnerPosition Language.positionTerm Language.termSource Language.functionApplication
         applySyntax = space ≫ token "`" ≫ termCore
         rtApplySyntax = space ≫ termParen
 
 termLambda = lambda' termStatement term
 
-termCore :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
+termCore :: forall δ p. (Position δ p, Syntax δ) => δ (Language.TermSource p)
 termCore = Language.termSource ⊣ position ⊗ choice options ∥ termParen
   where
     options =
@@ -567,12 +567,6 @@ itemSingleton ::
   (Syntax δ, Position δ p) => δ (Module.Item (Module.GlobalSource p))
 itemSingleton = unit ⊣ item always (token "::" ≫ line) always (token ";" ≫ line) id
 
-withSourcePos :: g (f SourcePos) -> g (f SourcePos)
-withSourcePos = id
-
-withInternal :: g (f Internal) -> g (f Internal)
-withInternal = id
-
 newtype Parser a = Parser (Parsec Void String a) deriving (Functor, Applicative, Monad, Alternative, MonadPlus)
 
 parseTest (Parser p) = Megaparsec.parseTest p
@@ -652,8 +646,8 @@ instance SyntaxBase Printer where
 instance Position Parser SourcePos where
   position = Parser $ Megaparsec.getSourcePos
 
-instance Position Parser Internal where
-  position = Parser $ pure Internal
+instance Position Parser () where
+  position = Parser $ pure ()
 
 instance Syntax Printer where
   token op = Printer $ \() -> Just $ tell op
@@ -691,5 +685,5 @@ instance Syntax Printer where
     ((a, Just x), y) -> f (Just (a, x), (a, y))
   redundent' _ (Printer f) = Printer $ \((a, x), y) -> f ((a, x), (a, y))
 
-instance Position Printer Internal where
-  position = Printer $ \Internal -> Just $ pure ()
+instance Position Printer () where
+  position = Printer $ \() -> Just $ pure ()

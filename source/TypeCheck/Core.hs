@@ -1,5 +1,3 @@
-{-# LANGUAGE UndecidableInstances #-}
-
 module TypeCheck.Core where
 
 import Ast.Term
@@ -60,12 +58,12 @@ data TypeError p
   | ExpectedNewtype p TypeInfer
   deriving (Show)
 
-newtype Core p a = Core {runCore'' :: ReaderT (CoreEnvironment p) (StateT (CoreState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
+newtype Check p a = Check {runChecker'' :: ReaderT (CheckEnvironment p) (StateT (CheckState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
 
-runCore' c = runStateT . runReaderT (runCore'' c)
+runChecker' c = runStateT . runReaderT (runChecker'' c)
 
-runCore :: Core p a -> CoreEnvironment p -> CoreState p -> Either (TypeError p) a
-runCore c = (fmap fst .) . runCore' c
+runChecker :: Check p a -> CheckEnvironment p -> CheckState p -> Either (TypeError p) a
+runChecker c = (fmap fst .) . runChecker' c
 
 data TermBinding p = TermBinding
   { termPosition :: p,
@@ -84,7 +82,7 @@ data TypeBinding p
   | LinkTypeBinding TypeInfer
   deriving (Show, Functor)
 
-data CoreEnvironment p = CoreEnvironment
+data CheckEnvironment p = CheckEnvironment
   { typeEnvironment :: Map TermIdentifier (TermBinding p),
     kindEnvironment :: Map TypeIdentifier (TypeBinding p),
     typeGlobalEnvironment :: Map TermGlobalIdentifier (TermBinding p),
@@ -98,7 +96,7 @@ data TypeLogicalState p
   deriving (Show, Functor)
 
 -- todo use int maps here
-data CoreState p = CoreState
+data CheckState p = CheckState
   { typeLogicalMap :: Map TypeLogical (TypeLogicalState p),
     freshTypeCounter :: Int,
     levelCounter :: Int,
@@ -106,76 +104,76 @@ data CoreState p = CoreState
   }
   deriving (Functor, Show)
 
-quit e = Core $ lift $ lift $ Left e
+quit e = Check $ lift $ lift $ Left e
 
-emptyEnvironment = CoreEnvironment Map.empty Map.empty Map.empty Map.empty
+emptyEnvironment = CheckEnvironment Map.empty Map.empty Map.empty Map.empty
 
-askEnvironment = Core ask
+askEnvironment = Check ask
 
-withEnvironment f (Core r) = Core $ withReaderT f r
+withEnvironment f (Check r) = Check $ withReaderT f r
 
-lookupTypeEnviroment :: TermIdentifier -> Core p (Maybe (TermBinding p))
+lookupTypeEnviroment :: TermIdentifier -> Check p (Maybe (TermBinding p))
 lookupTypeEnviroment x = do
-  xΓ <- Core ask
+  xΓ <- Check ask
   pure $ Map.lookup x (typeEnvironment xΓ)
 
-lookuptypeGlobalEnvironment :: TermGlobalIdentifier -> Core p (Maybe (TermBinding p))
+lookuptypeGlobalEnvironment :: TermGlobalIdentifier -> Check p (Maybe (TermBinding p))
 lookuptypeGlobalEnvironment x = do
-  xΓ <- Core ask
+  xΓ <- Check ask
   pure $ Map.lookup x (typeGlobalEnvironment xΓ)
 
-augmentTypeEnvironment :: TermIdentifier -> p -> TypeUnify -> TypeSchemeUnify -> Core p a -> Core p a
+augmentTypeEnvironment :: TermIdentifier -> p -> TypeUnify -> TypeSchemeUnify -> Check p a -> Check p a
 augmentTypeEnvironment x p l σ = modifyTypeEnvironment (Map.insert x (TermBinding p l σ))
   where
-    modifyTypeEnvironment f (Core r) = Core $ withReaderT (\env -> env {typeEnvironment = f (typeEnvironment env)}) r
+    modifyTypeEnvironment f (Check r) = Check $ withReaderT (\env -> env {typeEnvironment = f (typeEnvironment env)}) r
 
-lookupKindEnvironment :: TypeIdentifier -> Core p (Maybe (TypeBinding p))
+lookupKindEnvironment :: TypeIdentifier -> Check p (Maybe (TypeBinding p))
 lookupKindEnvironment x = do
-  xΓ <- Core ask
+  xΓ <- Check ask
   pure $ Map.lookup x (kindEnvironment xΓ)
 
 lookupKindGlobalEnvironment x = do
-  xΓ <- Core ask
+  xΓ <- Check ask
   pure $ Map.lookup x (kindGlobalEnvironment xΓ)
 
-indexKindEnvironment :: TypeIdentifier -> Core p (TypeBinding p)
+indexKindEnvironment :: TypeIdentifier -> Check p (TypeBinding p)
 indexKindEnvironment x = do
-  xΓ <- Core ask
+  xΓ <- Check ask
   if x `Map.notMember` kindEnvironment xΓ
     then error $ "Bad Type Variable " ++ show x
     else pure $ kindEnvironment xΓ ! x
 
 indexKindGlobalEnvironment x = do
-  xΓ <- Core ask
+  xΓ <- Check ask
   if x `Map.notMember` kindGlobalEnvironment xΓ
     then error $ "Bad Type Variable " ++ show x
     else pure $ kindGlobalEnvironment xΓ ! x
 
-lowerTypeBounds :: TypeSub -> Core p (Set TypeSub)
+lowerTypeBounds :: TypeSub -> Check p (Set TypeSub)
 lowerTypeBounds (TypeVariable x) = do
   indexKindEnvironment x >>= \case
     TypeBinding _ _ π _ _ -> do
       pure π
-    LinkTypeBinding (TypeCore (TypeSub σ)) -> lowerTypeBounds σ
+    LinkTypeBinding (TypeAst _ (TypeSub σ)) -> lowerTypeBounds σ
     LinkTypeBinding _ -> error "unexpected subtypable"
 lowerTypeBounds (TypeGlobalVariable x) = do
   indexKindGlobalEnvironment x >>= \case
     TypeBinding _ _ π _ _ -> do
       pure π
-    LinkTypeBinding (TypeCore (TypeSub σ)) -> lowerTypeBounds σ
+    LinkTypeBinding (TypeAst _ (TypeSub σ)) -> lowerTypeBounds σ
     LinkTypeBinding _ -> error "unexpected subtypable"
 lowerTypeBounds World = pure (Set.singleton World)
 lowerTypeBounds Linear = pure (Set.singleton Linear)
 lowerTypeBounds Unrestricted = pure (Set.fromList [Linear, Unrestricted])
 
-modifyKindEnvironment f (Core r) = Core $ withReaderT (\env -> env {kindEnvironment = f (kindEnvironment env)}) r
+modifyKindEnvironment f (Check r) = Check $ withReaderT (\env -> env {kindEnvironment = f (kindEnvironment env)}) r
 
 -- todo assertions to avoid shadowing
 augmentKindEnvironment p x κ π lev f = do
   πs <- Set.insert (TypeVariable x) <$> closure π
   modifyKindEnvironment (Map.insert x (TypeBinding p κ πs lev Unnamed)) f
   where
-    closure :: Set TypeSub -> Core p (Set TypeSub)
+    closure :: Set TypeSub -> Check p (Set TypeSub)
     closure x = fold <$> traverse lowerTypeBounds (Set.toList x)
 
 augmentKindUnify occurs p x = modifyKindEnvironment (Map.insert x (TypeBinding p κ π (if occurs then minBound else maxBound) Unnamed))
@@ -191,13 +189,13 @@ augmentTypePatternLevel (TypePatternIntermediate p x κ π) f = do
   leaveLevel
   pure f'
 
-emptyState = CoreState Map.empty 0 0 Set.empty
+emptyState = CheckState Map.empty 0 0 Set.empty
 
-getState = Core $ lift $ get
+getState = Check $ lift $ get
 
-putState state = Core $ lift $ put state
+putState state = Check $ lift $ put state
 
-modifyState f = Core $ lift $ modify f
+modifyState f = Check $ lift $ modify f
 
 getTypeLogicalMap = typeLogicalMap <$> getState
 
@@ -207,7 +205,7 @@ modifyTypeLogicalMap f = do
       { typeLogicalMap = f $ typeLogicalMap state
       }
 
-modifyLevelCounter :: (Int -> Int) -> Core p ()
+modifyLevelCounter :: (Int -> Int) -> Check p ()
 modifyLevelCounter f = do
   modifyState $ \state -> state {levelCounter = f $ levelCounter state}
 
@@ -218,7 +216,7 @@ leaveLevel = modifyLevelCounter (subtract 1)
 
 currentLevel = levelCounter <$> getState
 
-freshTypeVariableRaw :: p -> TypeUnify -> [TypeUnify] -> Maybe TypeSub -> Level -> Core p TypeLogical
+freshTypeVariableRaw :: p -> TypeUnify -> [TypeUnify] -> Maybe TypeSub -> Level -> Check p TypeLogical
 freshTypeVariableRaw p κ lower upper lev = do
   v <- TypeLogicalRaw <$> newFreshType
   insertTypeLogicalMap v
@@ -235,13 +233,13 @@ freshTypeVariableRaw p κ lower upper lev = do
 
 freshKindVariableRaw p μ lev = freshTypeVariableRaw p μ [] Nothing lev
 
-indexTypeLogicalMap :: TypeLogical -> Core p (TypeLogicalState p)
+indexTypeLogicalMap :: TypeLogical -> Check p (TypeLogicalState p)
 indexTypeLogicalMap x = do
   vars <- typeLogicalMap <$> getState
   if x `Map.notMember` vars
     then error $ "Bad Type Logical " ++ show x
     else pure $ vars ! x
 
-useTypeVar :: TypeIdentifier -> Core p ()
+useTypeVar :: TypeIdentifier -> Check p ()
 useTypeVar (TypeIdentifier x) = do
   modifyState $ \state -> state {usedVars = Set.insert x $ usedVars state}

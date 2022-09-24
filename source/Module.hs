@@ -37,7 +37,7 @@ data ForwardF σ ς
   = ForwardNewtype σ
   | ForwardText ς
 
-data GlobalSource p = GlobalSource (GlobalF (TypeSource p) (TypeSchemeAuto p) (TermControlSource p)) deriving (Show)
+data GlobalSource p = GlobalSource (GlobalF (TypeSource p) (TypeSchemeAuto p) (TermControlSource p))
 
 data DeclareSource p
   = DefinitionSource (GlobalSource p)
@@ -56,24 +56,22 @@ data ModuleError p
   | Cycle p Path
   deriving (Show)
 
-instance Location GlobalSource where
-  location (GlobalSource (Inline _ (TermManualSource (TermSchemeSource p _)))) = p
-  location (GlobalSource (Inline _ (TermAutoSource (TermSource p _)))) = p
-  location (GlobalSource (Text _ (TermManualSource (TermSchemeSource p _)))) = p
-  location (GlobalSource (Text _ (TermAutoSource (TermSource p _)))) = p
-  location (GlobalSource (Synonym (TypeSource p _))) = p
-  location (GlobalSource (NewType _ (TypeSource p _))) = p
+positionGlobal (GlobalSource (Inline _ (TermManualSource (TermScheme p _)))) = p
+positionGlobal (GlobalSource (Inline _ (TermAutoSource (Term p _)))) = p
+positionGlobal (GlobalSource (Text _ (TermManualSource (TermScheme p _)))) = p
+positionGlobal (GlobalSource (Text _ (TermAutoSource (Term p _)))) = p
+positionGlobal (GlobalSource (Synonym (TypeAst p _))) = p
+positionGlobal (GlobalSource (NewType _ (TypeAst p _))) = p
 
-instance Location DeclareSource where
-  location (DefinitionSource global) = location global
-  location (DeclarationSource (ForwardNewtype (TypeSource p _))) = p
-  location (DeclarationSource (ForwardText (TypeSchemeSource p _))) = p
+mapGlobalPosition :: (p -> p') -> GlobalSource p -> GlobalSource p'
+mapGlobalPosition f (GlobalSource (Inline σ e)) = GlobalSource (Inline (fmap (mapTypePosition f) σ) (mapTermPosition f e))
+mapGlobalPosition f (GlobalSource (Text σ e)) = GlobalSource (Text (fmap (mapTypePosition f) σ) (mapTermPosition f e))
+mapGlobalPosition f (GlobalSource (Synonym σ)) = GlobalSource (Synonym (mapTypePosition f σ))
+mapGlobalPosition f (GlobalSource (NewType κ σ)) = GlobalSource (NewType (mapTypePosition f κ) (mapTypePosition f σ))
 
-instance Functor GlobalSource where
-  fmap f (GlobalSource (Inline ς e)) = GlobalSource $ Inline (fmap (fmap f) ς) (fmap f e)
-  fmap f (GlobalSource (Text ς e)) = GlobalSource $ Text (fmap (fmap f) ς) (fmap f e)
-  fmap f (GlobalSource (Synonym σ)) = GlobalSource $ Synonym (fmap f σ)
-  fmap f (GlobalSource (NewType σ τ)) = GlobalSource $ NewType (fmap f σ) (fmap f τ)
+positionDeclaration (DefinitionSource global) = positionGlobal global
+positionDeclaration (DeclarationSource (ForwardNewtype (TypeAst p _))) = p
+positionDeclaration (DeclarationSource (ForwardText (TypeScheme p _))) = p
 
 coreModule = Isomorph CoreModule $ \(CoreModule code) -> code
 
@@ -119,6 +117,7 @@ flatten = Map.fromList . go
           (Path path name, item) <- go code
           pure (Path (root : path) name, item)
 
+sourceGlobal :: GlobalInfer p -> GlobalSource ()
 sourceGlobal (GlobalInfer (Inline ς e)) = GlobalSource $ Inline (Just $ sourceTypeScheme ς) (TermManualSource $ sourceTermScheme e)
 sourceGlobal (GlobalInfer (Text ς e)) = GlobalSource $ Text (Just $ sourceTypeScheme ς) (TermManualSource $ sourceTermScheme e)
 sourceGlobal (GlobalInfer (Synonym σ)) = GlobalSource $ Synonym (sourceType σ)
@@ -134,10 +133,10 @@ cleanScheme i
     GlobalSource (Text (Just ς) (TermAutoSource e'))
   | otherwise = i
   where
-    matchSchemes (TypeSchemeSource _ (MonoType _)) (TermSchemeSource _ (MonoTerm e)) = Just e
+    matchSchemes (TypeScheme _ (MonoType _)) (TermScheme _ (MonoTerm e)) = Just e
     matchSchemes
-      (TypeSchemeSource _ (TypeForall (Bound (TypePatternSource _ x _ _) σ)))
-      (TermSchemeSource _ (TypeAbstraction (Bound (TypePatternSource _ x' _ _) e)))
+      (TypeScheme _ (TypeForall (Bound (TypePattern _ x _ _) σ)))
+      (TermScheme _ (TypeAbstraction (Bound (TypePattern _ x' _ _) e)))
         | x == x' =
           matchSchemes σ e
     matchSchemes _ _ = Nothing
@@ -160,7 +159,7 @@ order code = sortTopological view quit children globals
     globals = Map.toList $ DefinitionSource <$> flatten code
     view (path, DefinitionSource _) = (True, path)
     view (path, DeclarationSource _) = (False, path)
-    quit (path, global) = Left $ Cycle (location global) path
+    quit (path, global) = Left $ Cycle (positionDeclaration global) path
 
     children (path, global) = for (Map.toList $ depend global path) $ \(path, p) -> do
       global <- resolve p code path
@@ -203,8 +202,8 @@ order code = sortTopological view quit children globals
               Just ς -> extractGlobalType $ runVariables $ freeVariablesGlobalTypeSource ς
               Nothing -> Map.empty
             freeGlobalTVars = extractGlobalType $ runVariables $ freeVariablesGlobalTypeSource e
-            remove (TypeSchemeSource _ (MonoType _)) vars = vars
-            remove (TypeSchemeSource _ (TypeForall (Bound (TypePatternSource _ (TypeIdentifier x) _ _) σ))) vars =
+            remove (TypeScheme _ (MonoType _)) vars = vars
+            remove (TypeScheme _ (TypeForall (Bound (TypePattern _ (TypeIdentifier x) _ _) σ))) vars =
               Map.delete (Path heading x) $ remove σ vars
         freeType σ =
           Map.unionWith
@@ -244,8 +243,8 @@ mangle (Path path name) = Symbol $ (concat $ map (++ "_") $ extract <$> path) ++
     extract x = x
 
 convertFunctionLiteral ς = case ς of
-  TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ π τ))) -> polyEffect "R" (TypeCore $ FunctionPointer σ π τ)
-  TypeSchemeCore (TypeForall (Bound pm ς)) -> TypeSchemeCore $ TypeForall (Bound pm $ convertFunctionLiteral ς)
+  TypeScheme () (MonoType (TypeAst () (FunctionLiteralType σ π τ))) -> polyEffect "R" (TypeAst () $ FunctionPointer σ π τ)
+  TypeScheme () (TypeForall (Bound pm ς)) -> TypeScheme () $ TypeForall (Bound pm $ convertFunctionLiteral ς)
   _ -> error "not function literal"
 
 makeExtern ::
@@ -254,16 +253,16 @@ makeExtern ::
   TypeSchemeInfer ->
   TermSchemeInfer p
 makeExtern path p ς = case ς of
-  TypeSchemeCore (MonoType (TypeCore (FunctionLiteralType σ π τ))) ->
-    TermSchemeCore p $
+  TypeScheme () (MonoType (TypeAst () (FunctionLiteralType σ π τ))) ->
+    TermScheme p $
       TypeAbstraction
-        ( Bound (TypePattern (TypeIdentifier "R") (TypeCore Region) []) (TermSchemeCore p $ MonoTerm $ TermCore p (TermRuntime $ Extern (mangle path) σ π τ))
+        ( Bound (TypePattern () (TypeIdentifier "R") (TypeAst () Region) []) (TermScheme p $ MonoTerm $ Term p (TermRuntime $ Extern (mangle path) (Core σ) (Core π) (Core τ)))
         )
-  TypeSchemeCore (TypeForall (Bound (TypePattern x κ π) e)) ->
-    TermSchemeCore p (TypeAbstraction (Bound (TypePattern x κ π) $ makeExtern path p e))
+  TypeScheme () (TypeForall (Bound (TypePattern () x κ π) e)) ->
+    TermScheme p (TypeAbstraction (Bound (TypePattern () x κ π) $ makeExtern path p e))
   _ -> error "not function literal"
 
-bindMembers :: [String] -> CoreEnvironment p -> CoreEnvironment p
+bindMembers :: [String] -> CheckEnvironment p -> CheckEnvironment p
 bindMembers heading environment =
   environment
     { typeEnvironment = Map.foldrWithKey bind Map.empty (typeGlobalEnvironment environment),
@@ -284,13 +283,13 @@ data Update e σ τ π
 typeCheckModule ::
   [(Path, DeclareSource p)] ->
   StateT
-    (CoreEnvironment p)
+    (CheckEnvironment p)
     (Either (TypeError p))
     [(Path, DeclareInfer p)]
 typeCheckModule [] = pure []
 typeCheckModule ((path@(Path heading _), item) : nodes) = do
   environment <- bindMembers heading <$> get
-  let run f = lift $ runCore f environment emptyState
+  let run f = lift $ runChecker f environment emptyState
   (item', σ) <- case item of
     DefinitionSource (GlobalSource e) -> case e of
       Inline Nothing (TermAutoSource e) -> do
@@ -320,27 +319,27 @@ typeCheckModule ((path@(Path heading _), item) : nodes) = do
       Synonym σ -> do
         (σ, _) <- run (kindCheck σ)
         pure (DefinitionInfer $ GlobalInfer $ Synonym σ, UpdateSym σ)
-      NewType κ σ@(TypeSource p _) -> do
+      NewType κ σ@(TypeAst p _) -> do
         (κ', _) <- run (kindCheck κ)
         run (checkPretype' p κ')
         (σ, κ) <- run (kindCheck σ)
         run (matchType p (flexible κ) (flexible κ'))
         pure (DefinitionInfer $ GlobalInfer $ NewType κ σ, UpdateNewtype (κ, σ))
-    DeclarationSource (ForwardText ς@(TypeSchemeSource p _)) -> do
+    DeclarationSource (ForwardText ς@(TypeScheme p _)) -> do
       (ς, _) <- run (kindCheckScheme SymbolMode ς)
       pure (DeclarationInfer p $ ForwardText ς, UpdateTerm $ convertFunctionLiteral $ flexible $ ς)
-    DeclarationSource (ForwardNewtype κ@(TypeSource p _)) -> do
+    DeclarationSource (ForwardNewtype κ@(TypeAst p _)) -> do
       (κ, _) <- run (kindCheck κ)
       run (checkPretype' p κ)
       pure (DeclarationInfer p $ ForwardNewtype κ, UpdateNewtype' κ)
-  let p = location item
+  let p = positionDeclaration item
   modify $ \environment -> case σ of
     UpdateTerm σ ->
       environment
         { typeGlobalEnvironment =
             Map.insert
               (TermGlobalIdentifier path)
-              (TermBinding p (TypeCore $ TypeSub Unrestricted) σ)
+              (TermBinding p (TypeAst () $ TypeSub Unrestricted) σ)
               $ typeGlobalEnvironment environment
         }
     UpdateSym σ ->
@@ -375,7 +374,6 @@ data Reducer p = Reducer
   { reducerTerms :: Map TermGlobalIdentifier (TermSchemeInfer p),
     reducerTypes :: Map TypeGlobalIdentifier TypeInfer
   }
-  deriving (Show)
 
 reduceModule ::
   Reducer p ->
@@ -390,7 +388,7 @@ reduceModule globals ((path@(Path heading _), item) : nodes) =
         let e' = reduce $ applyGlobalTypes $ applyGlobalTerms e
             σ' = applyGlobalTypes σ
          in (DefinitionInfer $ GlobalInfer $ Inline σ' e', UpdateTerm e')
-      DefinitionInfer (GlobalInfer (Text σ e@(TermSchemeCore p _))) ->
+      DefinitionInfer (GlobalInfer (Text σ e@(TermScheme p _))) ->
         let e' = reduce $ applyGlobalTypes $ applyGlobalTerms e
             σ' = applyGlobalTypes σ
          in (DefinitionInfer $ GlobalInfer $ Text σ' e', UpdateTerm (makeExtern path p σ'))
@@ -407,7 +405,7 @@ reduceModule globals ((path@(Path heading _), item) : nodes) =
       DeclarationInfer p (ForwardText σ) ->
         let σ' = applyGlobalTypes σ
          in (DeclarationInfer p $ ForwardText σ', UpdateTerm (makeExtern path p σ'))
-    self = TypeCore $ TypeSub $ TypeGlobalVariable $ TypeGlobalIdentifier path
+    self = TypeAst () $ TypeSub $ TypeGlobalVariable $ TypeGlobalIdentifier path
 
     globals' = case binding of
       UpdateTerm e ->

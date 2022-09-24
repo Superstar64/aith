@@ -1,6 +1,5 @@
 module Main where
 
-import Ast.Common
 import Ast.Term
 import Ast.Type hiding (Inline, kind, typex)
 import qualified C.Ast as C
@@ -29,15 +28,15 @@ import Prelude hiding (readFile, writeFile)
 import qualified Prelude
 
 nameTypeLogical :: Applicative m => TypeLogical -> m TypeInfer
-nameTypeLogical (TypeLogicalRaw i) = pure $ TypeCore $ TypeSub $ TypeVariable $ TypeIdentifier $ show i
+nameTypeLogical (TypeLogicalRaw i) = pure $ TypeAst () $ TypeSub $ TypeVariable $ TypeIdentifier $ show i
 
-nameType :: TypeUnify -> TypeSource Internal
+nameType :: TypeUnify -> TypeSource ()
 nameType = sourceType . runIdentity . zonkType nameTypeLogical
 
 prettyError :: TypeError [SourcePos] -> String
 prettyError (UnknownIdentifier p (TermIdentifier x)) = "Unknown identifer " ++ x ++ positions p
 prettyError (TypeMismatch p σ σ') = "Type mismatch between ``" ++ pretty typex (nameType σ) ++ "`` and ``" ++ pretty typex (nameType σ') ++ "``" ++ positions p
-prettyError (TypeMisrelation p σ σ') = "Unable to subtype ``" ++ pretty typex (nameType (TypeCore $ TypeSub σ')) ++ "`` >= ``" ++ pretty typex (nameType (TypeCore $ TypeSub σ)) ++ "``" ++ positions p
+prettyError (TypeMisrelation p σ σ') = "Unable to subtype ``" ++ pretty typex (nameType (TypeAst () $ TypeSub σ')) ++ "`` >= ``" ++ pretty typex (nameType (TypeAst () $ TypeSub σ)) ++ "``" ++ positions p
 prettyError e = show e
 
 quoted x = "\"" ++ x ++ "\""
@@ -79,7 +78,7 @@ load fileName = do
         Right x -> pure x
         Left e -> die $ errorBundlePretty e
 
-save :: String -> Item (GlobalSource Internal) -> IO ()
+save :: String -> Item (GlobalSource ()) -> IO ()
 save fileName item = writeFile fileName (pretty itemSingleton item)
 
 loadModule fileName = do
@@ -118,12 +117,12 @@ pickItem (CoreModule items) (first : remainder) = case Map.lookup first items of
   Just (Module code) -> pickItem code remainder
   _ -> die $ "unable to index module" ++ show first
 
-formatItem :: Module (GlobalSource Internal) -> [String] -> String -> IO ()
+formatItem :: Module (GlobalSource ()) -> [String] -> String -> IO ()
 formatItem code path file = do
   item <- pickItem code path
   save file item
 
-formatAll :: Module (GlobalSource Internal) -> [([String], String)] -> IO ()
+formatAll :: Module (GlobalSource ()) -> [([String], String)] -> IO ()
 formatAll code = traverse_ (uncurry $ formatItem code)
 
 compileModule :: Map TypeGlobalIdentifier TypeInfer -> Module (GlobalInfer p) -> [String] -> Dependency [C.Statement]
@@ -259,11 +258,13 @@ processCmd cmd t = case (findLoad t, findOutput t, working $ findWorking t, coun
     working [x] = Just x
     working _ = Nothing
 
+f x = x
+
 baseMain command = do
-  code <- fmap (fmap (: [])) <$> addAll (loadItem command) :: IO (Module (GlobalSource [SourcePos]))
-
-  formatAll (fmap (fmap (const Internal)) code) (prettyItem command)
-
+  code <- addAll (loadItem command)
+  code <- pure $ f code
+  code <- pure $ fmap (mapGlobalPosition (: [])) code
+  formatAll (fmap (mapGlobalPosition (const ())) code) (prettyItem command)
   code <- handleModuleError $ order code
   code <- handleTypeError $ evalStateT (typeCheckModule code) emptyEnvironment
 
@@ -279,8 +280,7 @@ baseMain command = do
     handleTypeError (Left e) = die $ prettyError e
     handleTypeError (Right e) = pure e
 
-main = do
-  args <- getArgs
+main' args = do
   let (flags, _, errors) = getOpt (ReturnInOrder Load) descriptions args
   case errors of
     [] -> case flags of
@@ -292,3 +292,5 @@ main = do
           cmd <- foldlM processCmd (CommandLine [] [] [] [] []) options
           baseMain cmd
     _ -> die $ intercalate "\n" errors
+
+main = getArgs >>= main'

@@ -88,8 +88,8 @@ data TypeF v λσ σ
   | Pretype σ σ
   | Boxed
   | KindRuntime (KindRuntime σ σ)
-  | KindSize (KindSize)
-  | KindSignedness (KindSignedness)
+  | KindSize KindSize
+  | KindSignedness KindSignedness
   | Representation
   | Size
   | Signedness
@@ -180,74 +180,60 @@ mapTypeF f h g = runIdentity . traverseTypeF (Identity . f) (Identity . h) (Iden
 
 foldTypeF f h g = getConst . traverseTypeF (Const . f) (Const . h) (Const . g)
 
-data TypeSchemeSource p
-  = TypeSchemeSource
+data Type p v
+  = TypeAst
       p
-      ( TypeSchemeF
-          (Bound (TypePatternSource p) (TypeSchemeSource p))
-          (TypeSource p)
-      )
-  deriving (Show)
-
-type TypeSchemeAuto p = Maybe (TypeSchemeSource p)
-
-data TypeScheme v
-  = TypeSchemeCore
-      ( TypeSchemeF
-          (Bound (TypePattern v) (TypeScheme v))
-          (Type v)
-      )
-  deriving (Show)
-
-type TypeSchemeUnify = TypeScheme TypeLogical
-
-type TypeSchemeInfer = TypeScheme Void
-
-data Instantiation v = InstantiationCore (InstantiationF (Type v) (Instantiation v)) deriving (Show)
-
-type InstantiationUnify = Instantiation TypeLogical
-
-type InstantiationInfer = Instantiation Void
-
-data TypeSource p
-  = TypeSource
-      p
-      ( TypeF
-          Void
-          (TypeSchemeSource p)
-          (TypeSource p)
-      )
-  deriving (Show)
-
-type TypeAuto p = Maybe (TypeSource p)
-
-data Type v
-  = TypeCore
       ( TypeF
           v
-          (TypeScheme v)
-          (Type v)
+          (TypeScheme p v)
+          (Type p v)
       )
   deriving (Show)
 
-type TypeUnify = Type TypeLogical
+type TypeAuto p = Maybe (Type p Void)
 
-type TypeInfer = Type Void
+type TypeSource p = Type p Void
 
-data TypePatternSource p = TypePatternSource p TypeIdentifier (TypeSource p) [TypeSource p]
-  deriving (Show, Functor)
+type TypeUnify = Type () TypeLogical
+
+type TypeInfer = Type () Void
+
+type TypeSchemeAuto p = Maybe (TypeScheme p Void)
+
+data TypeScheme p v
+  = TypeScheme
+      p
+      ( TypeSchemeF
+          (Bound (TypePattern p v) (TypeScheme p v))
+          (Type p v)
+      )
+  deriving (Show)
+
+type TypeSchemeSource p = TypeScheme p Void
+
+type TypeSchemeUnify = TypeScheme () TypeLogical
+
+type TypeSchemeInfer = TypeScheme () Void
+
+newtype Instantiation p v = Instantiation (InstantiationF (Type p v) (Instantiation p v)) deriving (Show)
+
+type InstantiationUnify = Instantiation () TypeLogical
+
+type InstantiationInfer = Instantiation () Void
+
+data TypePattern p v = TypePattern p TypeIdentifier (Type p v) [Type p v] deriving (Show)
 
 data TypePatternIntermediate p
   = TypePatternIntermediate p TypeIdentifier TypeInfer [TypeSub]
   deriving (Show)
 
-data TypePattern v = TypePattern TypeIdentifier (Type v) [Type v] deriving (Show)
+type TypePatternSource p = TypePattern p Void
 
-type TypePatternUnify = TypePattern TypeLogical
+type TypePatternUnify = TypePattern () TypeLogical
 
-type TypePatternInfer = TypePattern Void
+type TypePatternInfer = TypePattern () Void
 
-typeSchemeSource = Isomorph (uncurry TypeSchemeSource) $ \(TypeSchemeSource p σ) -> (p, σ)
+typeSchemeSource = Isomorph (uncurry TypeScheme) $ \(TypeScheme p σ) -> (p, σ)
 
 monoType = Prism MonoType $ \case
   (MonoType σ) -> Just σ
@@ -269,12 +255,12 @@ kindSignedness = Prism KindSignedness $ \case
   (KindSignedness κ) -> Just κ
   _ -> Nothing
 
-typeSource = Isomorph (uncurry TypeSource) $ \(TypeSource p σ) -> (p, σ)
+typeSource = Isomorph (uncurry TypeAst) $ \(TypeAst p σ) -> (p, σ)
 
 typePatternSource =
   Isomorph
-    (\(((p, x), κ), π) -> TypePatternSource p x κ π)
-    (\(TypePatternSource p x κ π) -> (((p, x), κ), π))
+    (\(((p, x), κ), π) -> TypePattern p x κ π)
+    (\(TypePattern p x κ π) -> (((p, x), κ), π))
 
 typeSub = Prism TypeSub $ \case
   (TypeSub σ) -> Just σ
@@ -481,36 +467,32 @@ opaque = (top .) $
     Opaque -> Just ()
     _ -> Nothing
 
-class FreeVariablesType u where
-  freeVariablesType :: u -> Set TypeIdentifier
-  freeVariablesGlobalType :: u -> Set TypeGlobalIdentifier
-  convertType :: TypeIdentifier -> TypeIdentifier -> u -> u
+class TypeAlgebra u where
+  freeVariablesType :: u p v -> Set TypeIdentifier
+  freeVariablesGlobalType :: u p v -> Set TypeGlobalIdentifier
+  convertType :: TypeIdentifier -> TypeIdentifier -> u p v -> u p v
+  freeVariablesTypeSource :: Semigroup p => u p v -> Variables TypeIdentifier p
+  freeVariablesGlobalTypeSource :: Semigroup p => u p v -> Variables TypeGlobalIdentifier p
+  substituteType :: Type p v -> TypeIdentifier -> u p v -> u p v
+  substituteGlobalType :: Type p v -> TypeGlobalIdentifier -> u p v -> u p v
 
-class FreeVariablesTypeSource u where
-  freeVariablesTypeSource :: Semigroup p => u p -> Variables TypeIdentifier p
-  freeVariablesGlobalTypeSource :: Semigroup p => u p -> Variables TypeGlobalIdentifier p
+  zonkType :: Applicative m => (v -> m (Type p v')) -> u p v -> m (u p v')
 
-class SubstituteType u where
-  substituteType :: Type v -> TypeIdentifier -> u v -> u v
-  substituteGlobalType :: Type v -> TypeGlobalIdentifier -> u v -> u v
+  joinType :: u p (Type p v) -> u p v
 
--- traverse and monadic bind
-class ZonkType u where
-  zonkType :: Applicative m => (v -> m (Type v')) -> u v -> m (u v')
+  traverseType :: Applicative m => (p -> m p') -> (v -> m v') -> u p v -> m (u p' v')
+
+zonkTypeDefault :: (TypeAlgebra u, Applicative m) => (v -> m (Type p v')) -> u p v -> m (u p v')
+zonkTypeDefault f σ = joinType <$> traverseType pure f σ
+
+joinTypeDefault :: TypeAlgebra u => u p (Type p v) -> u p v
+joinTypeDefault = runIdentity . zonkType pure
 
 class BindingsType u where
   bindingsType :: u -> Set TypeIdentifier
   renameType :: TypeIdentifier -> TypeIdentifier -> u -> u
 
-freeVariablesTypeDefaultSource = Map.keysSet . runVariables . freeVariablesTypeSource . (Internal <$)
-
-freeVariablesGlobalTypeDefaultSource = Map.keysSet . runVariables . freeVariablesGlobalTypeSource . (Internal <$)
-
-freeVariablesTypeDefaultTraversable = foldMap freeVariablesType
-
-freeVariablesTypeGlobalDefaultTraversable = foldMap freeVariablesGlobalType
-
-convertTypeDefaultTraversable ux x = fmap (convertType ux x)
+mapTypePosition f = runIdentity . traverseType (Identity . f) pure
 
 freeVariablesHigherType = freeVariablesHigher freeVariablesType freeVariablesType
 
@@ -559,220 +541,154 @@ avoidTypeConvert = avoidTypeConvert' convertType
 
 avoidTypeConvert' = Avoid bindingsType renameType Set.singleton
 
-toTypePattern (TypePatternIntermediate _ x κ π) = TypePattern x (flexible κ) (map (flexible . TypeCore . TypeSub) π)
+toTypePattern (TypePatternIntermediate _ x κ π) = TypePattern () x (flexible κ) (map (flexible . TypeAst () . TypeSub) π)
 
 instance Fresh TypeIdentifier where
   fresh c (TypeIdentifier x) = TypeIdentifier $ Util.fresh (Set.mapMonotonic runTypeIdentifier c) x
 
-instance Functor TypeSchemeSource where
-  fmap f (TypeSchemeSource p ς) =
-    TypeSchemeSource (f p) $
-      mapTypeSchemeF
-        (mapBound (fmap f) (fmap f))
-        (fmap f)
-        ς
-
-instance Functor TypeSource where
-  fmap f (TypeSource p σ) =
-    TypeSource (f p) $
-      mapTypeF
-        id
-        (fmap f)
-        (fmap f)
-        σ
-
-instance BindingsType (TypePatternSource p) where
-  bindingsType (TypePatternSource _ x _ _) = Set.singleton x
-  renameType ux x (TypePatternSource p x' κ π) | x == x' = TypePatternSource p ux κ π
+instance BindingsType (TypePattern p v) where
+  bindingsType (TypePattern _ x _ _) = Set.singleton x
+  renameType ux x (TypePattern p x' κ π) | x == x' = TypePattern p ux κ π
   renameType _ _ λ = λ
 
-instance BindingsType (TypePattern v) where
-  bindingsType (TypePattern x _ _) = Set.singleton x
-  renameType ux x (TypePattern x' κ π) | x == x' = TypePattern ux κ π
-  renameType _ _ λ = λ
-
-instance FreeVariablesType (TypeScheme v) where
-  freeVariablesType (TypeSchemeCore σ) = foldTypeSchemeF go' go σ
+instance TypeAlgebra TypeScheme where
+  freeVariablesType (TypeScheme _ σ) = foldTypeSchemeF go' go σ
     where
       go = freeVariablesType
       go' = freeVariablesSameType
-  freeVariablesGlobalType (TypeSchemeCore σ) = foldTypeSchemeF go' go σ
+  freeVariablesGlobalType (TypeScheme _ σ) = foldTypeSchemeF go' go σ
     where
       go = freeVariablesGlobalType
       go' = freeVariablesGlobalHigherType
-  convertType ux x (TypeSchemeCore σ) = TypeSchemeCore $ mapTypeSchemeF go' go σ
+  convertType ux x (TypeScheme p σ) = TypeScheme p $ mapTypeSchemeF go' go σ
     where
       go = convertType ux x
       go' = convertSameType ux x
-
-instance FreeVariablesTypeSource TypeSchemeSource where
-  freeVariablesTypeSource (TypeSchemeSource _ σ) = foldTypeSchemeF go' go σ
+  freeVariablesTypeSource (TypeScheme _ σ) = foldTypeSchemeF go' go σ
     where
       go = freeVariablesTypeSource
       go' = freeVariablesSameTypeSource
-  freeVariablesGlobalTypeSource (TypeSchemeSource _ σ) = foldTypeSchemeF go' go σ
+  freeVariablesGlobalTypeSource (TypeScheme _ σ) = foldTypeSchemeF go' go σ
     where
       go = freeVariablesGlobalTypeSource
       go' = freeVariablesGlobalHigherTypeSource
-
-instance FreeVariablesType (TypeSchemeSource p) where
-  freeVariablesType = freeVariablesTypeDefaultSource
-  freeVariablesGlobalType = freeVariablesGlobalTypeDefaultSource
-  convertType ux x (TypeSchemeSource p σ) = TypeSchemeSource p $ mapTypeSchemeF go' go σ
-    where
-      go = convertType ux x
-      go' = convertSameType ux x
-
-instance SubstituteType TypeScheme where
-  substituteType ux x (TypeSchemeCore σ) = TypeSchemeCore $ mapTypeSchemeF go' go σ
+  substituteType ux x (TypeScheme p σ) = TypeScheme p $ mapTypeSchemeF go' go σ
     where
       go = substituteType ux x
       go' = substituteSameType ux x
-  substituteGlobalType ux x (TypeSchemeCore σ) = TypeSchemeCore $ mapTypeSchemeF go' go σ
+  substituteGlobalType ux x (TypeScheme p σ) = TypeScheme p $ mapTypeSchemeF go' go σ
     where
       go = substituteGlobalType ux x
       go' = substituteGlobalSemiDependType ux x
+  zonkType f (TypeScheme p ς) =
+    TypeScheme p
+      <$> traverseTypeSchemeF
+        (traverseBound (zonkType f) (zonkType f))
+        (zonkType f)
+        ς
+  joinType = joinTypeDefault
+  traverseType fp fv (TypeScheme p ς) =
+    TypeScheme <$> fp p <*> traverseTypeSchemeF (traverseBound go go) go ς
+    where
+      go = traverseType fp fv
 
-instance FreeVariablesType (Type v) where
-  freeVariablesType (TypeCore (TypeSub (TypeVariable x))) = Set.singleton x
-  freeVariablesType (TypeCore σ) = foldTypeF mempty go go σ
+instance TypeAlgebra Type where
+  freeVariablesType (TypeAst _ (TypeSub (TypeVariable x))) = Set.singleton x
+  freeVariablesType (TypeAst _ σ) = foldTypeF mempty go go σ
     where
       go = freeVariablesType
-  freeVariablesGlobalType (TypeCore (TypeSub (TypeGlobalVariable x))) = Set.singleton x
-  freeVariablesGlobalType (TypeCore σ) = foldTypeF mempty go go σ
+  freeVariablesGlobalType (TypeAst _ (TypeSub (TypeGlobalVariable x))) = Set.singleton x
+  freeVariablesGlobalType (TypeAst _ σ) = foldTypeF mempty go go σ
     where
       go = freeVariablesGlobalType
-  convertType ux x (TypeCore (TypeSub (TypeVariable x'))) | x == x' = TypeCore $ TypeSub $ TypeVariable ux
-  convertType ux x (TypeCore σ) = TypeCore $ mapTypeF id go go σ
+  convertType ux x (TypeAst p (TypeSub (TypeVariable x'))) | x == x' = TypeAst p $ TypeSub $ TypeVariable ux
+  convertType ux x (TypeAst p σ) = TypeAst p $ mapTypeF id go go σ
     where
       go = convertType ux x
-
-instance FreeVariablesTypeSource TypeSource where
-  freeVariablesTypeSource (TypeSource p (TypeSub (TypeVariable x))) = Variables $ Map.singleton x p
-  freeVariablesTypeSource (TypeSource _ σ) = foldTypeF mempty go go σ
+  freeVariablesTypeSource (TypeAst p (TypeSub (TypeVariable x))) = Variables $ Map.singleton x p
+  freeVariablesTypeSource (TypeAst _ σ) = foldTypeF mempty go go σ
     where
       go = freeVariablesTypeSource
-  freeVariablesGlobalTypeSource (TypeSource p (TypeSub (TypeGlobalVariable x))) = Variables $ Map.singleton x p
-  freeVariablesGlobalTypeSource (TypeSource _ σ) = foldTypeF mempty go go σ
+  freeVariablesGlobalTypeSource (TypeAst p (TypeSub (TypeGlobalVariable x))) = Variables $ Map.singleton x p
+  freeVariablesGlobalTypeSource (TypeAst _ σ) = foldTypeF mempty go go σ
     where
       go = freeVariablesGlobalTypeSource
-
-instance FreeVariablesType (TypeSource p) where
-  freeVariablesType = freeVariablesTypeDefaultSource
-  freeVariablesGlobalType = freeVariablesGlobalTypeDefaultSource
-  convertType ux x (TypeSource p (TypeSub (TypeVariable x'))) | x == x' = TypeSource p $ TypeSub $ TypeVariable ux
-  convertType ux x (TypeSource p σ) = TypeSource p $ mapTypeF id go go σ
-    where
-      go = convertType ux x
-
-instance SubstituteType Type where
-  substituteType ux x (TypeCore (TypeSub (TypeVariable x'))) | x == x' = ux
-  substituteType ux x (TypeCore σ) = TypeCore $ mapTypeF id go go σ
+  substituteType ux x (TypeAst _ (TypeSub (TypeVariable x'))) | x == x' = ux
+  substituteType ux x (TypeAst p σ) = TypeAst p $ mapTypeF id go go σ
     where
       go = substituteType ux x
-  substituteGlobalType ux x (TypeCore (TypeSub (TypeGlobalVariable x'))) | x == x' = ux
-  substituteGlobalType ux x (TypeCore σ) = TypeCore $ mapTypeF id go go σ
+  substituteGlobalType ux x (TypeAst _ (TypeSub (TypeGlobalVariable x'))) | x == x' = ux
+  substituteGlobalType ux x (TypeAst p σ) = TypeAst p $ mapTypeF id go go σ
     where
       go = substituteGlobalType ux x
-
-instance FreeVariablesType (Instantiation v) where
-  freeVariablesType (InstantiationCore θ) = foldInstantiationF go go θ
-    where
-      go = freeVariablesType
-  freeVariablesGlobalType (InstantiationCore θ) = foldInstantiationF go go θ
-    where
-      go = freeVariablesGlobalType
-  convertType ux x (InstantiationCore θ) = InstantiationCore $ mapInstantiationF go go θ
-    where
-      go = convertType ux x
-
-instance SubstituteType (Instantiation) where
-  substituteType ux x (InstantiationCore θ) = InstantiationCore $ mapInstantiationF go go θ
-    where
-      go = substituteType ux x
-  substituteGlobalType ux x (InstantiationCore θ) = InstantiationCore $ mapInstantiationF go go θ
-    where
-      go = substituteGlobalType ux x
-
-instance FreeVariablesTypeSource TypePatternSource where
-  freeVariablesTypeSource (TypePatternSource _ _ κ π) = freeVariablesTypeSource κ <> foldMap freeVariablesTypeSource π
-  freeVariablesGlobalTypeSource (TypePatternSource _ _ κ π) = freeVariablesGlobalTypeSource κ <> foldMap freeVariablesGlobalTypeSource π
-
-instance FreeVariablesType (TypePattern v) where
-  freeVariablesType (TypePattern _ κ π) = freeVariablesType κ <> foldMap freeVariablesType π
-  freeVariablesGlobalType (TypePattern _ κ π) = freeVariablesGlobalType κ <> foldMap freeVariablesGlobalType π
-  convertType ux x (TypePattern x' κ π) = TypePattern x' (convertType ux x κ) (map (convertType ux x) π)
-
-instance FreeVariablesType (TypePatternSource p) where
-  freeVariablesType = freeVariablesTypeDefaultSource
-  freeVariablesGlobalType = freeVariablesGlobalTypeDefaultSource
-  convertType ux x (TypePatternSource p x' κ π) =
-    TypePatternSource p x' (convertType ux x κ) (map (convertType ux x) π)
-
-instance SubstituteType TypePattern where
-  substituteType ux x (TypePattern x' κ π) = TypePattern x' (substituteType ux x κ) (map (substituteType ux x) π)
-  substituteGlobalType ux x (TypePattern x' κ π) = TypePattern x' (substituteGlobalType ux x κ) (map (substituteGlobalType ux x) π)
-
-instance ZonkType Type where
-  zonkType f (TypeCore (TypeLogical v)) = f v
-  zonkType f (TypeCore σ) =
-    pure TypeCore
-      <*> traverseTypeF
+  zonkType f (TypeAst _ (TypeLogical v)) = f v
+  zonkType f (TypeAst p σ) =
+    TypeAst p
+      <$> traverseTypeF
         (error "handled manually")
         (zonkType f)
         (zonkType f)
         σ
+  joinType = joinTypeDefault
+  traverseType fp fv (TypeAst p σ) =
+    TypeAst <$> fp p <*> traverseTypeF fv go go σ
+    where
+      go = traverseType fp fv
 
-instance ZonkType TypeScheme where
-  zonkType f (TypeSchemeCore ς) =
-    pure TypeSchemeCore
-      <*> traverseTypeSchemeF
-        (traverseBound (zonkType f) (zonkType f))
-        (zonkType f)
-        ς
+instance TypeAlgebra Instantiation where
+  freeVariablesType (Instantiation θ) = foldInstantiationF go go θ
+    where
+      go = freeVariablesType
+  freeVariablesGlobalType (Instantiation θ) = foldInstantiationF go go θ
+    where
+      go = freeVariablesGlobalType
+  freeVariablesTypeSource (Instantiation θ) = foldInstantiationF go go θ
+    where
+      go = freeVariablesTypeSource
+  freeVariablesGlobalTypeSource (Instantiation θ) = foldInstantiationF go go θ
+    where
+      go = freeVariablesGlobalTypeSource
+  convertType ux x (Instantiation θ) = Instantiation $ mapInstantiationF go go θ
+    where
+      go = convertType ux x
+  substituteType ux x (Instantiation θ) = Instantiation $ mapInstantiationF go go θ
+    where
+      go = substituteType ux x
+  substituteGlobalType ux x (Instantiation θ) = Instantiation $ mapInstantiationF go go θ
+    where
+      go = substituteGlobalType ux x
+  zonkType f (Instantiation θ) =
+    Instantiation <$> traverseInstantiationF (zonkType f) (zonkType f) θ
+  joinType = joinTypeDefault
+  traverseType fp fv (Instantiation θ) =
+    Instantiation <$> traverseInstantiationF go go θ
+    where
+      go = traverseType fp fv
 
-instance ZonkType Instantiation where
-  zonkType f (InstantiationCore θ) =
-    pure InstantiationCore
-      <*> traverseInstantiationF (zonkType f) (zonkType f) θ
-
-instance ZonkType TypePattern where
-  zonkType f (TypePattern x κ π) =
-    pure TypePattern <*> pure x <*> zonkType f κ <*> traverse (zonkType f) π
-
-instance Location TypeSource where
-  location (TypeSource p _) = p
-
-instance Reduce (Instantiation v) where
-  reduce = id
-
-instance Reduce (TypePattern v) where
-  reduce = id
-
-instance Reduce (Type v) where
-  reduce = id
+instance TypeAlgebra TypePattern where
+  freeVariablesType (TypePattern _ _ κ π) = freeVariablesType κ <> foldMap freeVariablesType π
+  freeVariablesGlobalType (TypePattern _ _ κ π) = freeVariablesGlobalType κ <> foldMap freeVariablesGlobalType π
+  convertType ux x (TypePattern p x' κ π) = TypePattern p x' (convertType ux x κ) (map (convertType ux x) π)
+  freeVariablesTypeSource (TypePattern _ _ κ π) = freeVariablesTypeSource κ <> foldMap freeVariablesTypeSource π
+  freeVariablesGlobalTypeSource (TypePattern _ _ κ π) = freeVariablesGlobalTypeSource κ <> foldMap freeVariablesGlobalTypeSource π
+  substituteType ux x (TypePattern p x' κ π) = TypePattern p x' (substituteType ux x κ) (map (substituteType ux x) π)
+  substituteGlobalType ux x (TypePattern p x' κ π) = TypePattern p x' (substituteGlobalType ux x κ) (map (substituteGlobalType ux x) π)
+  zonkType f (TypePattern p x κ π) =
+    TypePattern p x <$> zonkType f κ <*> traverse (zonkType f) π
+  traverseType fp fv (TypePattern p x κ pm) =
+    TypePattern <$> fp p <*> pure x <*> go κ <*> traverse go pm
+    where
+      go = traverseType fp fv
+  joinType = joinTypeDefault
 
 freeTypeLogical = getConst . zonkType (Const . Set.singleton)
 
-sourceType :: Monoid p => Type Void -> TypeSource p
-sourceType (TypeCore σ) =
-  TypeSource mempty $
-    mapTypeF
-      id
-      sourceTypeScheme
-      sourceType
-      σ
-
-sourceTypeAuto = Just . sourceType
-
-sourceTypePattern (TypePattern x κ π) = TypePatternSource mempty x (sourceType κ) (map sourceType π)
-
-sourceTypeScheme :: Monoid p => TypeScheme Void -> TypeSchemeSource p
-sourceTypeScheme (TypeSchemeCore ς) =
-  TypeSchemeSource mempty $
-    mapTypeSchemeF
-      (mapBound sourceTypePattern sourceTypeScheme)
-      sourceType
-      ς
-
 flexible = runIdentity . zonkType absurd
+
+sourceTypeScheme :: TypeSchemeInfer -> TypeSchemeSource ()
+sourceTypeScheme = mapTypePosition (const ())
+
+sourceType :: TypeInfer -> TypeSource ()
+sourceType = mapTypePosition (const ())
+
+positionType (TypeAst p _) = p

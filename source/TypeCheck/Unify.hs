@@ -16,55 +16,55 @@ reconstructF indexVariable indexGlobalVariable indexLogical poly checkRuntime re
   TypeLogical v -> do
     indexLogical v
   Inline _ _ _ -> do
-    pure $ TypeCore $ Type
+    pure $ TypeAst () $ Type
   Poly ς -> do
     poly ς
   FunctionPointer _ _ _ -> do
-    pure $ TypeCore $ Pretype (TypeCore $ KindRuntime PointerRep) (TypeCore $ TypeSub Unrestricted)
+    pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime PointerRep) (TypeAst () $ TypeSub Unrestricted)
   FunctionLiteralType _ _ _ -> do
-    pure $ TypeCore $ Type
+    pure $ TypeAst () $ Type
   Tuple σs τ -> do
     σs <- traverse (checkRuntime <=< reconstruct) σs
-    pure $ TypeCore $ Pretype (TypeCore $ KindRuntime $ StructRep σs) τ
+    pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime $ StructRep σs) τ
   Step σ τ -> do
     κ <- checkRuntime =<< reconstruct σ
     μ <- checkRuntime =<< reconstruct τ
-    let union = TypeCore $ KindRuntime $ UnionRep $ [κ, μ]
-    let wrap = TypeCore $ KindRuntime $ StructRep $ [TypeCore $ KindRuntime $ WordRep $ TypeCore $ KindSize $ Byte, union]
-    pure (TypeCore $ Pretype wrap $ TypeCore $ TypeSub $ Linear)
-  Effect _ _ -> pure $ TypeCore $ Type
+    let union = TypeAst () $ KindRuntime $ UnionRep $ [κ, μ]
+    let wrap = TypeAst () $ KindRuntime $ StructRep $ [TypeAst () $ KindRuntime $ WordRep $ TypeAst () $ KindSize $ Byte, union]
+    pure (TypeAst () $ Pretype wrap $ TypeAst () $ TypeSub $ Linear)
+  Effect _ _ -> pure $ TypeAst () $ Type
   Unique _ ->
-    pure $ TypeCore $ Pretype (TypeCore $ KindRuntime $ PointerRep) (TypeCore $ TypeSub Linear)
+    pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime $ PointerRep) (TypeAst () $ TypeSub Linear)
   Shared _ _ ->
-    pure $ TypeCore $ Pretype (TypeCore $ KindRuntime $ PointerRep) (TypeCore $ TypeSub Unrestricted)
+    pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime $ PointerRep) (TypeAst () $ TypeSub Unrestricted)
   Number _ ρ -> do
-    pure $ TypeCore $ Pretype (TypeCore $ KindRuntime $ WordRep ρ) (TypeCore $ TypeSub Unrestricted)
-  Pointer _ -> pure $ TypeCore $ Boxed
-  Array _ -> pure $ TypeCore $ Boxed
-  Boolean -> pure $ TypeCore $ Pretype (TypeCore $ KindRuntime $ WordRep $ TypeCore $ KindSize $ Byte) (TypeCore $ TypeSub Unrestricted)
-  TypeSub World -> pure $ TypeCore $ Region
-  TypeSub Linear -> pure $ TypeCore $ Multiplicity
-  TypeSub Unrestricted -> pure $ TypeCore $ Multiplicity
-  Type -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Transparent)
-  Region -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Subtypable) (TypeCore $ Top Transparent)
-  Pretype _ _ -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Transparent)
-  Boxed -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Transparent)
-  Multiplicity -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Subtypable) (TypeCore $ Top Transparent)
-  KindRuntime _ -> pure $ TypeCore $ Representation
-  KindSize _ -> pure $ TypeCore $ Size
-  KindSignedness _ -> pure $ TypeCore $ Signedness
-  Representation -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Opaque)
-  Size -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Opaque)
-  Signedness -> pure $ TypeCore $ Top $ Kind (TypeCore $ Top Invariant) (TypeCore $ Top Opaque)
+    pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime $ WordRep ρ) (TypeAst () $ TypeSub Unrestricted)
+  Pointer _ -> pure $ TypeAst () $ Boxed
+  Array _ -> pure $ TypeAst () $ Boxed
+  Boolean -> pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime $ WordRep $ TypeAst () $ KindSize $ Byte) (TypeAst () $ TypeSub Unrestricted)
+  TypeSub World -> pure $ TypeAst () $ Region
+  TypeSub Linear -> pure $ TypeAst () $ Multiplicity
+  TypeSub Unrestricted -> pure $ TypeAst () $ Multiplicity
+  Type -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Invariant) (TypeAst () $ Top Transparent)
+  Region -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Subtypable) (TypeAst () $ Top Transparent)
+  Pretype _ _ -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Invariant) (TypeAst () $ Top Transparent)
+  Boxed -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Invariant) (TypeAst () $ Top Transparent)
+  Multiplicity -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Subtypable) (TypeAst () $ Top Transparent)
+  KindRuntime _ -> pure $ TypeAst () $ Representation
+  KindSize _ -> pure $ TypeAst () $ Size
+  KindSignedness _ -> pure $ TypeAst () $ Signedness
+  Representation -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Invariant) (TypeAst () $ Top Opaque)
+  Size -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Invariant) (TypeAst () $ Top Opaque)
+  Signedness -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Invariant) (TypeAst () $ Top Opaque)
   Top _ -> error "reconstruct top"
 
 -- also changes logic type variable levels and check for escaping skolem variables
-typeOccursCheck :: forall p. p -> TypeLogical -> Level -> TypeUnify -> Core p ()
+typeOccursCheck :: forall p. p -> TypeLogical -> Level -> TypeUnify -> Check p ()
 typeOccursCheck p x lev σ' = go σ'
   where
     recurse = go
-    go :: TypeUnify -> Core p ()
-    go (TypeCore σ) = do
+    go :: TypeUnify -> Check p ()
+    go (TypeAst () σ) = do
       case σ of
         TypeSub (TypeVariable x') -> do
           indexKindEnvironment x' >>= \case
@@ -147,32 +147,32 @@ typeOccursCheck p x lev σ' = go σ'
         Top Subtypable -> pure ()
         Top Transparent -> pure ()
         Top Opaque -> pure ()
-    occursPoly (TypeSchemeCore ς) = case ς of
+    occursPoly (TypeScheme () ς) = case ς of
       MonoType σ -> recurse σ
-      TypeForall (Bound (TypePattern x κ π) ς) -> do
+      TypeForall (Bound (TypePattern () x κ π) ς) -> do
         augmentKindUnify True p x $ occursPoly ς
         traverse recurse π
         recurse κ
         pure ()
 
-matchType :: p -> TypeUnify -> TypeUnify -> Core p ()
+matchType :: p -> TypeUnify -> TypeUnify -> Check p ()
 matchType p σ σ' = unify σ σ'
   where
-    reunifyBounds p (TypeCore (TypeLogical x)) =
+    reunifyBounds p (TypeAst () (TypeLogical x)) =
       indexTypeLogicalMap x >>= \case
         LinkTypeLogical σ -> reunifyBounds p σ
         UnboundTypeLogical p' κ lower upper lev -> do
           modifyState $ \state -> state {typeLogicalMap = Map.insert x (UnboundTypeLogical p' κ [] upper lev) $ typeLogicalMap state}
-          for lower $ \π -> lessThen p π (TypeCore (TypeLogical x))
+          for lower $ \π -> lessThen p π (TypeAst () (TypeLogical x))
           pure ()
     reunifyBounds _ _ = pure ()
-    unify (TypeCore (TypeLogical x)) (TypeCore (TypeLogical x')) | x == x' = pure ()
+    unify (TypeAst () (TypeLogical x)) (TypeAst () (TypeLogical x')) | x == x' = pure ()
     -- Big rule: Unifing a logic type variable does not avoid captures
     -- Rigid type variable scopes cannot shadow other rigid type variables
-    unify (TypeCore (TypeLogical x)) σ
-      | (TypeCore (TypeLogical x')) <- σ =
+    unify (TypeAst () (TypeLogical x)) σ
+      | (TypeAst () (TypeLogical x')) <- σ =
         indexTypeLogicalMap x' >>= \case
-          LinkTypeLogical σ -> unify (TypeCore $ TypeLogical x) σ
+          LinkTypeLogical σ -> unify (TypeAst () $ TypeLogical x) σ
           _ -> unifyVariable
       | otherwise = unifyVariable
       where
@@ -188,92 +188,92 @@ matchType p σ σ' = unify σ σ'
               -- and let induction take care of it
               reunifyBounds p σ
               for lower (\π -> lessThen p π σ)
-              for upper (\π -> lessThen p σ (TypeCore $ TypeSub π))
+              for upper (\π -> lessThen p σ (TypeAst () $ TypeSub π))
               pure ()
             (LinkTypeLogical σ') -> unify σ' σ
-    unify σ σ'@(TypeCore (TypeLogical _)) = unify σ' σ
-    unify (TypeCore (TypeSub σ)) (TypeCore (TypeSub σ')) | σ == σ' = pure ()
-    unify σ@(TypeCore (TypeSub (TypeVariable x))) σ' =
+    unify σ σ'@(TypeAst () (TypeLogical _)) = unify σ' σ
+    unify (TypeAst () (TypeSub σ)) (TypeAst () (TypeSub σ')) | σ == σ' = pure ()
+    unify σ@(TypeAst () (TypeSub (TypeVariable x))) σ' =
       indexKindEnvironment x >>= \case
         TypeBinding _ _ _ _ _ -> quit $ TypeMismatch p σ σ'
         LinkTypeBinding σ -> unify (flexible σ) σ'
-    unify σ@(TypeCore (TypeSub (TypeGlobalVariable x))) σ' =
+    unify σ@(TypeAst () (TypeSub (TypeGlobalVariable x))) σ' =
       indexKindGlobalEnvironment x >>= \case
         TypeBinding _ _ _ _ _ -> quit $ TypeMismatch p σ σ'
         LinkTypeBinding σ -> unify (flexible σ) σ'
-    unify σ σ'@(TypeCore (TypeSub (TypeVariable _))) = unify σ' σ
-    unify σ σ'@(TypeCore (TypeSub (TypeGlobalVariable _))) = unify σ' σ
-    unify (TypeCore (Inline σ π τ)) (TypeCore (Inline σ' π' τ')) = do
+    unify σ σ'@(TypeAst () (TypeSub (TypeVariable _))) = unify σ' σ
+    unify σ σ'@(TypeAst () (TypeSub (TypeGlobalVariable _))) = unify σ' σ
+    unify (TypeAst () (Inline σ π τ)) (TypeAst () (Inline σ' π' τ')) = do
       unify σ σ'
       unify π π'
       unify τ τ'
-    unify (TypeCore (Poly ς)) (TypeCore (Poly ς')) = unifyPoly ς ς'
-    unify (TypeCore (FunctionPointer σ π τ)) (TypeCore (FunctionPointer σ' π' τ')) = do
+    unify (TypeAst () (Poly ς)) (TypeAst () (Poly ς')) = unifyPoly ς ς'
+    unify (TypeAst () (FunctionPointer σ π τ)) (TypeAst () (FunctionPointer σ' π' τ')) = do
       unify σ σ'
       unify π π'
       unify τ τ'
-    unify (TypeCore (FunctionLiteralType σ π τ)) (TypeCore (FunctionLiteralType σ' π' τ')) = do
+    unify (TypeAst () (FunctionLiteralType σ π τ)) (TypeAst () (FunctionLiteralType σ' π' τ')) = do
       unify σ σ'
       unify π π'
       unify τ τ'
-    unify (TypeCore (Tuple σs τ)) (TypeCore (Tuple σs' τ')) | length σs == length σs' = do
+    unify (TypeAst () (Tuple σs τ)) (TypeAst () (Tuple σs' τ')) | length σs == length σs' = do
       sequence $ zipWith (unify) σs σs'
       unify τ τ'
       pure ()
-    unify (TypeCore (Effect σ π)) (TypeCore (Effect σ' π')) = do
+    unify (TypeAst () (Effect σ π)) (TypeAst () (Effect σ' π')) = do
       unify σ σ'
       unify π π'
-    unify (TypeCore (Unique σ)) (TypeCore (Unique σ')) = do
+    unify (TypeAst () (Unique σ)) (TypeAst () (Unique σ')) = do
       unify σ σ'
-    unify (TypeCore (Shared σ π)) (TypeCore (Shared σ' π')) = do
+    unify (TypeAst () (Shared σ π)) (TypeAst () (Shared σ' π')) = do
       unify σ σ'
       unify π π'
-    unify (TypeCore (Pointer σ)) (TypeCore (Pointer σ')) = do
+    unify (TypeAst () (Pointer σ)) (TypeAst () (Pointer σ')) = do
       unify σ σ'
-    unify (TypeCore (Array σ)) (TypeCore (Array σ')) = do
+    unify (TypeAst () (Array σ)) (TypeAst () (Array σ')) = do
       unify σ σ'
-    unify (TypeCore (Number ρ1 ρ2)) (TypeCore (Number ρ1' ρ2')) = do
+    unify (TypeAst () (Number ρ1 ρ2)) (TypeAst () (Number ρ1' ρ2')) = do
       unify ρ1 ρ1'
       unify ρ2 ρ2'
-    unify (TypeCore Boolean) (TypeCore Boolean) = pure ()
-    unify (TypeCore (Step σ τ)) (TypeCore (Step σ' τ')) = do
+    unify (TypeAst () Boolean) (TypeAst () Boolean) = pure ()
+    unify (TypeAst () (Step σ τ)) (TypeAst () (Step σ' τ')) = do
       unify σ σ'
       unify τ τ'
-    unify (TypeCore Type) (TypeCore Type) = pure ()
-    unify (TypeCore Region) (TypeCore Region) = pure ()
-    unify (TypeCore (Pretype κ τ)) (TypeCore (Pretype κ' τ')) = do
+    unify (TypeAst () Type) (TypeAst () Type) = pure ()
+    unify (TypeAst () Region) (TypeAst () Region) = pure ()
+    unify (TypeAst () (Pretype κ τ)) (TypeAst () (Pretype κ' τ')) = do
       unify κ κ'
       unify τ τ'
-    unify (TypeCore Boxed) (TypeCore Boxed) = pure ()
-    unify (TypeCore Multiplicity) (TypeCore Multiplicity) = pure ()
-    unify (TypeCore (KindRuntime PointerRep)) (TypeCore (KindRuntime PointerRep)) = pure ()
-    unify (TypeCore (KindRuntime (StructRep κs))) (TypeCore (KindRuntime (StructRep κs'))) | length κs == length κs' = do
+    unify (TypeAst () Boxed) (TypeAst () Boxed) = pure ()
+    unify (TypeAst () Multiplicity) (TypeAst () Multiplicity) = pure ()
+    unify (TypeAst () (KindRuntime PointerRep)) (TypeAst () (KindRuntime PointerRep)) = pure ()
+    unify (TypeAst () (KindRuntime (StructRep κs))) (TypeAst () (KindRuntime (StructRep κs'))) | length κs == length κs' = do
       sequence_ $ zipWith (unify) κs κs'
-    unify (TypeCore (KindRuntime (UnionRep κs))) (TypeCore (KindRuntime (UnionRep κs'))) | length κs == length κs' = do
+    unify (TypeAst () (KindRuntime (UnionRep κs))) (TypeAst () (KindRuntime (UnionRep κs'))) | length κs == length κs' = do
       sequence_ $ zipWith (unify) κs κs'
-    unify (TypeCore (KindRuntime (WordRep κ))) (TypeCore (KindRuntime (WordRep κ'))) = unify κ κ'
-    unify (TypeCore (KindSize Byte)) (TypeCore (KindSize Byte)) = pure ()
-    unify (TypeCore (KindSize Short)) (TypeCore (KindSize Short)) = pure ()
-    unify (TypeCore (KindSize Int)) (TypeCore (KindSize Int)) = pure ()
-    unify (TypeCore (KindSize Long)) (TypeCore (KindSize Long)) = pure ()
-    unify (TypeCore (KindSize Native)) (TypeCore (KindSize Native)) = pure ()
-    unify (TypeCore (KindSignedness Signed)) (TypeCore (KindSignedness Signed)) = pure ()
-    unify (TypeCore (KindSignedness Unsigned)) (TypeCore (KindSignedness Unsigned)) = pure ()
-    unify (TypeCore Representation) (TypeCore Representation) = pure ()
-    unify (TypeCore Size) (TypeCore Size) = pure ()
-    unify (TypeCore Signedness) (TypeCore Signedness) = pure ()
-    unify (TypeCore (Top (Kind σ τ))) (TypeCore (Top (Kind σ' τ'))) = do
+    unify (TypeAst () (KindRuntime (WordRep κ))) (TypeAst () (KindRuntime (WordRep κ'))) = unify κ κ'
+    unify (TypeAst () (KindSize Byte)) (TypeAst () (KindSize Byte)) = pure ()
+    unify (TypeAst () (KindSize Short)) (TypeAst () (KindSize Short)) = pure ()
+    unify (TypeAst () (KindSize Int)) (TypeAst () (KindSize Int)) = pure ()
+    unify (TypeAst () (KindSize Long)) (TypeAst () (KindSize Long)) = pure ()
+    unify (TypeAst () (KindSize Native)) (TypeAst () (KindSize Native)) = pure ()
+    unify (TypeAst () (KindSignedness Signed)) (TypeAst () (KindSignedness Signed)) = pure ()
+    unify (TypeAst () (KindSignedness Unsigned)) (TypeAst () (KindSignedness Unsigned)) = pure ()
+    unify (TypeAst () Representation) (TypeAst () Representation) = pure ()
+    unify (TypeAst () Size) (TypeAst () Size) = pure ()
+    unify (TypeAst () Signedness) (TypeAst () Signedness) = pure ()
+    unify (TypeAst () (Top (Kind σ τ))) (TypeAst () (Top (Kind σ' τ'))) = do
       unify σ σ'
       unify τ τ'
-    unify (TypeCore (Top Invariant)) (TypeCore (Top Invariant)) = pure ()
-    unify (TypeCore (Top Subtypable)) (TypeCore (Top Subtypable)) = pure ()
-    unify (TypeCore (Top Transparent)) (TypeCore (Top Transparent)) = pure ()
-    unify (TypeCore (Top Opaque)) (TypeCore (Top Opaque)) = pure ()
+    unify (TypeAst () (Top Invariant)) (TypeAst () (Top Invariant)) = pure ()
+    unify (TypeAst () (Top Subtypable)) (TypeAst () (Top Subtypable)) = pure ()
+    unify (TypeAst () (Top Transparent)) (TypeAst () (Top Transparent)) = pure ()
+    unify (TypeAst () (Top Opaque)) (TypeAst () (Top Opaque)) = pure ()
     unify σ σ' = quit $ TypeMismatch p σ σ'
 
     unifyPoly
-      (TypeSchemeCore (TypeForall (Bound (TypePattern α κ π) ς)))
-      (TypeSchemeCore (TypeForall (Bound (TypePattern α' κ' π') ς')))
+      (TypeScheme () (TypeForall (Bound (TypePattern () α κ π) ς)))
+      (TypeScheme () (TypeForall (Bound (TypePattern () α' κ' π') ς')))
         | length π == length π' = do
           unify κ κ'
           -- A logical variable inside of this forall may have been equated with a type that contains this forall's binding.
@@ -287,13 +287,13 @@ matchType p σ σ' = unify σ σ'
           sequence $ zipWith (unify) π π'
           pure ()
     unifyPoly
-      (TypeSchemeCore (MonoType σ))
-      (TypeSchemeCore (MonoType σ')) =
+      (TypeScheme () (MonoType σ))
+      (TypeScheme () (MonoType σ')) =
         unify σ σ'
-    unifyPoly ς ς' = quit $ TypeMismatch p (TypeCore $ Poly ς) (TypeCore $ Poly ς')
+    unifyPoly ς ς' = quit $ TypeMismatch p (TypeAst () $ Poly ς) (TypeAst () $ Poly ς')
 
-reachLogical x (TypeCore (TypeLogical x')) | x == x' = pure True
-reachLogical x (TypeCore (TypeLogical x')) =
+reachLogical x (TypeAst () (TypeLogical x')) | x == x' = pure True
+reachLogical x (TypeAst () (TypeLogical x')) =
   indexTypeLogicalMap x' >>= \case
     (UnboundTypeLogical _ _ lower _ _) -> do
       or <$> traverse (reachLogical x) lower
@@ -314,44 +314,44 @@ meet p π π' = do
   maximal p (π, π') (Set.toList $ Set.intersection lower1 lower2) (Set.toList $ Set.intersection lower1 lower2)
 
 -- type that is subtypable
-plainType :: p -> Type v -> Core p TypeSub
-plainType p (TypeCore (TypeSub σ@(TypeVariable x))) =
+plainType :: p -> Type () v -> Check p TypeSub
+plainType p (TypeAst () (TypeSub σ@(TypeVariable x))) =
   indexKindEnvironment x >>= \case
     TypeBinding _ _ _ _ _ -> pure σ
     LinkTypeBinding σ -> plainType p σ
-plainType _ (TypeCore (TypeSub σ)) = pure σ
+plainType _ (TypeAst () (TypeSub σ)) = pure σ
 plainType p _ = quit $ ExpectedPlainType p
 
-plainType' p σ@(TypeCore (TypeLogical x)) =
+plainType' p σ@(TypeAst () (TypeLogical x)) =
   indexTypeLogicalMap x >>= \case
     LinkTypeLogical σ -> plainType' p σ
     _ -> pure σ
-plainType' p σ = TypeCore <$> TypeSub <$> plainType p σ
+plainType' p σ = TypeAst () <$> TypeSub <$> plainType p σ
 
 -- todo switch to greater then
-lessThen :: p -> TypeUnify -> TypeUnify -> Core p ()
-lessThen p σ (TypeCore (TypeLogical x)) = do
+lessThen :: p -> TypeUnify -> TypeUnify -> Check p ()
+lessThen p σ (TypeAst () (TypeLogical x)) = do
   σ <- plainType' p σ
   indexTypeLogicalMap x >>= \case
     (LinkTypeLogical σ') -> lessThen p σ σ'
     (UnboundTypeLogical p' κ lower upper lev) ->
       reachLogical x σ >>= \case
-        True -> matchType p (TypeCore (TypeLogical x)) σ
+        True -> matchType p (TypeAst () (TypeLogical x)) σ
         False -> do
           -- todo occurance here maybe?
           modifyState $ \state -> state {typeLogicalMap = Map.insert x (UnboundTypeLogical p' κ (σ : lower) upper lev) $ typeLogicalMap state}
-          for upper $ \π -> lessThen p σ (TypeCore $ TypeSub $ π)
+          for upper $ \π -> lessThen p σ (TypeAst () $ TypeSub $ π)
           pure ()
-lessThen p (TypeCore (TypeLogical x)) σ' = do
+lessThen p (TypeAst () (TypeLogical x)) σ' = do
   σ' <- plainType p σ'
   indexTypeLogicalMap x >>= \case
-    (LinkTypeLogical σ) -> lessThen p σ (TypeCore $ TypeSub σ')
+    (LinkTypeLogical σ) -> lessThen p σ (TypeAst () $ TypeSub σ')
     (UnboundTypeLogical p' κ lower upper lev) -> do
       bound <- case upper of
         Nothing -> pure σ'
         Just σ'' -> meet p σ' σ''
       modifyState $ \state -> state {typeLogicalMap = Map.insert x (UnboundTypeLogical p' κ lower (Just bound) lev) $ typeLogicalMap state}
-      for lower $ \σ -> lessThen p σ (TypeCore $ TypeSub σ')
+      for lower $ \σ -> lessThen p σ (TypeAst () $ TypeSub σ')
       pure ()
 lessThen p σ σ' = do
   σ <- plainType p σ
@@ -361,18 +361,18 @@ lessThen p σ σ' = do
     then quit $ TypeMisrelation p σ σ'
     else pure ()
 
-kindIsMember :: forall p. p -> TypeUnify -> TypeUnify -> Core p ()
-kindIsMember p (TypeCore (Top _)) _ = quit $ NotTypable p
+kindIsMember :: forall p. p -> TypeUnify -> TypeUnify -> Check p ()
+kindIsMember p (TypeAst () (Top _)) _ = quit $ NotTypable p
 kindIsMember p σ κ = do
   κ' <- reconstruct p σ
   matchType p κ κ'
 
-reconstruct :: forall p. p -> TypeUnify -> Core p TypeUnify
-reconstruct p (TypeCore σ) = go σ
+reconstruct :: forall p. p -> TypeUnify -> Check p TypeUnify
+reconstruct p (TypeAst () σ) = go σ
   where
     go = reconstructF indexEnvironment indexGlobalEnvironment indexLogicalMap poly checkRuntime (reconstruct p)
-    poly (TypeSchemeCore (TypeForall _)) = pure $ TypeCore $ Type
-    poly (TypeSchemeCore (MonoType (TypeCore σ))) = go σ
+    poly (TypeScheme () (TypeForall _)) = pure $ TypeAst () $ Type
+    poly (TypeScheme () (MonoType (TypeAst () σ))) = go σ
 
     indexEnvironment x = indexKindEnvironment x >>= kind
       where
@@ -386,7 +386,7 @@ reconstruct p (TypeCore σ) = go σ
     index (UnboundTypeLogical _ x _ _ _) = pure x
     index (LinkTypeLogical σ) = reconstruct p σ
     checkRuntime κ = do
-      α <- (TypeCore . TypeLogical) <$> freshKindVariableRaw p (TypeCore Representation) maxBound
-      β <- (TypeCore . TypeLogical) <$> freshKindVariableRaw p (TypeCore Multiplicity) maxBound
-      matchType p κ (TypeCore $ Pretype α β)
+      α <- (TypeAst () . TypeLogical) <$> freshKindVariableRaw p (TypeAst () Representation) maxBound
+      β <- (TypeAst () . TypeLogical) <$> freshKindVariableRaw p (TypeAst () Multiplicity) maxBound
+      matchType p κ (TypeAst () $ Pretype α β)
       pure α

@@ -2,17 +2,44 @@ module Ast.Common where
 
 import Data.Functor.Const (Const (..))
 import Data.Functor.Identity (Identity (..), runIdentity)
+import Data.Bifunctor (Bifunctor(..))
+import Data.Bifoldable (Bifoldable(..))
+import Data.Bitraversable (Bitraversable(..))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Misc.Isomorph
 
-data Internal = Internal deriving (Show)
+newtype Source x y = Source { runSource :: x }
+  deriving Show
+
+source = Isomorph Source runSource
+
+instance Bifunctor Source where
+  bimap f _ (Source x) = Source (f x)
+
+instance Bifoldable Source where
+  bifoldMap f _ (Source x) = f x
+
+instance Bitraversable Source where
+  bitraverse f _ (Source x) = Source <$> f x
+
+newtype Core x y = Core { runCore :: y }
+  deriving Show
+
+instance Bifunctor Core where
+  bimap _ g (Core x) = Core (g x)
+
+instance Bifoldable Core where
+  bifoldMap _ g (Core x) = g x
+
+instance Bitraversable Core where
+  bitraverse _ g (Core x) = Core <$> g x
 
 data Bound pm e = Bound pm e deriving (Show)
 
-data Variables x p = Variables {runVariables :: Map x p} deriving (Show)
+newtype Variables x p = Variables {runVariables :: Map x p} deriving (Show)
 
 traverseBound ::
   Applicative m =>
@@ -28,21 +55,8 @@ foldBound f g = getConst . traverseBound (Const . f) (Const . g)
 
 bound = Isomorph (uncurry Bound) $ \(Bound pm e) -> (pm, e)
 
--- Applicative Order Reduction
--- see https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf
-
-class Reduce e where
-  reduce :: e -> e
-
 class Fresh i where
   fresh :: Set i -> i -> i
-
-instance Semigroup Internal where
-  Internal <> Internal = Internal
-
-instance Monoid Internal where
-  mempty = Internal
-  mappend = (<>)
 
 instance (Ord x, Semigroup p) => Semigroup (Variables x p) where
   Variables a <> Variables b = Variables $ Map.unionWith (<>) a b
@@ -50,9 +64,6 @@ instance (Ord x, Semigroup p) => Semigroup (Variables x p) where
 instance (Ord x, Semigroup p) => Monoid (Variables x p) where
   mappend = (<>)
   mempty = Variables $ Map.empty
-
-instance (Reduce pm, Reduce e) => Reduce (Bound pm e) where
-  reduce (Bound pm e) = Bound (reduce pm) (reduce e)
 
 skip _ _ = False
 
@@ -177,6 +188,3 @@ avoidCapture (Avoid bindings rename freeVariables convert) ux λ@(Bound pm _) = 
         x' = fresh disallowed x
     replacing = Set.toList $ bindings pm
     disallowed = freeVariables ux
-
-class Location f where
-  location :: f a -> a
