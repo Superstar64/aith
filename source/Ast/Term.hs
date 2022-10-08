@@ -1,3 +1,5 @@
+{-# LANGUAGE LambdaCase #-}
+
 module Ast.Term where
 
 import Ast.Common
@@ -93,11 +95,6 @@ data TermF ann θ σauto λrgn_e λσe λe λrun_e e
   | Bind e λe
   | PolyIntroduction λσe
   | PolyElimination e θ σauto
-  deriving (Show)
-
-data TermSchemeF λσe e
-  = MonoTerm e
-  | TypeAbstraction λσe
   deriving (Show)
 
 traverseTermPatternF ::
@@ -200,20 +197,6 @@ foldTermF d j z f r h m i = getConst . traverseTermF (Const . d) (Const . j) (Co
 
 mapTermF d j z f r h m i = runIdentity . traverseTermF (Identity . d) (Identity . j) (Identity . z) (Identity . f) (Identity . r) (Identity . h) (Identity . m) (Identity . i)
 
-traverseTermSchemeF ::
-  Applicative m =>
-  (λσe -> m λσe') ->
-  (e -> m e') ->
-  TermSchemeF λσe e ->
-  m (TermSchemeF λσe' e')
-traverseTermSchemeF g i e = case e of
-  MonoTerm e -> MonoTerm <$> i e
-  TypeAbstraction λ -> TypeAbstraction <$> g λ
-
-mapTermSchemeF h i = runIdentity . traverseTermSchemeF (Identity . h) (Identity . i)
-
-foldTermSchemeF h i = getConst . traverseTermSchemeF (Const . h) (Const . i)
-
 data Term p phase p' v
   = Term
       p
@@ -234,13 +217,11 @@ type TermUnify p = Term p Core () TypeLogical
 
 type TermInfer p = Term p Core () Void
 
-data TermScheme p phase p' v
-  = TermScheme
-      p
-      ( TermSchemeF
-          (Bound (TypePattern p' v) (TermScheme p phase p' v))
-          (Term p phase p' v)
-      )
+data TermScheme p phase p' v = TermScheme p (TermSchemeF p phase p' v)
+
+data TermSchemeF p phase p' v
+  = MonoTerm (Term p phase p' v)
+  | TypeAbstraction (Bound (TypePattern p' v) (TermScheme p phase p' v))
 
 type TermSchemeSource p = TermScheme p Source p Void
 
@@ -689,48 +670,37 @@ instance TermAlgebra Term where
       reduce $ Term p $ PolyElimination (Term p $ PolyIntroduction $ applyType λ σ) (Core θ) σ'
     where
       applyType (Bound (TypePattern _ α _ _) e) σ = substituteType σ α e
-  reduce (Term p (TermSugar e)) = desugar p (fmap reduce e)
+  reduce (Term p (TermSugar e)) = reduce (desugar p e)
   reduce (Term p e) = Term p (mapTermF (bimap go absurd) id id (mapBound id (mapBound id go)) go (mapBound id go) (mapBound id go) go e)
     where
       go = reduce
 
 instance TraverseTerm TermScheme where
-  traverseTerm fp fp' fv (TermScheme p e) =
-    TermScheme <$> fp p <*> traverseTermSchemeF (traverseBound go' go) go e
+  traverseTerm fp fp' fv (TermScheme p e)
+    | MonoTerm e <- e = TermScheme <$> fp p <*> (MonoTerm <$> go e)
+    | TypeAbstraction λ <- e = TermScheme <$> fp p <*> (TypeAbstraction <$> traverseBound go' go λ)
     where
       go = traverseTerm fp fp' fv
       go' = traverseType fp' fv
 
 instance TermAlgebra TermScheme where
-  freeVariablesTerm (TermScheme _ e) = foldTermSchemeF go' go e
-    where
-      go = freeVariablesTerm
-      go' = freeVariablesLowerTerm
-  freeVariablesGlobalTerm (TermScheme _ e) = foldTermSchemeF go' go e
-    where
-      go = freeVariablesGlobalTerm
-      go' = freeVariablesLowerGlobalTerm
-  convertTerm ux x (TermScheme p e) = TermScheme p $ mapTermSchemeF go' go e
-    where
-      go = convertTerm ux x
-      go' = convertLowerTerm ux x
-  freeVariablesTermSource (TermScheme _ e) = foldTermSchemeF go' go e
-    where
-      go = freeVariablesTermSource
-      go' = freeVariablesLowerTermSource
-  freeVariablesGlobalTermSource (TermScheme _ e) = foldTermSchemeF go' go e
-    where
-      go = freeVariablesGlobalTermSource
-      go' = freeVariablesLowerGlobalTermSource
-  substituteTerm ux x (TermScheme p e) = TermScheme p $ mapTermSchemeF go' go e
-    where
-      go = substituteTerm ux x
-      go' = substituteLowerTerm avoidType ux x
-  substituteGlobalTerm ux x (TermScheme p e) = TermScheme p $ mapTermSchemeF go' go e
-    where
-      go = substituteGlobalTerm ux x
-      go' = substituteLowerGlobalTerm' avoidType ux x
-  reduce (TermScheme p e) = TermScheme p $ mapTermSchemeF (mapBound id go) go e
+  freeVariablesTerm (TermScheme _ (MonoTerm e)) = freeVariablesTerm e
+  freeVariablesTerm (TermScheme _ (TypeAbstraction λ)) = freeVariablesLowerTerm λ
+  freeVariablesGlobalTerm (TermScheme _ (MonoTerm e)) = freeVariablesGlobalTerm e
+  freeVariablesGlobalTerm (TermScheme _ (TypeAbstraction λ)) = freeVariablesLowerGlobalTerm λ
+  freeVariablesTermSource (TermScheme _ (MonoTerm e)) = freeVariablesTermSource e
+  freeVariablesTermSource (TermScheme _ (TypeAbstraction λ)) = freeVariablesLowerTermSource λ
+  freeVariablesGlobalTermSource (TermScheme _ (MonoTerm e)) = freeVariablesGlobalTermSource e
+  freeVariablesGlobalTermSource (TermScheme _ (TypeAbstraction λ)) = freeVariablesLowerGlobalTermSource λ
+  convertTerm ux x (TermScheme p (MonoTerm e)) = TermScheme p $ MonoTerm (convertTerm ux x e)
+  convertTerm ux x (TermScheme p (TypeAbstraction λ)) = TermScheme p $ TypeAbstraction (convertLowerTerm ux x λ)
+  substituteTerm ux x (TermScheme p (MonoTerm e)) = TermScheme p $ MonoTerm (substituteTerm ux x e)
+  substituteTerm ux x (TermScheme p (TypeAbstraction λ)) = TermScheme p $ TypeAbstraction (substituteLowerTerm avoidType ux x λ)
+  substituteGlobalTerm ux x (TermScheme p (MonoTerm e)) = TermScheme p $ MonoTerm (substituteGlobalTerm ux x e)
+  substituteGlobalTerm ux x (TermScheme p (TypeAbstraction λ)) = TermScheme p $ TypeAbstraction (substituteLowerGlobalTerm' avoidType ux x λ)
+  reduce (TermScheme p e)
+    | MonoTerm e <- e = TermScheme p $ MonoTerm (go e)
+    | TypeAbstraction λ <- e = TermScheme p $ TypeAbstraction (mapBound id go λ)
     where
       go = reduce
 
@@ -844,40 +814,63 @@ instance Bitraversable phase => TypeAlgebra (Term p phase) where
   traverseType = traverseTerm pure
 
 instance Bitraversable phase => TypeAlgebra (TermScheme p phase) where
-  freeVariablesTypeSource (TermScheme _ e) = foldTermSchemeF go' go e
+  freeVariablesTypeSource (TermScheme _ e) = case e of
+    MonoTerm e -> go e
+    TypeAbstraction λ -> go' λ
     where
       go = freeVariablesTypeSource
       go' = freeVariablesSameTypeSource
-  freeVariablesGlobalTypeSource (TermScheme _ e) = foldTermSchemeF go' go e
+  freeVariablesGlobalTypeSource (TermScheme _ e) = case e of
+    MonoTerm e -> go e
+    TypeAbstraction λ -> go' λ
     where
       go = freeVariablesGlobalTypeSource
       go' = freeVariablesGlobalHigherTypeSource
-  freeVariablesType (TermScheme _ e) = foldTermSchemeF go' go e
+  freeVariablesType (TermScheme _ e) = case e of
+    MonoTerm e -> go e
+    TypeAbstraction λ -> go' λ
     where
       go = freeVariablesType
       go' = freeVariablesSameType
-  freeVariablesGlobalType (TermScheme _ e) = foldTermSchemeF go' go e
+  freeVariablesGlobalType (TermScheme _ e) = case e of
+    MonoTerm e -> go e
+    TypeAbstraction λ -> go' λ
     where
       go = freeVariablesGlobalType
       go' = freeVariablesGlobalHigherType
-  convertType ux x (TermScheme p e) = TermScheme p $ mapTermSchemeF go' go e
+  convertType ux x (TermScheme p e) =
+    TermScheme p $
+      ( case e of
+          MonoTerm e -> MonoTerm (go e)
+          TypeAbstraction λ -> TypeAbstraction (go' λ)
+      )
     where
       go = convertType ux x
       go' = convertSameType ux x
-  substituteType ux x (TermScheme p e) = TermScheme p $ mapTermSchemeF go' go e
+  substituteType ux x (TermScheme p e) =
+    TermScheme p $
+      ( case e of
+          MonoTerm e -> MonoTerm (go e)
+          TypeAbstraction λ -> TypeAbstraction (go' λ)
+      )
     where
       go = substituteType ux x
       go' = substituteSameType ux x
-  substituteGlobalType ux x (TermScheme p e) = TermScheme p $ mapTermSchemeF go' go e
+  substituteGlobalType ux x (TermScheme p e) =
+    TermScheme p $
+      ( case e of
+          MonoTerm e -> MonoTerm (go e)
+          TypeAbstraction λ -> TypeAbstraction (go' λ)
+      )
     where
       go = substituteGlobalType ux x
       go' = substituteGlobalSemiDependType ux x
   zonkType f (TermScheme p e) =
     TermScheme <$> pure p
-      <*> traverseTermSchemeF
-        (traverseBound (zonkType f) (zonkType f))
-        (zonkType f)
-        e
+      <*> ( case e of
+              MonoTerm e -> MonoTerm <$> zonkType f e
+              TypeAbstraction λ -> TypeAbstraction <$> traverseBound (zonkType f) (zonkType f) λ
+          )
   joinType = joinTypeDefault
   traverseType = traverseTerm pure
 
@@ -1007,10 +1000,10 @@ applyTerm (Bound (TermPattern _ (PatternVariable x _)) e@(Term p _)) ux =
 sourceTermScheme :: TermSchemeInfer p -> TermSchemeSource ()
 sourceTermScheme (TermScheme _ e) =
   TermScheme () $
-    mapTermSchemeF
-      (mapBound id sourceTermScheme)
-      sourceTerm
-      e
+    ( case e of
+        MonoTerm e -> MonoTerm (sourceTerm e)
+        TypeAbstraction λ -> TypeAbstraction (mapBound id sourceTermScheme λ)
+    )
 
 sourceTermAnnotate annotate e σ =
   Term () $
@@ -1069,3 +1062,13 @@ sourceTermRuntimePattern (TermRuntimePattern _ pm) =
     mapTermRuntimePatternF (Source . Just . runCore) sourceTermRuntimePattern pm
 
 positionTerm (Term p _) = p
+
+isImport :: TermControlSource p -> Bool
+isImport e
+  | (TermAutoSource e) <- e = isImportTerm e
+  | (TermManualSource e) <- e = isImportTermScheme e
+  where
+    isImportTerm (Term _ (GlobalVariable _ _)) = True
+    isImportTerm (Term _ _) = False
+    isImportTermScheme (TermScheme _ (MonoTerm e)) = isImportTerm e
+    isImportTermScheme (TermScheme _ (TypeAbstraction (Bound _ e))) = isImportTermScheme e

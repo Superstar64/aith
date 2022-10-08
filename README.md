@@ -157,7 +157,7 @@ Files start with `code` `::`.
 | Global Variable | `/x/x'/...` |
 | Inline Abstraction | `` \pm { e }`` |
 | Inline Abstraction | `` \pm => e`` |
-| Inline Application | ``e `e'``|
+| Inline Application | ``e !e'``|
 | Inline Binding | ``inline pm = e; e'``|
 | Extern | ``extern "sym"`` |
 | Function Application | ``e (e')``|
@@ -206,7 +206,6 @@ Files start with `code` `::`.
 |-|-|
 | Variable | ``x``|
 | Variable Abscribe | ``x : σ`` |
-| OfCourse | ``![pm]`` |
 
 ## Runtime Patterns(pm)
 | Description | Syntax |

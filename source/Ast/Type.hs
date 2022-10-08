@@ -20,16 +20,6 @@ newtype TypeGlobalIdentifier = TypeGlobalIdentifier {runTypeGlobalIdentifier :: 
 
 newtype TypeLogical = TypeLogicalRaw Int deriving (Eq, Ord, Show)
 
-data TypeSchemeF λσς σ
-  = MonoType σ
-  | TypeForall λσς
-  deriving (Show)
-
-data InstantiationF σ θ
-  = InstantiateType σ θ
-  | InstantiateEmpty
-  deriving (Show)
-
 data TypeSub
   = TypeVariable TypeIdentifier
   | TypeGlobalVariable TypeGlobalIdentifier
@@ -95,35 +85,6 @@ data TypeF v λσ σ
   | Signedness
   | Top (Top σ)
   deriving (Show)
-
-traverseTypeSchemeF ::
-  Applicative m =>
-  (λσς -> m λσς') ->
-  (σ -> m σ') ->
-  TypeSchemeF λσς σ ->
-  m (TypeSchemeF λσς' σ')
-traverseTypeSchemeF g h σ =
-  case σ of
-    MonoType σ -> pure MonoType <*> h σ
-    TypeForall λ -> pure TypeForall <*> g λ
-
-mapTypeSchemeF g h = runIdentity . traverseTypeSchemeF (Identity . g) (Identity . h)
-
-foldTypeSchemeF g h = getConst . traverseTypeSchemeF (Const . g) (Const . h)
-
-traverseInstantiationF ::
-  Applicative m =>
-  (σ -> m σ') ->
-  (θ -> m θ') ->
-  (InstantiationF σ θ) ->
-  m (InstantiationF σ' θ')
-traverseInstantiationF f h θ = case θ of
-  InstantiateEmpty -> pure InstantiateEmpty
-  InstantiateType σ θ -> pure InstantiateType <*> f σ <*> h θ
-
-mapInstantiationF f h = runIdentity . traverseInstantiationF (Identity . f) (Identity . h)
-
-foldInstantiationF f h = getConst . traverseInstantiationF (Const . f) (Const . h)
 
 traverseTop ::
   Applicative m =>
@@ -201,12 +162,12 @@ type TypeInfer = Type () Void
 type TypeSchemeAuto p = Maybe (TypeScheme p Void)
 
 data TypeScheme p v
-  = TypeScheme
-      p
-      ( TypeSchemeF
-          (Bound (TypePattern p v) (TypeScheme p v))
-          (Type p v)
-      )
+  = TypeScheme p (TypeSchemeF p v)
+  deriving (Show)
+
+data TypeSchemeF p v
+  = MonoType (Type p v)
+  | TypeForall (Bound (TypePattern p v) (TypeScheme p v))
   deriving (Show)
 
 type TypeSchemeSource p = TypeScheme p Void
@@ -215,7 +176,12 @@ type TypeSchemeUnify = TypeScheme () TypeLogical
 
 type TypeSchemeInfer = TypeScheme () Void
 
-newtype Instantiation p v = Instantiation (InstantiationF (Type p v) (Instantiation p v)) deriving (Show)
+newtype Instantiation p v = Instantiation (InstantiationF p v) deriving (Show)
+
+data InstantiationF p v
+  = InstantiateType (Type p v) (Instantiation p v)
+  | InstantiateEmpty
+  deriving (Show)
 
 type InstantiationUnify = Instantiation () TypeLogical
 
@@ -518,7 +484,6 @@ freeVariablesSameTypeSource = freeVariablesBoundSource bindingsType freeVariable
 
 freeVariablesGlobalHigherTypeSource = freeVariablesHigherSource freeVariablesGlobalTypeSource freeVariablesGlobalTypeSource
 
--- todo, shouldn't this be dependent?
 freeVariablesRgnForType = freeVariablesBound bindingsType freeVariablesType freeVariablesHigherType
 
 freeVariablesRgnForTypeSource = freeVariablesBoundSource bindingsType freeVariablesTypeSource freeVariablesHigherTypeSource
@@ -552,43 +517,25 @@ instance BindingsType (TypePattern p v) where
   renameType _ _ λ = λ
 
 instance TypeAlgebra TypeScheme where
-  freeVariablesType (TypeScheme _ σ) = foldTypeSchemeF go' go σ
-    where
-      go = freeVariablesType
-      go' = freeVariablesSameType
-  freeVariablesGlobalType (TypeScheme _ σ) = foldTypeSchemeF go' go σ
-    where
-      go = freeVariablesGlobalType
-      go' = freeVariablesGlobalHigherType
-  convertType ux x (TypeScheme p σ) = TypeScheme p $ mapTypeSchemeF go' go σ
-    where
-      go = convertType ux x
-      go' = convertSameType ux x
-  freeVariablesTypeSource (TypeScheme _ σ) = foldTypeSchemeF go' go σ
-    where
-      go = freeVariablesTypeSource
-      go' = freeVariablesSameTypeSource
-  freeVariablesGlobalTypeSource (TypeScheme _ σ) = foldTypeSchemeF go' go σ
-    where
-      go = freeVariablesGlobalTypeSource
-      go' = freeVariablesGlobalHigherTypeSource
-  substituteType ux x (TypeScheme p σ) = TypeScheme p $ mapTypeSchemeF go' go σ
-    where
-      go = substituteType ux x
-      go' = substituteSameType ux x
-  substituteGlobalType ux x (TypeScheme p σ) = TypeScheme p $ mapTypeSchemeF go' go σ
-    where
-      go = substituteGlobalType ux x
-      go' = substituteGlobalSemiDependType ux x
-  zonkType f (TypeScheme p ς) =
-    TypeScheme p
-      <$> traverseTypeSchemeF
-        (traverseBound (zonkType f) (zonkType f))
-        (zonkType f)
-        ς
-  joinType = joinTypeDefault
-  traverseType fp fv (TypeScheme p ς) =
-    TypeScheme <$> fp p <*> traverseTypeSchemeF (traverseBound go go) go ς
+  freeVariablesType (TypeScheme _ (MonoType σ)) = freeVariablesType σ
+  freeVariablesType (TypeScheme _ (TypeForall λ)) = freeVariablesSameType λ
+  freeVariablesGlobalType (TypeScheme _ (MonoType σ)) = freeVariablesGlobalType σ
+  freeVariablesGlobalType (TypeScheme _ (TypeForall λ)) = freeVariablesGlobalHigherType λ
+  convertType ux x (TypeScheme p (MonoType σ)) = TypeScheme p $ MonoType (convertType ux x σ)
+  convertType ux x (TypeScheme p (TypeForall λ)) = TypeScheme p $ TypeForall (convertSameType ux x λ)
+  freeVariablesTypeSource (TypeScheme _ (MonoType σ)) = freeVariablesTypeSource σ
+  freeVariablesTypeSource (TypeScheme _ (TypeForall λ)) = freeVariablesSameTypeSource λ
+  freeVariablesGlobalTypeSource (TypeScheme _ (MonoType σ)) = freeVariablesGlobalTypeSource σ
+  freeVariablesGlobalTypeSource (TypeScheme _ (TypeForall λ)) = freeVariablesGlobalHigherTypeSource λ
+  substituteType ux x (TypeScheme p (MonoType σ)) = TypeScheme p $ MonoType (substituteType ux x σ)
+  substituteType ux x (TypeScheme p (TypeForall λ)) = TypeScheme p $ TypeForall (substituteSameType ux x λ)
+  substituteGlobalType ux x (TypeScheme p (MonoType σ)) = TypeScheme p $ MonoType (substituteGlobalType ux x σ)
+  substituteGlobalType ux x (TypeScheme p (TypeForall λ)) = TypeScheme p $ TypeForall (substituteGlobalSemiDependType ux x λ)
+  zonkType = zonkTypeDefault
+  joinType (TypeScheme p (MonoType σ)) = TypeScheme p (MonoType (joinType σ))
+  joinType (TypeScheme p (TypeForall λ)) = TypeScheme p (TypeForall (mapBound joinType joinType λ))
+  traverseType fp fv (TypeScheme p (MonoType σ)) = TypeScheme <$> fp p <*> (MonoType <$> traverseType fp fv σ)
+  traverseType fp fv (TypeScheme p (TypeForall λ)) = TypeScheme <$> fp p <*> (TypeForall <$> traverseBound go go λ)
     where
       go = traverseType fp fv
 
@@ -636,32 +583,63 @@ instance TypeAlgebra Type where
       go = traverseType fp fv
 
 instance TypeAlgebra Instantiation where
-  freeVariablesType (Instantiation θ) = foldInstantiationF go go θ
+  freeVariablesType (Instantiation θ) = case θ of
+    InstantiateEmpty -> mempty
+    InstantiateType σ θ -> go σ <> go θ
     where
       go = freeVariablesType
-  freeVariablesGlobalType (Instantiation θ) = foldInstantiationF go go θ
+  freeVariablesGlobalType (Instantiation θ) = case θ of
+    InstantiateEmpty -> mempty
+    InstantiateType σ θ -> go σ <> go θ
     where
       go = freeVariablesGlobalType
-  freeVariablesTypeSource (Instantiation θ) = foldInstantiationF go go θ
+  freeVariablesTypeSource (Instantiation θ) = case θ of
+    InstantiateEmpty -> mempty
+    InstantiateType σ θ -> go σ <> go θ
     where
       go = freeVariablesTypeSource
-  freeVariablesGlobalTypeSource (Instantiation θ) = foldInstantiationF go go θ
+  freeVariablesGlobalTypeSource (Instantiation θ) = case θ of
+    InstantiateEmpty -> mempty
+    InstantiateType σ θ -> go σ <> go θ
     where
       go = freeVariablesGlobalTypeSource
-  convertType ux x (Instantiation θ) = Instantiation $ mapInstantiationF go go θ
+  convertType ux x (Instantiation θ) =
+    Instantiation $
+      ( case θ of
+          InstantiateEmpty -> InstantiateEmpty
+          InstantiateType σ θ -> InstantiateType (go σ) (go θ)
+      )
     where
       go = convertType ux x
-  substituteType ux x (Instantiation θ) = Instantiation $ mapInstantiationF go go θ
+  substituteType ux x (Instantiation θ) =
+    Instantiation $
+      ( case θ of
+          InstantiateEmpty -> InstantiateEmpty
+          InstantiateType σ θ -> InstantiateType (go σ) (go θ)
+      )
     where
       go = substituteType ux x
-  substituteGlobalType ux x (Instantiation θ) = Instantiation $ mapInstantiationF go go θ
+  substituteGlobalType ux x (Instantiation θ) =
+    Instantiation $
+      ( case θ of
+          InstantiateEmpty -> InstantiateEmpty
+          InstantiateType σ θ -> InstantiateType (go σ) (go θ)
+      )
     where
       go = substituteGlobalType ux x
   zonkType f (Instantiation θ) =
-    Instantiation <$> traverseInstantiationF (zonkType f) (zonkType f) θ
+    Instantiation
+      <$> ( case θ of
+              InstantiateEmpty -> pure InstantiateEmpty
+              InstantiateType σ θ -> pure InstantiateType <*> zonkType f σ <*> zonkType f θ
+          )
   joinType = joinTypeDefault
   traverseType fp fv (Instantiation θ) =
-    Instantiation <$> traverseInstantiationF go go θ
+    Instantiation
+      <$> ( case θ of
+              InstantiateEmpty -> pure InstantiateEmpty
+              InstantiateType σ θ -> pure InstantiateType <*> go σ <*> go θ
+          )
     where
       go = traverseType fp fv
 
@@ -692,3 +670,6 @@ sourceType :: TypeInfer -> TypeSource ()
 sourceType = mapTypePosition (const ())
 
 positionType (TypeAst p _) = p
+
+isTypeImport (TypeAst _ (TypeSub (TypeGlobalVariable _))) = True
+isTypeImport _ = False

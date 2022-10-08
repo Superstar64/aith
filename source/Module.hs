@@ -436,3 +436,41 @@ reduceModule globals ((path@(Path heading _), item) : nodes) =
     applyTypeGlobal x e = case Map.lookup x (reducerTypes globals) of
       Just ex -> substituteGlobalType ex x e
       Nothing -> e
+
+moduleOrdering ::
+  (String, Item (GlobalSource p)) ->
+  (String, Item (GlobalSource p)) ->
+  Ordering
+moduleOrdering (x, Module _) (x', Module _) = compare x x'
+moduleOrdering (_, Global _) (_, Module _) = LT
+moduleOrdering (_, Module _) (_, Global _) = GT
+moduleOrdering (x, (Global (GlobalSource global))) (x', (Global (GlobalSource global'))) =
+  case globalOrdering global global' of
+    EQ -> compare x x'
+    o -> o
+  where
+    -- type imports
+    globalOrdering (Synonym σ) (Synonym σ')
+      | isTypeImport σ && isTypeImport σ' = EQ
+    globalOrdering (Synonym σ) _
+      | isTypeImport σ = LT
+    globalOrdering _ (Synonym σ')
+      | isTypeImport σ' = GT
+    -- term imports
+    globalOrdering (Inline _ e) (Inline _ e')
+      | isImport e && isImport e' = EQ
+    globalOrdering (Inline _ e) _
+      | isImport e = LT
+    globalOrdering _ (Inline _ e')
+      | isImport e' = GT
+    -- types
+    globalOrdering (Synonym _) (Synonym _) = EQ
+    globalOrdering (Synonym _) (NewType _ _) = EQ
+    globalOrdering (NewType _ _) (Synonym _) = EQ
+    globalOrdering (NewType _ _) (NewType _ _) = EQ
+    globalOrdering (Synonym _) _ = LT
+    globalOrdering (NewType _ _) _ = LT
+    globalOrdering _ (Synonym _) = GT
+    globalOrdering _ (NewType _ _) = GT
+    -- terms
+    globalOrdering _ _ = EQ

@@ -9,6 +9,9 @@ import Control.Monad (MonadPlus, guard, liftM2)
 import Control.Monad.Trans.Class
 import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Control.Monad.Trans.Writer.Strict (WriterT, runWriterT, tell)
+import Data.Foldable (asum)
+import Data.List (isPrefixOf)
+import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import qualified Data.Set as Set
 import Data.Void (Void)
@@ -29,71 +32,115 @@ infixl 3 ∥#
 
 keywords =
   Set.fromList
-    [ "multiarg",
-      "existance",
-      "size",
-      "signedness",
-      "word",
-      "region",
-      "pointer",
-      "struct",
-      "union",
-      "integer",
-      "byte",
-      "short",
-      "int",
-      "long",
-      "ubyte",
-      "ushort",
-      "uint",
-      "ulong",
-      "signed",
-      "unsigned",
-      "inline",
-      "let",
-      "extern",
-      "module",
-      "function",
-      "uses",
-      "if",
-      "else",
-      "true",
-      "false",
+    [ "as",
       "bool",
-      "copy",
-      "representation",
-      "native",
-      "io",
-      "in",
-      "capacity",
-      "unique",
-      "as",
       "borrow",
+      "boxed",
+      "break",
+      "byte",
+      "capacity",
+      "continue",
+      "copy",
+      "else",
+      "existance",
+      "extern",
+      "false",
+      "function",
+      "if",
+      "in",
+      "inline",
+      "int",
+      "integer",
       "invariant",
+      "io",
+      "kind",
+      "let",
+      "linear",
+      "long",
+      "loop",
+      "module",
+      "multiarg",
+      "multiplicity",
+      "native",
+      "opaque",
+      "pointer",
+      "pretype",
+      "region",
+      "representation",
+      "short",
+      "signed",
+      "signedness",
+      "size",
+      "step",
+      "struct",
       "subtypable",
       "transparent",
-      "opaque",
-      "kind",
+      "true",
       "type",
-      "pretype",
-      "boxed",
-      "linear",
+      "ubyte",
+      "uint",
+      "ulong",
+      "union",
+      "unique",
       "unrestricted",
-      "multiplicity",
+      "unsigned",
+      "unwrap",
       "used",
-      "step",
-      "break",
-      "continue",
-      "loop",
-      "wrapper",
+      "uses",
+      "ushort",
+      "word",
       "wrap",
-      "unwrap"
+      "wrapper"
     ]
 
--- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
+tokens =
+  [ "!",
+    "!=",
+    "&",
+    "&*",
+    "(",
+    ")",
+    "*",
+    "+",
+    ",",
+    "-",
+    "->",
+    "-[",
+    "/",
+    ":",
+    "::",
+    ";",
+    "<",
+    "<=",
+    "=",
+    "==",
+    "=>",
+    ">",
+    ">=",
+    ">|",
+    "@",
+    "[",
+    "\\",
+    "]",
+    "]>",
+    "_",
+    "{",
+    "|",
+    "|<",
+    "}"
+  ]
 
+tokenFamily = Map.fromList (map family tokens)
+  where
+    family token = (token, filter (/= token) $ filter (isPrefixOf token) tokens)
+
+descendants :: String -> [String]
+descendants token = tokenFamily Map.! token
+
+-- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
 class SyntaxBase δ => Syntax δ where
   token :: String -> δ ()
+  tokenNumeric :: Integer -> δ ()
   keyword :: String -> δ ()
   identifer :: δ String
   stringLiteral :: δ String
@@ -102,9 +149,6 @@ class SyntaxBase δ => Syntax δ where
   -- todo make this more general
   redundent :: Eq a => String -> δ (Maybe (a, x), (a, y)) -> δ ((a, Maybe x), y)
   redundent' :: Eq a => String -> δ ((a, x), (a, y)) -> δ ((a, x), y)
-
-  -- parser only methods
-  try :: δ a -> δ a
 
   -- pretty printer only methods
   pick :: (a -> Bool) -> δ a -> δ a -> δ a -- normal ∥ for parser, left when function is true for printer
@@ -129,23 +173,9 @@ betweenParensElse elsex e = token "(" ≫ (token ")" ≫ elsex ∥ e ≪ token "
 
 betweenAngle = between (token "<") (token ">")
 
-betweenTickAngle = between (token "`<") (token ">")
-
 betweenBraces = between (token "{") (token "}")
 
 betweenSquares = between (token "[") (token "]")
-
-betweenBangParens = between (token "!(") (token ")")
-
-betweenBangSquares = between (token "![") (token "]")
-
-betweenPlusSquares = between (token "+[") (token "]")
-
-betweenStarSquares = between (token "*[") (token "]")
-
-betweenDoubleBraces = between (token "{{") (token "}}")
-
-betweenDoubleSquares = between (token "[[") (token "]]")
 
 betweenPipeAngles = between (token "|<") (token ">|")
 
@@ -154,10 +184,6 @@ symbol = Symbol.symbol ⊣ stringLiteral
 lambdaCore e = binaryToken "=>" ≫ e
 
 lambdaBrace e = space ≫ betweenBraces (indent ≫ line ≫ e ≪ dedent ≪ line)
-
-lambda' e e' = lambdaBrace e ∥ lambdaCore e'
-
-lambda e = lambda' e e
 
 commaSome e = some (token "," ≫ space ≫ e)
 
@@ -256,7 +282,7 @@ typex = typeLambda
     typeUnique = Language.typeSource ⊣ position ⊗ unique ∥ typePtr
       where
         unique = Language.unique ⊣ prefixKeyword "unique" ≫ typePtr
-    typePtr = foldlP apply ⊣ typeInt ⊗ many (token "*" ⊕ token "[]" ⊕ binaryToken "@" ≫ typeInt)
+    typePtr = foldlP apply ⊣ typeInt ⊗ many (token "*" ⊕ token "[" ≫ token "]" ⊕ binaryToken "@" ≫ typeInt)
       where
         apply = ptr `branchDistribute` arr `branchDistribute` shared
         ptr = withInnerPosition1 Language.positionType Language.typeSource Language.pointer
@@ -303,10 +329,10 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
         Language.pointerRep ⊣ keyword "pointer",
         Language.structRep ⊣ prefixKeyword "struct" ≫ betweenParens (commaSeperatedMany typex),
         Language.unionRep ⊣ prefixKeyword "union" ≫ betweenParens (commaSeperatedMany typex),
-        Language.byte ⊣ token "8bit",
-        Language.short ⊣ token "16bit",
-        Language.int ⊣ token "32bit",
-        Language.long ⊣ token "64bit",
+        Language.byte ⊣ tokenNumeric 8,
+        Language.short ⊣ tokenNumeric 16,
+        Language.int ⊣ tokenNumeric 32,
+        Language.long ⊣ tokenNumeric 64,
         Language.native ⊣ keyword "native",
         Language.signed ⊣ keyword "signed",
         Language.unsigned ⊣ keyword "unsigned",
@@ -389,6 +415,14 @@ termPattern = patternCore
 termParen :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
 termParen = branch' (toPrism Language.termSource . secondP Language.tupleIntroduction) id ⊣ commaNonSingle termStatement
 
+isStatement (Language.Term _ e) = isStatementF e
+
+isStatementF (Language.Bind _ _) = True
+isStatementF (Language.TermRuntime (Language.Alias _ _)) = True
+isStatementF (Language.TermRuntime (Language.Loop _ _)) = True
+isStatementF (Language.TermRuntime (Language.If _ _ _)) = True
+isStatementF _ = False
+
 termStatement :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
 termStatement = Language.termSource ⊣ position ⊗ choice options ∥ apply ⊣ term ⊗ (token ";" ≫ line ≫ termStatement ⊕ always)
   where
@@ -404,9 +438,9 @@ termStatement = Language.termSource ⊣ position ⊗ choice options ∥ apply �
 term :: forall δ p. (Position δ p, Syntax δ) => δ (Language.TermSource p)
 term = termLambda
   where
-    termLambda = Language.termSource ⊣ position ⊗ lambda ∥ termAnnotate
+    termLambda = Language.termSource ⊣ position ⊗ (termLambdas (pick isStatement never (lambdaCore term)) ∥# poly) ∥ termAnnotate
       where
-        lambda = Language.polyIntroduction ⊣ wrapTerm ⊣ scheme ≪ space ⊗ term
+        poly = Language.polyIntroduction ⊣ wrapTerm ⊣ scheme ≪ space ⊗ term
     termAnnotate :: δ (Language.TermSource p)
     termAnnotate = apply ⊣ termOr ⊗ (binaryToken "::" ≫ typex ⊕ binaryToken ":" ≫ typex ⊕ always)
       where
@@ -466,19 +500,22 @@ term = termLambda
         applyBinary = application `branchDistribute` rtApplication
         application = withInnerPosition Language.positionTerm Language.termSource Language.inlineApplication
         rtApplication = withInnerPosition Language.positionTerm Language.termSource Language.functionApplication
-        applySyntax = space ≫ token "`" ≫ termCore
+        applySyntax = space ≫ token "!" ≫ termCore
         rtApplySyntax = space ≫ termParen
 
-termLambda = lambda' termStatement term
+termLambdas e =
+  choice
+    [ Language.inlineAbstraction ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ e,
+      Language.functionLiteral ⊣ Language.bound ⊣ keyword "function" ≫ termRuntimePatternParen ⊗ e
+    ]
 
 termCore :: forall δ p. (Position δ p, Syntax δ) => δ (Language.TermSource p)
-termCore = Language.termSource ⊣ position ⊗ choice options ∥ termParen
+termCore = Language.termSource ⊣ position ⊗ choice options ∥ pick isStatement (betweenBraces termStatement) termParen
   where
     options =
       [ Language.variable ⊣ termIdentifier,
         Language.globalVariable ⊣ termGlobalIdentifier,
-        Language.inlineAbstraction ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ termLambda,
-        Language.functionLiteral ⊣ Language.bound ⊣ keyword "function" ≫ termRuntimePatternParen ⊗ termLambda,
+        termLambdas (lambdaBrace termStatement ∥ lambdaCore term),
         Language.extern ⊣ prefixKeyword "extern" ≫ symbol,
         Language.numberLiteral ⊣ number,
         Language.truex ⊣ keyword "true",
@@ -500,9 +537,9 @@ modulex ::
   (Syntax δ, Position δ p) =>
   δ (Module.Module (Module.GlobalSource p))
 modulex =
-  Module.coreModule ⊣ orderless ⊣ list
+  Module.coreModule ⊣ orderlessBy Module.moduleOrdering ⊣ list
     ⊣ some
-      (item identifer (binaryToken "=") (token ";" ≫ line) (token ";" ≫ line) lambda)
+      (item identifer (binaryToken "=") (token ";" ≫ line ≫ line) (token ";" ≫ line) lambdaBrace)
     ⊕ never
 
 item ::
@@ -583,7 +620,10 @@ instance SyntaxBase Parser where
   always = pure ()
 
 instance Syntax Parser where
-  token op = Parser $ Megaparsec.string op >> Megaparsec.space
+  token op = Parser $ do
+    Megaparsec.notFollowedBy $ asum (Megaparsec.string <$> descendants op)
+    Megaparsec.string op >> Megaparsec.space
+  tokenNumeric n = Parser $ Megaparsec.string (show n ++ "bit") *> Megaparsec.space
   keyword name | name `Set.member` keywords = Parser $ do
     Megaparsec.label name $
       Megaparsec.try $ do
@@ -607,10 +647,11 @@ instance Syntax Parser where
     Megaparsec.manyTill (Megaparsec.satisfy (const True)) (Megaparsec.string "\"") <* Megaparsec.space
   _ ∥# q = q
   number = Parser $ do
-    read <$> Megaparsec.some (Megaparsec.satisfy isNum Megaparsec.<?> "number") <* Megaparsec.space
+    n <- Megaparsec.try $ read <$> Megaparsec.some (Megaparsec.satisfy isNum Megaparsec.<?> "number") <* Megaparsec.space
+    Megaparsec.notFollowedBy (Megaparsec.string "bit")
+    pure n
     where
       isNum x = x `elem` ['0' .. '9']
-  try (Parser m) = Parser $ Megaparsec.try m
   pick = const (∥)
   space = Parser $ pure ()
   line = Parser $ pure ()
@@ -651,6 +692,7 @@ instance Position Parser () where
 
 instance Syntax Printer where
   token op = Printer $ \() -> Just $ tell op
+  tokenNumeric i = token (show i ++ "bit")
   keyword name | name `Set.member` keywords = Printer $ \() -> Just $ tell name
   keyword name = error $ "bad keyword: " ++ name
 
@@ -661,7 +703,6 @@ instance Syntax Printer where
     tell str
     tell "\""
   number = Printer $ \n -> Just $ tell $ show n
-  try = id
   (∥#) = (∥)
   pick f (Printer left) (Printer right) = Printer $ \x -> case f x of
     True -> left x

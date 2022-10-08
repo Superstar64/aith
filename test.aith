@@ -3,12 +3,12 @@ module ::
 inline runtimeCall = \f => \x => f (x);
 
 module combinators = {
-	inline flip = \f => \x => \y => f `y `x;
-	inline compose = \f => \g => \x => f `(g `x);
+	inline flip = \f => \x => \y => f !y !x;
+	inline compose = \f => \g => \x => f !(g !x);
 	
 	inline readerPure = \x => \r => x;
-	inline readerBind = \m => \f => \r => f `(m `r) `r;
-	inline readerMap = \f => \m => readerBind `m `(compose `readerPure `f);
+	inline readerBind = \m => \f => \r => f !(m !r) !r;
+	inline readerMap = \f => \m => readerBind !m !(compose !readerPure !f);
 };
 
 module systemf = {
@@ -21,7 +21,7 @@ module systemf = {
 		|< f : <A : type> A -> A >|
 	};
 
-	inline id = runIdSysF `idSysF;
+	inline id = runIdSysF !idSysF;
 
 	type natural = <A : type> A -> (A -> A) -> A;
 
@@ -29,13 +29,13 @@ module systemf = {
 	inline zero = <A : type> \z : A => \inc : A -> A => z;
 
 	inline inc<> : natural -> natural;
-	inline inc = \n => <A : type> \z : A => \inc : A -> A => inc `(|< n : natural >| `z `inc);
+	inline inc = \n => <A : type> \z : A => \inc : A -> A => inc !(|< n : natural >| !z !inc);
 
 	inline one<> : natural;
-	inline one = inc `zero;
+	inline one = inc !zero;
 
 	inline two<> : natural;
-	inline two = inc `one;
+	inline two = inc !one;
 };
 
 module varSub = {
@@ -45,9 +45,9 @@ module varSub = {
 
 
 	inline cycle = \a => \b => \c {
-		sub `a `b `(
-			sub `b `c `(
-				sub `c `a `(
+		sub !a !b !(
+			sub !b !c !(
+				sub !c !a !(
 					\x => x
 				)
 			)
@@ -213,19 +213,20 @@ module arrays = {
 	};
 
 	swap = function(a, b, i) {
-		let tmp = get `a `i;
-		set `a `i `(get `b `i);
-		set `b `i `tmp;
+		let tmp = get !a !i;
+		set !a !i !(get !b !i);
+		set !b !i !tmp;
 		()
 	};
 
-	memcpyPtr <A : pretype<pointer, unrestricted>, R : region> : function(A[] @ R, A[] @ R, unsigned integer(native)) => () uses R; 
-	memcpyPtr <A : pretype<pointer, unrestricted>, R : region> = function(dst, src, i) {
-		if(i != 0) {
-			* &* dst = (* &* src);
-			memcpyPtr (&dst[1], &src[1], i - 1)
-		} else {
-			()
+	memcpyPtr = function(dst, src, i) {
+		loop (let (dst, src, i) = (dst, src, i)) {
+			if(i != 0) {
+				* &* dst = (* &* src);
+				continue (&dst[1], &src[1], i - 1)
+			} else {
+				break ()
+			}
 		}
 	};
 };
@@ -239,10 +240,10 @@ module sort = {
 	insert<R : region> : function(int[] @ R, unsigned integer(native)) => () uses R;
 	insert<R : region> = function(array, index) {
 		loop (let (array, index) = (array,index)) {
-			if (index > 0 & get `array `index < get `array `(index - 1) ) {
-				let tmp = get `array `index;
-				set `array `index `(get `array `(index - 1));
-				set `array `(index - 1) `tmp;
+			if (index > 0 & get !array !index < get !array !(index - 1) ) {
+				let tmp = get !array !index;
+				set !array !index !(get !array !(index - 1));
+				set !array !(index - 1) !tmp;
 				continue (array, index - 1)
 			} else {
 				break ()

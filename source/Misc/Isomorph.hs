@@ -2,11 +2,10 @@ module Misc.Isomorph where
 
 import Control.Category (Category, id, (.))
 import Data.Bifunctor (bimap)
+import Data.List (sortBy)
 import Data.List.NonEmpty (NonEmpty (..))
 import Data.Map (Map)
 import qualified Data.Map as Map
-import Data.Set (Set)
-import qualified Data.Set as Set
 import Prelude hiding (id, (.))
 
 data Isomorph a b = Isomorph (a -> b) (b -> a)
@@ -20,11 +19,6 @@ inverse (Isomorph f g) = Isomorph g f
 
 monotonic :: Isomorph f g -> Map f v -> Map g v
 monotonic (Isomorph f _) = Map.mapKeysMonotonic f
-
-mapWith :: Isomorph a b -> (a -> a) -> b -> b
-mapWith i f e = to $ f $ from e
-  where
-    (Isomorph to from) = i
 
 unit :: Isomorph ((), a) a
 unit = Isomorph f g
@@ -116,25 +110,8 @@ swapNonEmpty = Isomorph f g
 orderless :: Ord k => Isomorph [(k, v)] (Map k v)
 orderless = Isomorph Map.fromList Map.toList
 
-orderlessSet :: Ord k => Isomorph [k] (Set k)
-orderlessSet = Isomorph Set.fromList Set.toList
-
-maybe' :: Isomorph (Either () a) (Maybe a)
-maybe' = Isomorph g f
-  where
-    g (Left ()) = Nothing
-    g (Right x) = Just x
-    f Nothing = Left ()
-    f (Just x) = Right x
+orderlessBy f = Isomorph Map.fromList (sortBy f . Map.toList)
 
 imap (Isomorph f g) = Isomorph (fmap f) (fmap g)
 
 imap2 (Isomorph f g) (Isomorph f' g') = Isomorph (bimap f f') (bimap g g')
-
--- some helpers need by syntax
-
-rotateLast3 :: Isomorph (((a, b), c), d) (((a, d), b), c)
-rotateLast3 = Isomorph (\(((pm, c), π), σ) -> (((pm, σ), c), π)) (\(((pm, σ), c), π) -> (((pm, c), π), σ))
-
-swapLast2 :: Isomorph (((a, b), c), d) (((a, b), d), c)
-swapLast2 = associate' . secondI swap . associate

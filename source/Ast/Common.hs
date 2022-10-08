@@ -1,18 +1,18 @@
 module Ast.Common where
 
+import Data.Bifoldable (Bifoldable (..))
+import Data.Bifunctor (Bifunctor (..))
+import Data.Bitraversable (Bitraversable (..))
 import Data.Functor.Const (Const (..))
 import Data.Functor.Identity (Identity (..), runIdentity)
-import Data.Bifunctor (Bifunctor(..))
-import Data.Bifoldable (Bifoldable(..))
-import Data.Bitraversable (Bitraversable(..))
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Misc.Isomorph
 
-newtype Source x y = Source { runSource :: x }
-  deriving Show
+newtype Source x y = Source {runSource :: x}
+  deriving (Show)
 
 source = Isomorph Source runSource
 
@@ -25,8 +25,8 @@ instance Bifoldable Source where
 instance Bitraversable Source where
   bitraverse f _ (Source x) = Source <$> f x
 
-newtype Core x y = Core { runCore :: y }
-  deriving Show
+newtype Core x y = Core {runCore :: y}
+  deriving (Show)
 
 instance Bifunctor Core where
   bimap _ g (Core x) = Core (g x)
