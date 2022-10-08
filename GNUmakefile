@@ -21,6 +21,10 @@ aith: $(source) cabal.project cabal.project.local aith.cabal
 	$(cp) "$$(cabal exec which aith)" aith
 	touch aith
 
+.PHONY: repl
+repl: $(source) cabal.project cabal.project.local aith.cabal
+	cabal repl --repl-options "-interactive-print=Text.Pretty.Simple.pPrint" --build-depends pretty-simple
+
 cabal.project.local:
 	touch $@
 

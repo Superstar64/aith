@@ -44,6 +44,5 @@ executable aith
         transformers,
         megaparsec,
         directory,
-        filepath,
-        pretty-simple
+        filepath
     main-is:            Main.hs
