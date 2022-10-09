@@ -12,7 +12,7 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Traversable (for)
 import Data.Void
-import Environment
+import Linearity
 import Misc.Util (firstM, secondM, sortTopological, temporaries')
 import TypeCheck.Core
 import TypeCheck.Unify

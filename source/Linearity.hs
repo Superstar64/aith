@@ -1,4 +1,4 @@
-module Environment where
+module Linearity where
 
 import Data.Set (Set)
 import qualified Data.Set as Set

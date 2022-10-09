@@ -11,38 +11,39 @@ executable aith
     other-modules:
         Misc.Path
         Misc.Util
-        Environment
-        TypeCheck
-        TypeCheck.Core
-        TypeCheck.Unify
-        Ast.Common
-        Ast.Type
-        Ast.Term
-        Module
         Misc.Symbol
         Misc.Prism
         Misc.Isomorph
-        Syntax
         Misc.Syntax
         C.Ast
-        Codegen
         C.Print
+        Linearity
+        Ast.Common
+        Ast.Type
+        Ast.Term
+        TypeCheck
+        TypeCheck.Core
+        TypeCheck.Unify
+        Module
+        Syntax
         Simple
+        Codegen
 
     default-language:   Haskell2010
     default-extensions:
-        MultiParamTypeClasses DeriveTraversable
+        MultiParamTypeClasses
+        DeriveTraversable
         NoMonomorphismRestriction
         ScopedTypeVariables
-        GeneralizedNewtypeDeriving LambdaCase
+        GeneralizedNewtypeDeriving
+        LambdaCase
 
-    ghc-options:        -W -Worphans -Wcompat -Wincomplete-uni-patterns -interactive-print=Text.Pretty.Simple.pPrint
-                        -rtsopts=all
+    ghc-options: -W -Worphans -Wcompat -Wincomplete-uni-patterns -rtsopts=all
     build-depends:
         base,
         containers,
-        transformers,
-        megaparsec,
         directory,
-        filepath
+        filepath,
+        transformers,
+        megaparsec
     main-is:            Main.hs
