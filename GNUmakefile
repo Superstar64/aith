@@ -13,7 +13,7 @@ source:=$(call find,source,hs)
 .SECONDEXPANSION:
 
 %/:
-	mkdir $@ -p
+	mkdir -p $@
 
 aith: $(source) cabal.project cabal.project.local aith.cabal
 	cabal build aith
