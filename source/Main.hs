@@ -16,7 +16,7 @@ import Data.Traversable (for)
 import Misc.Path hiding (path)
 import Module hiding (modulex)
 import Simple
-import Syntax
+import Syntax hiding (Item (..))
 import System.Console.GetOpt
 import System.Directory
 import System.Environment
@@ -258,21 +258,18 @@ processCmd cmd t = case (findLoad t, findOutput t, working $ findWorking t, coun
     working [x] = Just x
     working _ = Nothing
 
-f x = x
-
 baseMain command = do
   code <- addAll (loadItem command)
-  code <- pure $ f code
   code <- pure $ fmap (mapGlobalPosition (: [])) code
   formatAll (fmap (mapGlobalPosition (const ())) code) (prettyItem command)
   code <- handleModuleError $ order code
   code <- handleTypeError $ evalStateT (typeCheckModule code) emptyEnvironment
 
-  formatAll (cleanScheme . sourceGlobal <$> unorder code) (prettyItemAnnotated command)
+  formatAll (sourceGlobal <$> unorder code) (prettyItemAnnotated command)
 
   code <- pure $ reduceModule (Reducer Map.empty Map.empty) code
 
-  formatAll (cleanScheme . sourceGlobal <$> unorder code) (prettyItemReduced command)
+  formatAll (sourceGlobal <$> unorder code) (prettyItemReduced command)
   generateAll (unorder code) (generateCItem command)
   where
     handleModuleError (Left e) = die $ prettyModuleError e

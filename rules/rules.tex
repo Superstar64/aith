@@ -11,11 +11,11 @@ As of now, this document is mostly for myself. Its missing a lot of prose and ex
 
 
 \section{Main Language}
-All valid terms have a type who's kind is of the form $ * $. \\
+All valid terms have a type who's type is of the form $ * $. \\
 \\
-All valid types have a kind who's sort is of the form $ \boxvoid^\mu_{\mu'} $.
-where $ \mu $ is an $ \text{Orderability} $ ($\text{Invariant} $ or $ \text{Subtypable}$)
-and $ \mu' $ is a $ \text{Transparency}$ ($\text{Transparent}$ or $\text{Opaque}$). \\
+All valid types have a type who's type is of the form of either $ \prescript {\rho} {} \boxvoid^\mu_{\kappa} $ or $ \text{Universe} $,
+where $ \mu $ is an $ \text{Orderability} $, $ \kappa $ is a $ \text{Transparency}$
+and $ \rho $ is a $ \text {Universe} $ . \\
 \\
 Variables in the type environment are annotated with their multiplicity. ie $ x :^1 ... $. \\
 \\
@@ -34,10 +34,8 @@ After $ \beta $ reduction, terms not of type $ \sigma^\pi $ must either be a fre
 \begin{array}{c | c}
 \text{Type} & \text{Term} \\
 \hline
-\sigma \to \tau & \lambda x. e \\
-!\sigma & !e \\
+\sigma \xrightarrow{\uparrow}_\pi \tau & \lambda x. e \\
 \forall \alpha : \kappa \succeq \{ \overline \pi \}. \sigma & \Lambda \alpha. e  \\
-\forall \beta : \mu. \sigma & \Lambda \beta. e \\
 \sigma \xrightarrow{\text{text}} \tau & \text{function}(x). e \\
 \end{array}
 \\
@@ -49,8 +47,8 @@ After $ \beta $ reduction, terms not of type $ \sigma^\pi $ must either be a fre
 e \tag{Terms} \\
 x \tag{Variables} \\
 n \tag{Numbers} \\
-\sigma, \tau, \pi, \kappa, s, \rho, \mu \tag{Types, Kinds, and Sorts} \\
-\alpha, \beta \tag{Type and Kind Variables} \\
+\sigma, \tau, \pi, \kappa, s, \rho, \mu \tag{Types} \\
+\alpha, \beta \tag{Type Variables} \\
 \Gamma \tag{Type Environment} \\
 \Phi \tag{Misc Environment} \\
 \text{sym} \tag{Symbol} \\
@@ -61,7 +59,6 @@ n \tag{Numbers} \\
 \subsection{Judgment Forms}
 The term rules are not syntax directed.
 The type of a term must be a valid type ($ \Phi | \Gamma \vdash e : \sigma $, requires $ \Phi \vdash \sigma : \kappa $).
-The type checking can be checked using synthesis mode.
 \begin{align*}
 \Phi \mid \Gamma \vdash \, & e : \sigma \tag{\text{Term Validation}} \\
 \Phi \vdash \, & \sigma : \kappa \tag{\text{Type Validation}} \\
@@ -86,46 +83,43 @@ The type checking can be checked using synthesis mode.
 \begin{align*}
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & * \tag{Type} \\
-& \boxvoid^\mu_{\mu'} \tag{Kind} \\
+& \prescript {\rho} {} \boxvoid^\mu_{\kappa} \tag{Kind} \\
+& \top \tag{Top} \\
+& 1 \tag{Base Universe} \\
+& (1 + \rho) \tag{Increment Universe} \\
+& \text{Universe} \\
 & \text{Invariant} \\
 & \text{Subtypable} \\
+& \text{Orderability} \\
 & \text{Transparent} \\
 & \text{Opaque} \\
+& \text{Transparency} \\
 & 1 \tag{Linear} \\
 & \omega \tag{Unrestricted} \\
-& \text{Multiplicity} 
+& \text{Multiplicity}
 \end{align*}
 
 \begin{gather*}
 \frac
 {}
-{\Phi \vdash * : \boxvoid^\text{Invariant}_{\text{Transparent}}} \\
+{\Phi \vdash * : \prescript {1} {} \boxvoid^{\text{Invariant}}_{\text{Transparent}}} \\
+\\
+\frac
+{\Phi \vdash \mu : \text{Orderability} \quad \Phi \vdash \kappa : \text{Transparency} \quad \rho : \text{Universe}}
+{\Phi \vdash \prescript {\rho} {} \boxvoid^\mu_{\kappa} :
+\prescript {1 + \rho} {} \boxvoid^{\text{Invariant}}_{\text{Transparent}}} \\
 \\
 \frac
 {}
-{\Phi \vdash 1 : \text{Multiplicity}} \\
+{\Phi \vdash 1 : \text{Universe}} \\
 \\
 \frac
 {}
-{\Phi \vdash \omega : \text{Multiplicity}} \\
+{\Phi \vdash 1 + \pi : \text{Universe}} \\
 \\
 \frac
 {}
-{\Phi \vdash \text{Multiplicity} : \boxvoid^\text{Subtypable}_\text{Transparent}}
-\end{gather*}
-
-\subsubsection{Meta (unused)}
-\begin{align*}
-\sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
-& \Delta \tag{Sort} \\
-& \text{Orderability} \\
-& \text{Transparency}
-\end{align*}
-
-\begin{gather*}
-\frac
-{\Phi \vdash \mu : \text{Substitutability} \quad \Phi \vdash \mu' : \text{Orderability} }
-{\Phi \vdash \boxvoid^\mu_{\mu'} : \Delta} \\
+{\Phi \vdash \text{Universe} : \top } \\
 \\
 \frac
 {}
@@ -137,13 +131,32 @@ The type checking can be checked using synthesis mode.
 \\
 \frac
 {}
+{\Phi \vdash \text{Orderability} : \top} \\
+\\
+\frac
+{}
 {\Phi \vdash \text{Transparent} : \text{Transparency}} \\
 \\
 \frac
 {}
-{\Phi \vdash \text{Opaque} : \text{Transparency}}
+{\Phi \vdash \text{Opaque} : \text{Transparency}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Transparency} : \top} \\
+\\
+\frac
+{}
+{\Phi \vdash 1 : \text{Multiplicity}} \\
+\\
+\frac
+{}
+{\Phi \vdash \omega : \text{Multiplicity}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Multiplicity} : \prescript{1 + 1} {} \boxvoid^{\text{Subtypable}}_{\text{Transparent}}}
 \end{gather*}
-    
 
 \subsubsection{Variables}
 \begin{align*}
@@ -230,8 +243,8 @@ e \Coloneqq & \\
 \begin{gather*}
 \frac
 {\splitfrac{\Phi, \alpha : \kappa \succeq \{ \overline \pi \}\vdash \sigma : * \quad \overline { \Phi \vdash \pi : \kappa}}
-{\splitfrac{\Phi \vdash \kappa : \boxvoid^\mu_{\mu'} \quad \text{when $ \pi $ is empty}}
-{\Phi \vdash \kappa : \boxvoid^\text{Subtypable}_{\mu'} \quad \text{when $ \pi $ is not empty} }}}
+{\splitfrac{\Phi \vdash \kappa : \prescript {\rho} {} \boxvoid^\mu_{\mu'} \quad \text{when $ \pi $ is empty}}
+{\Phi \vdash \kappa : \prescript {\rho} {} \boxvoid^{\text{Subtypable}}_{\mu'} \quad \text{when $ \pi $ is not empty} }}}
 {\Phi \vdash \forall \alpha : \kappa + \{ \overline c \}. \sigma : * } \\
 \end{gather*}
 
@@ -248,11 +261,11 @@ e \Coloneqq & \\
 \\
 \frac
 {\Phi \vdash \rho : \text{Representation} \quad \Phi \vdash \pi : \text{Multiplicity}}
-{\Phi \vdash +^\rho_\pi : \boxvoid^\text{Invariant}_\text{Transparent}} \\
+{\Phi \vdash +^\rho_\pi : \prescript {1} {} \boxvoid^{\text{Invariant}}_{\text{Transparent}}} \\
 \\
 \frac
 {}
-{\Phi \vdash \text{Representation} : \boxvoid^\text{Invariant}_\text{Opaque}}
+{\Phi \vdash \text{Representation} : \prescript {1 + 1} {} \boxvoid^{\text{Invariant}}_{\text{Opaque}}}
 \end{gather*}
 
 \subsubsection{Single Effect Regions}
@@ -291,7 +304,7 @@ e \Coloneqq & \\
 \begin{gather*}
 \frac
 {}
-{\Phi \vdash \text{Region} : \boxvoid^\text{Subtypable}_\text{Transparent}} \\
+{\Phi \vdash \text{Region} : \prescript {1} {} \boxvoid^{\text{Subtypable}}_{\text{Transparent}}} \\
 \end{gather*}
 
 \subsubsection{Boxed}
@@ -326,7 +339,7 @@ e \Coloneqq & \\
 \begin{gather*}
 \frac
 {}
-{\Phi \vdash - : \boxvoid^\text{Invariant}_\text{Transparent}} \\
+{\Phi \vdash - : \prescript {1} {} \boxvoid^{\text{Invariant}}_{\text{Transparent}}} \\
 \\
 \frac
 {}
@@ -420,7 +433,7 @@ e \Coloneqq & \\
 & \text{let}^\downarrow (\overline x) = e; e' \tag{Tuple Elimination} \\
 & \dots \\
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
-& (\overline \sigma,)^\mu \tag{Tuple} \\
+& (\overline \sigma,) \tag{Tuple} \\
 & \text{Struct} \{ \overline \rho \} \tag{Struct Representation} \\
 & \dots
 \end{align*}
@@ -428,15 +441,15 @@ e \Coloneqq & \\
 \begin{gather*}
 \frac
 {\Phi | \overline { \Gamma \vdash e : \sigma^\pi }}
-{\Phi | \overline \Gamma  \vdash (\overline e,) : ((\overline \sigma,)^\tau)^\pi } \\
+{\Phi | \overline \Gamma  \vdash (\overline e,) : (\overline \sigma,)^\pi } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : ((\overline \tau,)^\mu)^\pi \quad \Phi | \Gamma , \overline {x :^1 \forall \alpha. \tau^\alpha} \vdash e : \sigma^\pi}
+{\Phi | \Gamma \vdash e : (\overline \tau,)^\pi \quad \Phi | \Gamma , \overline {x :^1 \forall \alpha. \tau^\alpha} \vdash e : \sigma^\pi}
 {\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow (\overline x) = e; e' : \sigma^\pi} \\
 \\
 \frac
-{\Phi \vdash \overline {\sigma : +^{\kappa}_{\mu'}} \quad \Phi \vdash \mu : \text{Multiplicity} \quad \Phi \vdash \overline {\mu'} \succeq \mu }
-{\Phi \vdash (\overline \sigma,)^\mu : +^{\text{Struct} \{ \overline \kappa\}}_\mu} \\
+{\Phi \vdash \overline {\sigma : +^{\kappa}_{\mu'}} \quad \Phi \vdash \overline {\mu'} \succeq \mu }
+{\Phi \vdash (\overline \sigma,) : +^{\text{Struct} \{ \overline \kappa\}}_\mu} \\
 \\
 \frac
 {\Phi \vdash \overline {\rho : \text{Representation}}}
@@ -545,11 +558,11 @@ e \Coloneqq & \\
 \\
 \frac
 {}
-{\Phi \vdash \text{Size} : \boxvoid^\text{Invariant}_\text{Opaque}} \\
+{\Phi \vdash \text{Size} : \prescript {1 + 1} {} \boxvoid^{\text{Invariant}}_{\text{Opaque}}} \\
 \\
 \frac
 {}
-{\Phi \vdash \text{Signedness} : \boxvoid^\text{Invariant}_\text{Opaque}}
+{\Phi \vdash \text{Signedness} : \prescript {1 + 1} {} \boxvoid^{\text{Invariant}}_{\text{Opaque}}}
 \end{gather*}
 
 \subsubsection{Boolean Logic}
@@ -631,7 +644,7 @@ e \Coloneqq & \\
 \subsection{Subtyping}
 \begin{gather*}
 \frac
-{\Phi \vdash \sigma : \kappa \quad \Phi \vdash \kappa : \boxvoid^\text{Subtypable}_{\mu'}}
+{\Phi \vdash \sigma : \kappa \quad \Phi \vdash \kappa : \prescript {\rho} {} \boxvoid^\text{Subtypable}_{\mu'}}
 {\Phi \vdash \sigma \succeq \sigma} \\
 \\
 \frac

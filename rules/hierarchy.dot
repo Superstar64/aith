@@ -1,33 +1,93 @@
 digraph aith {
     // basic visualization of type system
+    // regular arrows mean type of
+    // dotted, arrowhead=none arrows mean type of this contains
     rankdir="BT"
+
+    // unabstractable types
+    top
+
+    universe
+    orderability
+    transparency
+
+
+    orderability -> top
+    transparency -> top
+    universe -> top
+
+    uone[label="1"]
+    uinc[label="1+u"]
+
+    uone -> universe
+    uinc -> universe
+
+    invariant
+    subtypable
+    transparent
+    opaque
+
+    invariant -> orderability
+    subtypable -> orderability
+    transparent -> transparency
+    opaque -> transparency
     
-    {
-        // sorts
-        rank=same
-        kindInvTrans[label="kind invariant transparent"]
-        kindInvOpa[label="kind invariant opaque"]
-        kindSubTrans[label="kind subtypable transparent"]
-        kindSubOpa[label="kind subtypable opaque"]
-    }
+    kindInfi[label="kind<invariant, transparent, n>"]
+    kindInfi -> kindInfi[label="..."]
+    
+    kindInfi -> {invariant subtypable transparency opaque uone uinc} [style=invis]
+    
+    // super sorts
+    subgraph cluster_kind2{
+        bgcolor=lightgray; peripheries=0
+        kindInvTrans2[label="kind<invariant, transparent, 2>"]
+        kindInvOpa2[label="kind<invariant, opaque, 2>"]
+        kindSubTrans2[label="kind<subtypable, transparency, 2>"]
+    } -> kindInfi
 
-    {
-        // kinds
-        rank=same
-        type[label="type"]
-        region
+    // sorts
+    subgraph cluster_kind{
+        bgcolor=lightgray; peripheries=0
+        kindInvTrans1[label="kind<invariant, transparent, 1>"]
+        kindSubTrans1[label="kind<subtypable, transparent, 1>"]
+        kindInvOpa1[label="kind<invariant, opaque, 1>"]
+    } -> kindInvTrans2
+    representation
+    size
+    multiplicity[label="multiplicity"]
+
+
+    representation -> kindInvOpa2
+    size -> kindInvOpa2
+    multiplicity -> kindSubTrans2
+
+    // kinds
+    type[label="type"]
+    boxed[label="boxed"]
+    region
+    pointerRep[label="pointer"]
+    structRep[label="struct (κ, κ', ...)"]
+    wordRep[label="κ word"]
+    byte [label="8bit"]
+    short [label="16bit"]
+    int [label="32bit"]
+    long [label="64bit"]
+    signedness
+    linear
+    unrestricted
+
+    subgraph cluster_pretype {
+        bgcolor=lightgray; peripheries=0
         pretype[label="pretype<κ, κ'>"]
-        boxed[label="boxed"]
-        representation
-        size
-        signedness
-        multiplicity
-    }
+        pretypePtrU[label="pretype<pointer,unrestricted>"]
+        pretypePtrL[label="pretype<pointer,linear>"]
+        pretypeWord[label="pretype<κ word, unrestricted>"]
+        pretypeStruct[label="pretype<struct(...), κ>"]
+    } -> kindInvTrans1
 
-    type -> kindInvTrans
-    region -> kindSubTrans
-    pretype -> kindInvTrans
-    boxed -> kindInvTrans
+    type -> kindInvTrans1
+    boxed -> kindInvTrans1
+    region -> kindSubTrans1
     pointerRep -> representation
     structRep -> representation
     wordRep -> representation
@@ -35,105 +95,79 @@ digraph aith {
     short -> size
     int -> size
     long -> size
-    signed -> signedness
-    unsigned -> signedness
-    representation -> kindInvOpa
-    size -> kindInvOpa
-    signedness -> kindInvOpa
-    multiplicity -> kindSubTrans
-
-    {
-        // types
-        rank=same
-        inline[label="σ -> τ"]
-        poly[label="<...> σ"]
-        functionPointer[label="function*(σ) => τ uses π"]
-        functionLiteralType[label="function(σ) => τ uses π"]
-        tuple[label="(σ, τ, ...)"]
-        effect[label="σ in π"]
-        unique[label="unique σ"]
-        shared[label="σ @ π"]
-        pointer[label="σ*"]
-        array[label="σ[]"]
-        number[label="κ integer(κ)'"]
-        boolean[label="bool"]
-        world[label="io"]
-        pointerRep[label="pointer"]
-        structRep[label="struct (κ, κ', ...)"]
-        wordRep[label="κ word"]
-        byte [label="8bit"]
-        short [label="16bit"]
-        int [label="32bit"]
-        long [label="64bit"]
-        signed
-        unsigned
-        linear
-        unrestricted
-    }
-
-    inline -> type
-    poly -> type
-    functionPointer -> pretype
-    functionPointer -> pointerRep [color=lightcoral]
-    functionLiteralType -> type
-    tuple -> pretype
-    tuple -> structRep[color=lightgreen]
-    effect -> type
-    unique -> pretype
-    unique -> pointerRep[color=lightcoral]
-    shared -> pretype
-    shared -> pointerRep[color=lightcoral]
-    pointer -> boxed
-    array -> boxed
-    number -> pretype
-    number -> wordRep[color=lightblue]
-    boolean -> pretype
-    boolean -> wordRep[color=lightblue]
-    world -> region
+    signedness -> kindInvOpa1
     linear -> multiplicity
     unrestricted -> multiplicity
 
-    {
-        // terms
-        rank=same
-        let[label="let x = e; e'"]
-        extern[label="extern \"sym\""]
-        app[label="e (e')"]
-        tupleIntro[label="(e,e', ...)"]
-        read[label="*e"]
-        write[label="*e = e'"]
-        num[label="n"]
-        arith[label="e + e'"]
-        relate[label="e < e'"]
-        true
-        if[label="if e {e'} else {e''}"]
 
-        functionLiteral[label="function(x) { e }"]
-        inlineAbstraction[label="\\x => e"]
-        polyIntroduction[label="<...> e"]
-    }
-    
+    // types
+    inline[label="σ -[π]> τ"]
+    poly[label="<...> σ"]
+    functionPointer[label="function*(σ) => τ uses π"]
+    functionLiteralType[label="function(σ) => τ uses π"]
+    tuple[label="(σ, τ, ...)"]
+    unique[label="unique σ"]
+    shared[label="σ @ π"]
+    pointer[label="σ*"]
+    array[label="σ[]"]
+    number[label="σ integer(τ)"]
+    boolean[label="bool"]
+    world[label="io"]
+    signed
+    unsigned
+    subgraph cluster_effect {
+        bgcolor=lightgray; peripheries=0
+        effect[label="σ in π"]
+        effectFunction[label="function*(σ) => τ uses μ in π"]
+        effectTuple[label="(σ, τ, ...) in π"]
+        effectNumber[label="σ integer(τ) in π"]
+        effectBoolean[label="bool in π"]
+    } -> type
+
+    inline -> type
+    poly -> type
+    functionPointer -> pretypePtrU
+    functionLiteralType -> type
+    tuple -> pretypeStruct
+    unique -> pretypePtrL
+    shared -> pretypePtrU
+    pointer -> boxed
+    array -> boxed
+    number -> pretypeWord
+    boolean -> pretypeWord
+    world -> region
+    signed -> signedness
+    unsigned -> signedness
+
+    // terms
+    let[label="let x = e; e'"]
+    extern[label="extern \"sym\""]
+    app[label="e (e')"]
+    tupleIntro[label="(e,e', ...)"]
+    read[label="*e"]
+    write[label="*e = e'"]
+    num[label="n"]
+    arith[label="e + e'"]
+    relate[label="e < e'"]
+    true
+    if[label="if e {e'} else {e''}"]
+
+    functionLiteral[label="function(x) { e }"]
+    inlineAbstraction[label="\\x => e"]
+    polyIntroduction[label="<...> e"]
 
 
     let -> effect
-    extern -> effect
-    extern -> functionPointer[color=lavender]
+    extern -> effectFunction
     app -> effect
-    tupleIntro -> effect
-    tupleIntro -> tuple [color=lavender]
+    tupleIntro -> effectTuple
     read -> effect
-    write -> effect
-    write -> tuple[color=lavender]
-    num -> effect
-    num -> number[color=lavender]
-    arith -> effect
-    arith -> number[color=lavender]
-    relate -> effect
-    relate -> boolean[color=lavender]
-    true -> effect
-    true -> boolean[color=lavender]
+    write -> effectTuple
+    num -> effectNumber
+    arith -> effectNumber
+    relate -> effectBoolean
+    true -> effectBoolean
     if -> effect
-
     functionLiteral -> functionLiteralType
     inlineAbstraction -> inline
     polyIntroduction -> poly

@@ -48,22 +48,15 @@ data KindRuntime s κ
   | WordRep s
   deriving (Show, Eq, Ord)
 
-data Top σ
-  = Kind σ σ
-  | Invariant
-  | Subtypable
-  | Transparent
-  | Opaque
-  deriving (Show)
-
 data TypeF v λσ σ
   = TypeSub TypeSub
   | TypeLogical v
+  | Top
   | Inline σ σ σ
   | Poly λσ
   | FunctionPointer σ σ σ
   | FunctionLiteralType σ σ σ
-  | Tuple [σ] σ
+  | Tuple [σ]
   | Effect σ σ
   | Unique σ
   | Shared σ σ
@@ -83,20 +76,17 @@ data TypeF v λσ σ
   | Representation
   | Size
   | Signedness
-  | Top (Top σ)
+  | Kind σ σ σ
+  | Invariant
+  | Subtypable
+  | Orderability
+  | Transparent
+  | Opaque
+  | Transparency
+  | Base
+  | Higher σ
+  | Universe
   deriving (Show)
-
-traverseTop ::
-  Applicative m =>
-  (σ -> m σ') ->
-  Top σ ->
-  m (Top σ')
-traverseTop f σ = case σ of
-  Kind σ τ -> pure Kind <*> f σ <*> f τ
-  Invariant -> pure Invariant
-  Subtypable -> pure Subtypable
-  Opaque -> pure Opaque
-  Transparent -> pure Transparent
 
 traverseTypeF ::
   Applicative m =>
@@ -112,7 +102,7 @@ traverseTypeF f i g σ = case σ of
   Poly λ -> pure Poly <*> i λ
   FunctionPointer σ π τ -> pure FunctionPointer <*> g σ <*> g π <*> g τ
   FunctionLiteralType σ π τ -> pure FunctionLiteralType <*> g σ <*> g π <*> g τ
-  Tuple σs τ -> pure Tuple <*> traverse g σs <*> g τ
+  Tuple σs -> pure Tuple <*> traverse g σs
   Effect σ π -> pure Effect <*> g σ <*> g π
   Unique σ -> pure Unique <*> g σ
   Shared σ π -> pure Shared <*> g σ <*> g π
@@ -135,7 +125,17 @@ traverseTypeF f i g σ = case σ of
   Representation -> pure Representation
   Size -> pure Size
   Signedness -> pure Signedness
-  Top μ -> Top <$> traverseTop g μ
+  Kind σ τ π -> pure Kind <*> g σ <*> g τ <*> g π
+  Invariant -> pure Invariant
+  Subtypable -> pure Subtypable
+  Transparent -> pure Transparent
+  Opaque -> pure Opaque
+  Orderability -> pure Orderability
+  Transparency -> pure Transparency
+  Base -> pure Base
+  Higher σ -> pure Higher <*> g σ
+  Universe -> pure Universe
+  Top -> pure Top
 
 mapTypeF f h g = runIdentity . traverseTypeF (Identity . f) (Identity . h) (Identity . g)
 
@@ -262,8 +262,8 @@ functionLiteralType = Prism (uncurry $ uncurry FunctionLiteralType) $ \case
   (FunctionLiteralType σ π τ) -> Just ((σ, π), τ)
   _ -> Nothing
 
-tuple = Prism (uncurry Tuple) $ \case
-  Tuple σ τ -> Just (σ, τ)
+tuple = Prism Tuple $ \case
+  Tuple σ -> Just (σ)
   _ -> Nothing
 
 effect = Prism (uncurry Effect) $ \case
@@ -404,33 +404,56 @@ signedness = Prism (const Signedness) $ \case
   Signedness -> Just ()
   _ -> Nothing
 
-top = Prism Top $ \case
-  Top σ -> Just σ
+top = Prism (const Top) $ \case
+  Top -> Just ()
   _ -> Nothing
 
-kind = (top .) $
-  Prism (uncurry Kind) $ \case
-    Kind κ κ' -> Just (κ, κ')
-    _ -> Nothing
+kind = Prism (uncurry $ uncurry Kind) $ \case
+  Kind κ κ' u -> Just ((κ, κ'), u)
+  _ -> Nothing
 
-invariant = (top .) $
+invariant =
   Prism (const Invariant) $ \case
     Invariant -> Just ()
     _ -> Nothing
 
-subtypable = (top .) $
+subtypable =
   Prism (const Subtypable) $ \case
     Subtypable -> Just ()
     _ -> Nothing
 
-transparent = (top .) $
+transparent =
   Prism (const Transparent) $ \case
     Transparent -> Just ()
     _ -> Nothing
 
-opaque = (top .) $
+opaque =
   Prism (const Opaque) $ \case
     Opaque -> Just ()
+    _ -> Nothing
+
+base =
+  Prism (const Base) $ \case
+    Base -> Just ()
+    _ -> Nothing
+
+higher = Prism Higher $ \case
+  Higher σ -> Just σ
+  _ -> Nothing
+
+transparency =
+  Prism (const Transparency) $ \case
+    Transparency -> Just ()
+    _ -> Nothing
+
+orderability =
+  Prism (const Orderability) $ \case
+    Orderability -> Just ()
+    _ -> Nothing
+
+universe =
+  Prism (const Universe) $ \case
+    Universe -> Just ()
     _ -> Nothing
 
 class TypeAlgebra u where
@@ -506,7 +529,7 @@ avoidTypeConvert = avoidTypeConvert' convertType
 
 avoidTypeConvert' = Avoid bindingsType renameType Set.singleton
 
-toTypePattern (TypePatternIntermediate _ x κ π) = TypePattern () x (flexible κ) (map (flexible . TypeAst () . TypeSub) π)
+toTypePattern (TypePatternIntermediate _ x κ π) = TypePattern () x κ (map (TypeAst () . TypeSub) π)
 
 instance Fresh TypeIdentifier where
   fresh c (TypeIdentifier x) = TypeIdentifier $ Util.fresh (Set.mapMonotonic runTypeIdentifier c) x

@@ -65,7 +65,7 @@ convertKind :: TypeInfer -> SimpleType
 convertKind (TypeAst () (Pretype κ _)) = convertKindImpl κ
 convertKind _ = simpleFailType
 
-reconstruct (TypeAst () σ) = reconstructF index indexGlobal absurd todo checkRuntime reconstruct σ
+reconstruct = reconstructF index indexGlobal absurd todo representation multiplicities
   where
     todo = error "poly type in runtime types"
     index x = do
@@ -74,8 +74,20 @@ reconstruct (TypeAst () σ) = reconstructF index indexGlobal absurd todo checkRu
     indexGlobal x = do
       map <- Simplify $ lift ask
       pure $ map ! x
-    checkRuntime (TypeAst () (Pretype κ _)) = pure κ
-    checkRuntime _ = error "reconstruction of pair didn't return pretype"
+    representation σ = do
+      κ <- reconstruct σ
+      pure $ checkRepresentation κ
+    multiplicities σs = do
+      κs <- traverse reconstruct σs
+      pure $ foldr combineMultiplicity (TypeAst () (TypeSub Unrestricted)) (map checkMultiplicity κs)
+    combineMultiplicity (TypeAst () (TypeSub Linear)) _ = TypeAst () $ TypeSub Linear
+    combineMultiplicity _ (TypeAst () (TypeSub Linear)) = TypeAst () $ TypeSub Linear
+    combineMultiplicity _ _ = TypeAst () $ TypeSub Unrestricted
+
+    checkRepresentation (TypeAst () (Pretype κ _)) = κ
+    checkRepresentation _ = error "reconstruction of pair didn't return pretype"
+    checkMultiplicity (TypeAst () (Pretype _ κ)) = κ
+    checkMultiplicity _ = error "reconstruction of pair didn't return pretype"
 
 convertType σ = convertKind <$> reconstruct σ
 
@@ -115,7 +127,7 @@ convertFunctionType (TypeScheme () (MonoType (TypeAst () (FunctionLiteralType σ
 convertFunctionType _ = error "failed to convert function type"
 
 convertFunction (TermScheme _ (TypeAbstraction (Bound (TypePattern () x κ _) e))) = withSimplify (Map.insert x κ) $ convertFunction e
-convertFunction (TermScheme _ (MonoTerm (Term p (FunctionLiteral (Bound pm e))))) = do
+convertFunction (TermScheme _ (MonoTerm (Term p (FunctionLiteral (Bound pm e))) _)) = do
   pm' <- convertTermPattern pm
   e' <- convertTerm e
   pure $ SimpleFunction p $ Bound pm' e'

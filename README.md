@@ -144,9 +144,9 @@ Files start with `code` `::`.
 |-|-|
 | Module | ``module x = { code };`` |
 | Inline Term | ``inline x = e; ``|
-| Inline Term Ascribe | ``inline x ς : σ; x ς = e; ``|
-| Function | ``x = e;`` |
-| Function Ascribe | ``x ς : σ; x ς = e;``|
+| Inline Term Ascribe | ``inline x : σ; inline x = e; ``|
+| Function | ``f(pm) { e }`` |
+| Function Ascribe | ``f(pm) :: σ in π; f(pm) { e }``|
 | Synonym | ``type x = σ;`` |
 | New Type | ``wrapper x :: κ; wrapper x = σ;`` |
 
@@ -161,8 +161,6 @@ Files start with `code` `::`.
 | Inline Binding | ``inline pm = e; e'``|
 | Extern | ``extern "sym"`` |
 | Function Application | ``e (e')``|
-| Function Literal | ``function(pm) => e`` |
-| Function Literal | ``function(pm) { e }`` |
 | Runtime Binding | ``let pm = e; e'`` |
 | Tuple Construction | ``(e, e', ...)`` |
 | Read Pointer | ``*e`` |
@@ -225,9 +223,8 @@ Files start with `code` `::`.
 | Variable | ``x`` |
 | Inline Function | ``σ -[π]> τ``|
 | Poly | ``ς σ`` |
-| Function Pointer | ``function*(σ) => τ uses π`` |
-| Function Literal Type | ``function(σ) => τ uses π`` |
-| Tuple | ``(σ, σ', ...) used π`` |
+| Function Pointer | ``function(σ) => τ uses π`` |
+| Tuple | ``(σ, σ', ...)`` |
 | Effect | ``σ in π`` |
 | Unique | ``unique σ`` |
 | Shared | ``σ @ π`` |
@@ -265,7 +262,7 @@ Files start with `code` `::`.
 | Subtypable |``subtypable`` |
 | Transpaent | ``transparent`` |
 | Opaque | ``opaque`` |
-
+| Function Literal Type | ``function literal(σ) => τ uses π`` |
 
 # Types (Syntax Sugar) (σ, τ, π, s, κ, ρ, μ)
 | Description | Syntax | Meaning |

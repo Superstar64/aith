@@ -42,20 +42,8 @@ data TypeError p
   | IncorrectRegionBounds p
   | NotTypable p
   | ExpectedSubtypable p
-  | ExpectedSort p TypeInfer
-  | ExpectedKind p TypeInfer
-  | ExpectedType p TypeInfer
-  | ExpectedPretype p TypeInfer
-  | ExpectedBoxed p TypeInfer
-  | ExpectedLength p TypeInfer
-  | ExpectedRegion p TypeInfer
-  | ExpectedSubtypable' p TypeInfer
-  | ExpectedRepresentation p TypeInfer
-  | ExpectedSize p TypeInfer
-  | ExpectedSignedness p TypeInfer
-  | ExpectedSubstitutability p TypeInfer
-  | ExpectedMultiplicity p TypeInfer
-  | ExpectedNewtype p TypeInfer
+  | ExpectedNewtype p TypeUnify
+  | ExpectedFullAnnotation p
   deriving (Show)
 
 newtype Check p a = Check {runChecker'' :: ReaderT (CheckEnvironment p) (StateT (CheckState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
@@ -78,7 +66,7 @@ data NominalBinding
   deriving (Show)
 
 data TypeBinding p
-  = TypeBinding p TypeInfer (Set TypeSub) Level NominalBinding
+  = TypeBinding p TypeUnify (Set TypeSub) Level NominalBinding
   | LinkTypeBinding TypeInfer
   deriving (Show, Functor)
 
@@ -185,7 +173,7 @@ augmentTypePatternLevel (TypePatternIntermediate p x κ π) f = do
   enterLevel
   useTypeVar x
   lev <- Level <$> currentLevel
-  f' <- augmentKindEnvironment p x κ (Set.fromList π) lev f
+  f' <- augmentKindEnvironment p x (flexible κ) (Set.fromList π) lev f
   leaveLevel
   pure f'
 

@@ -8,7 +8,11 @@ import qualified Data.Set as Set
 import Data.Traversable
 import TypeCheck.Core
 
-reconstructF indexVariable indexGlobalVariable indexLogical poly checkRuntime reconstruct = \case
+uni1 = TypeAst () Base
+
+uni2 = TypeAst () (Higher uni1)
+
+reconstructF indexVariable indexGlobalVariable indexLogical poly reconstructRuntime reconstructMultiplicities (TypeAst () σ) = case σ of
   TypeSub (TypeVariable x) -> do
     indexVariable x
   TypeSub (TypeGlobalVariable x) -> do
@@ -23,12 +27,13 @@ reconstructF indexVariable indexGlobalVariable indexLogical poly checkRuntime re
     pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime PointerRep) (TypeAst () $ TypeSub Unrestricted)
   FunctionLiteralType _ _ _ -> do
     pure $ TypeAst () $ Type
-  Tuple σs τ -> do
-    σs <- traverse (checkRuntime <=< reconstruct) σs
-    pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime $ StructRep σs) τ
+  Tuple σs -> do
+    ρs <- traverse reconstructRuntime σs
+    τ <- reconstructMultiplicities σs
+    pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime $ StructRep ρs) τ
   Step σ τ -> do
-    κ <- checkRuntime =<< reconstruct σ
-    μ <- checkRuntime =<< reconstruct τ
+    κ <- reconstructRuntime σ
+    μ <- reconstructRuntime τ
     let union = TypeAst () $ KindRuntime $ UnionRep $ [κ, μ]
     let wrap = TypeAst () $ KindRuntime $ StructRep $ [TypeAst () $ KindRuntime $ WordRep $ TypeAst () $ KindSize $ Byte, union]
     pure (TypeAst () $ Pretype wrap $ TypeAst () $ TypeSub $ Linear)
@@ -45,18 +50,29 @@ reconstructF indexVariable indexGlobalVariable indexLogical poly checkRuntime re
   TypeSub World -> pure $ TypeAst () $ Region
   TypeSub Linear -> pure $ TypeAst () $ Multiplicity
   TypeSub Unrestricted -> pure $ TypeAst () $ Multiplicity
-  Type -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Invariant) (TypeAst () $ Top Transparent)
-  Region -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Subtypable) (TypeAst () $ Top Transparent)
-  Pretype _ _ -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Invariant) (TypeAst () $ Top Transparent)
-  Boxed -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Invariant) (TypeAst () $ Top Transparent)
-  Multiplicity -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Subtypable) (TypeAst () $ Top Transparent)
+  Type -> pure $ TypeAst () $ Kind (TypeAst () Invariant) (TypeAst () Transparent) uni1
+  Region -> pure $ TypeAst () $ Kind (TypeAst () Subtypable) (TypeAst () Transparent) uni1
+  Pretype _ _ -> pure $ TypeAst () $ Kind (TypeAst () Invariant) (TypeAst () Transparent) uni1
+  Boxed -> pure $ TypeAst () $ Kind (TypeAst () Invariant) (TypeAst () Transparent) uni1
+  Multiplicity -> pure $ TypeAst () $ Kind (TypeAst () Subtypable) (TypeAst () Transparent) uni2
   KindRuntime _ -> pure $ TypeAst () $ Representation
   KindSize _ -> pure $ TypeAst () $ Size
   KindSignedness _ -> pure $ TypeAst () $ Signedness
-  Representation -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Invariant) (TypeAst () $ Top Opaque)
-  Size -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Invariant) (TypeAst () $ Top Opaque)
-  Signedness -> pure $ TypeAst () $ Top $ Kind (TypeAst () $ Top Invariant) (TypeAst () $ Top Opaque)
-  Top _ -> error "reconstruct top"
+  Representation -> pure $ TypeAst () $ Kind (TypeAst () Invariant) (TypeAst () Opaque) uni2
+  Size -> pure $ TypeAst () $ Kind (TypeAst () Invariant) (TypeAst () Opaque) uni2
+  Signedness -> pure $ TypeAst () $ Kind (TypeAst () Invariant) (TypeAst () Opaque) uni1
+  Invariant -> pure (TypeAst () Orderability)
+  Subtypable -> pure (TypeAst () Orderability)
+  Transparent -> pure (TypeAst () Transparency)
+  Opaque -> pure (TypeAst () Transparency)
+  Transparency -> pure (TypeAst () Top)
+  Orderability -> pure (TypeAst () Top)
+  Base -> pure (TypeAst () Universe)
+  Higher _ -> pure (TypeAst () Universe)
+  Universe -> pure (TypeAst () Top)
+  Kind σ _ _ -> do
+    pure (TypeAst () $ Kind (TypeAst () $ Higher σ) (TypeAst () Invariant) (TypeAst () Transparent))
+  Top -> error "reconstruct top"
 
 -- also changes logic type variable levels and check for escaping skolem variables
 typeOccursCheck :: forall p. p -> TypeLogical -> Level -> TypeUnify -> Check p ()
@@ -102,9 +118,8 @@ typeOccursCheck p x lev σ' = go σ'
           recurse σ
           recurse π
           recurse τ
-        Tuple σs τ -> do
+        Tuple σs -> do
           traverse recurse σs
-          recurse τ
           pure ()
         Effect σ τ -> do
           recurse σ
@@ -140,13 +155,20 @@ typeOccursCheck p x lev σ' = go σ'
         Representation -> pure ()
         Size -> pure ()
         Signedness -> pure ()
-        Top (Kind σ τ) -> do
+        Kind σ τ π -> do
           recurse σ
           recurse τ
-        Top Invariant -> pure ()
-        Top Subtypable -> pure ()
-        Top Transparent -> pure ()
-        Top Opaque -> pure ()
+          recurse π
+        Invariant -> pure ()
+        Subtypable -> pure ()
+        Transparent -> pure ()
+        Opaque -> pure ()
+        Top -> pure ()
+        Orderability -> pure ()
+        Transparency -> pure ()
+        Base -> pure ()
+        Higher κ -> recurse κ
+        Universe -> pure ()
     occursPoly (TypeScheme () ς) = case ς of
       MonoType σ -> recurse σ
       TypeForall (Bound (TypePattern () x κ π) ς) -> do
@@ -155,6 +177,8 @@ typeOccursCheck p x lev σ' = go σ'
         recurse κ
         pure ()
 
+-- if two types unify, that imply that they're kinds are exactly the same
+-- the type ast has enough information to uniquely determine a type's kind
 matchType :: p -> TypeUnify -> TypeUnify -> Check p ()
 matchType p σ σ' = unify σ σ'
   where
@@ -216,9 +240,8 @@ matchType p σ σ' = unify σ σ'
       unify σ σ'
       unify π π'
       unify τ τ'
-    unify (TypeAst () (Tuple σs τ)) (TypeAst () (Tuple σs' τ')) | length σs == length σs' = do
+    unify (TypeAst () (Tuple σs)) (TypeAst () (Tuple σs')) | length σs == length σs' = do
       sequence $ zipWith (unify) σs σs'
-      unify τ τ'
       pure ()
     unify (TypeAst () (Effect σ π)) (TypeAst () (Effect σ' π')) = do
       unify σ σ'
@@ -262,13 +285,21 @@ matchType p σ σ' = unify σ σ'
     unify (TypeAst () Representation) (TypeAst () Representation) = pure ()
     unify (TypeAst () Size) (TypeAst () Size) = pure ()
     unify (TypeAst () Signedness) (TypeAst () Signedness) = pure ()
-    unify (TypeAst () (Top (Kind σ τ))) (TypeAst () (Top (Kind σ' τ'))) = do
+    unify (TypeAst () (Kind σ τ π)) (TypeAst () (Kind σ' τ' π')) = do
       unify σ σ'
       unify τ τ'
-    unify (TypeAst () (Top Invariant)) (TypeAst () (Top Invariant)) = pure ()
-    unify (TypeAst () (Top Subtypable)) (TypeAst () (Top Subtypable)) = pure ()
-    unify (TypeAst () (Top Transparent)) (TypeAst () (Top Transparent)) = pure ()
-    unify (TypeAst () (Top Opaque)) (TypeAst () (Top Opaque)) = pure ()
+      unify π π'
+    unify (TypeAst () Invariant) (TypeAst () Invariant) = pure ()
+    unify (TypeAst () Subtypable) (TypeAst () Subtypable) = pure ()
+    unify (TypeAst () Transparent) (TypeAst () Transparent) = pure ()
+    unify (TypeAst () Opaque) (TypeAst () Opaque) = pure ()
+    unify (TypeAst () Base) (TypeAst () Base) = pure ()
+    unify (TypeAst () (Higher κ)) (TypeAst () (Higher κ')) = do
+      unify κ κ'
+    unify (TypeAst () Transparency) (TypeAst () Transparency) = pure ()
+    unify (TypeAst () Orderability) (TypeAst () Orderability) = pure ()
+    unify (TypeAst () Universe) (TypeAst () Universe) = pure ()
+    unify (TypeAst () Top) (TypeAst () Top) = pure ()
     unify σ σ' = quit $ TypeMismatch p σ σ'
 
     unifyPoly
@@ -329,6 +360,9 @@ plainType' p σ@(TypeAst () (TypeLogical x)) =
 plainType' p σ = TypeAst () <$> TypeSub <$> plainType p σ
 
 -- todo switch to greater then
+
+-- comparing two types implies that they're kinds are the same
+-- similiar to matchType
 lessThen :: p -> TypeUnify -> TypeUnify -> Check p ()
 lessThen p σ (TypeAst () (TypeLogical x)) = do
   σ <- plainType' p σ
@@ -362,31 +396,187 @@ lessThen p σ σ' = do
     else pure ()
 
 kindIsMember :: forall p. p -> TypeUnify -> TypeUnify -> Check p ()
-kindIsMember p (TypeAst () (Top _)) _ = quit $ NotTypable p
+kindIsMember p (TypeAst () Top) _ = quit $ NotTypable p
 kindIsMember p σ κ = do
   κ' <- reconstruct p σ
   matchType p κ κ'
 
 reconstruct :: forall p. p -> TypeUnify -> Check p TypeUnify
-reconstruct p (TypeAst () σ) = go σ
+reconstruct p = reconstructF indexEnvironment indexGlobalEnvironment indexLogicalMap poly representation multiplicities
   where
-    go = reconstructF indexEnvironment indexGlobalEnvironment indexLogicalMap poly checkRuntime (reconstruct p)
     poly (TypeScheme () (TypeForall _)) = pure $ TypeAst () $ Type
-    poly (TypeScheme () (MonoType (TypeAst () σ))) = go σ
+    poly (TypeScheme () (MonoType σ)) = reconstruct p σ
 
     indexEnvironment x = indexKindEnvironment x >>= kind
       where
-        kind (TypeBinding _ κ _ _ _) = pure $ flexible κ
+        kind (TypeBinding _ κ _ _ _) = pure $ κ
         kind (LinkTypeBinding σ) = reconstruct p (flexible σ)
     indexGlobalEnvironment x = indexKindGlobalEnvironment x >>= kind
       where
-        kind (TypeBinding _ κ _ _ _) = pure $ flexible κ
+        kind (TypeBinding _ κ _ _ _) = pure $ κ
         kind (LinkTypeBinding σ) = reconstruct p (flexible σ)
     indexLogicalMap x = indexTypeLogicalMap x >>= index
     index (UnboundTypeLogical _ x _ _ _) = pure x
     index (LinkTypeLogical σ) = reconstruct p σ
-    checkRuntime κ = do
-      α <- (TypeAst () . TypeLogical) <$> freshKindVariableRaw p (TypeAst () Representation) maxBound
-      β <- (TypeAst () . TypeLogical) <$> freshKindVariableRaw p (TypeAst () Multiplicity) maxBound
-      matchType p κ (TypeAst () $ Pretype α β)
+    representation σ = do
+      κ <- reconstruct p σ
+      (α, _) <- checkPretype p κ
       pure α
+    multiplicities σs = do
+      π <- freshMultiplicityKindVariable p
+      for σs $ \σ -> do
+        κ <- reconstruct p σ
+        (_, π') <- checkPretype p κ
+        lessThen p π π'
+      pure π
+
+freshTypeVariable p κ = (TypeAst () . TypeLogical) <$> (Level <$> levelCounter <$> getState >>= freshTypeVariableRaw p κ [] Nothing)
+
+freshRepresentationKindVariable p = freshTypeVariable p (TypeAst () Representation)
+
+freshSizeKindVariable p = freshTypeVariable p (TypeAst () Size)
+
+freshSignednessKindVariable p = freshTypeVariable p (TypeAst () Signedness)
+
+freshOrderabilityVariable p = freshTypeVariable p (TypeAst () Orderability)
+
+freshTransparencyVariable p = freshTypeVariable p (TypeAst () Transparency)
+
+freshUniverseVariable p = freshTypeVariable p (TypeAst () Universe)
+
+freshMetaTypeVariable p = do
+  freshTypeVariable p (TypeAst () Type)
+
+freshMultiplicityKindVariable p = do
+  freshTypeVariable p (TypeAst () Multiplicity)
+
+freshPretypeTypeVariable p = do
+  s <- freshRepresentationKindVariable p
+  τ <- freshMultiplicityKindVariable p
+  freshTypeVariable p (TypeAst () $ Pretype s τ)
+
+freshBoxedTypeVariable p = do
+  freshTypeVariable p (TypeAst () Boxed)
+
+freshRegionTypeVariable p = do
+  freshTypeVariable p $ TypeAst () $ Region
+
+checkKind p σt = do
+  μ <- freshOrderabilityVariable p
+  κ <- freshTransparencyVariable p
+  ρ <- freshUniverseVariable p
+  matchType p σt (TypeAst () (Kind μ κ ρ))
+  pure (μ, κ, ρ)
+
+checkRepresentation p σt = do
+  matchType p σt (TypeAst () Representation)
+  pure ()
+
+checkMultiplicity p σt = do
+  matchType p σt (TypeAst () Multiplicity)
+  pure ()
+
+checkSize p σt = do
+  matchType p σt (TypeAst () Size)
+  pure ()
+
+checkSignedness p σt = do
+  matchType p σt (TypeAst () Signedness)
+  pure ()
+
+checkType p σt = do
+  matchType p σt (TypeAst () Type)
+  pure ()
+
+checkPretype p σ = do
+  κ <- freshRepresentationKindVariable p
+  τ <- freshMultiplicityKindVariable p
+  matchType p σ (TypeAst () $ Pretype κ τ)
+  pure (κ, τ)
+
+checkBoxed p σt = do
+  matchType p σt (TypeAst () Boxed)
+  pure ()
+
+checkRegion p σt = do
+  matchType p σt (TypeAst () Region)
+  pure ()
+
+checkSubtypable p σt = do
+  matchType p σt (TypeAst () Subtypable)
+  pure ()
+
+checkOrderability p σt = do
+  matchType p σt (TypeAst () Orderability)
+  pure ()
+
+checkTransparency p σt = do
+  matchType p σt (TypeAst () Transparency)
+  pure ()
+
+checkUniverse p σt = do
+  matchType p σt (TypeAst () Universe)
+  pure ()
+
+checkInline p σt = do
+  σ <- freshMetaTypeVariable p
+  π <- freshMultiplicityKindVariable p
+  τ <- freshMetaTypeVariable p
+  matchType p σt (TypeAst () (Inline σ π τ))
+  pure (σ, π, τ)
+
+checkFunctionPointer p σt = do
+  σ <- freshPretypeTypeVariable p
+  π <- freshRegionTypeVariable p
+  τ <- freshPretypeTypeVariable p
+  matchType p σt (TypeAst () $ FunctionPointer σ π τ)
+  pure (σ, π, τ)
+
+checkFunctionLiteralType p σt = do
+  σ <- freshPretypeTypeVariable p
+  π <- freshRegionTypeVariable p
+  τ <- freshPretypeTypeVariable p
+  matchType p σt (TypeAst () $ FunctionLiteralType σ π τ)
+  pure (σ, π, τ)
+
+checkUnique p σt = do
+  σ <- freshBoxedTypeVariable p
+  matchType p σt (TypeAst () $ Unique σ)
+  pure σ
+
+checkPointer p σt = do
+  σ <- freshPretypeTypeVariable p
+  matchType p σt (TypeAst () $ Pointer σ)
+  pure (σ)
+
+checkArray p σt = do
+  σ <- freshPretypeTypeVariable p
+  matchType p σt (TypeAst () $ Array σ)
+  pure (σ)
+
+checkEffect p σt = do
+  σ <- freshPretypeTypeVariable p
+  π <- freshRegionTypeVariable p
+  matchType p σt (TypeAst () $ Effect σ π)
+  pure (σ, π)
+
+checkShared p σt = do
+  σ <- freshBoxedTypeVariable p
+  π <- freshRegionTypeVariable p
+  matchType p σt (TypeAst () $ Shared σ π)
+  pure (σ, π)
+
+checkNumber p σt = do
+  ρ1 <- freshSignednessKindVariable p
+  ρ2 <- freshSizeKindVariable p
+  matchType p σt (TypeAst () $ Number ρ1 ρ2)
+  pure (ρ1, ρ2)
+
+checkBoolean p σt = do
+  matchType p σt (TypeAst () $ Boolean)
+
+checkStep p σt = do
+  σ <- freshPretypeTypeVariable p
+  τ <- freshPretypeTypeVariable p
+  matchType p σt (TypeAst () $ Step σ τ)
+  pure (σ, τ)

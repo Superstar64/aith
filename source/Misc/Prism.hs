@@ -2,7 +2,10 @@ module Misc.Prism where
 
 import Control.Category (Category, id, (.))
 import Control.Monad ((<=<))
+import Data.Bifunctor (bimap)
+import Data.Bitraversable (Bitraversable, bitraverse)
 import Data.List (uncons)
+import Data.Map (Map)
 import Misc.Isomorph
 import Prelude hiding (id, (.))
 
@@ -37,6 +40,9 @@ nil = Prism (const []) $ \case
 singleton :: Prism a [a]
 singleton = cons . secondP nil . toPrism (inverse unit')
 
+singletonMap :: Prism v (Map () v)
+singletonMap = toPrism orderless . singleton . toPrism (inverse unit)
+
 just :: Prism a (Maybe a)
 just = Prism Just id
 
@@ -55,21 +61,12 @@ right = Prism Right $ \case
   (Right x) -> Just x
   _ -> Nothing
 
-firstP :: Prism a b1 -> Prism (a, b2) (b1, b2)
-firstP (Prism f g) = Prism f' g'
-  where
-    f' (a, b) = (f a, b)
-    g' (a, b) = do
-      a' <- g a
-      pure (a', b)
+firstP prism = bimapP prism id
 
-secondP :: Prism a1 b -> Prism (a2, a1) (a2, b)
-secondP (Prism f g) = Prism f' g'
-  where
-    f' (a, b) = (a, f b)
-    g' (a, b) = do
-      b' <- g b
-      pure (a, b')
+secondP prism = bimapP id prism
+
+bimapP :: Bitraversable p => Prism a c -> Prism b d -> Prism (p a b) (p c d)
+bimapP (Prism f g) (Prism f' g') = Prism (bimap f f') (bitraverse g g')
 
 foldlP :: Prism (b, a) b -> Isomorph (b, [a]) b
 foldlP (Prism f g) = Isomorph f' g'

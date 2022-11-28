@@ -1,12 +1,29 @@
 \documentclass[preview]{standalone}
 \usepackage{mathtools}
+\usepackage{amsfonts}
 \usepackage{mathabx}
 \usepackage{hyperref}
 \allowdisplaybreaks
 \begin{document}
 \begin{align*}
-S &= \{*, \boxvoid^I_T, \boxvoid^S_T, \boxvoid^I_O, \boxvoid^S_O\} \\
-A &= \{(*, \boxvoid^I_T)\} \\
-R &= \{(*,*,*), (\boxvoid^I_T,*,*), (\boxvoid^S_T,*,*), (\boxvoid^I_O,*,*), (\boxvoid^S_O,*,*)\} \\
+S &= \{*, \prescript {n} {} \boxvoid^x_y \, & | \, x \in \{I, S\}, y \in \{T, O\}, n \in \mathbb{N} \} \\
+A &= \{(*, \prescript {1} {} \boxvoid^I_T), (\prescript {n} {} \boxvoid^x_y, \prescript{n+1} {} \boxvoid^I_T )
+\, & | \, x \in \{I, S\}, y \in \{T, O\}, n \in \mathbb{N}\} \\
+R &= \{(*,*,*), (\prescript {n} {} \boxvoid^x_y,*,*) \, & | \, x \in \{I, S\}, y \in \{T, O\}, n \in \mathbb{N} \} \\
 \end{align*}
+\begin{center}
+\begin{tabular}{ | l | l | }
+\hline
+$ \mathbb{N} $ & Positive Natural Numbers \\
+\hline
+$ I $ & Invariant \\
+\hline
+$ S $ & Subtypable \\
+\hline
+$ T $ & Transparent \\
+\hline
+$ O $ & Opaque \\
+\hline
+\end{tabular}
+\end{center}
 \end{document}

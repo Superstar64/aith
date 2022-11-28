@@ -17,7 +17,7 @@ import Misc.Symbol
 import Misc.Util
 import TypeCheck
 import TypeCheck.Core
-import TypeCheck.Unify (matchType)
+import TypeCheck.Unify (checkPretype, matchType)
 
 newtype Module g = CoreModule (Map String (Item g)) deriving (Show, Functor, Foldable, Traversable)
 
@@ -118,28 +118,10 @@ flatten = Map.fromList . go
           pure (Path (root : path) name, item)
 
 sourceGlobal :: GlobalInfer p -> GlobalSource ()
-sourceGlobal (GlobalInfer (Inline ς e)) = GlobalSource $ Inline (Just $ sourceTypeScheme ς) (TermManualSource $ sourceTermScheme e)
-sourceGlobal (GlobalInfer (Text ς e)) = GlobalSource $ Text (Just $ sourceTypeScheme ς) (TermManualSource $ sourceTermScheme e)
+sourceGlobal (GlobalInfer (Inline ς e)) = GlobalSource $ Inline (Just $ sourceTypeScheme ς) (TermManualSource $ sourceTermScheme False e)
+sourceGlobal (GlobalInfer (Text ς e)) = GlobalSource $ Text (Just $ sourceTypeScheme ς) (TermManualSource $ sourceTermScheme False e)
 sourceGlobal (GlobalInfer (Synonym σ)) = GlobalSource $ Synonym (sourceType σ)
 sourceGlobal (GlobalInfer (NewType σ τ)) = GlobalSource $ NewType (sourceType σ) (sourceType τ)
-
-cleanScheme :: GlobalSource p -> GlobalSource p
-cleanScheme i
-  | (GlobalSource (Inline (Just ς) (TermManualSource e))) <- i,
-    Just e' <- matchSchemes ς e =
-    GlobalSource (Inline (Just ς) (TermAutoSource e'))
-  | (GlobalSource (Text (Just ς) (TermManualSource e))) <- i,
-    Just e' <- matchSchemes ς e =
-    GlobalSource (Text (Just ς) (TermAutoSource e'))
-  | otherwise = i
-  where
-    matchSchemes (TypeScheme _ (MonoType _)) (TermScheme _ (MonoTerm e)) = Just e
-    matchSchemes
-      (TypeScheme _ (TypeForall (Bound (TypePattern _ x _ _) σ)))
-      (TermScheme _ (TypeAbstraction (Bound (TypePattern _ x' _ _) e)))
-        | x == x' =
-          matchSchemes σ e
-    matchSchemes _ _ = Nothing
 
 resolve p (CoreModule code) path = go code path
   where
@@ -256,7 +238,13 @@ makeExtern path p ς = case ς of
   TypeScheme () (MonoType (TypeAst () (FunctionLiteralType σ π τ))) ->
     TermScheme p $
       TypeAbstraction
-        ( Bound (TypePattern () (TypeIdentifier "R") (TypeAst () Region) []) (TermScheme p $ MonoTerm $ Term p (TermRuntime $ Extern (mangle path) (Core σ) (Core π) (Core τ)))
+        ( Bound
+            (TypePattern () (TypeIdentifier "R") (TypeAst () Region) [])
+            ( TermScheme p $
+                MonoTerm
+                  (Term p (TermRuntime $ Extern (mangle path) (Core σ) (Core π) (Core τ)))
+                  (Core $ TypeAst () (Effect (TypeAst () (FunctionPointer σ π τ)) (TypeAst () (TypeSub $ TypeVariable $ TypeIdentifier "R"))))
+            )
         )
   TypeScheme () (TypeForall (Bound (TypePattern () x κ π) e)) ->
     TermScheme p (TypeAbstraction (Bound (TypePattern () x κ π) $ makeExtern path p e))
@@ -320,55 +308,60 @@ typeCheckModule ((path@(Path heading _), item) : nodes) = do
         (σ, _) <- run (kindCheck σ)
         pure (DefinitionInfer $ GlobalInfer $ Synonym σ, UpdateSym σ)
       NewType κ σ@(TypeAst p _) -> do
-        (κ', _) <- run (kindCheck κ)
-        run (checkPretype' p κ')
-        (σ, κ) <- run (kindCheck σ)
-        run (matchType p (flexible κ) (flexible κ'))
-        pure (DefinitionInfer $ GlobalInfer $ NewType κ σ, UpdateNewtype (κ, σ))
+        (σ, κ) <- run $ do
+          (κ', _) <- kindCheck κ
+          checkPretype p (flexible κ')
+          (σ, κ) <- kindCheck σ
+          matchType p κ (flexible κ')
+          pure (σ, κ')
+        pure (DefinitionInfer $ GlobalInfer $ NewType κ σ, UpdateNewtype (flexible κ, σ))
     DeclarationSource (ForwardText ς@(TypeScheme p _)) -> do
       (ς, _) <- run (kindCheckScheme SymbolMode ς)
       pure (DeclarationInfer p $ ForwardText ς, UpdateTerm $ convertFunctionLiteral $ flexible $ ς)
     DeclarationSource (ForwardNewtype κ@(TypeAst p _)) -> do
-      (κ, _) <- run (kindCheck κ)
-      run (checkPretype' p κ)
-      pure (DeclarationInfer p $ ForwardNewtype κ, UpdateNewtype' κ)
+      κ <- run $ do
+        (κ, _) <- kindCheck κ
+        checkPretype p (flexible κ)
+        pure κ
+      pure (DeclarationInfer p $ ForwardNewtype κ, UpdateNewtype' (flexible κ))
   let p = positionDeclaration item
-  modify $ \environment -> case σ of
-    UpdateTerm σ ->
-      environment
-        { typeGlobalEnvironment =
-            Map.insert
-              (TermGlobalIdentifier path)
-              (TermBinding p (TypeAst () $ TypeSub Unrestricted) σ)
-              $ typeGlobalEnvironment environment
-        }
-    UpdateSym σ ->
-      environment
-        { kindGlobalEnvironment =
-            Map.insert
-              (TypeGlobalIdentifier path)
-              (LinkTypeBinding σ)
-              $ kindGlobalEnvironment environment
-        }
-    UpdateNewtype (κ, σ) ->
-      environment
-        { kindGlobalEnvironment =
-            Map.insert
-              (TypeGlobalIdentifier path)
-              (TypeBinding p κ Set.empty minBound (Named σ))
-              $ kindGlobalEnvironment environment
-        }
-    UpdateNewtype' κ ->
-      environment
-        { kindGlobalEnvironment =
-            Map.insertWith
-              (\_ x -> x)
-              (TypeGlobalIdentifier path)
-              (TypeBinding p κ Set.empty minBound Unnamed)
-              $ kindGlobalEnvironment environment
-        }
-
+  modify (update p σ)
   ((path, item') :) <$> typeCheckModule nodes
+  where
+    update p σ environment = case σ of
+      UpdateTerm σ ->
+        environment
+          { typeGlobalEnvironment =
+              Map.insert
+                (TermGlobalIdentifier path)
+                (TermBinding p (TypeAst () $ TypeSub Unrestricted) σ)
+                $ typeGlobalEnvironment environment
+          }
+      UpdateSym σ ->
+        environment
+          { kindGlobalEnvironment =
+              Map.insert
+                (TypeGlobalIdentifier path)
+                (LinkTypeBinding σ)
+                $ kindGlobalEnvironment environment
+          }
+      UpdateNewtype (κ, σ) ->
+        environment
+          { kindGlobalEnvironment =
+              Map.insert
+                (TypeGlobalIdentifier path)
+                (TypeBinding p κ Set.empty minBound (Named σ))
+                $ kindGlobalEnvironment environment
+          }
+      UpdateNewtype' κ ->
+        environment
+          { kindGlobalEnvironment =
+              Map.insertWith
+                (\_ x -> x)
+                (TypeGlobalIdentifier path)
+                (TypeBinding p κ Set.empty minBound Unnamed)
+                $ kindGlobalEnvironment environment
+          }
 
 data Reducer p = Reducer
   { reducerTerms :: Map TermGlobalIdentifier (TermSchemeInfer p),
@@ -436,41 +429,3 @@ reduceModule globals ((path@(Path heading _), item) : nodes) =
     applyTypeGlobal x e = case Map.lookup x (reducerTypes globals) of
       Just ex -> substituteGlobalType ex x e
       Nothing -> e
-
-moduleOrdering ::
-  (String, Item (GlobalSource p)) ->
-  (String, Item (GlobalSource p)) ->
-  Ordering
-moduleOrdering (x, Module _) (x', Module _) = compare x x'
-moduleOrdering (_, Global _) (_, Module _) = LT
-moduleOrdering (_, Module _) (_, Global _) = GT
-moduleOrdering (x, (Global (GlobalSource global))) (x', (Global (GlobalSource global'))) =
-  case globalOrdering global global' of
-    EQ -> compare x x'
-    o -> o
-  where
-    -- type imports
-    globalOrdering (Synonym σ) (Synonym σ')
-      | isTypeImport σ && isTypeImport σ' = EQ
-    globalOrdering (Synonym σ) _
-      | isTypeImport σ = LT
-    globalOrdering _ (Synonym σ')
-      | isTypeImport σ' = GT
-    -- term imports
-    globalOrdering (Inline _ e) (Inline _ e')
-      | isImport e && isImport e' = EQ
-    globalOrdering (Inline _ e) _
-      | isImport e = LT
-    globalOrdering _ (Inline _ e')
-      | isImport e' = GT
-    -- types
-    globalOrdering (Synonym _) (Synonym _) = EQ
-    globalOrdering (Synonym _) (NewType _ _) = EQ
-    globalOrdering (NewType _ _) (Synonym _) = EQ
-    globalOrdering (NewType _ _) (NewType _ _) = EQ
-    globalOrdering (Synonym _) _ = LT
-    globalOrdering (NewType _ _) _ = LT
-    globalOrdering _ (Synonym _) = GT
-    globalOrdering _ (NewType _ _) = GT
-    -- terms
-    globalOrdering _ _ = EQ
