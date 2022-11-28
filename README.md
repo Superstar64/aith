@@ -254,15 +254,21 @@ Files are a single decleration named `this`.
 | Representation | ``representation`` |
 | Signedness | ``signedness`` |
 | Size | ``size`` |
-
-# Types (Internal) (σ, τ, π, s, κ, ρ, μ)
-| Description | Syntax |
-| - | - |
-| Kind | ``kind κ κ`` |
+| Kind | ``kind<σ, τ, π>`` |
 | Invariant |``invariant`` |
 | Subtypable |``subtypable`` |
 | Transpaent | ``transparent`` |
 | Opaque | ``opaque`` |
+| Universe Level 1 | `1u` |
+| Higher Universe Level | `+σ` |
+
+# Types (Internal) (σ, τ, π, s, κ, ρ, μ)
+| Description | Syntax |
+| - | - |
+| Transparency | ``transparency`` |
+| Orderability | ``orderability`` |
+| Universe | ``universe`` |
+| Top | ``/\|\`` |
 | Function Literal Type | ``function literal(σ) => τ uses π`` |
 
 # Types (Syntax Sugar) (σ, τ, π, s, κ, ρ, μ)
