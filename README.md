@@ -137,12 +137,13 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 
 # Syntax
 
-Files start with `code` `::`.
+Files are a single decleration named `this`.
 
 ## Modules(code)
 | Description | Syntax |
 |-|-|
-| Module | ``module x = { code };`` |
+| Module | ``module x = { code ... };`` |
+| Module | ``module x;  code ...`` |
 | Inline Term | ``inline x = e; ``|
 | Inline Term Ascribe | ``inline x : σ; inline x = e; ``|
 | Function | ``f(pm) { e }`` |
