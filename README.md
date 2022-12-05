@@ -167,6 +167,7 @@ Files are a single decleration named `this`.
 | Read Pointer | ``*e`` |
 | Write Pointer | ``*e = e'`` |
 | Array Increment | ``&e[e']`` |
+| Array to Pointer | ``&*e`` |
 | Number Literal | ``n`` |
 | Addition | ``e + e'`` |
 | Subtraction | ``e - e'`` |
@@ -229,8 +230,8 @@ Files are a single decleration named `this`.
 | Effect | ``σ in π`` |
 | Unique | ``unique σ`` |
 | Shared | ``σ @ π`` |
-| Pointer | ``σ[τ]`` |
-| Wildcard | ``:`` |
+| Pointer | ``σ*`` |
+| Array | ``σ[]`` |
 | Number | ``ρ integer(ρ')`` |
 | Boolean | ``bool`` |
 | IO Region | ``io`` |
