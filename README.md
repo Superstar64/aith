@@ -323,7 +323,7 @@ The major modification is that scope type variables are used rather then schemat
 * [Semi-Explicit First-Class Polymorphism for ML](https://caml.inria.fr/pub/papers/garrigue_remy-poly-ic99.pdf)
 * [QML : Explicit First-Class Polymorphism for ML](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/QML-Explicit-First-Class-Polymorphism-for-ML.pdf)
 ### Type Inference (Subtyping)
-* [The Simple Essence of Algebraic Subtyping](https://lptk.github.io/files/%5Bv1.8%5D%20simple-essence-algebraic-subtyping.pdf) [(video)](https://youtu.be/d10q-b8jNKg)
+* [The Simple Essence of Algebraic Subtyping](https://dl.acm.org/doi/pdf/10.1145/3409006) [(video)](https://youtu.be/d10q-b8jNKg)
   * A tiny subset is implemented for type checking regions. See my [var sub](https://github.com/Superstar64/var_sub/) repo.
 ### Compiler Design
 * [How OCaml type checker works -- or what polymorphism and garbage collection have in common](https://okmij.org/ftp/ML/generalization.html)
@@ -367,7 +367,7 @@ The major modification is that scope type variables are used rather then schemat
 * [Unification Under a Mixed Prefix](https://www.lix.polytechnique.fr/~dale/papers/jsc92.pdf)
 ### Internals
 * [System F with Type Equality Coercions](https://www.microsoft.com/en-us/research/wp-content/uploads/2007/01/tldi22-sulzmann-with-appendix.pdf)
-* [Generalizing Hindley-Milner Type Inference Algorithms](https://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.18.9348&rep=rep1&type=pdf)
+* [Generalizing Hindley-Milner Type Inference Algorithms](https://www.cs.uu.nl/research/techreps/repo/CS-2002/2002-031.pdf)
 
 
 # Copyright
