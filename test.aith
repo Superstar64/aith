@@ -12,30 +12,36 @@ module combinators = {
 };
 
 module systemf = {
-	inline ignored <B : type> : <A : type> B -> B;
-	inline ignored <B : type> = <A : type> \(x : B) => x;
-
-	inline idSysF = <A : type> \x : A => x;
-
-	inline runIdSysF = \f {
-		|< f : <A : type> A -> A >|
-	};
-
-	inline id = runIdSysF !idSysF;
-
 	type natural = <A : type> A -> (A -> A) -> A;
 
 	inline zero<> : natural;
 	inline zero = <A : type> \z : A => \inc : A -> A => z;
 
 	inline inc<> : natural -> natural;
-	inline inc = \n => <A : type> \z : A => \inc : A -> A => inc !(|< n : natural >| !z !inc);
+	inline inc = \n : natural => <A : type> \z : A => \inc => inc !(n <_> !z !inc);
 
 	inline one<> : natural;
 	inline one = inc !zero;
 
 	inline two<> : natural;
 	inline two = inc !one;
+};
+
+module systemfPoly = {
+	inline explicit<> : <A : type> A -> A;
+	inline explicit<> = <A : type> \x : A => x;
+	
+	inline implicit<A : type> : A -> A;
+	inline implicit = explicit <_>;
+
+	inline use = implicit !(explicit) <_>;
+
+	inline useArgument = \x : <A :type> A -> A => x <_>;
+
+	inline curry<> : <A : type> <B : type> (A -> B) -> A -> B;
+	inline curry<> = <A : type> <B : type> \f : A -> B => f;
+
+	inline useCurry = curry <_> <_> !(implicit);
 };
 
 module varSub = {
@@ -339,5 +345,5 @@ module universes = {
 		x
 	};
 
-	inline use = |< abstract : <T : region> int in io -> int in io  >|;
+	inline use = (abstract : <T : region> int in io -> int in io) <_>;
 };

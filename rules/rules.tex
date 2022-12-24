@@ -96,7 +96,8 @@ The type of a term must be a valid type ($ \Phi | \Gamma \vdash e : \sigma $, re
 & \text{Transparency} \\
 & 1 \tag{Linear} \\
 & \omega \tag{Unrestricted} \\
-& \text{Multiplicity}
+& \text{Multiplicity} \\
+& \text{Label}
 \end{align*}
 
 \begin{gather*}
@@ -155,7 +156,11 @@ The type of a term must be a valid type ($ \Phi | \Gamma \vdash e : \sigma $, re
 \\
 \frac
 {}
-{\Phi \vdash \text{Multiplicity} : \prescript{1 + 1} {} \boxvoid^{\text{Subtypable}}_{\text{Transparent}}}
+{\Phi \vdash \text{Multiplicity} : \prescript{1 + 1} {} \boxvoid^{\text{Subtypable}}_{\text{Transparent}}} \\
+\\
+\frac
+{}
+{\Phi \vdash \text{Label} : \top}
 \end{gather*}
 
 \subsubsection{Variables}

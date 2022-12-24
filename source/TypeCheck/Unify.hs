@@ -6,6 +6,7 @@ import Control.Monad
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Traversable
+import Data.Void (absurd)
 import TypeCheck.Core
 
 uni1 = TypeAst () Base
@@ -21,7 +22,7 @@ reconstructF indexVariable indexGlobalVariable indexLogical poly reconstructRunt
     indexLogical v
   Inline _ _ _ -> do
     pure $ TypeAst () $ Type
-  Poly ς -> do
+  Poly _ ς -> do
     poly ς
   FunctionPointer _ _ _ -> do
     pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime PointerRep) (TypeAst () $ TypeSub Unrestricted)
@@ -72,6 +73,9 @@ reconstructF indexVariable indexGlobalVariable indexLogical poly reconstructRunt
   Universe -> pure (TypeAst () Top)
   Kind σ _ _ -> do
     pure (TypeAst () $ Kind (TypeAst () $ Higher σ) (TypeAst () Invariant) (TypeAst () Transparent))
+  AmbiguousLabel -> pure (TypeAst () Label)
+  Label -> pure $ TypeAst () $ Top
+  Hole (Core v) -> absurd v
   Top -> error "reconstruct top"
 
 -- also changes logic type variable levels and check for escaping skolem variables
@@ -83,19 +87,15 @@ typeOccursCheck p x lev σ' = go σ'
     go (TypeAst () σ) = do
       case σ of
         TypeSub (TypeVariable x') -> do
-          indexKindEnvironment x' >>= \case
-            TypeBinding _ _ _ lev' _ ->
-              if lev' > lev
-                then quit $ EscapingSkolemType p x' σ'
-                else pure ()
-            LinkTypeBinding _ -> pure ()
+          TypeBinding _ _ _ lev' _ <- indexKindEnvironment x'
+          if lev' > lev
+            then quit $ EscapingSkolemType p x' σ'
+            else pure ()
         TypeSub (TypeGlobalVariable x') -> do
-          indexKindGlobalEnvironment x' >>= \case
-            TypeBinding _ _ _ lev' _ ->
-              if lev' > lev
-                then quit $ EscapingSkolemTypeGlobal p x' σ'
-                else pure ()
-            LinkTypeBinding _ -> pure ()
+          TypeBinding _ _ _ lev' _ <- indexKindGlobalEnvironment x'
+          if lev' > lev
+            then error "type globals aren't supposed to be argumentable"
+            else pure ()
         TypeLogical x' | x == x' -> quit $ TypeOccursCheck p x σ'
         TypeLogical x' ->
           indexTypeLogicalMap x' >>= \case
@@ -109,7 +109,9 @@ typeOccursCheck p x lev σ' = go σ'
           recurse σ
           recurse π
           recurse τ
-        Poly ς -> occursPoly ς
+        Poly σ ς -> do
+          recurse σ
+          occursPoly ς
         FunctionPointer σ π τ -> do
           recurse σ
           recurse π
@@ -169,6 +171,9 @@ typeOccursCheck p x lev σ' = go σ'
         Base -> pure ()
         Higher κ -> recurse κ
         Universe -> pure ()
+        AmbiguousLabel -> pure ()
+        Label -> pure ()
+        Hole (Core v) -> absurd v
     occursPoly (TypeScheme () ς) = case ς of
       MonoType σ -> recurse σ
       TypeForall (Bound (TypePattern () x κ π) ς) -> do
@@ -217,21 +222,15 @@ matchType p σ σ' = unify σ σ'
             (LinkTypeLogical σ') -> unify σ' σ
     unify σ σ'@(TypeAst () (TypeLogical _)) = unify σ' σ
     unify (TypeAst () (TypeSub σ)) (TypeAst () (TypeSub σ')) | σ == σ' = pure ()
-    unify σ@(TypeAst () (TypeSub (TypeVariable x))) σ' =
-      indexKindEnvironment x >>= \case
-        TypeBinding _ _ _ _ _ -> quit $ TypeMismatch p σ σ'
-        LinkTypeBinding σ -> unify (flexible σ) σ'
-    unify σ@(TypeAst () (TypeSub (TypeGlobalVariable x))) σ' =
-      indexKindGlobalEnvironment x >>= \case
-        TypeBinding _ _ _ _ _ -> quit $ TypeMismatch p σ σ'
-        LinkTypeBinding σ -> unify (flexible σ) σ'
     unify σ σ'@(TypeAst () (TypeSub (TypeVariable _))) = unify σ' σ
     unify σ σ'@(TypeAst () (TypeSub (TypeGlobalVariable _))) = unify σ' σ
     unify (TypeAst () (Inline σ π τ)) (TypeAst () (Inline σ' π' τ')) = do
       unify σ σ'
       unify π π'
       unify τ τ'
-    unify (TypeAst () (Poly ς)) (TypeAst () (Poly ς')) = unifyPoly ς ς'
+    unify (TypeAst () (Poly σ ς)) (TypeAst () (Poly σ' ς')) = do
+      unify σ σ'
+      unifyPoly ς ς'
     unify (TypeAst () (FunctionPointer σ π τ)) (TypeAst () (FunctionPointer σ' π' τ')) = do
       unify σ σ'
       unify π π'
@@ -299,6 +298,8 @@ matchType p σ σ' = unify σ σ'
     unify (TypeAst () Transparency) (TypeAst () Transparency) = pure ()
     unify (TypeAst () Orderability) (TypeAst () Orderability) = pure ()
     unify (TypeAst () Universe) (TypeAst () Universe) = pure ()
+    unify (TypeAst () AmbiguousLabel) (TypeAst () AmbiguousLabel) = pure ()
+    unify (TypeAst () Label) (TypeAst () Label) = pure ()
     unify (TypeAst () Top) (TypeAst () Top) = pure ()
     unify σ σ' = quit $ TypeMismatch p σ σ'
 
@@ -321,7 +322,7 @@ matchType p σ σ' = unify σ σ'
       (TypeScheme () (MonoType σ))
       (TypeScheme () (MonoType σ')) =
         unify σ σ'
-    unifyPoly ς ς' = quit $ TypeMismatch p (TypeAst () $ Poly ς) (TypeAst () $ Poly ς')
+    unifyPoly ς ς' = quit $ TypePolyMismatch p ς ς'
 
 reachLogical x (TypeAst () (TypeLogical x')) | x == x' = pure True
 reachLogical x (TypeAst () (TypeLogical x')) =
@@ -345,11 +346,8 @@ meet p π π' = do
   maximal p (π, π') (Set.toList $ Set.intersection lower1 lower2) (Set.toList $ Set.intersection lower1 lower2)
 
 -- type that is subtypable
-plainType :: p -> Type () v -> Check p TypeSub
-plainType p (TypeAst () (TypeSub σ@(TypeVariable x))) =
-  indexKindEnvironment x >>= \case
-    TypeBinding _ _ _ _ _ -> pure σ
-    LinkTypeBinding σ -> plainType p σ
+plainType :: p -> Type Core () v -> Check p TypeSub
+plainType _ (TypeAst () (TypeSub σ@(TypeVariable _))) = pure σ
 plainType _ (TypeAst () (TypeSub σ)) = pure σ
 plainType p _ = quit $ ExpectedPlainType p
 
@@ -410,11 +408,9 @@ reconstruct p = reconstructF indexEnvironment indexGlobalEnvironment indexLogica
     indexEnvironment x = indexKindEnvironment x >>= kind
       where
         kind (TypeBinding _ κ _ _ _) = pure $ κ
-        kind (LinkTypeBinding σ) = reconstruct p (flexible σ)
     indexGlobalEnvironment x = indexKindGlobalEnvironment x >>= kind
       where
         kind (TypeBinding _ κ _ _ _) = pure $ κ
-        kind (LinkTypeBinding σ) = reconstruct p (flexible σ)
     indexLogicalMap x = indexTypeLogicalMap x >>= index
     index (UnboundTypeLogical _ x _ _ _) = pure x
     index (LinkTypeLogical σ) = reconstruct p σ
@@ -460,6 +456,9 @@ freshBoxedTypeVariable p = do
 
 freshRegionTypeVariable p = do
   freshTypeVariable p $ TypeAst () $ Region
+
+freshLabelTypeVariable p = do
+  freshTypeVariable p $ TypeAst () $ Label
 
 checkKind p σt = do
   μ <- freshOrderabilityVariable p
@@ -580,3 +579,7 @@ checkStep p σt = do
   τ <- freshPretypeTypeVariable p
   matchType p σt (TypeAst () $ Step σ τ)
   pure (σ, τ)
+
+checkLabel p σt = do
+  matchType p σt (TypeAst () Label)
+  pure ()

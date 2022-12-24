@@ -9,7 +9,6 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Traversable (for)
-import Data.Void (absurd)
 import Misc.Isomorph
 import Misc.Path
 import Misc.Prism
@@ -17,7 +16,6 @@ import Misc.Symbol
 import Misc.Util
 import TypeCheck
 import TypeCheck.Core
-import TypeCheck.Unify (checkPretype, matchType)
 
 newtype Module g = CoreModule (Map String (Item g)) deriving (Show, Functor, Foldable, Traversable)
 
@@ -26,10 +24,10 @@ data Item g
   | Global g
   deriving (Show, Functor, Foldable, Traversable)
 
-data GlobalF σ ς e
+data GlobalF τ σ ς e
   = Inline ς e
   | Text ς e
-  | Synonym σ
+  | Synonym τ
   | NewType σ σ
   deriving (Show)
 
@@ -37,13 +35,13 @@ data ForwardF σ ς
   = ForwardNewtype σ
   | ForwardText ς
 
-data GlobalSource p = GlobalSource (GlobalF (TypeSource p) (TypeSchemeAuto p) (TermControlSource p))
+data GlobalSource p = GlobalSource (GlobalF (TypeSource p) (TypeSource p) (TypeSchemeAuto p) (TermControlSource p))
 
 data DeclareSource p
   = DefinitionSource (GlobalSource p)
   | DeclarationSource (ForwardF (TypeSource p) (TypeSchemeSource p))
 
-data GlobalInfer p = GlobalInfer (GlobalF TypeInfer TypeSchemeInfer (TermSchemeInfer p))
+data GlobalInfer p = GlobalInfer (GlobalF TypeInfer TypeInfer TypeSchemeInfer (TermSchemeInfer p))
 
 data DeclareInfer p
   = DefinitionInfer (GlobalInfer p)
@@ -250,18 +248,6 @@ makeExtern path p ς = case ς of
     TermScheme p (TypeAbstraction (Bound (TypePattern () x κ π) $ makeExtern path p e))
   _ -> error "not function literal"
 
-bindMembers :: [String] -> CheckEnvironment p -> CheckEnvironment p
-bindMembers heading environment =
-  environment
-    { typeEnvironment = Map.foldrWithKey bind Map.empty (typeGlobalEnvironment environment),
-      kindEnvironment = Map.foldrWithKey bindType Map.empty (kindGlobalEnvironment environment)
-    }
-  where
-    bind (TermGlobalIdentifier (Path heading' name)) e σΓ | heading == heading' = Map.insert (TermIdentifier name) e σΓ
-    bind _ _ σΓ = σΓ
-    bindType (TypeGlobalIdentifier (Path heading' name)) e σΓ | heading == heading' = Map.insert (TypeIdentifier name) e σΓ
-    bindType _ _ σΓ = σΓ
-
 data Update e σ τ π
   = UpdateTerm e
   | UpdateSym σ
@@ -276,8 +262,8 @@ typeCheckModule ::
     [(Path, DeclareInfer p)]
 typeCheckModule [] = pure []
 typeCheckModule ((path@(Path heading _), item) : nodes) = do
-  environment <- bindMembers heading <$> get
-  let run f = lift $ runChecker f environment emptyState
+  environment <- get
+  let run f = lift $ runChecker f environment {moduleScope = heading} emptyState
   (item', σ) <- case item of
     DefinitionSource (GlobalSource e) -> case e of
       Inline Nothing (TermAutoSource e) -> do
@@ -293,37 +279,29 @@ typeCheckModule ((path@(Path heading _), item) : nodes) = do
         (e, σ) <- run (typeCheckGlobalManual InlineMode e σ)
         pure (DefinitionInfer $ GlobalInfer $ Inline σ e, UpdateTerm $ flexible σ)
       Text Nothing (TermAutoSource e) -> do
-        (e, σ) <- run (typeCheckGlobalAuto SymbolMode e >>= syntaticCheck)
+        (e, σ) <- run (typeCheckGlobalAuto SymbolMode e)
         pure (DefinitionInfer $ GlobalInfer $ Text σ e, UpdateTerm $ convertFunctionLiteral $ flexible σ)
       Text (Just σ) (TermAutoSource e) -> do
         (e, σ) <- run (typeCheckGlobalScope SymbolMode e σ)
         pure (DefinitionInfer $ GlobalInfer $ Text σ e, UpdateTerm $ convertFunctionLiteral $ flexible σ)
       Text (Just σ) (TermManualSource e) -> do
-        (e, σ) <- run (typeCheckGlobalManual SymbolMode e σ >>= syntaticCheck)
+        (e, σ) <- run (typeCheckGlobalManual SymbolMode e σ)
         pure (DefinitionInfer $ GlobalInfer $ Text σ e, UpdateTerm $ convertFunctionLiteral $ flexible σ)
       Text Nothing (TermManualSource e) -> do
-        (e, σ) <- run (typeCheckGlobalSemi SymbolMode e >>= syntaticCheck)
+        (e, σ) <- run (typeCheckGlobalSemi SymbolMode e)
         pure (DefinitionInfer $ GlobalInfer $ Text σ e, UpdateTerm $ convertFunctionLiteral $ flexible σ)
       Synonym σ -> do
-        (σ, _) <- run (kindCheck σ)
+        σ <- run $ typeCheckGlobalSyn σ
         pure (DefinitionInfer $ GlobalInfer $ Synonym σ, UpdateSym σ)
-      NewType κ σ@(TypeAst p _) -> do
-        (σ, κ) <- run $ do
-          (κ', _) <- kindCheck κ
-          checkPretype p (flexible κ')
-          (σ, κ) <- kindCheck σ
-          matchType p κ (flexible κ')
-          pure (σ, κ')
+      NewType κ σ -> do
+        (σ, κ) <- run $ typeCheckGlobalNew σ κ
         pure (DefinitionInfer $ GlobalInfer $ NewType κ σ, UpdateNewtype (flexible κ, σ))
     DeclarationSource (ForwardText ς@(TypeScheme p _)) -> do
-      (ς, _) <- run (kindCheckScheme SymbolMode ς)
-      pure (DeclarationInfer p $ ForwardText ς, UpdateTerm $ convertFunctionLiteral $ flexible $ ς)
+      ς <- run $ typeCheckGlobalForward ς
+      pure (DeclarationInfer p $ ForwardText ς, UpdateTerm $ convertFunctionLiteral $ flexible ς)
     DeclarationSource (ForwardNewtype κ@(TypeAst p _)) -> do
-      κ <- run $ do
-        (κ, _) <- kindCheck κ
-        checkPretype p (flexible κ)
-        pure κ
-      pure (DeclarationInfer p $ ForwardNewtype κ, UpdateNewtype' (flexible κ))
+      κ <- run $ typeCheckGlobalNewForward κ
+      pure (DeclarationInfer p $ ForwardNewtype κ, UpdateNewtype' $ flexible κ)
   let p = positionDeclaration item
   modify (update p σ)
   ((path, item') :) <$> typeCheckModule nodes
@@ -334,16 +312,16 @@ typeCheckModule ((path@(Path heading _), item) : nodes) = do
           { typeGlobalEnvironment =
               Map.insert
                 (TermGlobalIdentifier path)
-                (TermBinding p (TypeAst () $ TypeSub Unrestricted) σ)
+                (TermBinding p (TypeAst () $ TypeSub Unrestricted) (reLabel σ))
                 $ typeGlobalEnvironment environment
           }
       UpdateSym σ ->
         environment
-          { kindGlobalEnvironment =
+          { typeSynonyms =
               Map.insert
                 (TypeGlobalIdentifier path)
-                (LinkTypeBinding σ)
-                $ kindGlobalEnvironment environment
+                σ
+                $ typeSynonyms environment
           }
       UpdateNewtype (κ, σ) ->
         environment
@@ -363,69 +341,32 @@ typeCheckModule ((path@(Path heading _), item) : nodes) = do
                 $ kindGlobalEnvironment environment
           }
 
-data Reducer p = Reducer
-  { reducerTerms :: Map TermGlobalIdentifier (TermSchemeInfer p),
-    reducerTypes :: Map TypeGlobalIdentifier TypeInfer
-  }
-
 reduceModule ::
-  Reducer p ->
+  Map TermGlobalIdentifier (TermSchemeInfer p) ->
   [(Path, DeclareInfer p)] ->
   [(Path, DeclareInfer p)]
 reduceModule _ [] = []
-reduceModule globals ((path@(Path heading _), item) : nodes) =
+reduceModule globals ((path, item) : nodes) =
   (path, item') : reduceModule globals' nodes
   where
     (item', binding) = case item of
       DefinitionInfer (GlobalInfer (Inline σ e)) ->
-        let e' = reduce $ applyGlobalTypes $ applyGlobalTerms e
-            σ' = applyGlobalTypes σ
-         in (DefinitionInfer $ GlobalInfer $ Inline σ' e', UpdateTerm e')
+        let e' = reduce $ applyGlobalTerms e
+         in (DefinitionInfer $ GlobalInfer $ Inline σ e', Just e')
       DefinitionInfer (GlobalInfer (Text σ e@(TermScheme p _))) ->
-        let e' = reduce $ applyGlobalTypes $ applyGlobalTerms e
-            σ' = applyGlobalTypes σ
-         in (DefinitionInfer $ GlobalInfer $ Text σ' e', UpdateTerm (makeExtern path p σ'))
+        let e' = reduce $ applyGlobalTerms e
+         in (DefinitionInfer $ GlobalInfer $ Text σ e', Just (makeExtern path p σ))
       DefinitionInfer (GlobalInfer (Synonym σ)) ->
-        let σ' = applyGlobalTypes σ
-         in (DefinitionInfer $ GlobalInfer $ Synonym σ', UpdateSym σ')
+        (DefinitionInfer $ GlobalInfer $ Synonym σ, Nothing)
       DefinitionInfer (GlobalInfer (NewType κ σ)) ->
-        let κ' = applyGlobalTypes κ
-            σ' = applyGlobalTypes σ
-         in (DefinitionInfer $ GlobalInfer $ NewType κ' σ', UpdateSym self)
+        (DefinitionInfer $ GlobalInfer $ NewType κ σ, Nothing)
       DeclarationInfer p (ForwardNewtype κ) ->
-        let κ' = applyGlobalTypes κ
-         in (DeclarationInfer p $ ForwardNewtype κ', UpdateSym self)
+        (DeclarationInfer p $ ForwardNewtype κ, Nothing)
       DeclarationInfer p (ForwardText σ) ->
-        let σ' = applyGlobalTypes σ
-         in (DeclarationInfer p $ ForwardText σ', UpdateTerm (makeExtern path p σ'))
-    self = TypeAst () $ TypeSub $ TypeGlobalVariable $ TypeGlobalIdentifier path
+        (DeclarationInfer p $ ForwardText σ, Just (makeExtern path p σ))
 
     globals' = case binding of
-      UpdateTerm e ->
-        globals
-          { reducerTerms = Map.insert (TermGlobalIdentifier path) e $ reducerTerms globals
-          }
-      UpdateSym σ ->
-        globals
-          { reducerTypes = Map.insert (TypeGlobalIdentifier path) σ $ reducerTypes globals
-          }
-      UpdateNewtype v -> absurd v
-      UpdateNewtype' v -> absurd v
-    applyGlobalTerms e = foldr applyTermGlobal (foldr applyTerm e (freeVariablesTerm e)) (freeVariablesGlobalTerm e)
-    applyGlobalTypes σ = foldr applyTypeGlobal (foldr applyType σ (freeVariablesType σ)) (freeVariablesGlobalType σ)
-
-    applyTerm x@(TermIdentifier name) e = case Map.lookup (TermGlobalIdentifier (Path heading name)) (reducerTerms globals) of
-      Just ex -> substituteTerm ex x e
-      Nothing -> e
-
-    applyTermGlobal x e = case Map.lookup x (reducerTerms globals) of
-      Just ex -> substituteGlobalTerm ex x e
-      Nothing -> e
-
-    applyType x@(TypeIdentifier name) e = case Map.lookup (TypeGlobalIdentifier (Path heading name)) (reducerTypes globals) of
-      Just σx -> substituteType σx x e
-      Nothing -> e
-
-    applyTypeGlobal x e = case Map.lookup x (reducerTypes globals) of
-      Just ex -> substituteGlobalType ex x e
-      Nothing -> e
+      Nothing -> globals
+      Just e -> Map.insert (TermGlobalIdentifier path) e globals
+    applyGlobalTerms e = foldr applyTermGlobal e (freeVariablesGlobalTerm e)
+    applyTermGlobal x e = substituteGlobalTerm (globals Map.! x) x e

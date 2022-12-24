@@ -96,7 +96,8 @@ convertTypeSigned (TypeAst () (KindSignedness Unsigned)) = Unsigned
 convertTypeSigned _ = error "bad sign"
 
 convertTermPattern :: TermRuntimePatternInfer p -> Simplify (SimplePattern p)
-convertTermPattern (TermRuntimePattern p pm) = SimplePattern p <$> traverseTermRuntimePatternF (convertType . runCore) convertTermPattern pm
+convertTermPattern (TermRuntimePattern p pm) =
+  SimplePattern p <$> traverseTermRuntimePatternF (convertType) convertTermPattern pm
 
 simpleFailPattern = error "illegal simple pattern"
 

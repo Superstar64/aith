@@ -34,7 +34,8 @@ infixl 3 ∥#
 
 keywords =
   Set.fromList
-    [ "as",
+    [ "ambiguous",
+      "as",
       "bool",
       "borrow",
       "boxed",
@@ -57,6 +58,7 @@ keywords =
       "invariant",
       "io",
       "kind",
+      "label",
       "let",
       "linear",
       "long",
@@ -119,6 +121,7 @@ tokens =
     ";",
     "<",
     "<=",
+    "<_>",
     "=",
     "==",
     "=>",
@@ -135,6 +138,7 @@ tokens =
     "|",
     "|<",
     "}",
+    "%[",
     "/|\\"
   ]
 
@@ -183,8 +187,6 @@ betweenAngle = between (token "<") (token ">")
 betweenBraces = between (token "{") (token "}")
 
 betweenSquares = between (token "[") (token "]")
-
-betweenPipeAngles = between (token "|<") (token ">|")
 
 symbol = Symbol.symbol ⊣ stringLiteral
 
@@ -248,8 +250,6 @@ typeIdentifier = Language.typeIdentifier ⊣ identifer
 
 typeGlobalIdentifier = Language.typeGlobalIdentifier ⊣ path
 
-auto e = just ⊣ e ∥ nothing ⊣ token "_"
-
 lowerBounds :: Syntax δ => δ a -> δ [a]
 lowerBounds σ = items ∥ nil ⊣ always
   where
@@ -271,7 +271,12 @@ typex = typeLambda
   where
     typeLambda = Language.typeSource ⊣ position ⊗ poly ∥ typeArrow
       where
-        poly = Language.poly ⊣ wrapType ⊣ scheme ≪ space ⊗ typeLambda
+        poly = Language.poly ⊣ label ⊗ body
+          where
+            label = ambiguous ∥# token "%[" ≫ typeCore ≪ token "]" ∥ ambiguous
+              where
+                ambiguous = Language.typeSource ⊣ position ⊗ (Language.ambiguousLabel ⊣ always)
+            body = wrapType ⊣ scheme ≪ space ⊗ typeLambda
     typeArrow = applyBinary ⊣ typeEffect ⊗ ((partial ∥ full) ⊕ always)
       where
         applyBinary = inline `branchDistribute` unit'
@@ -360,17 +365,17 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
         Language.orderability ⊣ keyword "orderability",
         Language.transparency ⊣ keyword "transparency",
         Language.universe ⊣ keyword "universe",
-        Language.base ⊣ tokenNumeric 1 "u"
+        Language.base ⊣ tokenNumeric 1 "u",
+        Language.label ⊣ keyword "label",
+        Language.ambiguousLabel ⊣ keyword "ambiguous",
+        Language.hole ⊣ token "_"
       ]
     rotate = swap_2_3_of_3
     -- todo remove this eventually
     funLiteral = Language.functionLiteralType ⊣ rotate ⊣ prefixKeyword "internal" ≫ typeParen ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
     funPointer = Language.functionPointer ⊣ rotate ⊣ typeParen ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
 
-typeAuto = auto typex
-
 newtype Scheme p = Scheme {runScheme :: [(p, Language.TypePatternSource p)]}
-  deriving (Show)
 
 isoScheme = Isomorph Scheme runScheme
 
@@ -401,7 +406,9 @@ wrap c t =
     )
     . firstI (inverse isoScheme)
 
-typeAnnotate op = Language.source ⊣ just ⊣ binaryToken op ≫ typex ∥ Language.source ⊣ nothing ⊣ always
+typeAnnotate op =
+  Language.typeSource ⊣ (position ⊗ (Language.hole ⊣ always))
+    ∥# binaryToken op ≫ typex ∥ Language.typeSource ⊣ (position ⊗ (Language.hole ⊣ always))
 
 termRuntimePatternParen :: (Position δ p, Syntax δ) => δ (Language.TermRuntimePatternSource p)
 termRuntimePatternParen =
@@ -518,13 +525,15 @@ term = termLambda
     termIndex = Language.termSource ⊣ position ⊗ index ∥ termApply
       where
         index = Language.pointerIncrement ⊣ token "&" ≫ termApply ⊗ betweenSquares term
-    termApply = foldlP applyBinary ⊣ termCore ⊗ many (applySyntax ⊕ rtApplySyntax)
+    termApply = foldlP applyBinary ⊣ termCore ⊗ many (applySyntax ⊕ rtApplySyntax ⊕ elimSyntax)
       where
-        applyBinary = application `branchDistribute` rtApplication
+        applyBinary = application `branchDistribute` rtApplication `branchDistribute` elimatePoly
         application = withInnerPosition Language.positionTerm Language.termSource Language.inlineApplication
         rtApplication = withInnerPosition Language.positionTerm Language.termSource Language.functionApplication
+        elimatePoly = withInnerPosition1 Language.positionTerm Language.termSource Language.polyElimination
         applySyntax = space ≫ token "!" ≫ termCore
         rtApplySyntax = space ≫ termParen
+        elimSyntax = space ≫ token "<_>"
 
 termLambdas e = Language.inlineAbstraction ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ e
 
@@ -538,7 +547,6 @@ termCore = Language.termSource ⊣ position ⊗ choice options ∥ pick isStatem
         Language.numberLiteral ⊣ number,
         Language.truex ⊣ keyword "true",
         Language.falsex ⊣ keyword "false",
-        Language.polyElimination ⊣ betweenPipeAngles term,
         Language.break ⊣ prefixKeyword "break" ≫ termCore,
         Language.continue ⊣ prefixKeyword "continue" ≫ termCore,
         Language.wrap ⊣ prefixKeyword "wrap" ≫ termCore,
@@ -714,7 +722,7 @@ instance Syntax Parser where
       (Synonym σ :| []) -> pure $ Module.Global $ Module.GlobalSource $ Module.Synonym σ
       (NewtypeDeclare κ :| [NewTypeDefine σ]) -> pure $ Module.Global $ Module.GlobalSource $ Module.NewType κ σ
       (Module m :| []) -> pure $ Module.Module m
-      _ -> fail $ "known global type for " ++ show k
+      _ -> fail $ "unknown module item for " ++ show k
 
 newtype Printer a = Printer (a -> Maybe (WriterT String (State Int) ()))
 

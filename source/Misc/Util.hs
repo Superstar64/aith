@@ -17,15 +17,15 @@ secondM g = bitraverse pure g
 
 zipWithM f a b = sequence $ zipWith f (toList a) (toList b)
 
-temporaries' prefixes =
+temporaries prefixes =
   prefixes ++ do
     i <- [0 ..]
     prefix <- prefixes
     pure $ prefix ++ show i
 
-temporaries prefix = temporaries' [prefix]
+uppers = ((: []) <$> ['A' .. 'Z'])
 
-fresh disallow canditate = fromJust $ find (flip Set.notMember disallow) $ temporaries canditate
+fresh disallow canditate = fromJust $ find (flip Set.notMember disallow) $ temporaries [canditate]
 
 -- https://en.wikipedia.org/wiki/Topological_sorting#Depth-first_search
 

@@ -3,6 +3,7 @@ digraph aith {
     // regular arrows mean type of
     // dotted, arrowhead=none arrows mean type of this contains
     rankdir="BT"
+    concentrate=true;
 
     // unabstractable types
     top
@@ -10,11 +11,12 @@ digraph aith {
     universe
     orderability
     transparency
-
+    label[label="label"]
 
     orderability -> top
     transparency -> top
     universe -> top
+    label -> top
 
     uone[label="1"]
     uinc[label="1+u"]
@@ -22,16 +24,18 @@ digraph aith {
     uone -> universe
     uinc -> universe
 
-    invariant
-    subtypable
     transparent
     opaque
+    invariant
+    subtypable
 
-    invariant -> orderability
-    subtypable -> orderability
     transparent -> transparency
     opaque -> transparency
+    invariant -> orderability
+    subtypable -> orderability
+    ambiguous -> label
     
+  
     kindInfi[label="kind<invariant, transparent, n>"]
     kindInfi -> kindInfi[label="..."]
     

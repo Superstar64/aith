@@ -21,30 +21,22 @@ instance Bounded Level where
   maxBound = Level maxBound
 
 data TypeError p
-  = UnknownIdentifier p TermIdentifier
-  | UnknownGlobalIdentifier p TermGlobalIdentifier
-  | UnknownTypeIdentifier p TypeIdentifier
+  = UnknownGlobalIdentifier p TermGlobalIdentifier
   | UnknownTypeGlobalIdentifier p TypeGlobalIdentifier
-  | InvalidUsage p TermIdentifier
   | TypeMismatch p TypeUnify TypeUnify
+  | TypePolyMismatch p TypeSchemeUnify TypeSchemeUnify
   | TypeMisrelation p TypeSub TypeSub
   | TypeOccursCheck p TypeLogical TypeUnify
   | AmbiguousType p TypeInfer
   | EscapingSkolemType p TypeIdentifier TypeUnify
-  | EscapingSkolemTypeGlobal p TypeGlobalIdentifier TypeUnify
-  | CaptureLinear p TermIdentifier
   | ExpectedTypeAnnotation p
-  | ExpectedFunctionLiteral p
   | NoCommonMeet p TypeSub TypeSub
   | MismatchedTypeLambdas p
-  | ExpectedTypeAbstraction p
   | ExpectedPlainType p
   | IncorrectRegionBounds p
   | NotTypable p
   | ExpectedSubtypable p
   | ExpectedNewtype p TypeUnify
-  | ExpectedFullAnnotation p
-  deriving (Show)
 
 newtype Check p a = Check {runChecker'' :: ReaderT (CheckEnvironment p) (StateT (CheckState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
 
@@ -56,32 +48,32 @@ runChecker c = (fmap fst .) . runChecker' c
 data TermBinding p = TermBinding
   { termPosition :: p,
     termMultiplicity :: TypeUnify,
-    termType :: TypeSchemeUnify
+    termType :: LabelSchemeUnify
   }
-  deriving (Show, Functor)
+  deriving (Functor)
 
 data NominalBinding
   = Unnamed
   | Named TypeInfer
-  deriving (Show)
 
 data TypeBinding p
   = TypeBinding p TypeUnify (Set TypeSub) Level NominalBinding
-  | LinkTypeBinding TypeInfer
-  deriving (Show, Functor)
+  deriving (Functor)
 
 data CheckEnvironment p = CheckEnvironment
   { typeEnvironment :: Map TermIdentifier (TermBinding p),
     kindEnvironment :: Map TypeIdentifier (TypeBinding p),
     typeGlobalEnvironment :: Map TermGlobalIdentifier (TermBinding p),
-    kindGlobalEnvironment :: Map TypeGlobalIdentifier (TypeBinding p)
+    kindGlobalEnvironment :: Map TypeGlobalIdentifier (TypeBinding p),
+    moduleScope :: [String],
+    typeSynonyms :: Map TypeGlobalIdentifier TypeInfer
   }
-  deriving (Functor, Show)
+  deriving (Functor)
 
 data TypeLogicalState p
   = UnboundTypeLogical p TypeUnify [TypeUnify] (Maybe TypeSub) Level
   | LinkTypeLogical TypeUnify
-  deriving (Show, Functor)
+  deriving (Functor)
 
 -- todo use int maps here
 data CheckState p = CheckState
@@ -90,11 +82,11 @@ data CheckState p = CheckState
     levelCounter :: Int,
     usedVars :: Set String
   }
-  deriving (Functor, Show)
+  deriving (Functor)
 
 quit e = Check $ lift $ lift $ Left e
 
-emptyEnvironment = CheckEnvironment Map.empty Map.empty Map.empty Map.empty
+emptyEnvironment = CheckEnvironment Map.empty Map.empty Map.empty Map.empty [] Map.empty
 
 askEnvironment = Check ask
 
@@ -105,12 +97,12 @@ lookupTypeEnviroment x = do
   xΓ <- Check ask
   pure $ Map.lookup x (typeEnvironment xΓ)
 
-lookuptypeGlobalEnvironment :: TermGlobalIdentifier -> Check p (Maybe (TermBinding p))
-lookuptypeGlobalEnvironment x = do
+lookupTypeGlobalEnvironment :: TermGlobalIdentifier -> Check p (Maybe (TermBinding p))
+lookupTypeGlobalEnvironment x = do
   xΓ <- Check ask
   pure $ Map.lookup x (typeGlobalEnvironment xΓ)
 
-augmentTypeEnvironment :: TermIdentifier -> p -> TypeUnify -> TypeSchemeUnify -> Check p a -> Check p a
+augmentTypeEnvironment :: TermIdentifier -> p -> TypeUnify -> LabelSchemeUnify -> Check p a -> Check p a
 augmentTypeEnvironment x p l σ = modifyTypeEnvironment (Map.insert x (TermBinding p l σ))
   where
     modifyTypeEnvironment f (Check r) = Check $ withReaderT (\env -> env {typeEnvironment = f (typeEnvironment env)}) r
@@ -119,6 +111,11 @@ lookupKindEnvironment :: TypeIdentifier -> Check p (Maybe (TypeBinding p))
 lookupKindEnvironment x = do
   xΓ <- Check ask
   pure $ Map.lookup x (kindEnvironment xΓ)
+
+lookupSynonym :: TypeGlobalIdentifier -> Check p (Maybe TypeInfer)
+lookupSynonym x = do
+  xΓ <- Check ask
+  pure $ Map.lookup x (typeSynonyms xΓ)
 
 lookupKindGlobalEnvironment x = do
   xΓ <- Check ask
@@ -139,17 +136,11 @@ indexKindGlobalEnvironment x = do
 
 lowerTypeBounds :: TypeSub -> Check p (Set TypeSub)
 lowerTypeBounds (TypeVariable x) = do
-  indexKindEnvironment x >>= \case
-    TypeBinding _ _ π _ _ -> do
-      pure π
-    LinkTypeBinding (TypeAst _ (TypeSub σ)) -> lowerTypeBounds σ
-    LinkTypeBinding _ -> error "unexpected subtypable"
+  TypeBinding _ _ π _ _ <- indexKindEnvironment x
+  pure π
 lowerTypeBounds (TypeGlobalVariable x) = do
-  indexKindGlobalEnvironment x >>= \case
-    TypeBinding _ _ π _ _ -> do
-      pure π
-    LinkTypeBinding (TypeAst _ (TypeSub σ)) -> lowerTypeBounds σ
-    LinkTypeBinding _ -> error "unexpected subtypable"
+  TypeBinding _ _ π _ _ <- indexKindGlobalEnvironment x
+  pure π
 lowerTypeBounds World = pure (Set.singleton World)
 lowerTypeBounds Linear = pure (Set.singleton Linear)
 lowerTypeBounds Unrestricted = pure (Set.fromList [Linear, Unrestricted])
@@ -172,7 +163,7 @@ augmentKindUnify occurs p x = modifyKindEnvironment (Map.insert x (TypeBinding p
 augmentTypePatternLevel (TypePatternIntermediate p x κ π) f = do
   enterLevel
   useTypeVar x
-  lev <- Level <$> currentLevel
+  lev <- currentLevel
   f' <- augmentKindEnvironment p x (flexible κ) (Set.fromList π) lev f
   leaveLevel
   pure f'
@@ -199,10 +190,9 @@ modifyLevelCounter f = do
 
 enterLevel = modifyLevelCounter (+ 1)
 
--- todo lower levels of all type variables in state
 leaveLevel = modifyLevelCounter (subtract 1)
 
-currentLevel = levelCounter <$> getState
+currentLevel = Level <$> levelCounter <$> getState
 
 freshTypeVariableRaw :: p -> TypeUnify -> [TypeUnify] -> Maybe TypeSub -> Level -> Check p TypeLogical
 freshTypeVariableRaw p κ lower upper lev = do

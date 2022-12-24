@@ -1,7 +1,6 @@
 module Main where
 
-import Ast.Term
-import Ast.Type hiding (Inline, kind, typex)
+import Ast.Type hiding (Inline, kind, typeGlobalIdentifier, typeIdentifier, typex)
 import qualified C.Ast as C
 import qualified C.Print as C
 import Codegen
@@ -9,7 +8,7 @@ import Control.Monad
 import Control.Monad.Trans.State
 import Data.Foldable
 import Data.Functor.Identity (runIdentity)
-import Data.List
+import qualified Data.List as List
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Traversable (for)
@@ -34,10 +33,39 @@ nameType :: TypeUnify -> TypeSource ()
 nameType = sourceType . runIdentity . zonkType nameTypeLogical
 
 prettyError :: TypeError [SourcePos] -> String
-prettyError (UnknownIdentifier p (TermIdentifier x)) = "Unknown identifer " ++ x ++ positions p
-prettyError (TypeMismatch p σ σ') = "Type mismatch between ``" ++ pretty typex (nameType σ) ++ "`` and ``" ++ pretty typex (nameType σ') ++ "``" ++ positions p
-prettyError (TypeMisrelation p σ σ') = "Unable to subtype ``" ++ pretty typex (nameType (TypeAst () $ TypeSub σ')) ++ "`` >= ``" ++ pretty typex (nameType (TypeAst () $ TypeSub σ)) ++ "``" ++ positions p
-prettyError e = show e
+prettyError e = case e of
+  TypeMismatch p σ σ' ->
+    "Type mismatch between `" ++ pretty typex (nameType σ) ++ "` and `" ++ pretty typex (nameType σ') ++ "`" ++ positions p
+  TypePolyMismatch p ς ς' ->
+    prettyError
+      (TypeMismatch p (TypeAst () $ Poly (TypeAst () AmbiguousLabel) ς) (TypeAst () $ Poly (TypeAst () AmbiguousLabel) ς'))
+  TypeMisrelation p σ σ' ->
+    "Unable to subtype `"
+      ++ pretty typex (nameType (TypeAst () $ TypeSub σ'))
+      ++ "` >= `"
+      ++ pretty typex (nameType (TypeAst () $ TypeSub σ))
+      ++ "`"
+      ++ positions p
+  ExpectedTypeAnnotation p -> "Expected type annotation: " ++ positions p
+  AmbiguousType p σ -> "Ambiguous Type: `" ++ pretty typex (nameType $ flexible σ) ++ "`" ++ positions p
+  UnknownGlobalIdentifier p x -> "Unknown Global: " ++ pretty termGlobalIdentifier x ++ positions p
+  UnknownTypeGlobalIdentifier p x -> "Unknown Type Global: " ++ pretty typeGlobalIdentifier x ++ positions p
+  TypeOccursCheck p v σ ->
+    "Occurance Check: `" ++ pretty typex (nameType (TypeAst () $ TypeLogical v)) ++ "` in` " ++ pretty typex (nameType σ) ++ "`" ++ positions p
+  EscapingSkolemType p x σ ->
+    "Escaping Skolem: `" ++ pretty typeIdentifier x ++ "` in `" ++ pretty typex (nameType σ) ++ "`" ++ positions p
+  NoCommonMeet p σ τ ->
+    "No Common Meet between `" ++ pretty typex (nameType (TypeAst () $ TypeSub σ))
+      ++ "` and `"
+      ++ pretty typex (nameType (TypeAst () $ TypeSub τ))
+      ++ "`"
+      ++ positions p
+  MismatchedTypeLambdas p -> "Mismatched type lambdas: " ++ positions p
+  ExpectedPlainType p -> "Expected plain type: " ++ positions p
+  IncorrectRegionBounds p -> "Incorrect Region Bounds: " ++ positions p
+  NotTypable p -> "Not typable: " ++ positions p
+  ExpectedSubtypable p -> "Expected subtypable: " ++ positions p
+  ExpectedNewtype p σ -> "Expected Newtype: `" ++ pretty typex (nameType σ) ++ "`" ++ positions p
 
 quoted x = "\"" ++ x ++ "\""
 
@@ -267,7 +295,7 @@ baseMain command = do
 
   formatAll (sourceGlobal <$> unorder code) (prettyItemAnnotated command)
 
-  code <- pure $ reduceModule (Reducer Map.empty Map.empty) code
+  code <- pure $ reduceModule Map.empty code
 
   formatAll (sourceGlobal <$> unorder code) (prettyItemReduced command)
   generateAll (unorder code) (generateCItem command)
@@ -288,6 +316,6 @@ main' args = do
           let options = targets flags
           cmd <- foldlM processCmd (CommandLine [] [] [] [] []) options
           baseMain cmd
-    _ -> die $ intercalate "\n" errors
+    _ -> die $ List.intercalate "\n" errors
 
 main = getArgs >>= main'

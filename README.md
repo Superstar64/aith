@@ -183,7 +183,7 @@ Files are a single decleration named `this`.
 | False | ``false`` |
 | If | ``if e { e' } else { e''}`` |
 | Poly Introduction| ``ς e`` |
-| Poly Elimination | ``\|< e >\|`` |
+| Poly Elimination | ``e <_>`` |
 | Borrow | ``borrow e as <α >= π>(pm) { e }`` |
 | Type Annotation | ``e : σ`` |
 | Pretype Annotation | ``e :: σ`` |
@@ -271,6 +271,8 @@ Files are a single decleration named `this`.
 | Universe | ``universe`` |
 | Top | ``/\|\`` |
 | Function Literal Type | ``function literal(σ) => τ uses π`` |
+| Label | ``label`` |
+| Ambiguous Label | ``ambiguous`` |
 
 # Types (Syntax Sugar) (σ, τ, π, s, κ, ρ, μ)
 | Description | Syntax | Meaning |
@@ -318,10 +320,8 @@ Useful / Inspirational papers:
 * [Unification Theory](https://www.cs.bu.edu/fac/snyder/publications/UnifChapter.pdf)
   * Pointer for Robinson unification algorithm
 ### Type Inference (First Class Polymorphism)
-The idea of having an implicit type scheme and explicit type scheme is taken from these two papers (QML and the Explicit Poly-ML variant).
-The major modification is that scope type variables are used rather then schematic ones.
+PolyML is implemented, but with scope type variables are used rather then schematic ones.
 * [Semi-Explicit First-Class Polymorphism for ML](https://caml.inria.fr/pub/papers/garrigue_remy-poly-ic99.pdf)
-* [QML : Explicit First-Class Polymorphism for ML](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/QML-Explicit-First-Class-Polymorphism-for-ML.pdf)
 ### Type Inference (Subtyping)
 * [The Simple Essence of Algebraic Subtyping](https://dl.acm.org/doi/pdf/10.1145/3409006) [(video)](https://youtu.be/d10q-b8jNKg)
   * A tiny subset is implemented for type checking regions. See my [var sub](https://github.com/Superstar64/var_sub/) repo.
@@ -359,6 +359,7 @@ The major modification is that scope type variables are used rather then schemat
   * [Flexible types: robust type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2008-55.pdf)
 * [FreezeML : Complete and Easy Type Inference for First-Class Polymorphism](https://export.arxiv.org/pdf/2004.00396) [(video)](https://youtu.be/bZKC3o4jsek)
 * [A Quick Look at Impredicativity](https://www.microsoft.com/en-us/research/uploads/prod/2020/01/quick-look-icfp20.pdf) [(video)](https://youtu.be/ZuNMo136QqI)
+* [QML : Explicit First-Class Polymorphism for ML](https://www.microsoft.com/en-us/research/wp-content/uploads/2009/09/QML-Explicit-First-Class-Polymorphism-for-ML.pdf)
 ### Type Inference (Subtyping)
 *
   * [Algebraic Subtyping](https://www.cs.tufts.edu/~nr/cs257/archive/stephen-dolan/thesis.pdf)

@@ -26,6 +26,8 @@ newtype TermIdentifier = TermIdentifier {runTermIdentifier :: String} deriving (
 
 newtype TermGlobalIdentifier = TermGlobalIdentifier {runTermGlobalIdentifier :: Path} deriving (Show, Eq, Ord)
 
+globalTerm heading (TermIdentifier x) = TermGlobalIdentifier (Path heading x)
+
 data TermPatternF σ pm
   = PatternVariable TermIdentifier σ
   deriving (Show)
@@ -204,10 +206,10 @@ data Term p phase p' v
       p
       ( TermF
           (phase (Annotation p phase p' v) Void)
-          (phase () (Instantiation p' v))
-          (phase () (Type p' v))
-          (phase (Maybe (Type p' v)) (Type p' v))
-          (Bound (TypePattern p' v) (Bound (TermRuntimePattern p phase p' v) (Term p phase p' v)))
+          (phase () (Instantiation phase p' v))
+          (phase () (Type phase p' v))
+          (Type phase p' v)
+          (Bound (TypePattern phase p' v) (Bound (TermRuntimePattern p phase p' v) (Term p phase p' v)))
           (TermScheme p phase p' v)
           (Bound (TermPattern p phase p' v) (Term p phase p' v))
           (Bound (TermRuntimePattern p phase p' v) (Term p phase p' v))
@@ -223,8 +225,8 @@ type TermInfer p = Term p Core () Void
 data TermScheme p phase p' v = TermScheme p (TermSchemeF p phase p' v)
 
 data TermSchemeF p phase p' v
-  = MonoTerm (Term p phase p' v) (phase () (Type p' v))
-  | TypeAbstraction (Bound (TypePattern p' v) (TermScheme p phase p' v))
+  = MonoTerm (Term p phase p' v) (phase () (Type phase p' v))
+  | TypeAbstraction (Bound (TypePattern phase p' v) (TermScheme p phase p' v))
 
 type TermSchemeSource p = TermScheme p Source p Void
 
@@ -232,7 +234,7 @@ type TermSchemeUnify p = TermScheme p Core () TypeLogical
 
 type TermSchemeInfer p = TermScheme p Core () Void
 
-data TermPattern p phase p' v = TermPattern p (TermPatternF (phase (Maybe (Type p' v)) (Type p' v)) (TermPattern p phase p' v))
+data TermPattern p phase p' v = TermPattern p (TermPatternF (Type phase p' v) (TermPattern p phase p' v))
 
 type TermPatternSource p = TermPattern p Source p Void
 
@@ -240,7 +242,7 @@ type TermPatternUnify p = TermPattern p Core () TypeLogical
 
 type TermPatternInfer p = TermPattern p Core () Void
 
-data TermRuntimePattern p phase p' v = TermRuntimePattern p (TermRuntimePatternF (phase (Maybe (Type p' v)) (Type p' v)) (TermRuntimePattern p phase p' v))
+data TermRuntimePattern p phase p' v = TermRuntimePattern p (TermRuntimePatternF (Type phase p' v) (TermRuntimePattern p phase p' v))
 
 type TermRuntimePatternSource p = TermRuntimePattern p Source p Void
 
@@ -255,8 +257,8 @@ data TermControl p phase p' v
 type TermControlSource p = TermControl p Source p Void
 
 data Annotation p phase p' v
-  = TypeAnnotation (Term p phase p' v) (Type p' v)
-  | PretypeAnnotation (Term p phase p' v) (Type p' v)
+  = TypeAnnotation (Term p phase p' v) (Type phase p' v)
+  | PretypeAnnotation (Term p phase p' v) (Type phase p' v)
 
 type AnnotationSource p = Annotation p Source p Void
 
@@ -610,7 +612,7 @@ instance TraverseTerm Term where
         (bitraverse go absurd)
         (bitraverse pure go')
         (bitraverse pure go')
-        (bitraverse (traverse go') go')
+        go'
         (traverseBound go' (traverseBound go go))
         go
         (traverseBound go go)
@@ -710,14 +712,14 @@ instance TermAlgebra TermScheme where
 
 instance TraverseTerm TermPattern where
   traverseTerm fp fp' fv (TermPattern p pm) =
-    TermPattern <$> fp p <*> traverseTermPatternF (bitraverse (traverse go') go') go pm
+    TermPattern <$> fp p <*> traverseTermPatternF go' go pm
     where
       go = traverseTerm fp fp' fv
       go' = traverseType fp' fv
 
 instance TraverseTerm TermRuntimePattern where
   traverseTerm fp fp' fv (TermRuntimePattern p pm) =
-    TermRuntimePattern <$> fp p <*> traverseTermRuntimePatternF (bitraverse (traverse go') go') go pm
+    TermRuntimePattern <$> fp p <*> traverseTermRuntimePatternF go' go pm
     where
       go = traverseTerm fp fp' fv
       go' = traverseType fp' fv
@@ -766,38 +768,38 @@ instance TermAlgebra TermControl where
   reduce (TermAutoSource e) = TermAutoSource (reduce e)
   reduce (TermManualSource e) = TermManualSource (reduce e)
 
-instance Bitraversable phase => TypeAlgebra (Term p phase) where
-  freeVariablesType (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) (bifoldMap (foldMap go) go) go'' go go' go' go e
+instance TypeAlgebra (Term p) where
+  freeVariablesType (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) go go'' go go' go' go e
     where
       go = freeVariablesType
       go' = freeVariablesHigherType
       go'' = freeVariablesRgnForType
-  freeVariablesGlobalType (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) (bifoldMap (foldMap go) go) go'' go go' go' go e
+  freeVariablesGlobalType (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) go go'' go go' go' go e
     where
       go = freeVariablesGlobalType
       go' = freeVariablesGlobalHigherType
       go'' = freeVariablesGlobalRgnForType
-  freeVariablesTypeSource (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) (bifoldMap (foldMap go) go) go'' go go' go' go e
+  freeVariablesTypeSource (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) (go) go'' go go' go' go e
     where
       go = freeVariablesTypeSource
       go' = freeVariablesHigherTypeSource
       go'' = freeVariablesRgnForTypeSource
-  freeVariablesGlobalTypeSource (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) (bifoldMap (foldMap go) go) go'' go go' go' go e
+  freeVariablesGlobalTypeSource (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) (go) go'' go go' go' go e
     where
       go = freeVariablesGlobalTypeSource
       go' = freeVariablesGlobalHigherTypeSource
       go'' = freeVariablesGlobalRgnForTypeSource
-  convertType ux x (Term p e) = Term p $ mapTermF (bimap go absurd) (bimap id go) (bimap id go) (bimap (fmap go) go) go'' go go' go' go e
+  convertType ux x (Term p e) = Term p $ mapTermF (bimap go absurd) (bimap id go) (bimap id go) (go) go'' go go' go' go e
     where
       go = convertType ux x
       go' = convertHigherType ux x
       go'' = convertRgnForType ux x
-  substituteType ux x (Term p e) = Term p $ mapTermF (bimap go absurd) (bimap id go) (bimap id go) (bimap (fmap go) go) go'' go go' go' go e
+  substituteType ux x (Term p e) = Term p $ mapTermF (bimap go absurd) (bimap id go) (bimap id go) (go) go'' go go' go' go e
     where
       go = substituteType ux x
       go' = substituteHigherType ux x
       go'' = substituteRgnForType ux x
-  substituteGlobalType ux x (Term p e) = Term p $ mapTermF (bimap go absurd) (bimap id go) (bimap id go) (bimap (fmap go) go) go'' go go' go' go e
+  substituteGlobalType ux x (Term p e) = Term p $ mapTermF (bimap go absurd) (bimap id go) (bimap id go) (go) go'' go go' go' go e
     where
       go = substituteGlobalType ux x
       go' = substituteGlobalHigherType ux x
@@ -808,7 +810,7 @@ instance Bitraversable phase => TypeAlgebra (Term p phase) where
         (bitraverse (zonkType f) absurd)
         (bitraverse pure (zonkType f))
         (bitraverse pure (zonkType f))
-        (bitraverse (traverse (zonkType f)) (zonkType f))
+        (zonkType f)
         (traverseBound (zonkType f) (traverseBound (zonkType f) (zonkType f)))
         (zonkType f)
         (traverseBound (zonkType f) (zonkType f))
@@ -818,7 +820,7 @@ instance Bitraversable phase => TypeAlgebra (Term p phase) where
   joinType = joinTypeDefault
   traverseType = traverseTerm pure
 
-instance Bitraversable phase => TypeAlgebra (TermScheme p phase) where
+instance TypeAlgebra (TermScheme p) where
   freeVariablesTypeSource (TermScheme _ e) = case e of
     MonoTerm e σ -> go e <> bifoldMap mempty go σ
     TypeAbstraction λ -> go' λ
@@ -879,61 +881,61 @@ instance Bitraversable phase => TypeAlgebra (TermScheme p phase) where
   joinType = joinTypeDefault
   traverseType = traverseTerm pure
 
-instance Bitraversable phase => TypeAlgebra (TermPattern p phase) where
-  freeVariablesType (TermPattern _ pm) = foldTermPatternF (bifoldMap (foldMap go) go) go pm
+instance TypeAlgebra (TermPattern p) where
+  freeVariablesType (TermPattern _ pm) = foldTermPatternF go go pm
     where
       go = freeVariablesType
-  freeVariablesGlobalType (TermPattern _ pm) = foldTermPatternF (bifoldMap (foldMap go) go) go pm
+  freeVariablesGlobalType (TermPattern _ pm) = foldTermPatternF go go pm
     where
       go = freeVariablesGlobalType
-  convertType ux x (TermPattern p pm) = TermPattern p $ mapTermPatternF (bimap (fmap go) go) go pm
+  convertType ux x (TermPattern p pm) = TermPattern p $ mapTermPatternF go go pm
     where
       go = convertType ux x
-  freeVariablesTypeSource (TermPattern _ pm) = foldTermPatternF (bifoldMap (foldMap go) go) go pm
+  freeVariablesTypeSource (TermPattern _ pm) = foldTermPatternF go go pm
     where
       go = freeVariablesTypeSource
-  freeVariablesGlobalTypeSource (TermPattern _ pm) = foldTermPatternF (bifoldMap (foldMap go) go) go pm
+  freeVariablesGlobalTypeSource (TermPattern _ pm) = foldTermPatternF go go pm
     where
       go = freeVariablesGlobalTypeSource
-  substituteType ux x (TermPattern p pm) = TermPattern p $ mapTermPatternF (bimap (fmap go) go) go pm
+  substituteType ux x (TermPattern p pm) = TermPattern p $ mapTermPatternF go go pm
     where
       go = substituteType ux x
-  substituteGlobalType ux x (TermPattern p pm) = TermPattern p $ mapTermPatternF (bimap (fmap go) go) go pm
+  substituteGlobalType ux x (TermPattern p pm) = TermPattern p $ mapTermPatternF go go pm
     where
       go = substituteGlobalType ux x
   zonkType f (TermPattern p pm) =
-    TermPattern p <$> traverseTermPatternF (bitraverse (traverse (zonkType f)) (zonkType f)) (zonkType f) pm
+    TermPattern p <$> traverseTermPatternF (zonkType f) (zonkType f) pm
   joinType = joinTypeDefault
   traverseType = traverseTerm pure
 
-instance Bitraversable phase => TypeAlgebra (TermRuntimePattern p phase) where
-  freeVariablesType (TermRuntimePattern _ pm) = foldTermRuntimePatternF (bifoldMap (foldMap go) go) go pm
+instance TypeAlgebra (TermRuntimePattern p) where
+  freeVariablesType (TermRuntimePattern _ pm) = foldTermRuntimePatternF go go pm
     where
       go = freeVariablesType
-  freeVariablesGlobalType (TermRuntimePattern _ pm) = foldTermRuntimePatternF (bifoldMap (foldMap go) go) go pm
+  freeVariablesGlobalType (TermRuntimePattern _ pm) = foldTermRuntimePatternF go go pm
     where
       go = freeVariablesGlobalType
-  convertType ux x (TermRuntimePattern p pm) = TermRuntimePattern p $ mapTermRuntimePatternF (bimap (fmap go) go) go pm
+  convertType ux x (TermRuntimePattern p pm) = TermRuntimePattern p $ mapTermRuntimePatternF go go pm
     where
       go = convertType ux x
-  freeVariablesTypeSource (TermRuntimePattern _ pm) = foldTermRuntimePatternF (bifoldMap (foldMap go) go) go pm
+  freeVariablesTypeSource (TermRuntimePattern _ pm) = foldTermRuntimePatternF go go pm
     where
       go = freeVariablesTypeSource
-  freeVariablesGlobalTypeSource (TermRuntimePattern _ pm) = foldTermRuntimePatternF (bifoldMap (foldMap go) go) go pm
+  freeVariablesGlobalTypeSource (TermRuntimePattern _ pm) = foldTermRuntimePatternF go go pm
     where
       go = freeVariablesGlobalTypeSource
-  substituteType ux x (TermRuntimePattern p pm) = TermRuntimePattern p $ mapTermRuntimePatternF (bimap (fmap go) go) go pm
+  substituteType ux x (TermRuntimePattern p pm) = TermRuntimePattern p $ mapTermRuntimePatternF go go pm
     where
       go = substituteType ux x
-  substituteGlobalType ux x (TermRuntimePattern p pm) = TermRuntimePattern p $ mapTermRuntimePatternF (bimap (fmap go) go) go pm
+  substituteGlobalType ux x (TermRuntimePattern p pm) = TermRuntimePattern p $ mapTermRuntimePatternF go go pm
     where
       go = substituteGlobalType ux x
   zonkType f (TermRuntimePattern p pm) =
-    TermRuntimePattern p <$> traverseTermRuntimePatternF (bitraverse (traverse (zonkType f)) (zonkType f)) (zonkType f) pm
+    TermRuntimePattern p <$> traverseTermRuntimePatternF (zonkType f) (zonkType f) pm
   joinType = joinTypeDefault
   traverseType = traverseTerm pure
 
-instance Bitraversable phase => TypeAlgebra (Annotation p phase) where
+instance TypeAlgebra (Annotation p) where
   freeVariablesType (TypeAnnotation e σ) = freeVariablesType e <> freeVariablesType σ
   freeVariablesType (PretypeAnnotation e σ) = freeVariablesType e <> freeVariablesType σ
   freeVariablesGlobalType (TypeAnnotation e σ) = freeVariablesGlobalType e <> freeVariablesGlobalType σ
@@ -958,7 +960,7 @@ instance Bitraversable phase => TypeAlgebra (Annotation p phase) where
 
   traverseType = traverseTerm pure
 
-instance Bitraversable phase => TypeAlgebra (TermControl p phase) where
+instance TypeAlgebra (TermControl p) where
   freeVariablesType (TermAutoSource e) = freeVariablesType e
   freeVariablesType (TermManualSource e) = freeVariablesType e
   freeVariablesGlobalType (TermAutoSource e) = freeVariablesGlobalType e
@@ -999,7 +1001,7 @@ instance BindingsTerm (TermRuntimePattern p phase p' v) where
     where
       go = renameTerm ux x
 
-applyTerm (Bound (TermPattern _ (PatternVariable x (Core σ))) e@(Term p _)) ux =
+applyTerm (Bound (TermPattern _ (PatternVariable x σ)) e@(Term p _)) ux =
   reduce $ substituteTerm (TermScheme p (MonoTerm ux (Core σ))) x e
 
 sourceTermScheme :: Bool -> TermSchemeInfer p -> TermSchemeSource ()
@@ -1010,12 +1012,12 @@ sourceTermScheme emitAnnotation (TermScheme _ e) =
           if emitAnnotation
             then MonoTerm (sourceTermAnnotate TypeAnnotation e σ) (Source ())
             else MonoTerm (sourceTerm e) (Source ())
-        TypeAbstraction λ -> TypeAbstraction (mapBound id (sourceTermScheme emitAnnotation) λ)
+        TypeAbstraction λ -> TypeAbstraction (mapBound sourceTypePattern (sourceTermScheme emitAnnotation) λ)
     )
 
 sourceTermAnnotate annotate e σ =
   Term () $
-    Annotation $ Source $ annotate (sourceTerm e) σ
+    Annotation $ Source $ annotate (sourceTerm e) (sourceType σ)
 
 -- todo consider not emitting type annotions for lambda bindings
 -- as those don't need them (in checking mode)
@@ -1042,9 +1044,11 @@ sourceTerm (Term _ e) =
     TermSugar e -> TermSugar (fmap sourceTerm e)
     GlobalVariable x _ -> GlobalVariable x ann
     FunctionLiteral λ -> FunctionLiteral (mapBound (sourceTermRuntimePattern False) sourceTerm λ)
-    TermErasure (Borrow e λ) -> TermErasure $ Borrow (sourceTerm e) (mapBound id (mapBound (sourceTermRuntimePattern False) sourceTerm) λ)
+    TermErasure (Borrow e λ) ->
+      TermErasure $ Borrow (sourceTerm e) (mapBound sourceTypePattern (mapBound (sourceTermRuntimePattern False) sourceTerm) λ)
     TermErasure (IsolatePointer e) -> TermErasure $ IsolatePointer (sourceTerm e)
-    TermErasure (Wrap (Core σ) e) -> Annotation $ Source $ PretypeAnnotation (Term () $ TermErasure $ Wrap ann (sourceTerm e)) σ
+    TermErasure (Wrap (Core σ) e) ->
+      Annotation $ Source $ PretypeAnnotation (Term () $ TermErasure $ Wrap ann (sourceTerm e)) (sourceType σ)
     TermErasure (Unwrap (Core σ) e) -> TermErasure $ Unwrap ann (sourceTermAnnotate PretypeAnnotation e σ)
     InlineAbstraction λ -> InlineAbstraction (mapBound (sourceTermPattern False) sourceTerm λ)
     InlineApplication e e' (Core σ) -> InlineApplication (sourceTerm e) (sourceTermAnnotate TypeAnnotation e' σ) ann
@@ -1066,8 +1070,8 @@ sourceTermPattern emitAnnotation (TermPattern _ pm) =
   where
     annotate =
       if emitAnnotation
-        then Source . Just . runCore
-        else const $ Source Nothing
+        then sourceType
+        else const $ TypeAst () $ Hole $ Source ()
 
 sourceTermRuntimePattern :: Bool -> TermRuntimePatternInfer p -> TermRuntimePatternSource ()
 sourceTermRuntimePattern emitAnnotation (TermRuntimePattern _ pm) =
@@ -1076,8 +1080,8 @@ sourceTermRuntimePattern emitAnnotation (TermRuntimePattern _ pm) =
   where
     annotate =
       if emitAnnotation
-        then Source . Just . runCore
-        else const $ Source Nothing
+        then sourceType
+        else const $ TypeAst () $ Hole $ Source ()
 
 positionTerm (Term p _) = p
 
@@ -1094,8 +1098,7 @@ isImport e
 patternType :: Isomorph (TermRuntimePatternSource p) (TypeSource p)
 patternType = Isomorph extract generate'
   where
-    extract (TermRuntimePattern _ (RuntimePatternVariable _ (Source (Just σ)))) = σ
-    extract (TermRuntimePattern _ (RuntimePatternVariable _ (Source Nothing))) = error "unexpected null annotation"
+    extract (TermRuntimePattern _ (RuntimePatternVariable _ σ)) = σ
     extract (TermRuntimePattern p (RuntimePatternTuple pms)) = TypeAst p (Tuple $ map extract pms)
 
     generate' σ = evalState (generate σ) 0
@@ -1106,4 +1109,4 @@ patternType = Isomorph extract generate'
     generate σ@(TypeAst p _) = do
       i <- get
       modify (+ 1)
-      pure $ TermRuntimePattern p $ RuntimePatternVariable (TermIdentifier $ "x" ++ show i) (Source $ Just σ)
+      pure $ TermRuntimePattern p $ RuntimePatternVariable (TermIdentifier $ "x" ++ show i) σ
