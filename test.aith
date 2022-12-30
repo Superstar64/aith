@@ -42,6 +42,8 @@ module systemfPoly = {
 	inline curry<> = <A : type> <B : type> \f : A -> B => f;
 
 	inline useCurry = curry <_> <_> !(implicit);
+
+	inline immediate = (<A : type, B : type> \f : A -> B => \x => f !x) <_>;
 };
 
 module varSub = {
@@ -204,6 +206,14 @@ module world = {
 	putPtr<A:region >= io>(ptr :: int* @ A) :: int in A;
 	putPtr(ptr) {
 		putchar (*ptr)
+	}
+
+	inline count = /systemf/two;
+	putHashes() {
+		count <_> !() !\s { 
+			let n = putchar (35);
+			s
+		}
 	}
 };
 

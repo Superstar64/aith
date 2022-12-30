@@ -330,6 +330,7 @@ typeCheck (Term p e) = case e of
   PolyIntroduction λ -> do
     CheckedScheme eς σ lΓ <- typeCheckScheme InlineMode λ
     τ <- freshLabelTypeVariable p
+    σ <- zonk σ
     pure $ Checked (Term p $ PolyIntroduction $ eς) (TypeAst () $ Poly τ σ) lΓ
   PolyElimination e (Source ()) (Source ()) -> do
     enterLevel
