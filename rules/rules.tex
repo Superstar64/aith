@@ -174,7 +174,7 @@ e \Coloneqq & \\
 \end{align*}
 
 \begin{gather*}
-% todo use reference count analysis, ala making uniqueness typing less unique, rather then substructural rules
+todo use reference count analysis, ala making uniqueness typing less unique, rather then substructural rules
 \Phi | x :^\pi \sigma \vdash x : \sigma \\
 \\
 \frac
@@ -274,10 +274,12 @@ e \Coloneqq & \\
 \end{gather*}
 
 \subsubsection{Single Effect Regions}
+todo add proper patterns to rules
 \begin{align*}
 e \Coloneqq & \\
 & \text{letRGN} \, (\Lambda \alpha. e) \tag{Create Region} \\
 & \text{let}^\downarrow \, x = e; e' \tag{Runtime Let} \\
+& \text{case} \, e \, \text{of} \{ x \to e'; x' \to' e''\}
 & \dots \\
 \sigma, \tau, \pi, \kappa, s, \rho \Coloneqq & \\
 & \sigma^\pi \tag{Region Effect} \\
@@ -292,8 +294,12 @@ e \Coloneqq & \\
 {\Phi | \Gamma \vdash \text{letRGN} \, (\Lambda \alpha. e) : \sigma^\pi} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi | \Gamma', x :^{\pi'} \forall \alpha. \tau^\alpha \vdash e' : \sigma^\pi \quad \Phi \vdash \tau : +^{\rho}_{\pi'}}
-{\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow \, x = e; e' : \sigma^\pi}
+{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi \vdash \tau : +^{\rho}_{\pi'} \quad \Phi | \Gamma', x :^{\pi'} \forall \alpha. \tau^\alpha \vdash e' : \sigma^\pi}
+{\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow \, x = e; e' : \sigma^\pi} \\
+\\
+\frac
+{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi \vdash \tau : +^{\rho}_{\pi'} \quad \overline{ \Phi | \Gamma', x :^{\pi'} \forall \alpha. \tau^\alpha \vdash e' : \sigma^\pi }}
+{\Phi | \Gamma, \overline {\Gamma'} \vdash \text{case} \, e \, \text{of} \{ \overline {x' \to  e' } \} : \sigma^\pi} \\
 \end{gather*}
 
 \begin{gather*}

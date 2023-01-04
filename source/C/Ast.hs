@@ -78,6 +78,7 @@ data Expression
   | GreaterThen Expression Expression
   | GreaterThenEqual Expression Expression
   | Assign Expression Expression
+  | LogicalAnd Expression Expression
   deriving (Show)
 
 data Declarator
@@ -267,6 +268,10 @@ greaterThenEqual = Prism (uncurry GreaterThenEqual) $ \case
 
 assign = Prism (uncurry Assign) $ \case
   Assign e e' -> Just (e, e')
+  _ -> Nothing
+
+logicalAnd = Prism (uncurry LogicalAnd) $ \case
+  LogicalAnd e e' -> Just (e, e')
   _ -> Nothing
 
 basic = Prism Basic $ \case

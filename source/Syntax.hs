@@ -80,6 +80,7 @@ keywords =
       "step",
       "struct",
       "subtypable",
+      "switch",
       "this",
       "transparent",
       "transparency",
@@ -421,7 +422,9 @@ termRuntimePattern = patternCore
     patternCore = Language.termRuntimePatternSource ⊣ position ⊗ choice options ∥ termRuntimePatternParen
       where
         options =
-          [ Language.runtimePatternVariable ⊣ termIdentifier ⊗ typeAnnotate "::"
+          [ Language.runtimePatternVariable ⊣ termIdentifier ⊗ typeAnnotate "::",
+            Language.runtimePatternTrue ⊣ keyword "true",
+            Language.runtimePatternFalse ⊣ keyword "false"
           ]
 
 termPattern :: (Position δ p, Syntax δ) => δ (Language.TermPatternSource p)
@@ -441,8 +444,9 @@ isStatement (Language.Term _ e) = isStatementF e
 isStatementF (Language.Bind _ _) = True
 isStatementF (Language.TermRuntime (Language.Alias _ _)) = True
 isStatementF (Language.TermRuntime (Language.Loop _ _)) = True
-isStatementF (Language.TermRuntime (Language.If _ _ _)) = True
+isStatementF (Language.TermSugar (Language.If _ _ _)) = True
 isStatementF (Language.TermErasure (Language.Borrow _ _)) = True
+isStatementF (Language.TermRuntime (Language.Case _ _ _)) = True
 isStatementF _ = False
 
 termStatement :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
@@ -453,6 +457,7 @@ termStatement = Language.termSource ⊣ position ⊗ choice options ∥ apply �
         Language.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ termRuntimePattern ≪ binaryToken "=" ⊗ term ≪ delimit ⊗ termStatement,
         Language.loop ⊣ rotateBind ⊣ prefixKeyword "loop" ≫ betweenParens (prefixKeyword "let" ≫ termRuntimePattern ≪ binaryToken "=" ⊗ term) ⊗ lambdaBrace termStatement,
         Language.ifx ⊣ prefixKeyword "if" ≫ termCore ⊗ lambdaBrace termStatement ≪ binaryKeyword "else" ⊗ lambdaBrace termStatement,
+        Language.casex ⊣ prefixKeyword "switch" ≫ termCore ⊗ lambdaBrace (many $ Language.bound ⊣ termRuntimePattern ⊗ binaryToken "=>" ≫ term ≪ delimit),
         borrow
       ]
     borrow = Language.borrow ⊣ prefixKeyword "borrow" ≫ termCore ⊗ binaryKeyword "as" ≫ binding
@@ -460,7 +465,6 @@ termStatement = Language.termSource ⊣ position ⊗ choice options ∥ apply �
         binding = Language.bound ⊣ betweenAngle typePattern ⊗ binding'
           where
             binding' = Language.bound ⊣ termRuntimePatternParen ⊗ lambdaBrace termStatement
-
     rotateBind = secondI Language.bound . associate . firstI swap
     apply = withInnerPosition Language.positionTerm Language.termSource Language.dox `branchDistribute` unit'
 

@@ -137,3 +137,4 @@ convertFunction _ = error "failed to convert function"
 simplePatternType :: SimplePattern p -> SimpleType
 simplePatternType (SimplePattern _ (RuntimePatternVariable _ σ)) = σ
 simplePatternType (SimplePattern _ (RuntimePatternTuple pms)) = SimpleType $ StructRep $ map simplePatternType pms
+simplePatternType (SimplePattern _ (RuntimePatternBoolean _)) = SimpleType $ WordRep Byte

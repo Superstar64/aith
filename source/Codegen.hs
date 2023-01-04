@@ -7,7 +7,7 @@ import qualified C.Ast as C
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT, withReaderT)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, put)
-import Control.Monad.Trans.Writer.Strict (Writer, WriterT (..), runWriter, runWriterT, tell)
+import Control.Monad.Trans.Writer.Strict (Writer, WriterT (..), execWriterT, runWriter, runWriterT, tell)
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Set (Set)
@@ -89,11 +89,10 @@ cint Long Unsigned = C.Base C.ULong
 cint Native Unsigned = C.Base C.Size
 
 -- only effectless expressions can be passed in
-augmentPattern' augment target (SimplePattern _ (RuntimePatternVariable x _)) f = do
-  augment x target $ do
-    f
+augmentPattern' augment target (SimplePattern _ (RuntimePatternVariable x _)) f = augment x target f
 augmentPattern' augment target (SimplePattern _ (RuntimePatternTuple pms)) f = do
   foldr (uncurry (augmentPattern' augment)) f $ zip [C.Member target ("_" ++ show i) | i <- [0 ..]] pms
+augmentPattern' _ _ (SimplePattern _ (RuntimePatternBoolean _)) x = x
 
 augmentPattern = augmentPattern' augmentPatternImpl
 
@@ -115,6 +114,14 @@ putIntoVariableRaw σ e = do
   result <- lift temporary
   tell [C.Binding (C.Declaration σ (Just result)) (C.Initializer e)]
   pure $ C.Variable result
+
+compileMatch :: C.Expression -> SimplePattern p -> WriterT [C.Statement] Codegen C.Expression
+compileMatch _ (SimplePattern _ (RuntimePatternVariable _ _)) = pure $ C.IntegerLiteral 1
+compileMatch target (SimplePattern _ (RuntimePatternTuple pms)) = do
+  checks <- sequence $ zipWith compileMatch [C.Member target ("_" ++ show i) | i <- [0 ..]] pms
+  pure $ foldl C.LogicalAnd (C.IntegerLiteral 1) checks
+compileMatch target (SimplePattern _ (RuntimePatternBoolean True)) = pure $ C.Equal target (C.IntegerLiteral 1)
+compileMatch target (SimplePattern _ (RuntimePatternBoolean False)) = pure $ C.Equal target (C.IntegerLiteral 0)
 
 compileTerm :: SimpleTerm p -> SimpleType -> WriterT [C.Statement] Codegen C.Expression
 compileTerm (SimpleTerm _ (Variable x ())) _ = do
@@ -188,16 +195,23 @@ compileTerm (SimpleTerm _ (Relational o e1 e2 σ@(SimpleType (WordRep size)) s))
       GreaterThenEqual -> C.GreaterThenEqual
 compileTerm (SimpleTerm _ (BooleanLiteral True)) _ = pure $ C.IntegerLiteral 1
 compileTerm (SimpleTerm _ (BooleanLiteral False)) _ = pure $ C.IntegerLiteral 0
-compileTerm (SimpleTerm _ (If eb et ef)) σ = do
-  eb <- compileTerm eb (SimpleType $ WordRep $ Byte)
+compileTerm (SimpleTerm _ (Case e τ λs)) σ = do
+  e <- compileTerm e τ
   result <- lift temporary
   σ' <- lift $ ctype σ
   tell [C.Binding (C.Declaration σ' (Just result)) C.Uninitialized]
-  (et, tDepend) <- lift $ runWriterT $ compileTerm et σ
-  (ef, fDepend) <- lift $ runWriterT $ compileTerm ef σ
-  let finish e = C.Expression $ C.Assign (C.Variable result) e
-  tell [C.If eb (tDepend ++ [finish et]) (fDepend ++ [finish ef])]
+  go e result λs
   pure $ C.Variable result
+  where
+    go e result (Bound pm et : λs) = do
+      valid <- compileMatch e pm
+      (et, depend) <- lift $ runWriterT $ compileTerm et σ
+      remain <- lift $ execWriterT $ go e result λs
+      tell [C.If valid (depend ++ [C.Expression $ C.Assign (C.Variable result) et]) remain]
+      pure ()
+    go _ _ [] = do
+      tell [C.Binding (C.Declaration (C.Composite $ C.Function (C.Base C.Void) []) (Just "abort")) C.Uninitialized]
+      tell [C.Expression $ C.Call (C.Variable "abort") []]
 compileTerm (SimpleTerm _ (PointerIncrement ep ei σ)) (SimpleType PointerRep) = do
   ep <- compileTerm ep (SimpleType $ PointerRep)
   σ <- lift $ ctype σ

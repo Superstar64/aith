@@ -350,6 +350,21 @@ module newtype = {
 	}
 };
 
+module case = {
+	explode() {
+		switch () {}
+	}
+
+	boolPair (a,b) {
+		switch (a,b) {
+			(true, true) => 1;
+			(true, false) => 2;
+			(false, true) => 3;
+			(false, false) => 4;
+		}
+	}
+};
+
 module universes = {
 	inline abstract<U : kind<subtypable, transparent, 1u>> = <T : U> \x : int in io {
 		x

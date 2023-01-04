@@ -72,7 +72,7 @@ reconstructF indexVariable indexGlobalVariable indexLogical poly reconstructRunt
   Higher _ -> pure (TypeAst () Universe)
   Universe -> pure (TypeAst () Top)
   Kind σ _ _ -> do
-    pure (TypeAst () $ Kind (TypeAst () $ Higher σ) (TypeAst () Invariant) (TypeAst () Transparent))
+    pure (TypeAst () $ Kind (TypeAst () Invariant) (TypeAst () Transparent) (TypeAst () $ Higher σ))
   AmbiguousLabel -> pure (TypeAst () Label)
   Label -> pure $ TypeAst () $ Top
   Hole (Core v) -> absurd v

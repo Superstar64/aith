@@ -35,6 +35,7 @@ data TermPatternF σ pm
 data TermRuntimePatternF σ pm
   = RuntimePatternVariable TermIdentifier σ
   | RuntimePatternTuple [pm]
+  | RuntimePatternBoolean Bool
   deriving (Show)
 
 data Arithmatic
@@ -56,6 +57,7 @@ data Relational
 data TermRuntime θ σerase s σ λe e
   = Variable TermIdentifier θ
   | Alias e λe
+  | Case e σ [λe]
   | Extern Symbol σ σerase σ
   | FunctionApplication e e σ
   | TupleIntroduction [e]
@@ -65,7 +67,6 @@ data TermRuntime θ σerase s σ λe e
   | Arithmatic Arithmatic e e s
   | Relational Relational e e σ s
   | BooleanLiteral Bool
-  | If e e e
   | PointerIncrement e e σ
   | Continue e
   | Break e
@@ -77,6 +78,7 @@ data TermSugar e
   | And e e
   | Or e e
   | Do e e
+  | If e e e
   deriving (Show, Functor)
 
 data TermErasure σauto λrgn_e e
@@ -122,6 +124,7 @@ traverseTermRuntimePatternF ::
 traverseTermRuntimePatternF f h pm = case pm of
   RuntimePatternVariable x σ -> pure RuntimePatternVariable <*> pure x <*> f σ
   RuntimePatternTuple pms -> pure RuntimePatternTuple <*> traverse h pms
+  RuntimePatternBoolean b -> pure (RuntimePatternBoolean b)
 
 foldTermRuntimePatternF f h = getConst . traverseTermRuntimePatternF (Const . f) (Const . h)
 
@@ -141,6 +144,7 @@ traverseTermRuntime d y h f g i e =
   case e of
     Variable x θ -> pure Variable <*> pure x <*> d θ
     Alias e λ -> pure Alias <*> i e <*> g λ
+    Case e σ λs -> pure Case <*> i e <*> f σ <*> traverse g λs
     Extern sm σ σ'' σ' -> pure Extern <*> pure sm <*> f σ <*> y σ'' <*> f σ'
     FunctionApplication e1 e2 σ -> pure FunctionApplication <*> i e1 <*> i e2 <*> f σ
     TupleIntroduction es -> pure TupleIntroduction <*> traverse i es
@@ -150,7 +154,6 @@ traverseTermRuntime d y h f g i e =
     Arithmatic o e e' κ -> pure Arithmatic <*> pure o <*> i e <*> i e' <*> h κ
     Relational o e e' σ κ -> pure Relational <*> pure o <*> i e <*> i e' <*> f σ <*> h κ
     BooleanLiteral b -> pure BooleanLiteral <*> pure b
-    If e e' e'' -> pure If <*> i e <*> i e' <*> i e''
     PointerIncrement e e' σ -> pure PointerIncrement <*> i e <*> i e' <*> f σ
     Continue e -> pure Continue <*> i e
     Break e -> pure Break <*> i e
@@ -166,6 +169,7 @@ traverseTermSugar f e = case e of
   And e e' -> pure And <*> f e <*> f e'
   Or e e' -> pure Or <*> f e <*> f e'
   Do e e' -> pure Do <*> f e <*> f e'
+  If e e' e'' -> pure If <*> f e <*> f e' <*> f e''
 
 traverseTermF ::
   Applicative m =>
@@ -262,40 +266,6 @@ data Annotation p phase p' v
 
 type AnnotationSource p = Annotation p Source p Void
 
-desugar p (Not e) =
-  Term
-    p
-    ( TermRuntime $
-        If
-          e
-          (Term p $ TermRuntime $ BooleanLiteral False)
-          (Term p $ TermRuntime $ BooleanLiteral True)
-    )
-desugar p (And e e') =
-  Term
-    p
-    ( TermRuntime $
-        If
-          e
-          e'
-          (Term p $ TermRuntime $ BooleanLiteral False)
-    )
-desugar p (Or e e') =
-  Term
-    p
-    ( TermRuntime $
-        If
-          e
-          (Term p $ TermRuntime $ BooleanLiteral True)
-          e'
-    )
-desugar p (Do e e') =
-  Term
-    p
-    ( TermRuntime $
-        Alias e (Bound (TermRuntimePattern p $ RuntimePatternTuple []) e')
-    )
-
 termPatternSource = Isomorph (uncurry TermPattern) $ \(TermPattern p pm) -> (p, pm)
 
 termRuntimePatternSource = Isomorph (uncurry TermRuntimePattern) $ \(TermRuntimePattern p pm) -> (p, pm)
@@ -311,6 +281,14 @@ runtimePatternVariable =
 
 runtimePatternTuple = Prism RuntimePatternTuple $ \case
   (RuntimePatternTuple pms) -> Just pms
+  _ -> Nothing
+
+runtimePatternTrue = Prism (const $ RuntimePatternBoolean True) $ \case
+  (RuntimePatternBoolean True) -> Just ()
+  _ -> Nothing
+
+runtimePatternFalse = Prism (const $ RuntimePatternBoolean False) $ \case
+  (RuntimePatternBoolean False) -> Just ()
   _ -> Nothing
 
 termSource = Isomorph (uncurry Term) $ \(Term p e) -> (p, e)
@@ -347,6 +325,11 @@ bind = Prism (uncurry $ Bind) $ \case
 alias = (termRuntime .) $
   Prism (uncurry $ Alias) $ \case
     (Alias e λ) -> Just (e, λ)
+    _ -> Nothing
+
+casex = (termRuntime .) $
+  Prism (\(e, λ) -> Case e (Source ()) λ) $ \case
+    (Case e (Source ()) λ) -> Just (e, λ)
     _ -> Nothing
 
 extern = (termRuntime .) $
@@ -394,7 +377,7 @@ falsex = (termRuntime .) $
     BooleanLiteral False -> Just ()
     _ -> Nothing
 
-ifx = (termRuntime .) $
+ifx = (termSugar .) $
   Prism (uncurry $ uncurry $ If) $ \case
     If eb et ef -> Just ((eb, et), ef)
     _ -> Nothing
@@ -542,7 +525,7 @@ class TraverseTerm u => TermAlgebra u where
   -- Applicative Order Reduction
   -- see https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf
 
-  reduce :: u p Core p' v -> u p Core p' v
+  reduce :: u p Core () v -> u p Core () v
 
 class BindingsTerm pm where
   bindingsTerm :: pm -> Set TermIdentifier
@@ -601,6 +584,49 @@ applySchemeImpl (TermScheme _ (TypeAbstraction λ)) (Instantiation (InstantiateT
     apply (Bound (TypePattern _ α _ _) e) σ = substituteType σ α e
 applySchemeImpl (TermScheme _ (MonoTerm e _)) (Instantiation InstantiateEmpty) = e
 applySchemeImpl _ _ = error "unable to substitute"
+
+desugar p (Not e) =
+  Term
+    p
+    ( TermSugar $
+        If
+          e
+          (Term p $ TermRuntime $ BooleanLiteral False)
+          (Term p $ TermRuntime $ BooleanLiteral True)
+    )
+desugar p (And e e') =
+  Term
+    p
+    ( TermSugar $
+        If
+          e
+          e'
+          (Term p $ TermRuntime $ BooleanLiteral False)
+    )
+desugar p (Or e e') =
+  Term
+    p
+    ( TermSugar $
+        If
+          e
+          (Term p $ TermRuntime $ BooleanLiteral True)
+          e'
+    )
+desugar p (Do e e') =
+  Term
+    p
+    ( TermRuntime $
+        Alias e (Bound (TermRuntimePattern p $ RuntimePatternTuple []) e')
+    )
+desugar p (If eb et ef) =
+  Term
+    p
+    ( TermRuntime $
+        Case
+          eb
+          (Core $ TypeAst () $ Boolean)
+          [Bound (TermRuntimePattern p $ RuntimePatternBoolean True) et, Bound (TermRuntimePattern p $ RuntimePatternBoolean False) ef]
+    )
 
 instance Fresh TermIdentifier where
   fresh c (TermIdentifier x) = TermIdentifier $ Util.fresh (Set.mapMonotonic runTermIdentifier c) x
@@ -1027,6 +1053,8 @@ sourceTerm (Term _ e) =
     TermRuntime e -> TermRuntime $ case e of
       Variable x _ -> Variable x ann
       Alias e λ -> Alias (sourceTerm e) (mapBound (sourceTermRuntimePattern True) sourceTerm λ)
+      Case e (Core σ) λs ->
+        Case (sourceTermAnnotate PretypeAnnotation e σ) (Source ()) (map (mapBound (sourceTermRuntimePattern False) sourceTerm) λs)
       FunctionApplication e e' (Core σ) -> FunctionApplication (sourceTerm e) (sourceTermAnnotate PretypeAnnotation e' σ) ann
       TupleIntroduction es -> TupleIntroduction (map sourceTerm es)
       ReadReference e -> ReadReference (sourceTerm e)
@@ -1035,7 +1063,6 @@ sourceTerm (Term _ e) =
       Arithmatic o e e' _ -> Arithmatic o (sourceTerm e) (sourceTerm e') ann
       Relational o e e' (Core σ) _ -> Relational o (sourceTermAnnotate PretypeAnnotation e σ) (sourceTermAnnotate PretypeAnnotation e' σ) ann ann
       BooleanLiteral b -> BooleanLiteral b
-      If e e' e'' -> If (sourceTerm e) (sourceTerm e') (sourceTerm e'')
       Extern sym _ _ _ -> Extern sym ann ann ann
       PointerIncrement e e' _ -> PointerIncrement (sourceTerm e) (sourceTerm e') ann
       Continue e -> Continue (sourceTerm e)
@@ -1100,6 +1127,7 @@ patternType = Isomorph extract generate'
   where
     extract (TermRuntimePattern _ (RuntimePatternVariable _ σ)) = σ
     extract (TermRuntimePattern p (RuntimePatternTuple pms)) = TypeAst p (Tuple $ map extract pms)
+    extract (TermRuntimePattern p (RuntimePatternBoolean _)) = TypeAst p Boolean
 
     generate' σ = evalState (generate σ) 0
 

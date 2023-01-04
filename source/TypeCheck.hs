@@ -65,6 +65,7 @@ augmentRuntimeTermPattern pm = go pm
       (_, l) <- checkPretype p κ
       augmentVariableLinear p x l (MonoLabel (polyEffect "R" σ)) e
     go (TermRuntimePattern _ (RuntimePatternTuple pms)) = foldr (.) id (map go pms)
+    go (TermRuntimePattern _ (RuntimePatternBoolean _)) = id
 
 typeCheckMetaPattern :: TermPatternSource p -> Check p (TermPatternUnify p, TypeUnify)
 typeCheckMetaPattern = \case
@@ -88,6 +89,8 @@ typeCheckRuntimePattern = \case
     (pms, σs) <- unzip <$> traverse typeCheckRuntimePattern pms
     τ <- makeTuple p σs
     pure (TermRuntimePattern p $ RuntimePatternTuple pms, τ)
+  (TermRuntimePattern p (RuntimePatternBoolean b)) -> do
+    pure (TermRuntimePattern p $ RuntimePatternBoolean b, TypeAst () $ Boolean)
 
 kindCheckScheme :: Mode -> TypeSchemeSource p -> Check p (TypeSchemeInfer, TypeUnify)
 kindCheckScheme mode =
@@ -363,6 +366,18 @@ typeCheck (Term p e) = case e of
     Checked e2' (σ, π') lΓ2 <- traverse (checkEffect p) =<< augmentRuntimeTermPattern pm' (typeCheck e2)
     matchType p π π'
     pure $ Checked (Term p $ TermRuntime $ Alias e1' $ Bound pm' e2') (TypeAst () $ Effect σ π) (lΓ1 `combine` lΓ2)
+  TermRuntime (Case e (Source ()) λs) -> do
+    Checked e (τ, π) lΓ1 <- traverse (checkEffect p) =<< typeCheck e
+    σ <- freshPretypeTypeVariable p
+    (e2, pm, lΓ2) <- fmap unzip3 $
+      for λs $ \(Bound pm e2) -> do
+        (pm, τ') <- typeCheckRuntimePattern pm
+        matchType p τ τ'
+        Checked e2 (σ', π') lΓ2 <- traverse (checkEffect p) =<< augmentRuntimeTermPattern pm (typeCheck e2)
+        matchType p σ σ'
+        matchType p π π'
+        pure (e2, pm, lΓ2)
+    pure $ Checked (Term p $ TermRuntime $ Case e (Core τ) $ zipWith Bound pm e2) (TypeAst () $ Effect σ π) (lΓ1 `combine` branchAll lΓ2)
   TermRuntime (Extern sym (Source ()) (Source ()) (Source ())) -> do
     σ <- freshPretypeTypeVariable p
     π <- freshRegionTypeVariable p
@@ -532,14 +547,14 @@ typeCheck (Term p e) = case e of
   TermRuntime (BooleanLiteral b) -> do
     π <- freshRegionTypeVariable p
     pure $ Checked (Term p $ TermRuntime $ BooleanLiteral b) (TypeAst () $ Effect (TypeAst () Boolean) π) useNothing
-  TermRuntime (If eb et ef) -> do
+  TermSugar (If eb et ef) -> do
     Checked eb' ((), π) lΓ1 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck eb
     Checked et' (σ, π') lΓ2 <- traverse (checkEffect p) =<< typeCheck et
     Checked ef' (σ', π'') lΓ3 <- traverse (checkEffect p) =<< typeCheck ef
     matchType p π π'
     matchType p π π''
     matchType p σ σ'
-    pure $ Checked (Term p $ TermRuntime $ If eb' et' ef') (TypeAst () $ Effect σ π) (lΓ1 `combine` (lΓ2 `branch` lΓ3))
+    pure $ Checked (Term p $ TermSugar $ If eb' et' ef') (TypeAst () $ Effect σ π) (lΓ1 `combine` (lΓ2 `branch` lΓ3))
   TermRuntime (PointerIncrement ep ei (Source ())) -> do
     Checked ep' ((σ, π2), π) lΓ1 <- traverse (firstM (firstM (checkArray p) <=< checkShared p) <=< checkEffect p) =<< typeCheck ep
     Checked ei' ((κ1, κ2), π') lΓ2 <- traverse (firstM (checkNumber p) <=< checkEffect p) =<< typeCheck ei

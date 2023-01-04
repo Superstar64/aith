@@ -181,7 +181,7 @@ Files are a single decleration named `this`.
 | Greater or Equal | ``e >= e'`` |
 | True | ``true`` |
 | False | ``false`` |
-| If | ``if e { e' } else { e''}`` |
+| Switch | `switch e { pm => e; pm' => e'; ... }`
 | Poly Introduction| ``ς e`` |
 | Poly Elimination | ``e <_>`` |
 | Borrow | ``borrow e as <α >= π>(pm) { e }`` |
@@ -200,6 +200,7 @@ Files are a single decleration named `this`.
 | And | ``e & e'`` | ``if e { e' } else { false }`` |
 | Or | ``e \| e'`` | ``if e { true } else { e' }`` |
 | Do | ``e; e'`` | ``let () = e; e'`` |
+| If | ``if e { e' } else { e''}`` |
 
 ## Meta Patterns(pm)
 | Description | Syntax |
@@ -213,6 +214,8 @@ Files are a single decleration named `this`.
 | Variable | ``x``|
 | Variable Abscribe | ``x : σ`` |
 | Tuple Destruction | ``(pm , pm', ...)`` |
+| True | `true` |
+| False | `false` |
 
 # Scheme(ς)
 | Description | Syntax |

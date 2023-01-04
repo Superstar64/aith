@@ -115,9 +115,12 @@ statements = betweenBraces $ many statement
 expression :: Printer C.Expression
 expression = assignment
   where
-    assignment = apply ⊣ equal ⊗ (string "=" ≫ assignment ⊕ always)
+    assignment = apply ⊣ and ⊗ (string "=" ≫ assignment ⊕ always)
       where
         apply = C.assign `branchDistribute` unit'
+    and = foldlP apply ⊣ equal ⊗ many (string "&&" ≫ equal)
+      where
+        apply = C.logicalAnd
     equal = foldlP apply ⊣ relational ⊗ many (string "==" ≫ relational ⊕ string "!=" ≫ relational)
       where
         apply = C.equal `branchDistribute` C.notEqual
