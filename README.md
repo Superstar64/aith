@@ -321,7 +321,7 @@ Useful / Inspirational papers:
 * [Demonstrating Lambda Calculus Reduction](https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf)
   * Applicative order reduction used for reduction.
 * [Unification Theory](https://www.cs.bu.edu/fac/snyder/publications/UnifChapter.pdf)
-  * Pointer for Robinson unification algorithm
+  * Reference for Robinson unification algorithm
 ### Type Inference (First Class Polymorphism)
 PolyML is implemented, but with scope type variables are used rather then schematic ones.
 * [Semi-Explicit First-Class Polymorphism for ML](https://caml.inria.fr/pub/papers/garrigue_remy-poly-ic99.pdf)
