@@ -9,6 +9,7 @@ author:        Superstar64
 executable aith
     hs-source-dirs:     source
     other-modules:
+        Misc.Boolean
         Misc.Path
         Misc.Util
         Misc.Symbol
@@ -22,8 +23,6 @@ executable aith
         Ast.Type
         Ast.Term
         TypeCheck
-        TypeCheck.Core
-        TypeCheck.Unify
         Module
         Syntax
         Simple
@@ -45,5 +44,6 @@ executable aith
         directory,
         filepath,
         transformers,
-        megaparsec
+        megaparsec,
+        pretty-simple
     main-is:            Main.hs

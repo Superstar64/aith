@@ -1,13 +1,13 @@
 module Main where
 
 import Ast.Type hiding (Inline, kind, typeGlobalIdentifier, typeIdentifier, typex)
+import qualified Ast.Type as Type
 import qualified C.Ast as C
 import qualified C.Print as C
 import Codegen
 import Control.Monad
 import Control.Monad.Trans.State
 import Data.Foldable
-import Data.Functor.Identity (runIdentity)
 import qualified Data.List as List
 import Data.Map (Map)
 import qualified Data.Map as Map
@@ -22,50 +22,59 @@ import System.Environment
 import System.Exit
 import System.FilePath
 import Text.Megaparsec (SourcePos, errorBundlePretty)
-import TypeCheck.Core
+import TypeCheck
 import Prelude hiding (readFile, writeFile)
 import qualified Prelude
 
-nameTypeLogical :: Applicative m => TypeLogical -> m TypeInfer
-nameTypeLogical (TypeLogicalRaw i) = pure $ TypeAst () $ TypeSub $ TypeVariable $ TypeIdentifier $ show i
+v = TypeAst () (TypeLogical (TypeLogicalRaw 0))
 
-nameType :: TypeUnify -> TypeSource ()
-nameType = sourceType . runIdentity . zonkType nameTypeLogical
+prettyType σ = pretty typex (nameType σ)
 
 prettyError :: TypeError [SourcePos] -> String
 prettyError e = case e of
   TypeMismatch p σ σ' ->
-    "Type mismatch between `" ++ pretty typex (nameType σ) ++ "` and `" ++ pretty typex (nameType σ') ++ "`" ++ positions p
+    "Type mismatch between `" ++ prettyType σ ++ "` and `" ++ prettyType σ' ++ "`" ++ positions p
   TypePolyMismatch p ς ς' ->
     prettyError
       (TypeMismatch p (TypeAst () $ Poly (TypeAst () AmbiguousLabel) ς) (TypeAst () $ Poly (TypeAst () AmbiguousLabel) ς'))
-  TypeMisrelation p σ σ' ->
-    "Unable to subtype `"
-      ++ pretty typex (nameType (TypeAst () $ TypeSub σ'))
-      ++ "` >= `"
-      ++ pretty typex (nameType (TypeAst () $ TypeSub σ))
-      ++ "`"
-      ++ positions p
+  TypeBooleanMismatch p σ -> "Unable to solve boolean expressions: " ++ List.intercalate " and " (map prettyType σ) ++ positions p
   ExpectedTypeAnnotation p -> "Expected type annotation: " ++ positions p
+  ExpectedBooleanType p σ -> "Expected boolean type: " ++ prettyType σ ++ positions p
   AmbiguousType p σ -> "Ambiguous Type: `" ++ pretty typex (nameType $ flexible σ) ++ "`" ++ positions p
   UnknownGlobalIdentifier p x -> "Unknown Global: " ++ pretty termGlobalIdentifier x ++ positions p
   UnknownTypeGlobalIdentifier p x -> "Unknown Type Global: " ++ pretty typeGlobalIdentifier x ++ positions p
   TypeOccursCheck p v σ ->
-    "Occurance Check: `" ++ pretty typex (nameType (TypeAst () $ TypeLogical v)) ++ "` in` " ++ pretty typex (nameType σ) ++ "`" ++ positions p
-  EscapingSkolemType p x σ ->
-    "Escaping Skolem: `" ++ pretty typeIdentifier x ++ "` in `" ++ pretty typex (nameType σ) ++ "`" ++ positions p
-  NoCommonMeet p σ τ ->
-    "No Common Meet between `" ++ pretty typex (nameType (TypeAst () $ TypeSub σ))
-      ++ "` and `"
-      ++ pretty typex (nameType (TypeAst () $ TypeSub τ))
-      ++ "`"
-      ++ positions p
+    "Occurance Check: `" ++ prettyType (TypeAst () $ TypeLogical v) ++ "` in` " ++ prettyType σ ++ "`" ++ positions p
+  EscapingSkolemType p x ->
+    "Escaping Skolem: `" ++ pretty typeIdentifier x ++ "`" ++ positions p
   MismatchedTypeLambdas p -> "Mismatched type lambdas: " ++ positions p
-  ExpectedPlainType p -> "Expected plain type: " ++ positions p
   IncorrectRegionBounds p -> "Incorrect Region Bounds: " ++ positions p
   NotTypable p -> "Not typable: " ++ positions p
-  ExpectedSubtypable p -> "Expected subtypable: " ++ positions p
-  ExpectedNewtype p σ -> "Expected Newtype: `" ++ pretty typex (nameType σ) ++ "`" ++ positions p
+  ExpectedNewtype p σ -> "Expected Newtype: `" ++ prettyType σ ++ "`" ++ positions p
+  ExpectedKind p σ -> prettyError (TypeMismatch p (TypeAst () (Kind v v)) σ)
+  ExpectedRepresentation p σ -> prettyError (TypeMismatch p (TypeAst () (Kind v v)) σ)
+  ExpectedMultiplicity p σ -> prettyError (TypeMismatch p (TypeAst () (Kind v v)) σ)
+  ExpectedSize p σ -> prettyError (TypeMismatch p (TypeAst () (Size)) σ)
+  ExpectedSignedness p σ -> prettyError (TypeMismatch p (TypeAst () (Signedness)) σ)
+  ExpectedType p σ -> prettyError (TypeMismatch p (TypeAst () (Type)) σ)
+  ExpectedPretype p σ -> prettyError (TypeMismatch p (TypeAst () (Pretype v v)) σ)
+  ExpectedBoxed p σ -> prettyError (TypeMismatch p (TypeAst () (Boxed)) σ)
+  ExpectedRegion p σ -> prettyError (TypeMismatch p (TypeAst () (Region)) σ)
+  ExpectedPropositional p σ -> prettyError (TypeMismatch p (TypeAst () (Propositional)) σ)
+  ExpectedUnification p σ -> prettyError (TypeMismatch p (TypeAst () (Unification)) σ)
+  ExpectedTransparency p σ -> prettyError (TypeMismatch p (TypeAst () (Transparency)) σ)
+  ExpectedInline p σ -> prettyError (TypeMismatch p (TypeAst () (Type.Inline v v v)) σ)
+  ExpectedFunctionPointer p σ -> prettyError (TypeMismatch p (TypeAst () (FunctionPointer v v v)) σ)
+  ExpectedFunctionLiteralType p σ -> prettyError (TypeMismatch p (TypeAst () (FunctionLiteralType v v v)) σ)
+  ExpectedUnique p σ -> prettyError (TypeMismatch p (TypeAst () (Unique v)) σ)
+  ExpectedPointer p σ -> prettyError (TypeMismatch p (TypeAst () (Pointer v)) σ)
+  ExpectedArray p σ -> prettyError (TypeMismatch p (TypeAst () (Array v)) σ)
+  ExpectedEffect p σ -> prettyError (TypeMismatch p (TypeAst () (Effect v v)) σ)
+  ExpectedShared p σ -> prettyError (TypeMismatch p (TypeAst () (Shared v v)) σ)
+  ExpectedNumber p σ -> prettyError (TypeMismatch p (TypeAst () (Number v v)) σ)
+  ExpectedBoolean p σ -> prettyError (TypeMismatch p (TypeAst () (Boolean)) σ)
+  ExpectedStep p σ -> prettyError (TypeMismatch p (TypeAst () (Step v v)) σ)
+  ExpectedLabel p σ -> prettyError (TypeMismatch p (TypeAst () (Label)) σ)
 
 quoted x = "\"" ++ x ++ "\""
 

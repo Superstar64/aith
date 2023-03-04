@@ -28,6 +28,7 @@ import qualified Text.Megaparsec as Megaparsec
 import qualified Text.Megaparsec.Char as Megaparsec
 import Prelude hiding (id, (.))
 
+-- Invertable Syntax Descriptions
 -- https://www.mathematik.uni-marburg.de/~rendel/rendel10invertible.pdf
 
 infixl 3 ∥#
@@ -55,7 +56,7 @@ keywords =
       "int",
       "integer",
       "internal",
-      "invariant",
+      "syntactic",
       "io",
       "kind",
       "label",
@@ -68,7 +69,7 @@ keywords =
       "multiplicity",
       "native",
       "opaque",
-      "orderability",
+      "unification",
       "pointer",
       "pretype",
       "region",
@@ -79,7 +80,7 @@ keywords =
       "size",
       "step",
       "struct",
-      "subtypable",
+      "propositional",
       "switch",
       "this",
       "transparent",
@@ -110,6 +111,7 @@ tokens =
     "&*",
     "(",
     ")",
+    "(+)",
     "*",
     "+",
     ",",
@@ -148,7 +150,8 @@ tokenFamily = Map.fromList (map family tokens)
     family token = (token, filter (/= token) $ filter (isPrefixOf token) tokens)
 
 descendants :: String -> [String]
-descendants token = tokenFamily Map.! token
+descendants token | Map.member token tokenFamily = tokenFamily Map.! token
+descendants token = error $ "Unknown token " ++ token
 
 -- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
 class SyntaxBase δ => Syntax δ where
@@ -251,16 +254,11 @@ typeIdentifier = Language.typeIdentifier ⊣ identifer
 
 typeGlobalIdentifier = Language.typeGlobalIdentifier ⊣ path
 
-lowerBounds :: Syntax δ => δ a -> δ [a]
-lowerBounds σ = items ∥ nil ⊣ always
-  where
-    items = cons ⊣ inverse nonEmpty ⊣ binaryToken ">=" ≫ seperatedSome σ (binaryToken "&")
-
 typePattern ::
   (Syntax δ, Position δ p) =>
   δ (Language.TypePatternSource p)
 typePattern =
-  Language.typePatternSource ⊣ position ⊗ typeIdentifier ⊗ k ⊗ lowerBounds typeCore
+  Language.typePatternSource ⊣ position ⊗ typeIdentifier ⊗ k
   where
     k = token ":" ≫ typex
 
@@ -284,7 +282,7 @@ typex = typeLambda
         full = space ≫ token "-[" ≫ typex ⊗ token "]>" ≫ space ≫ typeArrow
         partial = binaryToken "->" ≫ unres ⊗ typeArrow
           where
-            unres = Language.typeSource ⊣ position ⊗ (Language.unrestricted ⊣ always)
+            unres = Language.typeSource ⊣ position ⊗ (Language.typeTrue ⊣ always)
         inline = withInnerPosition3 Language.positionType Language.typeSource Language.inline
     typeEffect = effect `branchDistribute` unit' ⊣ typeUnique ⊗ (binaryKeyword "in" ≫ typeCore ⊕ always)
       where
@@ -303,12 +301,20 @@ typeUnique = Language.typeSource ⊣ position ⊗ unique ∥ typePtr
       where
         apply = num `branchDistribute` unit'
         num = withInnerPosition Language.positionType Language.typeSource Language.number
-    kindWord = (word `branchDistribute` unit') ⊣ kindUni ⊗ (space ≫ keyword "word" ⊕ always)
+    kindWord = (word `branchDistribute` unit') ⊣ typeOr ⊗ (space ≫ keyword "word" ⊕ always)
       where
         word = withInnerPosition1 Language.positionType Language.typeSource Language.wordRep
-    kindUni = Language.typeSource ⊣ position ⊗ upper ∥ typeCore
+    typeOr = foldlP apply ⊣ typeAnd ⊗ many (binaryToken "(+)" ≫ typeAnd ⊕ binaryToken "|" ≫ typeOr)
       where
-        upper = Language.higher ⊣ token "+" ≫ kindUni
+        apply = xor `branchDistribute` or
+        xor = withInnerPosition Language.positionType Language.typeSource Language.typeXor
+        or = withInnerPosition Language.positionType Language.typeSource Language.typeOr
+    typeAnd = foldlP apply ⊣ typeNot ⊗ many (binaryToken "&" ≫ typeNot)
+      where
+        apply = withInnerPosition Language.positionType Language.typeSource Language.typeAnd
+    typeNot = Language.typeSource ⊣ position ⊗ not ∥ typeCore
+      where
+        not = Language.typeNot ⊣ token "!" ≫ typeNot
 
 integers =
   Language.typeSource ⊣ position
@@ -350,26 +356,24 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
         Language.native ⊣ keyword "native",
         Language.signed ⊣ keyword "signed",
         Language.unsigned ⊣ keyword "unsigned",
-        Language.kind ⊣ keyword "kind" ≫ betweenAngle (typex ⊗ token "," ≫ space ≫ typex ⊗ token "," ≫ space ≫ typex),
+        Language.kind ⊣ keyword "kind" ≫ betweenAngle (typex ⊗ token "," ≫ space ≫ typex),
         Language.representation ⊣ keyword "representation",
         Language.size ⊣ keyword "size",
         Language.signedness ⊣ keyword "signedness",
-        Language.invariant ⊣ keyword "invariant",
-        Language.subtypable ⊣ keyword "subtypable",
+        Language.syntactic ⊣ keyword "syntactic",
+        Language.propositional ⊣ keyword "propositional",
         Language.transparent ⊣ keyword "transparent",
         Language.opaque ⊣ keyword "opaque",
-        Language.unrestricted ⊣ keyword "unrestricted",
-        Language.linear ⊣ keyword "linear",
         Language.multiplicity ⊣ keyword "multiplicity",
         Language.step ⊣ keyword "step" ≫ betweenAngle (typex ≪ token "," ≪ space ⊗ typex),
         Language.top ⊣ token "/|\\",
-        Language.orderability ⊣ keyword "orderability",
+        Language.unification ⊣ keyword "unification",
         Language.transparency ⊣ keyword "transparency",
-        Language.universe ⊣ keyword "universe",
-        Language.base ⊣ tokenNumeric 1 "u",
         Language.label ⊣ keyword "label",
         Language.ambiguousLabel ⊣ keyword "ambiguous",
-        Language.hole ⊣ token "_"
+        Language.hole ⊣ token "_",
+        Language.typeTrue ⊣ keyword "true",
+        Language.typeFalse ⊣ keyword "false"
       ]
     rotate = swap_2_3_of_3
     -- todo remove this eventually
@@ -445,7 +449,7 @@ isStatementF (Language.Bind _ _) = True
 isStatementF (Language.TermRuntime (Language.Alias _ _)) = True
 isStatementF (Language.TermRuntime (Language.Loop _ _)) = True
 isStatementF (Language.TermSugar (Language.If _ _ _)) = True
-isStatementF (Language.TermErasure (Language.Borrow _ _)) = True
+isStatementF (Language.TermErasure (Language.Borrow _ _ _)) = True
 isStatementF (Language.TermRuntime (Language.Case _ _ _)) = True
 isStatementF _ = False
 
@@ -460,7 +464,7 @@ termStatement = Language.termSource ⊣ position ⊗ choice options ∥ apply �
         Language.casex ⊣ prefixKeyword "switch" ≫ termCore ⊗ lambdaBrace (many $ Language.bound ⊣ termRuntimePattern ⊗ binaryToken "=>" ≫ term ≪ delimit),
         borrow
       ]
-    borrow = Language.borrow ⊣ prefixKeyword "borrow" ≫ termCore ⊗ binaryKeyword "as" ≫ binding
+    borrow = Language.borrow ⊣ prefixKeyword "borrow" ≫ termCore ⊗ binaryKeyword "as" ≫ binding ⊗ binaryKeyword "uses" ≫ typex
       where
         binding = Language.bound ⊣ betweenAngle typePattern ⊗ binding'
           where
@@ -516,7 +520,7 @@ term = termLambda
     termDeref = Language.termSource ⊣ position ⊗ deref ∥ termPrefix
       where
         apply = branchDistribute (Language.writeReference) (Language.readReference . toPrism unit')
-        deref = apply ⊣ token "*" ≫ termPrefix ⊗ (binaryToken "=" ≫ termCore ⊕ always)
+        deref = apply ⊣ token "*" ≫ termPrefix ⊗ (binaryToken "=" ≫ betweenParens term ⊕ always)
     termPrefix = Language.termSource ⊣ position ⊗ options ∥ termIndex
       where
         options =

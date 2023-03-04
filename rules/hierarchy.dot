@@ -1,71 +1,42 @@
 digraph aith {
-    // basic visualization of type system
-    // regular arrows mean type of
-    // dotted, arrowhead=none arrows mean type of this contains
     rankdir="BT"
     concentrate=true;
 
     // unabstractable types
     top
 
-    universe
-    orderability
+    unification
     transparency
     label[label="label"]
 
-    orderability -> top
+    unification -> top
     transparency -> top
-    universe -> top
     label -> top
-
-    uone[label="1"]
-    uinc[label="1+u"]
-
-    uone -> universe
-    uinc -> universe
 
     transparent
     opaque
-    invariant
-    subtypable
+    syntactic
+    propositional
 
     transparent -> transparency
     opaque -> transparency
-    invariant -> orderability
-    subtypable -> orderability
+    syntactic -> unification
+    propositional -> unification
     ambiguous -> label
     
-  
-    kindInfi[label="kind<invariant, transparent, n>"]
-    kindInfi -> kindInfi[label="..."]
-    
-    kindInfi -> {invariant subtypable transparency opaque uone uinc} [style=invis]
-    
-    // super sorts
-    subgraph cluster_kind2{
-        bgcolor=lightgray; peripheries=0
-        kindInvTrans2[label="kind<invariant, transparent, 2>"]
-        kindInvOpa2[label="kind<invariant, opaque, 2>"]
-        kindSubTrans2[label="kind<subtypable, transparency, 2>"]
-    } -> kindInfi
-
-    // sorts
     subgraph cluster_kind{
         bgcolor=lightgray; peripheries=0
-        kindInvTrans1[label="kind<invariant, transparent, 1>"]
-        kindSubTrans1[label="kind<subtypable, transparent, 1>"]
-        kindInvOpa1[label="kind<invariant, opaque, 1>"]
-    } -> kindInvTrans2
+        kindInvTrans[label="kind<syntatic, transparent>"]
+        kindSubTrans[label="kind<propositional, transparent>"]
+        kindInvOpa[label="kind<syntatic, opaque>"]
+    } -> top
     representation
     size
     multiplicity[label="multiplicity"]
 
-
-    representation -> kindInvOpa2
-    size -> kindInvOpa2
-    multiplicity -> kindSubTrans2
-
-    // kinds
+    representation -> kindInvOpa
+    size -> kindInvOpa
+    multiplicity -> kindSubTrans
     type[label="type"]
     boxed[label="boxed"]
     region
@@ -87,11 +58,11 @@ digraph aith {
         pretypePtrL[label="pretype<pointer,linear>"]
         pretypeWord[label="pretype<κ word, unrestricted>"]
         pretypeStruct[label="pretype<struct(...), κ>"]
-    } -> kindInvTrans1
+    } -> kindInvTrans
 
-    type -> kindInvTrans1
-    boxed -> kindInvTrans1
-    region -> kindSubTrans1
+    type -> kindInvTrans
+    boxed -> kindInvTrans
+    region -> kindSubTrans
     pointerRep -> representation
     structRep -> representation
     wordRep -> representation
@@ -99,12 +70,11 @@ digraph aith {
     short -> size
     int -> size
     long -> size
-    signedness -> kindInvOpa1
+    signedness -> kindInvOpa
     linear -> multiplicity
     unrestricted -> multiplicity
 
 
-    // types
     inline[label="σ -[π]> τ"]
     poly[label="<...> σ"]
     functionPointer[label="function*(σ) => τ uses π"]
@@ -143,7 +113,6 @@ digraph aith {
     signed -> signedness
     unsigned -> signedness
 
-    // terms
     let[label="let x = e; e'"]
     extern[label="extern \"sym\""]
     app[label="e (e')"]

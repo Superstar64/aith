@@ -46,23 +46,6 @@ module systemfPoly = {
 	inline immediate = (<A : type, B : type> \f : A -> B => \x => f !x) <_>;
 };
 
-module varSub = {
-	inline sub<R : pretype<pointer, unrestricted>, A : region, B : region >= A, C:type>
-    : R in A -> R in B -> C -[linear]> C;
-	inline sub = \a => \b => \x => x;
-
-
-	inline cycle = \a => \b => \c {
-		sub !a !b !(
-			sub !b !c !(
-				sub !c !a !(
-					\x => x
-				)
-			)
-		)
-	};
-};
-
 module default = {
 	add(x,y) {
 		x + y
@@ -131,24 +114,24 @@ module ptr = {
 		***x
 	}
 
-	deref <RA : region, RB : region >= RA, T : pretype<pointer, unrestricted>>(x :: T* @ RA) :: T in RB;
-	deref <RA : region, RB : region >= RA, T : pretype<pointer, unrestricted>> (x) {
+	deref <A : region, T : pretype<pointer, true>>(x :: T* @ A) :: T in A;
+	deref (x) {
 		*x
 	}
 
-	write<A:region, B:region >= A>(x :: int* @ A) :: () in B;
-	write<A:region, B:region >= A>(x :: int* @ A) {
+	write<A:region>(x :: int* @ A) :: () in A;
+	write<A:region>(x :: int* @ A) {
 		*x = (1 :: int)
 	}
 
 	writeTriple(x) {
-		***x = 1 
+		***x = (1) 
 	}
 
 	swap(x,y) {
-		let xp = *x;
+		let xp = (*x);
 		*x = (*y);
-		*y = xp;
+		*y = (xp);
 		()
 	}
 };
@@ -157,13 +140,13 @@ module ptr = {
 module number = {
 	type point = (int, int, int);
 
-	dotProduct <R : region>(x :: point, y :: point) :: int in R;
+	dotProduct<>(x :: point, y :: point) :: int in false;
 	dotProduct((x1,y1,z1), (x2, y2, z2)) {
 		(x1 * x2 + y1 * y2 + z1 * z2)
 	}
   
-	mid <R : region>(x :: uint, y:: uint) :: uint in R;
-	mid <R : region>(x,y) {
+	mid <>(x :: uint, y:: uint) :: uint in false;
+	mid <>(x,y) {
 		(x + y) / 2
 	}
 
@@ -171,8 +154,8 @@ module number = {
 		x <= y
 	}
 
-	factorial<R : region>(x :: ulong) :: ulong in R; 
-	factorial<R : region>(x) {
+	factorial<>(x :: ulong) :: ulong in false; 
+	factorial<>(x) {
 		if (x == 0) {
 			1
 		} else {
@@ -186,31 +169,44 @@ module fptr = {
 		f (1)
 	}
 
-	callUnit <R : region>(f :: function(uint) => () uses R) :: () in R;
-	callUnit <R : region>(f) {
+	callUnit <>(f :: function(uint) => () uses false) :: () in false;
+	callUnit <>(f) {
 		f (2)
 	}
 };
 
 module recurse = {
-	explode<L : multiplicity, R:region, A:pretype<pointer, L>>() :: A in R;
-	explode<L : multiplicity, R:region, A:pretype<pointer, L>>() {
+	explode<L : multiplicity, A:pretype<pointer, L>>() :: A in false;
+	explode<L : multiplicity, A:pretype<pointer, L>>() {
 		explode ()
 	}
 };
 
 module world = {
-	inline putchar<A:region> : function(int) => int uses io in A;
-	inline putchar<A:region> = extern "putchar";
+	inline lenient = {
+		if false {
+			* {
+				switch() {
+					
+				}
+			}
+		} else {
+			()
+		}
+	};
 
-	putPtr<A:region >= io>(ptr :: int* @ A) :: int in A;
+
+	inline putchar<> : function(int) => int uses io in false;
+	inline putchar<> = extern "putchar";
+
+	putPtr<A:region>(ptr :: int* @ A) :: int in A | io;
 	putPtr(ptr) {
 		putchar (*ptr)
 	}
 
 	inline count = /systemf/two;
 	putHashes() {
-		count <_> !() !\s { 
+		count <_> !(lenient) !\s { 
 			let n = putchar (35);
 			s
 		}
@@ -223,7 +219,7 @@ module arrays = {
 	};
 
 	inline set = \x => \i => \a {
-		* &* &x[i] = a
+		* &* &x[i] = (a)
 	};
 
 	swap(a, b, i) {
@@ -251,8 +247,7 @@ module sort = {
 
 	inline set = /arrays/set;
 
-	insert<R : region>(array :: int[] @ R, index :: unsigned integer(native)) :: () in R;
-	insert<R : region>(array, index) {
+	insert(array, index) {
 		loop (let (array, index) = (array,index)) {
 			if (index > 0 & get !array !index < get !array !(index - 1) ) {
 				let tmp = get !array !index;
@@ -277,11 +272,13 @@ module sort = {
 };
 
 module borrowed = {
-	increment <R : region>(p :: unique int*) :: unique int* in R;
-	increment <R : region>(p :: unique int*) {
-		let ((), p) = { borrow p as <A : region >= R>(x :: int* @ A) {
-			*x = (*x + 1)
-		}};
+	increment<>(p :: unique int*) :: unique int* in false;
+	increment (p :: unique int*) {
+		let ((), p) = {
+			borrow p as <A : region>(x :: int* @ A) {
+				*x = (*x + 1)
+			} uses false
+		};
 		p
 	}
 };
@@ -306,11 +303,11 @@ module import = {
 };
 
 module levity = {
-	idPolyPair<A : pretype<struct(pointer, 32bit word) ,linear>>(x :: A) {
+	idPolyPair<A : pretype<struct(pointer, 32bit word), false>>(x :: A) {
 		x
 	}
 
-	idPolyUnion<A : pretype<union(pointer, 32bit word) ,linear>>(x :: A) {
+	idPolyUnion<A : pretype<union(pointer, 32bit word), false>>(x :: A) {
 		x
 	}
 
@@ -332,7 +329,7 @@ module sum = {
 };
 
 module newtype = {
-	wrapper num : pretype<32bit word, unrestricted>;
+	wrapper num : pretype<32bit word, true>;
 	wrapper num = int;
 
 	makeNum() {
@@ -340,7 +337,7 @@ module newtype = {
 	}
 
 
-	wrapper linked : pretype<pointer, unrestricted>;
+	wrapper linked : pretype<pointer, true>;
 	wrapper linked = linked2* @ io;
 
 	type linked2 = linked;
@@ -365,10 +362,36 @@ module case = {
 	}
 };
 
-module universes = {
-	inline abstract<U : kind<subtypable, transparent, 1u>> = <T : U> \x : int in io {
-		x
-	};
+module use = {
+	use<
+		B:region,
+		C:region
+	>(
+		x :: int* @ B,
+		y :: int* @ C
+	) :: int in B | C;
+	use(x, y) {
+		*x + *y
+	}
+};
 
-	inline use = (abstract : <T : region> int in io -> int in io) <_>;
+module redundant = {
+	nop(x) {
+		*x = (*x);
+		*x = (*x);
+		*x = (*x);
+		*x = (*x);
+		*x = (*x);
+		*x = (*x);
+		*x = (*x);
+		*x = (*x);
+		*x = (*x);
+		*x = (*x);
+		*x = (*x);
+		*x = (*x);
+		*x = (*x);
+		*x = (*x);
+		*x = (*x);
+		*x = (*x)
+	}
 };

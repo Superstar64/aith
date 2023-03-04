@@ -4,6 +4,7 @@ import Data.List.NonEmpty (NonEmpty)
 import Misc.Isomorph
 import Misc.Prism
 
+-- Invertable Syntax Descriptions
 -- https://www.mathematik.uni-marburg.de/~rendel/rendel10invertible.pdf
 
 infixr 4 ⊣

@@ -56,7 +56,7 @@ sortTopological view quit children items = go Map.empty items
       (reverse depend ++) <$> go marks' items
     go _ [] = pure []
 
-    -- builds a list in standard topological sort to then get reversed by `go`
+    -- builds a list in sTypeAndard topological sort to then get reversed by `go`
     visitTopological node = do
       marks <- get
       case Map.lookup (view node) marks of

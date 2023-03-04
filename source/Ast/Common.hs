@@ -28,6 +28,13 @@ instance Bitraversable Source where
 newtype Core x y = Core {runCore :: y}
   deriving (Show)
 
+-- hack for showable types
+class IsCore phase where
+  core :: typef (phase unit void) v (typescheme phase p v) (typex phase p v) -> typef (Core unit void) v (typescheme Core p v) (typex Core p v)
+
+instance IsCore Core where
+  core = id
+
 instance Bifunctor Core where
   bimap _ g (Core x) = Core (g x)
 

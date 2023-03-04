@@ -6,19 +6,16 @@
 \allowdisplaybreaks
 \begin{document}
 \begin{align*}
-S &= \{*, \prescript {n} {} \boxvoid^x_y \, & | \, x \in \{I, S\}, y \in \{T, O\}, n \in \mathbb{N} \} \\
-A &= \{(*, \prescript {1} {} \boxvoid^I_T), (\prescript {n} {} \boxvoid^x_y, \prescript{n+1} {} \boxvoid^I_T )
-\, & | \, x \in \{I, S\}, y \in \{T, O\}, n \in \mathbb{N}\} \\
-R &= \{(*,*,*), (\prescript {n} {} \boxvoid^x_y,*,*) \, & | \, x \in \{I, S\}, y \in \{T, O\}, n \in \mathbb{N} \} \\
+S &= \{*, \boxvoid^x_y \, & | \, x \in \{I, S\}, y \in \{T, O\} \} \\
+A &= \{(*, \boxvoid^I_T)\} \\
+R &= \{(*,*,*), (\boxvoid^x_y,*,*) \, & | \, x \in \{I, S\}, y \in \{T, O\} \} \\
 \end{align*}
 \begin{center}
 \begin{tabular}{ | l | l | }
 \hline
-$ \mathbb{N} $ & Positive Natural Numbers \\
+$ I $ & Syntactic \\
 \hline
-$ I $ & Invariant \\
-\hline
-$ S $ & Subtypable \\
+$ S $ & Propositional \\
 \hline
 $ T $ & Transparent \\
 \hline

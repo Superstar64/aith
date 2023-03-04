@@ -81,8 +81,8 @@ data TermSugar e
   | If e e e
   deriving (Show, Functor)
 
-data TermErasure σauto λrgn_e e
-  = Borrow e λrgn_e
+data TermErasure σauto σ λrgn_e e
+  = Borrow e λrgn_e σ
   | IsolatePointer e
   | Wrap σauto e
   | Unwrap σauto e
@@ -90,7 +90,7 @@ data TermErasure σauto λrgn_e e
 
 data TermF ann θ σauto σ λrgn_e λσe λe λrun_e e
   = TermRuntime (TermRuntime θ σauto σauto σauto λrun_e e)
-  | TermErasure (TermErasure σauto λrgn_e e)
+  | TermErasure (TermErasure σauto σ λrgn_e e)
   | TermSugar (TermSugar e)
   | Annotation ann
   | GlobalVariable TermGlobalIdentifier θ
@@ -184,14 +184,14 @@ traverseTermF ::
   (e -> m e') ->
   TermF ann θ σauto σ λrgn_e λσe λe λrun_e e ->
   m (TermF ann' θ' σauto' σ' λrgn_e' λσe' λe' λrun_e' e')
-traverseTermF y d z _ r k h m i e =
+traverseTermF y d z q r k h m i e =
   case e of
     TermRuntime e -> pure TermRuntime <*> traverseTermRuntime d z z z m i e
     TermSugar e -> pure TermSugar <*> traverseTermSugar i e
     Annotation e -> pure Annotation <*> y e
     GlobalVariable x θ -> pure GlobalVariable <*> pure x <*> d θ
     FunctionLiteral λ -> pure FunctionLiteral <*> m λ
-    TermErasure (Borrow e λ) -> TermErasure <$> (Borrow <$> i e <*> r λ)
+    TermErasure (Borrow e λ σ) -> TermErasure <$> (Borrow <$> i e <*> r λ <*> q σ)
     TermErasure (IsolatePointer e) -> TermErasure <$> (IsolatePointer <$> i e)
     TermErasure (Wrap σ e) -> TermErasure <$> (Wrap <$> z σ <*> i e)
     TermErasure (Unwrap σ e) -> TermErasure <$> (Unwrap <$> z σ <*> i e)
@@ -471,8 +471,8 @@ termErasure = Prism TermErasure $ \case
   _ -> Nothing
 
 borrow = (termErasure .) $
-  Prism (uncurry Borrow) $ \case
-    (Borrow e λ) -> Just (e, λ)
+  Prism (uncurry $ uncurry Borrow) $ \case
+    (Borrow e λ σ) -> Just ((e, λ), σ)
     _ -> Nothing
 
 isolatePointer = (termErasure .) $
@@ -522,8 +522,10 @@ class TraverseTerm u => TermAlgebra u where
   substituteTerm :: TermScheme p Core p' v -> TermIdentifier -> u p Core p' v -> u p Core p' v
   substituteGlobalTerm :: TermScheme p Core p' v -> TermGlobalIdentifier -> u p Core p' v -> u p Core p' v
 
+  -- Demonstrating Lambda Calculus Reduction
+  -- https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf
+
   -- Applicative Order Reduction
-  -- see https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf
 
   reduce :: u p Core () v -> u p Core () v
 
@@ -581,7 +583,7 @@ avoidTermConvert' = Avoid bindingsTerm renameTerm Set.singleton
 
 applySchemeImpl (TermScheme _ (TypeAbstraction λ)) (Instantiation (InstantiateType σ θ)) = applySchemeImpl (apply λ σ) θ
   where
-    apply (Bound (TypePattern _ α _ _) e) σ = substituteType σ α e
+    apply (Bound (TypePattern _ α _) e) σ = substituteType σ α e
 applySchemeImpl (TermScheme _ (MonoTerm e _)) (Instantiation InstantiateEmpty) = e
 applySchemeImpl _ _ = error "unable to substitute"
 
@@ -701,7 +703,7 @@ instance TermAlgebra Term where
         reduce e1 =
       reduce $ Term p $ PolyElimination (Term p $ PolyIntroduction $ applyType λ σ) (Core θ) σ'
     where
-      applyType (Bound (TypePattern _ α _ _) e) σ = substituteType σ α e
+      applyType (Bound (TypePattern _ α _) e) σ = substituteType σ α e
   reduce (Term p (TermSugar e)) = reduce (desugar p e)
   reduce (Term p e) = Term p (mapTermF (bimap go absurd) id id id (mapBound id (mapBound id go)) go (mapBound id go) (mapBound id go) go e)
     where
@@ -844,7 +846,19 @@ instance TypeAlgebra (Term p) where
         (zonkType f)
         e
   joinType = joinTypeDefault
-  traverseType = traverseTerm pure
+  traverseTypes fp f (Term p e) = do
+    Term p
+      <$> traverseTermF
+        (bitraverse (traverseTypes fp f) absurd)
+        (bitraverse pure (traverseTypes fp f))
+        (bitraverse pure (traverseTypes fp f))
+        (traverseTypes fp f)
+        (traverseBound (traverseTypes fp f) (traverseBound (traverseTypes fp f) (traverseTypes fp f)))
+        (traverseTypes fp f)
+        (traverseBound (traverseTypes fp f) (traverseTypes fp f))
+        (traverseBound (traverseTypes fp f) (traverseTypes fp f))
+        (traverseTypes fp f)
+        e
 
 instance TypeAlgebra (TermScheme p) where
   freeVariablesTypeSource (TermScheme _ e) = case e of
@@ -905,7 +919,12 @@ instance TypeAlgebra (TermScheme p) where
               TypeAbstraction λ -> TypeAbstraction <$> traverseBound (zonkType f) (zonkType f) λ
           )
   joinType = joinTypeDefault
-  traverseType = traverseTerm pure
+  traverseTypes fp f (TermScheme p (MonoTerm e σ)) = TermScheme p <$> (MonoTerm <$> go e <*> bitraverse pure go σ)
+    where
+      go = traverseTypes fp f
+  traverseTypes fp f (TermScheme p (TypeAbstraction λ)) = TermScheme p <$> (TypeAbstraction <$> traverseBound go go λ)
+    where
+      go = traverseTypes fp f
 
 instance TypeAlgebra (TermPattern p) where
   freeVariablesType (TermPattern _ pm) = foldTermPatternF go go pm
@@ -932,7 +951,9 @@ instance TypeAlgebra (TermPattern p) where
   zonkType f (TermPattern p pm) =
     TermPattern p <$> traverseTermPatternF (zonkType f) (zonkType f) pm
   joinType = joinTypeDefault
-  traverseType = traverseTerm pure
+  traverseTypes fp f (TermPattern p pm) = TermPattern p <$> traverseTermPatternF go go pm
+    where
+      go = traverseTypes fp f
 
 instance TypeAlgebra (TermRuntimePattern p) where
   freeVariablesType (TermRuntimePattern _ pm) = foldTermRuntimePatternF go go pm
@@ -959,7 +980,9 @@ instance TypeAlgebra (TermRuntimePattern p) where
   zonkType f (TermRuntimePattern p pm) =
     TermRuntimePattern p <$> traverseTermRuntimePatternF (zonkType f) (zonkType f) pm
   joinType = joinTypeDefault
-  traverseType = traverseTerm pure
+  traverseTypes fp f (TermRuntimePattern p pm) = TermRuntimePattern p <$> traverseTermRuntimePatternF go go pm
+    where
+      go = traverseTypes fp f
 
 instance TypeAlgebra (Annotation p) where
   freeVariablesType (TypeAnnotation e σ) = freeVariablesType e <> freeVariablesType σ
@@ -984,7 +1007,12 @@ instance TypeAlgebra (Annotation p) where
 
   zonkType = zonkTypeDefault
 
-  traverseType = traverseTerm pure
+  traverseTypes fp f (TypeAnnotation e σ) = TypeAnnotation <$> go e <*> go σ
+    where
+      go = traverseTypes fp f
+  traverseTypes fp f (PretypeAnnotation e σ) = PretypeAnnotation <$> go e <*> go σ
+    where
+      go = traverseTypes fp f
 
 instance TypeAlgebra (TermControl p) where
   freeVariablesType (TermAutoSource e) = freeVariablesType e
@@ -1008,7 +1036,12 @@ instance TypeAlgebra (TermControl p) where
 
   zonkType = zonkTypeDefault
 
-  traverseType = traverseTerm pure
+  traverseTypes fp f (TermAutoSource e) = TermAutoSource <$> go e
+    where
+      go = traverseTypes fp f
+  traverseTypes fp f (TermManualSource e) = TermManualSource <$> go e
+    where
+      go = traverseTypes fp f
 
 instance BindingsTerm (TermPattern p phase p' v) where
   bindingsTerm (TermPattern _ (PatternVariable x _)) = Set.singleton x
@@ -1045,8 +1078,6 @@ sourceTermAnnotate annotate e σ =
   Term () $
     Annotation $ Source $ annotate (sourceTerm e) (sourceType σ)
 
--- todo consider not emitting type annotions for lambda bindings
--- as those don't need them (in checking mode)
 sourceTerm :: TermInfer p -> TermSource ()
 sourceTerm (Term _ e) =
   Term () $ case e of
@@ -1071,8 +1102,12 @@ sourceTerm (Term _ e) =
     TermSugar e -> TermSugar (fmap sourceTerm e)
     GlobalVariable x _ -> GlobalVariable x ann
     FunctionLiteral λ -> FunctionLiteral (mapBound (sourceTermRuntimePattern False) sourceTerm λ)
-    TermErasure (Borrow e λ) ->
-      TermErasure $ Borrow (sourceTerm e) (mapBound sourceTypePattern (mapBound (sourceTermRuntimePattern False) sourceTerm) λ)
+    TermErasure (Borrow e λ σ) ->
+      TermErasure $
+        Borrow
+          (sourceTerm e)
+          (mapBound sourceTypePattern (mapBound (sourceTermRuntimePattern False) sourceTerm) λ)
+          (sourceType σ)
     TermErasure (IsolatePointer e) -> TermErasure $ IsolatePointer (sourceTerm e)
     TermErasure (Wrap (Core σ) e) ->
       Annotation $ Source $ PretypeAnnotation (Term () $ TermErasure $ Wrap ann (sourceTerm e)) (sourceType σ)

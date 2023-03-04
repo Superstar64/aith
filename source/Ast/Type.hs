@@ -12,6 +12,7 @@ import qualified Data.Map as Map
 import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Void (Void, absurd)
+import Misc.Boolean
 import Misc.Isomorph
 import Misc.Path
 import Misc.Prism
@@ -26,12 +27,10 @@ newtype TypeLogical = TypeLogicalRaw Int deriving (Eq, Ord, Show)
 
 globalType heading (TypeIdentifier x) = TypeGlobalIdentifier (Path heading x)
 
-data TypeSub
+data TypeConstant
   = TypeVariable TypeIdentifier
   | TypeGlobalVariable TypeGlobalIdentifier
   | World
-  | Linear
-  | Unrestricted
   deriving (Show, Eq, Ord)
 
 data KindSize
@@ -54,8 +53,15 @@ data KindRuntime s κ
   | WordRep s
   deriving (Show, Eq, Ord)
 
+data TypeBoolean σ
+  = TypeNot σ
+  | TypeAnd σ σ
+  | TypeOr σ σ
+  | TypeXor σ σ
+  deriving (Show, Functor, Foldable, Traversable)
+
 data TypeF h v λσ σ
-  = TypeSub TypeSub
+  = TypeConstant TypeConstant
   | TypeLogical v
   | Top
   | Inline σ σ σ
@@ -82,19 +88,19 @@ data TypeF h v λσ σ
   | Representation
   | Size
   | Signedness
-  | Kind σ σ σ
-  | Invariant
-  | Subtypable
-  | Orderability
+  | Kind σ σ
+  | Syntactic
+  | Propositional
+  | Unification
   | Transparent
   | Opaque
   | Transparency
-  | Base
-  | Higher σ
-  | Universe
   | AmbiguousLabel
   | Label
   | Hole h
+  | TypeBoolean (TypeBoolean σ)
+  | TypeTrue
+  | TypeFalse
   deriving (Show)
 
 traverseTypeF ::
@@ -106,7 +112,7 @@ traverseTypeF ::
   TypeF h v λσ σ ->
   m (TypeF h' v' λσ' σ')
 traverseTypeF a f i g σ = case σ of
-  TypeSub σ -> pure (TypeSub σ)
+  TypeConstant σ -> pure (TypeConstant σ)
   TypeLogical v -> pure TypeLogical <*> f v
   Inline σ π τ -> pure Inline <*> g σ <*> g π <*> g τ
   Poly σ λ -> pure Poly <*> g σ <*> i λ
@@ -135,20 +141,20 @@ traverseTypeF a f i g σ = case σ of
   Representation -> pure Representation
   Size -> pure Size
   Signedness -> pure Signedness
-  Kind σ τ π -> pure Kind <*> g σ <*> g τ <*> g π
-  Invariant -> pure Invariant
-  Subtypable -> pure Subtypable
+  Kind σ τ -> pure Kind <*> g σ <*> g τ
+  Syntactic -> pure Syntactic
+  Propositional -> pure Propositional
   Transparent -> pure Transparent
   Opaque -> pure Opaque
-  Orderability -> pure Orderability
+  Unification -> pure Unification
   Transparency -> pure Transparency
-  Base -> pure Base
-  Higher σ -> pure Higher <*> g σ
-  Universe -> pure Universe
   Top -> pure Top
   Hole h -> Hole <$> a h
   Label -> pure Label
   AmbiguousLabel -> pure AmbiguousLabel
+  TypeBoolean σ -> TypeBoolean <$> (traverse g σ)
+  TypeTrue -> pure TypeTrue
+  TypeFalse -> pure TypeFalse
 
 mapTypeF a f h g = runIdentity . traverseTypeF (Identity . a) (Identity . f) (Identity . h) (Identity . g)
 
@@ -164,6 +170,9 @@ data Type phase p v
           (Type phase p v)
       )
 
+instance (IsCore phase, Show v, Show p) => Show (Type phase p v) where
+  showsPrec d (TypeAst p σ) = showParen (d > 10) $ showString "TypeAst " . showsPrec 11 p . showString " " . showsPrec 11 (core σ)
+
 type TypeSource p = Type Source p Void
 
 type TypeUnify = Type Core () TypeLogical
@@ -174,10 +183,12 @@ type TypeSchemeAuto p = Maybe (TypeScheme Source p Void)
 
 data TypeScheme phase p v
   = TypeScheme p (TypeSchemeF phase p v)
+  deriving (Show)
 
 data TypeSchemeF phase p v
   = MonoType (Type phase p v)
   | TypeForall (Bound (TypePattern phase p v) (TypeScheme phase p v))
+  deriving (Show)
 
 type TypeSchemeSource p = TypeScheme Source p Void
 
@@ -203,10 +214,11 @@ type InstantiationUnify = Instantiation Core () TypeLogical
 
 type InstantiationInfer = Instantiation Core () Void
 
-data TypePattern phase p v = TypePattern p TypeIdentifier (Type phase p v) [Type phase p v]
+data TypePattern phase p v = TypePattern p TypeIdentifier (Type phase p v)
+  deriving (Show)
 
 data TypePatternIntermediate p
-  = TypePatternIntermediate p TypeIdentifier TypeInfer [TypeSub]
+  = TypePatternIntermediate p TypeIdentifier TypeInfer
 
 type TypePatternSource p = TypePattern Source p Void
 
@@ -240,19 +252,19 @@ typeSource = Isomorph (uncurry TypeAst) $ \(TypeAst p σ) -> (p, σ)
 
 typePatternSource =
   Isomorph
-    (\(((p, x), κ), π) -> TypePattern p x κ π)
-    (\(TypePattern p x κ π) -> (((p, x), κ), π))
+    (\((p, x), κ) -> TypePattern p x κ)
+    (\(TypePattern p x κ) -> ((p, x), κ))
 
-typeSub = Prism TypeSub $ \case
-  (TypeSub σ) -> Just σ
+typeConstant = Prism TypeConstant $ \case
+  (TypeConstant σ) -> Just σ
   _ -> Nothing
 
-typeVariable = (typeSub .) $
+typeVariable = (typeConstant .) $
   Prism TypeVariable $ \case
     (TypeVariable x) -> Just x
     _ -> Nothing
 
-typeGlobalVariable = (typeSub .) $
+typeGlobalVariable = (typeConstant .) $
   Prism TypeGlobalVariable $ \case
     (TypeGlobalVariable x) -> Just x
     _ -> Nothing
@@ -309,19 +321,9 @@ boolean = Prism (const Boolean) $ \case
   Boolean -> Just ()
   _ -> Nothing
 
-world = (typeSub .) $
+world = (typeConstant .) $
   Prism (const World) $ \case
     World -> Just ()
-    _ -> Nothing
-
-linear = (typeSub .) $
-  Prism (const Linear) $ \case
-    Linear -> Just ()
-    _ -> Nothing
-
-unrestricted = (typeSub .) $
-  Prism (const Unrestricted) $ \case
-    Unrestricted -> Just ()
     _ -> Nothing
 
 step = Prism (uncurry Step) $ \case
@@ -423,18 +425,18 @@ top = Prism (const Top) $ \case
   Top -> Just ()
   _ -> Nothing
 
-kind = Prism (uncurry $ uncurry Kind) $ \case
-  Kind κ κ' u -> Just ((κ, κ'), u)
+kind = Prism (uncurry Kind) $ \case
+  Kind κ κ' -> Just (κ, κ')
   _ -> Nothing
 
-invariant =
-  Prism (const Invariant) $ \case
-    Invariant -> Just ()
+syntactic =
+  Prism (const Syntactic) $ \case
+    Syntactic -> Just ()
     _ -> Nothing
 
-subtypable =
-  Prism (const Subtypable) $ \case
-    Subtypable -> Just ()
+propositional =
+  Prism (const Propositional) $ \case
+    Propositional -> Just ()
     _ -> Nothing
 
 transparent =
@@ -447,28 +449,14 @@ opaque =
     Opaque -> Just ()
     _ -> Nothing
 
-base =
-  Prism (const Base) $ \case
-    Base -> Just ()
-    _ -> Nothing
-
-higher = Prism Higher $ \case
-  Higher σ -> Just σ
-  _ -> Nothing
-
 transparency =
   Prism (const Transparency) $ \case
     Transparency -> Just ()
     _ -> Nothing
 
-orderability =
-  Prism (const Orderability) $ \case
-    Orderability -> Just ()
-    _ -> Nothing
-
-universe =
-  Prism (const Universe) $ \case
-    Universe -> Just ()
+unification =
+  Prism (const Unification) $ \case
+    Unification -> Just ()
     _ -> Nothing
 
 label =
@@ -486,6 +474,38 @@ hole =
     Hole (Source ()) -> Just ()
     _ -> Nothing
 
+typeBoolean = Prism TypeBoolean $ \case
+  TypeBoolean σ -> Just σ
+  _ -> Nothing
+
+typeAnd = (typeBoolean .) $
+  Prism (uncurry TypeAnd) $ \case
+    TypeAnd σ τ -> Just (σ, τ)
+    _ -> Nothing
+
+typeOr = (typeBoolean .) $
+  Prism (uncurry TypeOr) $ \case
+    TypeOr σ τ -> Just (σ, τ)
+    _ -> Nothing
+
+typeXor = (typeBoolean .) $
+  Prism (uncurry TypeXor) $ \case
+    TypeXor σ τ -> Just (σ, τ)
+    _ -> Nothing
+
+typeNot = (typeBoolean .) $
+  Prism TypeNot $ \case
+    TypeNot σ -> Just σ
+    _ -> Nothing
+
+typeTrue = Prism (const TypeTrue) $ \case
+  TypeTrue -> Just ()
+  _ -> Nothing
+
+typeFalse = Prism (const TypeFalse) $ \case
+  TypeFalse -> Just ()
+  _ -> Nothing
+
 class TypeAlgebra u where
   freeVariablesType :: Bifoldable phase => u phase p v -> Set TypeIdentifier
   freeVariablesGlobalType :: Bifoldable phase => u phase p v -> Set TypeGlobalIdentifier
@@ -494,12 +514,16 @@ class TypeAlgebra u where
   freeVariablesGlobalTypeSource :: (Semigroup p, Bifoldable phase) => u phase p v -> Variables TypeGlobalIdentifier p
   substituteType :: Type Core p v -> TypeIdentifier -> u Core p v -> u Core p v
   substituteGlobalType :: Type Core p v -> TypeGlobalIdentifier -> u Core p v -> u Core p v
-
   zonkType :: (Applicative m, Bitraversable phase) => (v -> m (Type phase p v')) -> u phase p v -> m (u phase p v')
-
   joinType :: (Bitraversable phase) => u phase p (Type phase p v) -> u phase p v
+  traverseTypes :: (Applicative m, Bitraversable phase) => (p -> m p') -> (Type phase p v -> m (Type phase p' v')) -> u phase p v -> m (u phase p' v')
 
-  traverseType :: (Applicative m, Bitraversable phase) => (p -> m p') -> (v -> m v') -> u phase p v -> m (u phase p' v')
+mapTypes fp f = runIdentity . traverseTypes (Identity . fp) (Identity . f)
+
+traverseType :: (TypeAlgebra u, Applicative m, Bitraversable phase) => (p -> m p') -> (v -> m v') -> u phase p v -> m (u phase p' v')
+traverseType fp fv = traverseTypes fp $ \(TypeAst p σ) -> TypeAst <$> fp p <*> traverseTypeF (bitraverse pure absurd) fv go go σ
+  where
+    go = traverseType fp fv
 
 zonkTypeDefault :: (TypeAlgebra u, Applicative m, Bitraversable phase) => (v -> m (Type phase p v')) -> u phase p v -> m (u phase p v')
 zonkTypeDefault f σ = joinType <$> traverseType pure f σ
@@ -559,14 +583,14 @@ avoidTypeConvert = avoidTypeConvert' convertType
 
 avoidTypeConvert' = Avoid bindingsType renameType Set.singleton
 
-toTypePattern (TypePatternIntermediate _ x κ π) = TypePattern () x κ (map (TypeAst () . TypeSub) π)
+toTypePattern (TypePatternIntermediate _ x κ) = TypePattern () x κ
 
 instance Fresh TypeIdentifier where
   fresh c (TypeIdentifier x) = TypeIdentifier $ Util.fresh (Set.mapMonotonic runTypeIdentifier c) x
 
 instance BindingsType (TypePattern phase p v) where
-  bindingsType (TypePattern _ x _ _) = Set.singleton x
-  renameType ux x (TypePattern p x' κ π) | x == x' = TypePattern p ux κ π
+  bindingsType (TypePattern _ x _) = Set.singleton x
+  renameType ux x (TypePattern p x' κ) | x == x' = TypePattern p ux κ
   renameType _ _ λ = λ
 
 instance TypeAlgebra TypeScheme where
@@ -587,40 +611,41 @@ instance TypeAlgebra TypeScheme where
   zonkType = zonkTypeDefault
   joinType (TypeScheme p (MonoType σ)) = TypeScheme p (MonoType (joinType σ))
   joinType (TypeScheme p (TypeForall λ)) = TypeScheme p (TypeForall (mapBound joinType joinType λ))
-  traverseType fp fv (TypeScheme p (MonoType σ)) = TypeScheme <$> fp p <*> (MonoType <$> traverseType fp fv σ)
-  traverseType fp fv (TypeScheme p (TypeForall λ)) = TypeScheme <$> fp p <*> (TypeForall <$> traverseBound go go λ)
+  traverseTypes fp f (TypeScheme p (MonoType σ)) = TypeScheme <$> fp p <*> (MonoType <$> traverseTypes fp f σ)
+  traverseTypes fp f (TypeScheme p (TypeForall λ)) = TypeScheme <$> fp p <*> (TypeForall <$> traverseBound go go λ)
     where
-      go = traverseType fp fv
+      go = traverseTypes fp f
 
 instance TypeAlgebra Type where
-  freeVariablesType (TypeAst _ (TypeSub (TypeVariable x))) = Set.singleton x
+  freeVariablesType (TypeAst _ (TypeConstant (TypeVariable x))) = Set.singleton x
   freeVariablesType (TypeAst _ σ) = foldTypeF mempty mempty go go σ
     where
       go = freeVariablesType
-  freeVariablesGlobalType (TypeAst _ (TypeSub (TypeGlobalVariable x))) = Set.singleton x
+  freeVariablesGlobalType (TypeAst _ (TypeConstant (TypeGlobalVariable x))) = Set.singleton x
   freeVariablesGlobalType (TypeAst _ σ) = foldTypeF mempty mempty go go σ
     where
       go = freeVariablesGlobalType
-  convertType ux x (TypeAst p (TypeSub (TypeVariable x'))) | x == x' = TypeAst p $ TypeSub $ TypeVariable ux
+  convertType ux x (TypeAst p (TypeConstant (TypeVariable x'))) | x == x' = TypeAst p $ TypeConstant $ TypeVariable ux
   convertType ux x (TypeAst p σ) = TypeAst p $ mapTypeF id id go go σ
     where
       go = convertType ux x
-  freeVariablesTypeSource (TypeAst p (TypeSub (TypeVariable x))) = Variables $ Map.singleton x p
+  freeVariablesTypeSource (TypeAst p (TypeConstant (TypeVariable x))) = Variables $ Map.singleton x p
   freeVariablesTypeSource (TypeAst _ σ) = foldTypeF mempty mempty go go σ
     where
       go = freeVariablesTypeSource
-  freeVariablesGlobalTypeSource (TypeAst p (TypeSub (TypeGlobalVariable x))) = Variables $ Map.singleton x p
+  freeVariablesGlobalTypeSource (TypeAst p (TypeConstant (TypeGlobalVariable x))) = Variables $ Map.singleton x p
   freeVariablesGlobalTypeSource (TypeAst _ σ) = foldTypeF mempty mempty go go σ
     where
       go = freeVariablesGlobalTypeSource
-  substituteType ux x (TypeAst _ (TypeSub (TypeVariable x'))) | x == x' = ux
+  substituteType ux x (TypeAst _ (TypeConstant (TypeVariable x'))) | x == x' = ux
   substituteType ux x (TypeAst p σ) = TypeAst p $ mapTypeF id id go go σ
     where
       go = substituteType ux x
-  substituteGlobalType ux x (TypeAst _ (TypeSub (TypeGlobalVariable x'))) | x == x' = ux
+  substituteGlobalType ux x (TypeAst _ (TypeConstant (TypeGlobalVariable x'))) | x == x' = ux
   substituteGlobalType ux x (TypeAst p σ) = TypeAst p $ mapTypeF id id go go σ
     where
       go = substituteGlobalType ux x
+
   zonkType f (TypeAst _ (TypeLogical v)) = f v
   zonkType f (TypeAst p σ) =
     TypeAst p
@@ -631,10 +656,7 @@ instance TypeAlgebra Type where
         (zonkType f)
         σ
   joinType = joinTypeDefault
-  traverseType fp fv (TypeAst p σ) =
-    TypeAst <$> fp p <*> traverseTypeF (bitraverse pure absurd) fv go go σ
-    where
-      go = traverseType fp fv
+  traverseTypes _ = id
 
 instance TypeAlgebra Instantiation where
   freeVariablesType (Instantiation θ) = case θ of
@@ -688,30 +710,24 @@ instance TypeAlgebra Instantiation where
               InstantiateType σ θ -> pure InstantiateType <*> zonkType f σ <*> zonkType f θ
           )
   joinType = joinTypeDefault
-  traverseType fp fv (Instantiation θ) =
-    Instantiation
-      <$> ( case θ of
-              InstantiateEmpty -> pure InstantiateEmpty
-              InstantiateType σ θ -> pure InstantiateType <*> go σ <*> go θ
-          )
-    where
-      go = traverseType fp fv
+  traverseTypes _ _ (Instantiation (InstantiateEmpty)) = pure $ Instantiation InstantiateEmpty
+  traverseTypes fp f (Instantiation (InstantiateType σ θ)) = Instantiation <$> (InstantiateType <$> traverseTypes fp f σ <*> traverseTypes fp f θ)
 
 instance TypeAlgebra TypePattern where
-  freeVariablesType (TypePattern _ _ κ π) = freeVariablesType κ <> foldMap freeVariablesType π
-  freeVariablesGlobalType (TypePattern _ _ κ π) = freeVariablesGlobalType κ <> foldMap freeVariablesGlobalType π
-  convertType ux x (TypePattern p x' κ π) = TypePattern p x' (convertType ux x κ) (map (convertType ux x) π)
-  freeVariablesTypeSource (TypePattern _ _ κ π) = freeVariablesTypeSource κ <> foldMap freeVariablesTypeSource π
-  freeVariablesGlobalTypeSource (TypePattern _ _ κ π) = freeVariablesGlobalTypeSource κ <> foldMap freeVariablesGlobalTypeSource π
-  substituteType ux x (TypePattern p x' κ π) = TypePattern p x' (substituteType ux x κ) (map (substituteType ux x) π)
-  substituteGlobalType ux x (TypePattern p x' κ π) = TypePattern p x' (substituteGlobalType ux x κ) (map (substituteGlobalType ux x) π)
-  zonkType f (TypePattern p x κ π) =
-    TypePattern p x <$> zonkType f κ <*> traverse (zonkType f) π
-  traverseType fp fv (TypePattern p x κ pm) =
-    TypePattern <$> fp p <*> pure x <*> go κ <*> traverse go pm
-    where
-      go = traverseType fp fv
+  freeVariablesType (TypePattern _ _ κ) = freeVariablesType κ
+  freeVariablesGlobalType (TypePattern _ _ κ) = freeVariablesGlobalType κ
+  convertType ux x (TypePattern p x' κ) = TypePattern p x' (convertType ux x κ)
+  freeVariablesTypeSource (TypePattern _ _ κ) = freeVariablesTypeSource κ
+  freeVariablesGlobalTypeSource (TypePattern _ _ κ) = freeVariablesGlobalTypeSource κ
+  substituteType ux x (TypePattern p x' κ) = TypePattern p x' (substituteType ux x κ)
+  substituteGlobalType ux x (TypePattern p x' κ) = TypePattern p x' (substituteGlobalType ux x κ)
+  zonkType f (TypePattern p x κ) =
+    TypePattern p x <$> zonkType f κ
   joinType = joinTypeDefault
+  traverseTypes fp f (TypePattern p x κ) =
+    TypePattern <$> fp p <*> pure x <*> go κ
+    where
+      go = traverseTypes fp f
 
 -- may have duplicates
 freeTypeLogical = getConst . zonkType (Const . (\x -> [x]))
@@ -724,14 +740,14 @@ sourceTypeScheme (TypeScheme () (TypeForall ς)) =
   TypeScheme () $ TypeForall (mapBound sourceTypePattern sourceTypeScheme ς)
 
 sourceTypePattern :: TypePatternInfer -> TypePatternSource ()
-sourceTypePattern (TypePattern () x σ πs) = TypePattern () x (sourceType σ) (map sourceType πs)
+sourceTypePattern (TypePattern () x σ) = TypePattern () x (sourceType σ)
 
 sourceType :: TypeInfer -> TypeSource ()
 sourceType (TypeAst () σ) = TypeAst () $ mapTypeF (\(Core v) -> absurd v) absurd sourceTypeScheme sourceType σ
 
 positionType (TypeAst p _) = p
 
-isTypeImport (TypeAst _ (TypeSub (TypeGlobalVariable _))) = True
+isTypeImport (TypeAst _ (TypeConstant (TypeGlobalVariable _))) = True
 isTypeImport _ = False
 
 data ReLabel = ReLabel (Set TypeIdentifier) [TypeIdentifier]
@@ -745,11 +761,119 @@ reLabel ς = foldr LabelForall (MonoLabel ς') schemes
       let new = fresh free (TypeIdentifier "L")
       put $ ReLabel (Set.insert new free) (new : schemes)
       ς <- goTypeScheme ς
-      pure $ TypeAst () $ Poly (TypeAst () $ TypeSub $ TypeVariable new) ς
+      pure $ TypeAst () $ Poly (TypeAst () $ TypeConstant $ TypeVariable new) ς
     goType (TypeAst () σ) = TypeAst () <$> traverseTypeF pure pure (error "handled manually") goType σ
     goTypeScheme (TypeScheme () (MonoType σ)) = TypeScheme () <$> MonoType <$> goType σ
-    goTypeScheme (TypeScheme () (TypeForall (Bound (TypePattern () x κ πs) ς))) = do
+    goTypeScheme (TypeScheme () (TypeForall (Bound (TypePattern () x κ) ς))) = do
       κ <- goType κ
-      πs <- traverse goType πs
       ς <- goTypeScheme ς
-      pure $ TypeScheme () $ TypeForall $ Bound (TypePattern () x κ πs) ς
+      pure $ TypeScheme () $ TypeForall $ Bound (TypePattern () x κ) ς
+
+nameTypeLogical :: Applicative m => TypeLogical -> m TypeInfer
+nameTypeLogical (TypeLogicalRaw i) = pure $ TypeAst () $ TypeConstant $ TypeVariable $ TypeIdentifier $ show i
+
+nameType :: TypeUnify -> TypeSource ()
+nameType = sourceType . runIdentity . zonkType nameTypeLogical
+
+linear = TypeAst () TypeFalse
+
+unrestricted = TypeAst () TypeTrue
+
+none = TypeAst () TypeFalse
+
+reconstructF
+  indexVariable
+  indexGlobalVariable
+  indexLogical
+  poly
+  reconstructRuntime
+  reconstructMultiplicities
+  reconstructPropositonal
+  (TypeAst () σ) = case σ of
+    TypeConstant (TypeVariable x) -> do
+      indexVariable x
+    TypeConstant (TypeGlobalVariable x) -> do
+      indexGlobalVariable x
+    TypeLogical v -> do
+      indexLogical v
+    Inline _ _ _ -> do
+      pure $ TypeAst () $ Type
+    Poly _ ς -> do
+      poly ς
+    FunctionPointer _ _ _ -> do
+      pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime PointerRep) unrestricted
+    FunctionLiteralType _ _ _ -> do
+      pure $ TypeAst () $ Type
+    Tuple σs -> do
+      ρs <- traverse reconstructRuntime σs
+      τ <- reconstructMultiplicities σs
+      pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime $ StructRep ρs) τ
+    Step σ τ -> do
+      κ <- reconstructRuntime σ
+      μ <- reconstructRuntime τ
+      let union = TypeAst () $ KindRuntime $ UnionRep $ [κ, μ]
+      let wrap = TypeAst () $ KindRuntime $ StructRep $ [TypeAst () $ KindRuntime $ WordRep $ TypeAst () $ KindSize $ Byte, union]
+      pure (TypeAst () $ Pretype wrap $ linear)
+    Effect _ _ -> pure $ TypeAst () $ Type
+    Unique _ ->
+      pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime $ PointerRep) linear
+    Shared _ _ ->
+      pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime $ PointerRep) unrestricted
+    Number _ ρ -> do
+      pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime $ WordRep ρ) unrestricted
+    Pointer _ -> pure $ TypeAst () $ Boxed
+    Array _ -> pure $ TypeAst () $ Boxed
+    Boolean -> pure $ TypeAst () $ Pretype (TypeAst () $ KindRuntime $ WordRep $ TypeAst () $ KindSize $ Byte) unrestricted
+    TypeConstant World -> pure $ TypeAst () $ Region
+    Type -> pure $ TypeAst () $ Kind (TypeAst () Syntactic) (TypeAst () Transparent)
+    Region -> pure $ TypeAst () $ Kind (TypeAst () Propositional) (TypeAst () Transparent)
+    Pretype _ _ -> pure $ TypeAst () $ Kind (TypeAst () Syntactic) (TypeAst () Transparent)
+    Boxed -> pure $ TypeAst () $ Kind (TypeAst () Syntactic) (TypeAst () Transparent)
+    Multiplicity -> pure $ TypeAst () $ Kind (TypeAst () Propositional) (TypeAst () Transparent)
+    KindRuntime _ -> pure $ TypeAst () $ Representation
+    KindSize _ -> pure $ TypeAst () $ Size
+    KindSignedness _ -> pure $ TypeAst () $ Signedness
+    Representation -> pure $ TypeAst () $ Kind (TypeAst () Syntactic) (TypeAst () Opaque)
+    Size -> pure $ TypeAst () $ Kind (TypeAst () Syntactic) (TypeAst () Opaque)
+    Signedness -> pure $ TypeAst () $ Kind (TypeAst () Syntactic) (TypeAst () Opaque)
+    Syntactic -> pure (TypeAst () Unification)
+    Propositional -> pure (TypeAst () Unification)
+    Transparent -> pure (TypeAst () Transparency)
+    Opaque -> pure (TypeAst () Transparency)
+    Transparency -> pure (TypeAst () Top)
+    Unification -> pure (TypeAst () Top)
+    Kind _ _ -> do
+      pure (TypeAst () $ Top)
+    AmbiguousLabel -> pure (TypeAst () Label)
+    Label -> pure $ TypeAst () $ Top
+    TypeTrue -> reconstructPropositonal []
+    TypeFalse -> reconstructPropositonal []
+    TypeBoolean (TypeXor σ τ) -> reconstructPropositonal [σ, τ]
+    TypeBoolean (TypeOr σ τ) -> reconstructPropositonal [σ, τ]
+    TypeBoolean (TypeAnd σ τ) -> reconstructPropositonal [σ, τ]
+    TypeBoolean (TypeNot σ) -> reconstructPropositonal [σ]
+    Hole (Core v) -> absurd v
+    Top -> error "reconstruct top"
+
+convertBoolean (TypeAst () (TypeLogical v)) = variable v
+convertBoolean (TypeAst () (TypeConstant c)) = constant c
+convertBoolean (TypeAst () (TypeBoolean σ)) = case σ of
+  TypeAnd σ τ -> convertBoolean σ * convertBoolean τ
+  TypeOr σ τ -> x + y + x * y
+    where
+      x = convertBoolean σ
+      y = convertBoolean τ
+  TypeXor σ τ -> convertBoolean σ + convertBoolean τ
+  TypeNot σ -> convertBoolean σ + 1
+convertBoolean (TypeAst () TypeTrue) = 1
+convertBoolean (TypeAst () TypeFalse) = 0
+convertBoolean _ = error "convert boolean error"
+
+unconvertBoolean (Polynomial e) | Set.null e = TypeAst () TypeFalse
+unconvertBoolean (Polynomial e) = foldl1 (\σ τ -> TypeAst () $ TypeBoolean $ TypeXor σ τ) (map prod $ Set.toList e)
+  where
+    prod e | Set.null e = TypeAst () TypeTrue
+    prod e = foldl1 (\σ τ -> TypeAst () $ TypeBoolean $ TypeAnd σ τ) (map var $ Set.toList e)
+      where
+        var (Flexible v) = TypeAst () $ TypeLogical v
+        var (Constant c) = TypeAst () $ TypeConstant c

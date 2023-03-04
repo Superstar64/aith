@@ -5,7 +5,7 @@
 \allowdisplaybreaks
 \begin{document}
 
-As of now, this document is mostly for myself. Its missing a lot of prose and explantions. \\
+As of now, this document is mostly for myself. Its missing a lot of prose and explantions (and may eventually be discarded). \\
 
 \tableofcontents
 
@@ -13,16 +13,13 @@ As of now, this document is mostly for myself. Its missing a lot of prose and ex
 \section{Main Language}
 All valid terms have a type who's type is of the form $ * $. \\
 \\
-All valid types have a type who's type is of the form of either $ \prescript {\rho} {} \boxvoid^\mu_{\kappa} $ or $ \text{Universe} $,
-where $ \mu $ is an $ \text{Orderability} $, $ \kappa $ is a $ \text{Transparency}$
-and $ \rho $ is a $ \text {Universe} $ . \\
+All valid types have a type who's type is of the form of either $ \boxvoid^\mu_\kappa $.
+where $ \mu $ is an $ \text{Unification} $, $ \kappa $ is a $ \text{Transparency} $. \\
 \\
 Variables in the type environment are annotated with their multiplicity. ie $ x :^1 ... $. \\
 \\
-Function literals and function literal types can not appear at runtime. They must be bound by a global "function" binding.
+Function literals and function literal types can not appear at runtime. They must be bound by a global function binding.
 This binding converts a function literal into an extern and a function literal type into a function pointer type. \\
-\\
-Terms with a type $ \sigma^\pi $ are runtime terms. \\
 \\
 Overlines are used to mean 0 or more. \\
 \\
@@ -35,11 +32,14 @@ After $ \beta $ reduction, terms not of type $ \sigma^\pi $ must either be a fre
 \text{Type} & \text{Term} \\
 \hline
 \sigma \xrightarrow{\uparrow}_\pi \tau & \lambda x. e \\
-\forall \alpha : \kappa \succeq \{ \overline \pi \}. \sigma & \Lambda \alpha. e  \\
+\forall \alpha : \kappa. \sigma & \Lambda \alpha. e  \\
 \sigma \xrightarrow{\text{text}} \tau & \text{function}(x). e \\
 \end{array}
-\\
-\end{gather*}
+\end{gather*} 
+
+Some types use synatatic unificition, others use boolean unification (denoted by their kind).
+Types which use boolean unification all permit the standard boolean operations(\texttt{true}, \texttt{false}, $\land$, $\lor$, etc).
+
 
 \subsection{Object Categories}
 
@@ -62,7 +62,6 @@ The type of a term must be a valid type ($ \Phi | \Gamma \vdash e : \sigma $, re
 \begin{align*}
 \Phi \mid \Gamma \vdash \, & e : \sigma \tag{\text{Term Validation}} \\
 \Phi \vdash \, & \sigma : \kappa \tag{\text{Type Validation}} \\
-\Phi \vdash \, & \sigma \succeq \tau \tag{Subtyping}
 \end{align*}
 
 \subsection{Typing Environments}
@@ -71,31 +70,36 @@ The type of a term must be a valid type ($ \Phi | \Gamma \vdash e : \sigma $, re
 & \Gamma, x :^\pi \sigma \\
 & \emptyset \\
 \Phi \Coloneqq & \\
-& \Phi, \alpha : \kappa \succeq \{ \overline \pi \} = \text{data} \\
+& \Phi, \alpha : \kappa = \text{data} \\
 & \emptyset \\
 \\
 \text{data} \Coloneqq & \\
 & \text{wrap} (\sigma) \\
 & \emptyset
-\end{align*}
+\end{align*} \\
+
+$ \Phi, \alpha : \kappa $ is shorthand for $ \Phi, \alpha : \kappa = \emptyset $ \\
+\\
+In addition, type environments can be multiplied by a multiplicity, following from Linear Haskell.
+Except due to the representation of multiplicity as booleans, multiplication gets mapped to disjunction.
+\begin{gather*}
+\pi \Gamma = \{(x :^{\pi \lor  \pi'}) \, | \, (x :^{\pi'}) \in \Gamma \} \\
+\Gamma, \Gamma' = (\Gamma \, \oplus \, \Gamma') \cup \{ (x^\texttt{true}) \, | \, (x :^\pi) \in \Gamma, (x :^{\pi'}) \in \Gamma' \}
+\end{gather*}
 
 \subsection{Meta}
+Multiplicity uses boolean unification where \texttt{true} is unrestricted and \texttt{false} is linear.
 \begin{align*}
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
 & * \tag{Type} \\
-& \prescript {\rho} {} \boxvoid^\mu_{\kappa} \tag{Kind} \\
+& \boxvoid^\mu_{\kappa} \tag{Kind} \\
 & \top \tag{Top} \\
-& 1 \tag{Base Universe} \\
-& (1 + \rho) \tag{Increment Universe} \\
-& \text{Universe} \\
-& \text{Invariant} \\
-& \text{Subtypable} \\
-& \text{Orderability} \\
+& \text{Syntactic} \\
+& \text{Propositional} \\
+& \text{Unification} \\
 & \text{Transparent} \\
 & \text{Opaque} \\
 & \text{Transparency} \\
-& 1 \tag{Linear} \\
-& \omega \tag{Unrestricted} \\
 & \text{Multiplicity} \\
 & \text{Label}
 \end{align*}
@@ -103,36 +107,23 @@ The type of a term must be a valid type ($ \Phi | \Gamma \vdash e : \sigma $, re
 \begin{gather*}
 \frac
 {}
-{\Phi \vdash * : \prescript {1} {} \boxvoid^{\text{Invariant}}_{\text{Transparent}}} \\
+{\Phi \vdash * : \boxvoid^{\text{Syntactic}}_{\text{Transparent}}} \\
 \\
 \frac
-{\Phi \vdash \mu : \text{Orderability} \quad \Phi \vdash \kappa : \text{Transparency} \quad \rho : \text{Universe}}
-{\Phi \vdash \prescript {\rho} {} \boxvoid^\mu_{\kappa} :
-\prescript {1 + \rho} {} \boxvoid^{\text{Invariant}}_{\text{Transparent}}} \\
-\\
-\frac
-{}
-{\Phi \vdash 1 : \text{Universe}} \\
+{\Phi \vdash \mu : \text{Unification} \quad \Phi \vdash \kappa : \text{Transparency}}
+{\Phi \vdash \boxvoid^\mu_{\kappa} : \top} \\
 \\
 \frac
 {}
-{\Phi \vdash 1 + \pi : \text{Universe}} \\
+{\Phi \vdash \text{Syntactic} : \text{Unification}} \\
 \\
 \frac
 {}
-{\Phi \vdash \text{Universe} : \top } \\
+{\Phi \vdash \text{Propositional} : \text{Unification}} \\
 \\
 \frac
 {}
-{\Phi \vdash \text{Invariant} : \text{Orderability}} \\
-\\
-\frac
-{}
-{\Phi \vdash \text{Subtypable} : \text{Orderability}} \\
-\\
-\frac
-{}
-{\Phi \vdash \text{Orderability} : \top} \\
+{\Phi \vdash \text{Unification} : \top} \\
 \\
 \frac
 {}
@@ -148,15 +139,7 @@ The type of a term must be a valid type ($ \Phi | \Gamma \vdash e : \sigma $, re
 \\
 \frac
 {}
-{\Phi \vdash 1 : \text{Multiplicity}} \\
-\\
-\frac
-{}
-{\Phi \vdash \omega : \text{Multiplicity}} \\
-\\
-\frac
-{}
-{\Phi \vdash \text{Multiplicity} : \prescript{1 + 1} {} \boxvoid^{\text{Subtypable}}_{\text{Transparent}}} \\
+{\Phi \vdash \text{Multiplicity} : \boxvoid^{\text{Propositional}}_{\text{Transparent}}} \\
 \\
 \frac
 {}
@@ -172,27 +155,15 @@ e \Coloneqq & \\
 & \alpha \tag{Type Variable} \\
 & \dots
 \end{align*}
-
 \begin{gather*}
-todo use reference count analysis, ala making uniqueness typing less unique, rather then substructural rules
-\Phi | x :^\pi \sigma \vdash x : \sigma \\
-\\
 \frac
-{\Phi | \Gamma, \Gamma' \vdash e : \sigma}
-{\Phi | \Gamma', \Gamma \vdash e : \sigma} \\
-\\
-\frac
-{\Phi | \Gamma \vdash e : \sigma}
-{\Phi | \Gamma, x :^\omega \tau \vdash e : \sigma } \\
-\\
-\frac
-{\Phi | \Gamma, x :^\omega \tau, x :^\omega \tau \vdash e : \sigma}
-{\Phi | \Gamma, x :^\omega \tau \vdash e : \sigma } \\
+{}
+{\Phi \, | \, \texttt{true} (\Gamma \setminus \{x :^\pi \sigma\}), x :^\pi \sigma  \vdash x : \sigma}
 \end{gather*}
 
 \begin{gather*}
 \frac
-{(\alpha : \kappa \succeq \{ \overline \pi \} = \text{data} ) \in \Phi}
+{(\alpha : \kappa = \text{data} ) \in \Phi}
 {\Phi \vdash \alpha : \kappa}
 \end{gather*}
 
@@ -214,8 +185,8 @@ e \Coloneqq & \\
 {\Phi | \Gamma \vdash \lambda^\uparrow x. e : \sigma \xrightarrow{\uparrow}_\pi \tau } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e_1 : \sigma \xrightarrow{\uparrow}_\pi \tau \quad \Phi | \Gamma' \vdash e_2 : \sigma \quad \Gamma \succeq \pi}
-{\Phi | \Gamma, \Gamma' \vdash e_1(^\uparrow e_2) : \tau}
+{\Phi | \Gamma \vdash e_1 : \sigma \xrightarrow{\uparrow}_\pi \tau \quad \Phi | \Gamma' \vdash e_2 : \sigma}
+{\Phi | \Gamma, \pi \Gamma' \vdash e_1(^\uparrow e_2) : \tau}
 \end{gather*}
 
 \begin{gather*}
@@ -231,26 +202,24 @@ e \Coloneqq & \\
 & e (\sigma) \tag{Type Application} \\
 & \dots \\
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \Coloneqq & \\
-& \forall \alpha : \kappa \succeq \{ \overline \pi \}. \sigma \tag{Type Poly}\\ 
+& \forall \alpha : \kappa. \sigma \tag{Type Poly}\\ 
 & \dots
 \end{align*}
 
 \begin{gather*}
 \frac
-{\Phi, \alpha : \kappa  \succeq \{ \overline \pi \} = \emptyset \, | \, \Gamma \vdash e : \sigma}
-{\Phi | \Gamma \vdash \Lambda \alpha. e : \forall \alpha : \kappa \succeq \{ \overline \pi \} . \sigma } \\
+{\Phi, \alpha : \kappa \, | \, \Gamma \vdash e : \sigma}
+{\Phi | \Gamma \vdash \Lambda \alpha. e : \forall \alpha : \kappa. \sigma } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \forall \alpha \succeq \{ \overline \pi \} : \kappa. \sigma \quad \Phi \vdash \tau : \kappa\quad \overline { \Phi \vdash \tau \succeq \pi }}
+{\Phi | \Gamma \vdash e : \forall \alpha : \kappa. \sigma \quad \Phi \vdash \tau : \kappa}
 {\Phi | \Gamma \vdash e (\tau) : \sigma [\tau/\alpha] }
 \end{gather*}
 
 \begin{gather*}
 \frac
-{\splitfrac{\Phi, \alpha : \kappa \succeq \{ \overline \pi \}\vdash \sigma : * \quad \overline { \Phi \vdash \pi : \kappa}}
-{\splitfrac{\Phi \vdash \kappa : \prescript {\rho} {} \boxvoid^\mu_{\mu'} \quad \text{when $ \pi $ is empty}}
-{\Phi \vdash \kappa : \prescript {\rho} {} \boxvoid^{\text{Subtypable}}_{\mu'} \quad \text{when $ \pi $ is not empty} }}}
-{\Phi \vdash \forall \alpha : \kappa + \{ \overline c \}. \sigma : * } \\
+{\Phi, \alpha : \kappa \vdash \sigma : * \quad \Phi \vdash \kappa : \boxvoid^\mu_{\mu'}}
+{\Phi \vdash \forall \alpha : \kappa. \sigma : * } \\
 \end{gather*}
 
 \subsection{Runtime}
@@ -266,20 +235,21 @@ e \Coloneqq & \\
 \\
 \frac
 {\Phi \vdash \rho : \text{Representation} \quad \Phi \vdash \pi : \text{Multiplicity}}
-{\Phi \vdash +^\rho_\pi : \prescript {1} {} \boxvoid^{\text{Invariant}}_{\text{Transparent}}} \\
+{\Phi \vdash +^\rho_\pi : \boxvoid^{\text{Syntactic}}_{\text{Transparent}}} \\
 \\
 \frac
 {}
-{\Phi \vdash \text{Representation} : \prescript {1 + 1} {} \boxvoid^{\text{Invariant}}_{\text{Opaque}}}
+{\Phi \vdash \text{Representation} : \boxvoid^{\text{Syntactic}}_{\text{Opaque}}}
 \end{gather*}
 
-\subsubsection{Single Effect Regions}
-todo add proper patterns to rules
+\subsubsection{Regions}
+todo add proper patterns to rules \\
+Regions use boolean unification where \texttt{false} means using no regions.
 \begin{align*}
 e \Coloneqq & \\
-& \text{letRGN} \, (\Lambda \alpha. e) \tag{Create Region} \\
+& \text{letRGN} \, (\Lambda \alpha. e) \tag{Bind Region Type Variable (Unused)} \\
 & \text{let}^\downarrow \, x = e; e' \tag{Runtime Let} \\
-& \text{case} \, e \, \text{of} \{ x \to e'; x' \to' e''\}
+& \text{case} \, e \, \text{of} \{ x \to e'; x' \to' e''\} \tag{Case} \\
 & \dots \\
 \sigma, \tau, \pi, \kappa, s, \rho \Coloneqq & \\
 & \sigma^\pi \tag{Region Effect} \\
@@ -290,16 +260,16 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi , \alpha : \text{Region} \, \succeq \{ \pi \} = \emptyset \, | \, \Gamma \vdash e : \sigma^\alpha \quad \alpha \notin \text{Free}(\sigma, \pi)}
+{\Phi , \alpha : \text{Region} \, | \, \Gamma \vdash e : \sigma^{\pi \lor (\alpha \land \rho)} \quad \alpha \notin \text{Free}(\sigma, \pi)}
 {\Phi | \Gamma \vdash \text{letRGN} \, (\Lambda \alpha. e) : \sigma^\pi} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi \vdash \tau : +^{\rho}_{\pi'} \quad \Phi | \Gamma', x :^{\pi'} \forall \alpha. \tau^\alpha \vdash e' : \sigma^\pi}
-{\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow \, x = e; e' : \sigma^\pi} \\
+{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi \vdash \tau : +^{\rho}_{\kappa} \quad \Phi | \Gamma', x :^{\kappa} \tau^\texttt{false} \vdash e' : \sigma^{\pi'}}
+{\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow \, x = e; e' : \sigma^{\pi \lor \pi'}} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi \vdash \tau : +^{\rho}_{\pi'} \quad \overline{ \Phi | \Gamma', x :^{\pi'} \forall \alpha. \tau^\alpha \vdash e' : \sigma^\pi }}
-{\Phi | \Gamma, \overline {\Gamma'} \vdash \text{case} \, e \, \text{of} \{ \overline {x' \to  e' } \} : \sigma^\pi} \\
+{\Phi | \Gamma \vdash e : \tau^\pi \quad \Phi \vdash \tau : +^{\rho}_{\kappa} \quad \overline{ \Phi | \Gamma', x :^{\kappa} \tau^\texttt{false} \vdash e' : \sigma^\pi }}
+{\Phi | \Gamma, \overline {\Gamma'} \vdash \text{case} \, e \, \text{of} \{ \overline {x' \to  e' } \} : \sigma^{\pi \lor \overline{\pi'}}} \\
 \end{gather*}
 
 \begin{gather*}
@@ -315,7 +285,7 @@ e \Coloneqq & \\
 \begin{gather*}
 \frac
 {}
-{\Phi \vdash \text{Region} : \prescript {1} {} \boxvoid^{\text{Subtypable}}_{\text{Transparent}}} \\
+{\Phi \vdash \text{Region} : \boxvoid^{\text{Propositional}}_{\text{Transparent}}} \\
 \end{gather*}
 
 \subsubsection{Boxed}
@@ -333,24 +303,24 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi | \Gamma \vdash e : (\text{unique} \, \tau)^\pi \quad \Phi,\alpha : \text{Region} \, \succeq \{ \pi \} = \emptyset \, | \, \Gamma', x :^\omega \forall \alpha'. (\tau @ \alpha)^{\alpha'} \vdash e' : \sigma^\alpha \quad \alpha \notin \text{Free}(\sigma, \pi)}
-{\Phi | \Gamma, \Gamma' \vdash \text{borrow} (e) \text{as} \, \Lambda \alpha. (x) \{ e' \} : (\sigma, \text{unique} \, \tau)^\pi }
+{\Phi | \Gamma \vdash e : (\text{unique} \, \tau)^\pi \quad \Phi,\alpha : \text{Region}  \, | \, \Gamma', x :^\texttt{true} (\tau @ \, \alpha)^\texttt{false} \vdash e' : \sigma^{\pi' \lor (\alpha \land \rho)} \quad \alpha \notin \text{Free}(\sigma, \pi, \tau)}
+{\Phi | \Gamma, \Gamma' \vdash \text{borrow} (e) \text{as} \, \Lambda \alpha. (x) \{ e' \} : (\sigma, \text{unique} \, \tau)^{\pi \lor \pi'} }
 \end{gather*}
 
 \begin{gather*}
 \frac
 {\Phi \vdash \sigma : -}
-{\Phi \vdash \text{unique} \, \sigma : +^\text{Pointer}_1} \\
+{\Phi \vdash \text{unique} \, \sigma : +^\text{Pointer}_\texttt{false}} \\
 \\
 \frac
 {\Phi \vdash \sigma : - \quad \pi : \text{Region}}
-{\Phi \vdash \sigma \, @ \, \pi : +^\text{Pointer}_\omega} 
+{\Phi \vdash \sigma \, @ \, \pi : +^\text{Pointer}_\texttt{true}} 
 \end{gather*}
 
 \begin{gather*}
 \frac
 {}
-{\Phi \vdash - : \prescript {1} {} \boxvoid^{\text{Invariant}}_{\text{Transparent}}} \\
+{\Phi \vdash - : \boxvoid^{\text{Syntactic}}_{\text{Transparent}}} \\
 \\
 \frac
 {}
@@ -372,12 +342,12 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi | \Gamma \vdash e : (\sigma* \, @ \pi')^\pi \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
-{\Phi | \Gamma \vdash * e  : \sigma^\pi} \\
+{\Phi | \Gamma \vdash e : (\sigma* \, @ \pi')^\pi \quad \Phi \vdash \text{Copy} (\sigma)}
+{\Phi | \Gamma \vdash * e  : \sigma^{\pi \lor \pi'}} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\sigma* \, @ \pi')^\pi \quad \Phi | \Gamma \vdash e' : \sigma^\pi  \quad \Phi \vdash \text{Copy} (\sigma) \quad \pi \succeq \pi'}
-{\Phi | \Gamma \vdash *e  = e' : ()^\pi } \\
+{\Phi | \Gamma \vdash e : (\sigma* \, @ \pi')^\pi \quad \Phi | \Gamma \vdash e' : \sigma^{\pi''}  \quad \Phi \vdash \text{Copy} (\sigma)}
+{\Phi | \Gamma \vdash *e  = e' : ()^{\pi \lor \pi' \lor \pi''} } \\
 \\
 \frac
 {\Phi | \Gamma \vdash e : (\sigma[] @ \pi') ^ \pi}
@@ -416,21 +386,21 @@ e \Coloneqq & \\
 \begin{gather*}
 \frac
 {}
-{\Phi | \Gamma \vdash \text{extern} \, \text{sym} : (\tau \xrightarrow{\downarrow}_{\pi'} \sigma)^\pi} \\
+{\Phi | \Gamma \vdash \text{extern} \, \text{sym} : (\tau \xrightarrow{\downarrow}_{\pi} \sigma)^\texttt{false}} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\sigma \xrightarrow{\downarrow}_{\pi'} \tau)^\pi \quad \Phi | \Gamma' \vdash e' : \sigma^\pi \quad \pi \succeq \pi'}
-{\Phi | \Gamma, \Gamma' \vdash e^\downarrow (e') : \tau^\pi} \\
+{\Phi | \Gamma \vdash e : (\sigma \xrightarrow{\downarrow}_{\pi'} \tau)^\pi \quad \Phi | \Gamma' \vdash e' : \sigma^{\pi''}}
+{\Phi | \Gamma, \Gamma' \vdash e^\downarrow (e') : \tau^{\pi \lor \pi' \lor \pi''}} \\
 \\
 \frac
-{\Phi | \Gamma, x :^1 \forall \alpha. \sigma^\alpha \vdash e : \tau^\pi}
+{\Phi | \Gamma, x :^\texttt{false} \sigma^\texttt{false} \vdash e : \tau^\pi}
 {\Phi | \Gamma \vdash \text{function}(x). e : \sigma \xrightarrow{\text{text}}_\pi \tau} \\
 \end{gather*}
 
 \begin{gather*}
 \frac
 {\Phi \vdash \sigma : +^{\rho}_\mu \quad \Phi \vdash \tau : +^{\rho'}_{\mu'} \quad \Phi \vdash \pi : \text{Region}}
-{\Phi \vdash \sigma \xrightarrow{\downarrow}_\pi \tau : +^\text{Pointer}_\omega} \\
+{\Phi \vdash \sigma \xrightarrow{\downarrow}_\pi \tau : +^\text{Pointer}_\texttt{true}} \\
 \\
 \frac
 {\Phi \vdash \sigma : +^{\rho}_\mu \quad \Phi \vdash \tau : +^{\rho'}_{\mu'} \quad \Phi \vdash \pi : \text{Region}}
@@ -452,15 +422,15 @@ e \Coloneqq & \\
 \begin{gather*}
 \frac
 {\Phi | \overline { \Gamma \vdash e : \sigma^\pi }}
-{\Phi | \overline \Gamma  \vdash (\overline e,) : (\overline \sigma,)^\pi } \\
+{\Phi | \overline \Gamma  \vdash (\overline e,) : (\overline \sigma,)^{\lor \pi} } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\overline \tau,)^\pi \quad \Phi | \Gamma , \overline {x :^1 \forall \alpha. \tau^\alpha} \vdash e : \sigma^\pi}
-{\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow (\overline x) = e; e' : \sigma^\pi} \\
+{\Phi | \Gamma \vdash e : (\overline \tau,)^\pi \quad \Phi | \Gamma , \overline {x :^\texttt{false} \tau^\texttt{false}} \vdash e : \sigma^{\pi'}}
+{\Phi | \Gamma, \Gamma' \vdash \text{let}^\downarrow (\overline x) = e; e' : \sigma^{\pi \lor \pi'}} \\
 \\
 \frac
-{\Phi \vdash \overline {\sigma : +^{\kappa}_{\mu'}} \quad \Phi \vdash \overline {\mu'} \succeq \mu }
-{\Phi \vdash (\overline \sigma,) : +^{\text{Struct} \{ \overline \kappa\}}_\mu} \\
+{\Phi \vdash \overline {\sigma : +^{\kappa}_{\mu}}}
+{\Phi \vdash (\overline \sigma,) : +^{\text{Struct} \{ \overline \kappa\}}_{\overline {\bigwedge \mu}}} \\
 \\
 \frac
 {\Phi \vdash \overline {\rho : \text{Representation}}}
@@ -515,23 +485,23 @@ e \Coloneqq & \\
 \begin{gather*}
 \frac
 {}
-{\Phi | \Gamma \vdash n : (\rho \, \text{integer}(\rho'))^\pi} \\
+{\Phi | \Gamma \vdash n : (\rho \, \text{integer}(\rho'))^\texttt{false}} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\rho \, \text{integer}(\rho'))^\pi \quad \Phi | \Gamma, \Gamma' \vdash e' : (\rho \, \text{integer}(\rho'))^\pi}
-{\Phi | \Gamma, \Gamma' \vdash e + e' : (\rho \text{integer}(\rho'))^\pi} \\
+{\Phi | \Gamma \vdash e : (\rho \, \text{integer}(\rho'))^\pi \quad \Phi | \Gamma, \Gamma' \vdash e' : (\rho \, \text{integer}(\rho'))^{\pi'}}
+{\Phi | \Gamma, \Gamma' \vdash e + e' : (\rho \text{integer}(\rho'))^{\pi \lor \pi'}} \\
 \dots \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\rho \, \text{integer}(\rho'))^\pi \quad \Phi | \Gamma, \Gamma' \vdash e' : (\rho \, \text{integer}(\rho'))^\pi}
-{\Phi | \Gamma, \Gamma' \vdash e < e' : \text{Boolean}^\pi} \\
+{\Phi | \Gamma \vdash e : (\rho \, \text{integer}(\rho'))^\pi \quad \Phi | \Gamma, \Gamma' \vdash e' : (\rho \, \text{integer}(\rho'))^{\pi'}}
+{\Phi | \Gamma, \Gamma' \vdash e < e' : \text{Boolean}^{\pi \lor \pi'}} \\
 \dots
 \end{gather*}
 
 \begin{gather*}
 \frac
 {\Phi \vdash \rho : \text{Signedness} \quad \Phi \vdash \rho' : \text{Size}}
-{\Phi \vdash \rho \, \text{integer}(\rho') : +^ {\text{Word} (\rho')}_\omega } \\
+{\Phi \vdash \rho \, \text{integer}(\rho') : +^ {\text{Word} (\rho')}_\texttt{true} } \\
 \end{gather*}
 
 \begin{gather*}
@@ -569,14 +539,15 @@ e \Coloneqq & \\
 \\
 \frac
 {}
-{\Phi \vdash \text{Size} : \prescript {1 + 1} {} \boxvoid^{\text{Invariant}}_{\text{Opaque}}} \\
+{\Phi \vdash \text{Size} : \boxvoid^{\text{Syntactic}}_{\text{Opaque}}} \\
 \\
 \frac
 {}
-{\Phi \vdash \text{Signedness} : \prescript {1 + 1} {} \boxvoid^{\text{Invariant}}_{\text{Opaque}}}
+{\Phi \vdash \text{Signedness} : \boxvoid^{\text{Syntactic}}_{\text{Opaque}}}
 \end{gather*}
 
 \subsubsection{Boolean Logic}
+Note this has nothing to do with boolean unification.
 \begin{align*}
 e \Coloneqq & \\
 & \text{true} \\
@@ -589,21 +560,21 @@ e \Coloneqq & \\
 \begin{gather*}
 \frac
 {}
-{ \Phi | \Gamma \vdash \text{true} : \text{Boolean}^\pi} \\
+{ \Phi | \Gamma \vdash \text{true} : \text{Boolean}^\texttt{false}} \\
 \\
 \frac
 {}
-{ \Phi | \Gamma \vdash \text{false} : \text{Boolean}^\pi} \\
+{ \Phi | \Gamma \vdash \text{false} : \text{Boolean}^\texttt{false}} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \text{Boolean}^\pi \quad \Phi | \Gamma' \vdash e' : \sigma^\pi \quad \Phi | \Gamma' \vdash e'' : \sigma^\pi }
-{\Phi | \Gamma, \Gamma' \vdash \text{if} (e) \{ e' \} \text{else} \{ e'' \} : \sigma^\pi }
+{\Phi | \Gamma \vdash e : \text{Boolean}^\pi \quad \Phi | \Gamma' \vdash e' : \sigma^{\pi'} \quad \Phi | \Gamma' \vdash e'' : \sigma^{\pi''} }
+{\Phi | \Gamma, \Gamma' \vdash \text{if} (e) \{ e' \} \text{else} \{ e'' \} : \sigma^{\pi \lor \pi' \lor \pi''} }
 \end{gather*}
 
 \begin{gather*}
 \frac
 {}
-{ \Phi \vdash \text{Boolean} : +^{\text{Word}(8)}_\omega}
+{ \Phi \vdash \text{Boolean} : +^{\text{Word}(8)}_\texttt{true}}
 \end{gather*}
 
 \subsubsection{Loops}
@@ -626,12 +597,12 @@ e \Coloneqq & \\
 {\Phi | \Gamma \vdash \text{break} \, e : (\text{Step} \, \tau \, \sigma)^\pi } \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \sigma^\pi \quad \Phi | \Gamma', x :^1 \forall \alpha. \sigma^\alpha \vdash e' : (\text{Step} \, \tau \, \sigma) ^\pi \quad \Gamma' \succeq \omega }
-{\Phi | \Gamma, \Gamma' \vdash \text{loop} (\text{let} \, x = e) \{ e' \} : \tau^\pi } \\
+{\Phi | \Gamma \vdash e : \sigma^\pi \quad \Phi | \Gamma', x :^\texttt{false} \sigma^\texttt{false} \vdash e' : (\text{Step} \, \tau \, \sigma)^{\pi'} }
+{\Phi | \Gamma, \texttt{true} \Gamma' \vdash \text{loop} (\text{let} \, x = e) \{ e' \} : \tau^{\pi \lor \pi'} } \\
 \\
 \frac
 {\Phi \vdash \sigma : +^{\rho}_{\pi} \quad \Phi \vdash \tau : +^{\mu}_{\pi'} }
-{\Phi \vdash \text{Step} \, \sigma \, \tau : +^{\text{Struct} (\text{Word} (8), \text{Union} (\rho, \mu) ) }_1 }
+{\Phi \vdash \text{Step} \, \sigma \, \tau : +^{\text{Struct} (\text{Word} (8), \text{Union} (\rho, \mu) ) }_\texttt{false} }
 \end{gather*}
 
 \subsubsection{Newtypes}
@@ -644,31 +615,12 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi | \Gamma \vdash e : \sigma^\pi \quad (\alpha : +^\rho_\mu \succeq \{\} = \text{wrap} (\sigma)) \in \Phi}
+{\Phi | \Gamma \vdash e : \sigma^\pi \quad (\alpha : +^\rho_\mu = \text{wrap} (\sigma)) \in \Phi}
 {\Phi | \Gamma \vdash \text{wrap} [\alpha] e : \alpha^\pi} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : \alpha^\pi \quad (\alpha : +^\rho_\mu \succeq \{\} = \text{wrap} (\sigma)) \in \Phi}
+{\Phi | \Gamma \vdash e : \alpha^\pi \quad (\alpha : +^\rho_\mu = \text{wrap} (\sigma)) \in \Phi}
 {\Phi | \Gamma \vdash \text{unwrap} [\alpha] e : \sigma^\pi}
-\end{gather*}
-
-\subsection{Subtyping}
-\begin{gather*}
-\frac
-{\Phi \vdash \sigma : \kappa \quad \Phi \vdash \kappa : \prescript {\rho} {} \boxvoid^\text{Subtypable}_{\mu'}}
-{\Phi \vdash \sigma \succeq \sigma} \\
-\\
-\frac
-{\Phi \vdash \sigma \succeq \pi \quad \Phi \vdash \pi \succeq \tau}
-{\Phi \vdash \sigma \succeq \tau} \\
-\\
-\frac
-{(\alpha : \kappa \succeq  \{ \tau, \tau', \dots \sigma \}) \in \Phi }
-{\Phi \vdash \alpha \succeq \sigma} \\
-\\
-\frac
-{}
-{\Phi \vdash \omega \succeq 1}
 \end{gather*}
 
 \section{Simple Language}

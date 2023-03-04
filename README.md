@@ -37,7 +37,7 @@ These are types that limit how copying of variables.
 Linear types promise that a variable of a linear type will be used exactly once.
 Unique types promise that a variable of a unique type will has not been aliased.
 
-Aith has linear types at the inline level with multiplicity in the arrow except that Aith uses subtyping rather then multiplication.
+Aith has linear types at the inline level with multiplicity in the arrow like Linear Haskell.
 Aith has necessarily unique types at the runtime level with multiplicity via kinds.
 
 ## Effectful Regions
@@ -55,7 +55,7 @@ These expressions can only access memory in their region or regions proven to be
 ### First Class Polymorpism (System-F)
 (todo)
 
-### Subtyping
+### Boolean Unification
 (todo)
 
 # Building and Running Tests
@@ -125,14 +125,13 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
   * [ ] Type Lambda / Application for Runtime Terms
   * [ ] Higher Order Unification (System-F ω)
 * [x] Linear / Unique Types
-* [ ] Effectful Regions
+* [ ] Regions
   * [x] Effects
   * [x] References
     * [x] Type
     * [x] Read
     * [x] Write
   * [ ] Let Region
-  * [x] Region Subtyping
 * [x] C Code Generation
 
 # Syntax
@@ -142,160 +141,163 @@ Files are a single decleration named `this`.
 ## Modules(code)
 | Description | Syntax |
 |-|-|
-| Module | ``module x = { code ... };`` |
-| Module | ``module x;  code ...`` |
-| Inline Term | ``inline x = e; ``|
-| Inline Term Ascribe | ``inline x : σ; inline x = e; ``|
-| Function | ``f(pm) { e }`` |
-| Function Ascribe | ``f(pm) :: σ in π; f(pm) { e }``|
-| Synonym | ``type x = σ;`` |
-| New Type | ``wrapper x :: κ; wrapper x = σ;`` |
+| Module | `module x = { code ... };` |
+| Module | `module x; code ...` |
+| Inline Term | `inline x = e;`|
+| Inline Term Ascribe | `inline x : σ; inline x = e;`|
+| Function | `f(pm) { e }` |
+| Function Ascribe | `f(pm) :: σ in π; f(pm) { e }`|
+| Synonym | `type x = σ;` |
+| New Type | `wrapper x :: κ; wrapper x = σ;` |
 
 ## Terms(e)
 | Description | Syntax |
 |-|-|
-| Variable | ``x`` |
+| Variable | `x` |
 | Global Variable | `/x/x'/...` |
-| Inline Abstraction | `` \pm { e }`` |
-| Inline Abstraction | `` \pm => e`` |
-| Inline Application | ``e !e'``|
-| Inline Binding | ``inline pm = e; e'``|
-| Extern | ``extern "sym"`` |
-| Function Application | ``e (e')``|
-| Runtime Binding | ``let pm = e; e'`` |
-| Tuple Construction | ``(e, e', ...)`` |
-| Read Pointer | ``*e`` |
-| Write Pointer | ``*e = e'`` |
-| Array Increment | ``&e[e']`` |
-| Array to Pointer | ``&*e`` |
-| Number Literal | ``n`` |
-| Addition | ``e + e'`` |
-| Subtraction | ``e - e'`` |
-| Multiplication | ``e * e'`` |
-| Divsion | ``e / e'`` |
-| Equality | ``e == e'`` |
-| Inequality | ``e != e'`` |
-| Less | ``e < e'`` |
-| Less or Equal | ``e <= e'`` |
-| Greater | ``e > e'`` |
-| Greater or Equal | ``e >= e'`` |
-| True | ``true`` |
-| False | ``false`` |
+| Inline Abstraction | ` \pm { e }` |
+| Inline Abstraction | ` \pm => e` |
+| Inline Application | `e !e'`|
+| Inline Binding | `inline pm = e; e'`|
+| Extern | `extern "sym"` |
+| Function Application | `e (e')`|
+| Runtime Binding | `let pm = e; e'` |
+| Tuple Construction | `(e, e', ...)` |
+| Read Pointer | `*e` |
+| Write Pointer | `*e = (e')` |
+| Array Increment | `&e[e']` |
+| Array to Pointer | `&*e` |
+| Number Literal | `n` |
+| Addition | `e + e'` |
+| Subtraction | `e - e'` |
+| Multiplication | `e * e'` |
+| Divsion | `e / e'` |
+| Equality | `e == e'` |
+| Inequality | `e != e'` |
+| Less | `e < e'` |
+| Less or Equal | `e <= e'` |
+| Greater | `e > e'` |
+| Greater or Equal | `e >= e'` |
+| True | `true` |
+| False | `false` |
 | Switch | `switch e { pm => e; pm' => e'; ... }`
-| Poly Introduction| ``ς e`` |
-| Poly Elimination | ``e <_>`` |
-| Borrow | ``borrow e as <α >= π>(pm) { e }`` |
-| Type Annotation | ``e : σ`` |
-| Pretype Annotation | ``e :: σ`` |
-| Continue | ``continue e`` |
-| Break | ``break e`` |
-| Loop | ``loop (let pm = e) { e' }`` |
-| Wrap | ``wrap e :: σ`` |
-| Unwrap | ``unwrap (e :: σ) ``|
+| Poly Introduction| `ς e` |
+| Poly Elimination | `e <_>` |
+| Borrow | `borrow e as <α >= π>(pm) { e } uses σ` |
+| Type Annotation | `e : σ` |
+| Pretype Annotation | `e :: σ` |
+| Continue | `continue e` |
+| Break | `break e` |
+| Loop | `loop (let pm = e) { e' }` |
+| Wrap | `wrap e :: σ` |
+| Unwrap | `unwrap (e :: σ) `|
 
 ## Terms (Syntax Sugar) (e)
 | Description | Syntax | Meaning |
 | - | - | - |
-| Not | ``!e`` | ``if e { false } else { true }`` |
-| And | ``e & e'`` | ``if e { e' } else { false }`` |
-| Or | ``e \| e'`` | ``if e { true } else { e' }`` |
-| Do | ``e; e'`` | ``let () = e; e'`` |
-| If | ``if e { e' } else { e''}`` |
+| Not | `!e` | `if e { false } else { true }` |
+| And | `e & e'` | `if e { e' } else { false }` |
+| Or | `e \| e'` | `if e { true } else { e' }` |
+| Do | `e; e'` | `let () = e; e'` |
+| If | `if e { e' } else { e''}` | `switch (e) { true => e; false => e'; } ` | 
 
 ## Meta Patterns(pm)
 | Description | Syntax |
 |-|-|
-| Variable | ``x``|
-| Variable Abscribe | ``x : σ`` |
+| Variable | `x`|
+| Variable Abscribe | `x : σ` |
 
 ## Runtime Patterns(pm)
 | Description | Syntax |
 |-|-|
-| Variable | ``x``|
-| Variable Abscribe | ``x : σ`` |
-| Tuple Destruction | ``(pm , pm', ...)`` |
+| Variable | `x`|
+| Variable Abscribe | `x : σ` |
+| Tuple Destruction | `(pm , pm', ...)` |
 | True | `true` |
 | False | `false` |
 
 # Scheme(ς)
 | Description | Syntax |
 |-|-|
-| TypeScheme | ``<pmσ, pmσ', ...>`` |
+| TypeScheme | `<pmσ, pmσ', ...>` |
 
 ## Types(σ, τ, π, s, κ, ρ, μ)
 | Description | Syntax |
 |-|-|
-| Variable | ``x`` |
-| Inline Function | ``σ -[π]> τ``|
-| Poly | ``ς σ`` |
-| Function Pointer | ``function(σ) => τ uses π`` |
-| Tuple | ``(σ, σ', ...)`` |
-| Effect | ``σ in π`` |
-| Unique | ``unique σ`` |
-| Shared | ``σ @ π`` |
-| Pointer | ``σ*`` |
-| Array | ``σ[]`` |
-| Number | ``ρ integer(ρ')`` |
-| Boolean | ``bool`` |
-| IO Region | ``io`` |
-| Step | ``step<σ, τ>`` |
-| Type | ``type`` |
-| Pretype | ``pretype<s>`` |
-| Boxed | ``boxed`` |
-| Capacity | ``capacity`` |
-| Region | ``region`` |
-| Pointer Representation | ``pointer`` |
-| Struct Representation | ``struct (ρ, ρ', ...)`` |
-| Union Representation | ``union (ρ, ρ', ...)`` |
-| Word Representation | ``ρ word`` |
-| Signed | ``signed`` |
-| Unsigned | ``unsigned`` |
-| Byte Size | ``8bit``|
-| Short Size | ``16bit``|
-| Int Size | ``32bit`` |
-| Long Size | ``64bit`` |
-| Native Size | ``native`` |
-| Representation | ``representation`` |
-| Signedness | ``signedness`` |
-| Size | ``size`` |
-| Kind | ``kind<σ, τ, π>`` |
-| Invariant |``invariant`` |
-| Subtypable |``subtypable`` |
-| Transpaent | ``transparent`` |
-| Opaque | ``opaque`` |
-| Universe Level 1 | `1u` |
-| Higher Universe Level | `+σ` |
+| Variable | `x` |
+| Inline Function | `σ -[π]> τ`|
+| Poly | `ς σ` |
+| Function Pointer | `function(σ) => τ uses π` |
+| Tuple | `(σ, σ', ...)` |
+| Effect | `σ in π` |
+| Unique | `unique σ` |
+| Shared | `σ @ π` |
+| Pointer | `σ*` |
+| Array | `σ[]` |
+| Number | `ρ integer(ρ')` |
+| Boolean | `bool` |
+| IO Region | `io` |
+| Step | `step<σ, τ>` |
+| Type | `type` |
+| Pretype | `pretype<s>` |
+| Boxed | `boxed` |
+| Capacity | `capacity` |
+| Region | `region` |
+| Pointer Representation | `pointer` |
+| Struct Representation | `struct (ρ, ρ', ...)` |
+| Union Representation | `union (ρ, ρ', ...)` |
+| Word Representation | `ρ word` |
+| Signed | `signed` |
+| Unsigned | `unsigned` |
+| Byte Size | `8bit`|
+| Short Size | `16bit`|
+| Int Size | `32bit` |
+| Long Size | `64bit` |
+| Native Size | `native` |
+| Representation | `representation` |
+| Signedness | `signedness` |
+| Size | `size` |
+| Kind | `kind<σ, τ, π>` |
+| Syntactic |`syntactic` |
+| Propositional |`propositional` |
+| Transpaent | `transparent` |
+| Opaque | `opaque` |
+| Type True | `true` |
+| Type False | `false` |
+| Type And | `σ & τ` |
+| Type Or | `σ \| τ` |
+| Type Not | `!σ` |
+| Type Xor | `σ (+) τ` |
 
 # Types (Internal) (σ, τ, π, s, κ, ρ, μ)
 | Description | Syntax |
 | - | - |
-| Transparency | ``transparency`` |
-| Orderability | ``orderability`` |
-| Universe | ``universe`` |
-| Top | ``/\|\`` |
-| Function Literal Type | ``function literal(σ) => τ uses π`` |
-| Label | ``label`` |
-| Ambiguous Label | ``ambiguous`` |
+| Transparency | `transparency` |
+| Unification | `unification` |
+| Top | `/\|\` |
+| Function Literal Type | `function literal(σ) => τ uses π` |
+| Label | `label` |
+| Ambiguous Label | `ambiguous` |
 
 # Types (Syntax Sugar) (σ, τ, π, s, κ, ρ, μ)
 | Description | Syntax | Meaning |
 |-|-|-|
-| Byte | ``byte`` | ``signed integer(byte)`` |
-| Short | ``short`` | ``signed integer(short)`` |
-| Int | ``int`` | ``signed integer(int)`` |
-| Long | ``long`` | ``signed integer(long)`` |
-| PtrDiff | ``ptrdiff`` | ``signed integer(native)`` |
-| UByte | ``ubyte`` | ``unsigned integer(byte)`` |
-| UShort | ``ushort`` | ``unsigned integer(short)`` |
-| UInt | ``uint`` | ``unsigned integer(int)`` |
-| ULong | ``ulong`` | ``unsigned integer(long)`` |
-| Native | ``native`` | ``unsigned integer(native)`` |
+| Byte | `byte` | `signed integer(byte)` |
+| Short | `short` | `signed integer(short)` |
+| Int | `int` | `signed integer(int)` |
+| Long | `long` | `signed integer(long)` |
+| PtrDiff | `ptrdiff` | `signed integer(native)` |
+| UByte | `ubyte` | `unsigned integer(byte)` |
+| UShort | `ushort` | `unsigned integer(short)` |
+| UInt | `uint` | `unsigned integer(int)` |
+| ULong | `ulong` | `unsigned integer(long)` |
+| Native | `native` | `unsigned integer(native)` |
 
 ## Type Pattern(pmσ)
 | Description | Syntax |
 |-|-|
-| Variable | ``x >= π & π' & ...`` |
-| Variable Ascribe | ``x : κ >= π & π' & ...`` |
+| Variable | `x` |
+| Variable Ascribe | `x : κ` |
 
 
 # C Compiler Requirements
@@ -310,35 +312,36 @@ Useful / Inspirational papers:
 
 ### Linear / Unique Types
 * [Linear Haskell](https://arxiv.org/pdf/1710.09756.pdf) [(video)](https://youtu.be/t0mhvd3-60Y)
-  * Implemented but with subtyping rather then multiplication
+  * Implemented for inline functions
 ### Levity polymorphism
 * [Levity Polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/11/levity-pldi17.pdf) [(video)](https://youtu.be/lSJwXZ7vWBw)
   * Implemented with more restrictive representation lambda.
 ### Compiler Design
 * [Invertible Syntax Descriptions: Unifying Parsing and Pretty Printing](https://www.mathematik.uni-marburg.de/~rendel/rendel10invertible.pdf)
   * Implemented with prisms instead of partial isomorphisms.
-### Algorithms
+### Reduction
 * [Demonstrating Lambda Calculus Reduction](https://www.cs.cornell.edu/courses/cs6110/2014sp/Handouts/Sestoft.pdf)
-  * Applicative order reduction used for reduction.
+  * Applicative order reduction used for inline function reduction.
+### Unification
 * [Unification Theory](https://www.cs.bu.edu/fac/snyder/publications/UnifChapter.pdf)
-  * Reference for Robinson unification algorithm
+  * Reference for unification and E-unification
+* [Embedding Boolean Expressions into Logic Programming](https://core.ac.uk/download/pdf/82206645.pdf)
+
 ### Type Inference (First Class Polymorphism)
 PolyML is implemented, but with scope type variables are used rather then schematic ones.
 * [Semi-Explicit First-Class Polymorphism for ML](https://caml.inria.fr/pub/papers/garrigue_remy-poly-ic99.pdf)
-### Type Inference (Subtyping)
-* [The Simple Essence of Algebraic Subtyping](https://dl.acm.org/doi/pdf/10.1145/3409006) [(video)](https://youtu.be/d10q-b8jNKg)
-  * A tiny subset is implemented for type checking regions. See my [var sub](https://github.com/Superstar64/var_sub/) repo.
 ### Compiler Design
 * [How OCaml type checker works -- or what polymorphism and garbage collection have in common](https://okmij.org/ftp/ML/generalization.html)
   * Only implemented for checking escaping skolem variables. Still need to implement let generalization.
 ### Regions
 * 
   * [Monadic and Substructural Type Systems for Region-Based Memory Management](https://www.cs.rit.edu/~mtf/research/thesis/fluet-thesis.single.pdf)
-    * Implementation of single effect region calculus is in progress 
+    * General guide for regions.
   * [Monadic Regions](https://www.cs.cornell.edu/people/fluet/research/rgn-monad/JFP06/jfp06.pdf)
   * [A Step-Indexed Model of Substructural State](https://www.cs.cornell.edu/people/fluet/research/substruct-state/ICFP05/icfp05.pdf)
   * [Linear Regions Are All You Need](https://www.cs.cornell.edu/people/fluet/research/substruct-regions/ESOP06/esop06.pdf)
-## Related / Unused
+
+## Inspirational, and / or Formerly Used
 
 ### General Introductions
 * [Practical Foundations for Programming Languages](https://profs.sci.univr.it/~merro/files/harper.pdf)
@@ -367,6 +370,7 @@ PolyML is implemented, but with scope type variables are used rather then schema
 *
   * [Algebraic Subtyping](https://www.cs.tufts.edu/~nr/cs257/archive/stephen-dolan/thesis.pdf)
   * [Polymorphism, Subtyping, and Type Inference in MLsub](https://www.repository.cam.ac.uk/bitstream/handle/1810/261583/Dolan_and_Mycrof-2017-POPL-AM.pdf) [(video)](https://youtu.be/-P1ks4NPIyk)
+* [The Simple Essence of Algebraic Subtyping](https://dl.acm.org/doi/pdf/10.1145/3409006) [(video)](https://youtu.be/d10q-b8jNKg)
 ### Unification
 * [Unification Under a Mixed Prefix](https://www.lix.polytechnique.fr/~dale/papers/jsc92.pdf)
 ### Internals

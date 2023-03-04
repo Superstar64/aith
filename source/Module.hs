@@ -7,7 +7,6 @@ import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.State (StateT, get, modify)
 import Data.Map (Map)
 import qualified Data.Map as Map
-import qualified Data.Set as Set
 import Data.Traversable (for)
 import Misc.Isomorph
 import Misc.Path
@@ -15,7 +14,6 @@ import Misc.Prism
 import Misc.Symbol
 import Misc.Util
 import TypeCheck
-import TypeCheck.Core
 
 newtype Module g = CoreModule (Map String (Item g)) deriving (Show, Functor, Foldable, Traversable)
 
@@ -183,7 +181,7 @@ order code = sortTopological view quit children globals
               Nothing -> Map.empty
             freeGlobalTVars = extractGlobalType $ runVariables $ freeVariablesGlobalTypeSource e
             remove (TypeScheme _ (MonoType _)) vars = vars
-            remove (TypeScheme _ (TypeForall (Bound (TypePattern _ (TypeIdentifier x) _ _) σ))) vars =
+            remove (TypeScheme _ (TypeForall (Bound (TypePattern _ (TypeIdentifier x) _) σ))) vars =
               Map.delete (Path heading x) $ remove σ vars
         freeType σ =
           Map.unionWith
@@ -223,7 +221,7 @@ mangle (Path path name) = Symbol $ (concat $ map (++ "_") $ extract <$> path) ++
     extract x = x
 
 convertFunctionLiteral ς = case ς of
-  TypeScheme () (MonoType (TypeAst () (FunctionLiteralType σ π τ))) -> polyEffect "R" (TypeAst () $ FunctionPointer σ π τ)
+  TypeScheme () (MonoType (TypeAst () (FunctionLiteralType σ π τ))) -> nullEffect (TypeAst () $ FunctionPointer σ π τ)
   TypeScheme () (TypeForall (Bound pm ς)) -> TypeScheme () $ TypeForall (Bound pm $ convertFunctionLiteral ς)
   _ -> error "not function literal"
 
@@ -234,18 +232,13 @@ makeExtern ::
   TermSchemeInfer p
 makeExtern path p ς = case ς of
   TypeScheme () (MonoType (TypeAst () (FunctionLiteralType σ π τ))) ->
-    TermScheme p $
-      TypeAbstraction
-        ( Bound
-            (TypePattern () (TypeIdentifier "R") (TypeAst () Region) [])
-            ( TermScheme p $
-                MonoTerm
-                  (Term p (TermRuntime $ Extern (mangle path) (Core σ) (Core π) (Core τ)))
-                  (Core $ TypeAst () (Effect (TypeAst () (FunctionPointer σ π τ)) (TypeAst () (TypeSub $ TypeVariable $ TypeIdentifier "R"))))
-            )
-        )
-  TypeScheme () (TypeForall (Bound (TypePattern () x κ π) e)) ->
-    TermScheme p (TypeAbstraction (Bound (TypePattern () x κ π) $ makeExtern path p e))
+    ( TermScheme p $
+        MonoTerm
+          (Term p (TermRuntime $ Extern (mangle path) (Core σ) (Core π) (Core τ)))
+          (Core $ TypeAst () (Effect (TypeAst () (FunctionPointer σ π τ)) (TypeAst () (TypeConstant $ TypeVariable $ TypeIdentifier "R"))))
+    )
+  TypeScheme () (TypeForall (Bound (TypePattern () x κ) e)) ->
+    TermScheme p (TypeAbstraction (Bound (TypePattern () x κ) $ makeExtern path p e))
   _ -> error "not function literal"
 
 data Update e σ τ π
@@ -312,7 +305,7 @@ typeCheckModule ((path@(Path heading _), item) : nodes) = do
           { typeGlobalEnvironment =
               Map.insert
                 (TermGlobalIdentifier path)
-                (TermBinding p (TypeAst () $ TypeSub Unrestricted) (reLabel σ))
+                (TermBinding p unrestricted (reLabel σ))
                 $ typeGlobalEnvironment environment
           }
       UpdateSym σ ->
@@ -328,7 +321,7 @@ typeCheckModule ((path@(Path heading _), item) : nodes) = do
           { kindGlobalEnvironment =
               Map.insert
                 (TypeGlobalIdentifier path)
-                (TypeBinding p κ Set.empty minBound (Named σ))
+                (TypeBinding p κ minBound (Named σ))
                 $ kindGlobalEnvironment environment
           }
       UpdateNewtype' κ ->
@@ -337,7 +330,7 @@ typeCheckModule ((path@(Path heading _), item) : nodes) = do
               Map.insertWith
                 (\_ x -> x)
                 (TypeGlobalIdentifier path)
-                (TypeBinding p κ Set.empty minBound Unnamed)
+                (TypeBinding p κ minBound Unnamed)
                 $ kindGlobalEnvironment environment
           }
 

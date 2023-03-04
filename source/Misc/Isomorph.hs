@@ -124,5 +124,5 @@ orderless = Isomorph Map.fromList Map.toList
 orderlessMulti :: Ord k => Isomorph [(k, v)] (Map k (NonEmpty v))
 orderlessMulti = Isomorph to from
   where
-    to = foldr (\(k, v) -> Map.insertWith (<>) k (NonEmpty.singleton v)) Map.empty
+    to = foldr (\(k, v) -> Map.insertWith (<>) k (v :| [])) Map.empty
     from = Map.foldrWithKey (\k vs -> (zip (repeat k) (NonEmpty.toList vs) ++)) []

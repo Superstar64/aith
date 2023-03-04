@@ -8,7 +8,6 @@ import Control.Monad.Trans.Reader (Reader, ReaderT, ask, runReader, runReaderT, 
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Void (absurd)
-import TypeCheck.Unify hiding (reconstruct)
 
 newtype Simplify a = Simplify
   { runSimplify' ::
@@ -65,9 +64,9 @@ convertKind :: TypeInfer -> SimpleType
 convertKind (TypeAst () (Pretype κ _)) = convertKindImpl κ
 convertKind _ = simpleFailType
 
-reconstruct = reconstructF index indexGlobal absurd todo representation multiplicities
+reconstruct = reconstructF index indexGlobal absurd poly representation multiplicities propositional
   where
-    todo = error "poly type in runtime types"
+    poly = error "poly type in runtime types"
     index x = do
       map <- Simplify ask
       pure $ map ! x
@@ -77,17 +76,11 @@ reconstruct = reconstructF index indexGlobal absurd todo representation multipli
     representation σ = do
       κ <- reconstruct σ
       pure $ checkRepresentation κ
-    multiplicities σs = do
-      κs <- traverse reconstruct σs
-      pure $ foldr combineMultiplicity (TypeAst () (TypeSub Unrestricted)) (map checkMultiplicity κs)
-    combineMultiplicity (TypeAst () (TypeSub Linear)) _ = TypeAst () $ TypeSub Linear
-    combineMultiplicity _ (TypeAst () (TypeSub Linear)) = TypeAst () $ TypeSub Linear
-    combineMultiplicity _ _ = TypeAst () $ TypeSub Unrestricted
+    multiplicities _ = error "multiplicity not needed during simple reconstruction"
+    propositional _ = error "propostional not needed during simple reconstruction"
 
     checkRepresentation (TypeAst () (Pretype κ _)) = κ
     checkRepresentation _ = error "reconstruction of pair didn't return pretype"
-    checkMultiplicity (TypeAst () (Pretype _ κ)) = κ
-    checkMultiplicity _ = error "reconstruction of pair didn't return pretype"
 
 convertType σ = convertKind <$> reconstruct σ
 
@@ -106,13 +99,13 @@ convertTerm (Term p (TermRuntime e)) =
   SimpleTerm p
     <$> traverseTermRuntime (const $ pure ()) (const $ pure ()) (pure . convertTypeSigned . runCore) (convertType . runCore) (traverseBound convertTermPattern convertTerm) convertTerm e
 convertTerm (Term p (TermErasure e)) = case e of
-  (Borrow ep (Bound (TypePattern () α κ _) (Bound pm@(TermRuntimePattern _ (RuntimePatternVariable x _)) e))) -> do
+  (Borrow ep (Bound (TypePattern () α κ) (Bound pm@(TermRuntimePattern _ (RuntimePatternVariable x _)) e)) _) -> do
     ep <- convertTerm ep
     withSimplify (Map.insert α κ) $ do
       pm <- convertTermPattern pm
       e <- convertTerm e
       pure $ SimpleTerm p $ Alias ep (Bound pm $ SimpleTerm p $ TupleIntroduction [e, SimpleTerm p $ Variable x ()])
-  Borrow _ _ -> simpleFailTerm
+  Borrow _ _ _ -> simpleFailTerm
   Wrap _ e -> convertTerm e
   Unwrap _ e -> convertTerm e
   IsolatePointer e -> convertTerm e
@@ -120,14 +113,14 @@ convertTerm (Term _ _) = simpleFailTerm
 
 simpleFailTerm = error "illegal simple term"
 
-convertFunctionType (TypeScheme () (TypeForall (Bound (TypePattern () x κ _) σ))) = withSimplify (Map.insert x κ) $ convertFunctionType σ
+convertFunctionType (TypeScheme () (TypeForall (Bound (TypePattern () x κ) σ))) = withSimplify (Map.insert x κ) $ convertFunctionType σ
 convertFunctionType (TypeScheme () (MonoType (TypeAst () (FunctionLiteralType σ _ τ)))) = do
   σ' <- convertType σ
   τ' <- convertType τ
   pure $ SimpleFunctionType σ' τ'
 convertFunctionType _ = error "failed to convert function type"
 
-convertFunction (TermScheme _ (TypeAbstraction (Bound (TypePattern () x κ _) e))) = withSimplify (Map.insert x κ) $ convertFunction e
+convertFunction (TermScheme _ (TypeAbstraction (Bound (TypePattern () x κ) e))) = withSimplify (Map.insert x κ) $ convertFunction e
 convertFunction (TermScheme _ (MonoTerm (Term p (FunctionLiteral (Bound pm e))) _)) = do
   pm' <- convertTermPattern pm
   e' <- convertTerm e
