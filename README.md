@@ -359,6 +359,8 @@ PolyML is implemented, but with scope type variables are used rather then schema
 * [A taste of linear logic](https://homepages.inf.ed.ac.uk/wadler/papers/lineartaste/lineartaste-revised.pdf)
 * [Linearity and Uniqueness: An Entente Cordiale](https://granule-project.github.io/papers/esop22-paper.pdf)
 * [The Best of Both Worlds: Linear Functional Programming without Compromise](https://jgbm.github.io/pubs/morris-icfp2016-linearity-extended.pdf) [(video)](https://youtu.be/ij9DbNTr-B8)
+### Effect Tracking
+ * [Polymorphic Types and Effects with Boolean Unification](https://flix.dev/paper/oopsla2020b.pdf)
 ### Type Inference (First Class Polymorphism)
 *
   * [HMF: Simple type inference for first-class polymorphism](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-2007-118.pdf)
