@@ -28,7 +28,7 @@ m ! x = case Map.lookup x m of
 -- levels are inspired from "How OCaml type checker works -- or what polymorphism and garbage collection have in common"
 -- however, rather then using levels for let generalization, levels here are used for skolemization
 -- where each level can be thought of as a ∀α ∃ βγδ... qualifier in unification under a mixed prefix
-newtype Level = Level {runLevel :: Int} deriving (Eq, Ord, Show)
+newtype Level = Level {runLevel :: Int} deriving (Eq, Ord, Show, Enum)
 
 instance Bounded Level where
   minBound = Level 0
@@ -162,7 +162,7 @@ augmentTypePatternLevel :: TypePatternIntermediate p -> Check p b -> Check p b
 augmentTypePatternLevel (TypePatternIntermediate p x κ) f = do
   useTypeVar x
   level <- levelCounter <$> getState
-  f' <- augmentKindEnvironment p x (flexible κ) level $ leveled $ f
+  f' <- augmentKindEnvironment p x (flexible κ) (succ level) $ leveled $ f
   logical <- typeLogicalMap <$> getState
   sat <- booleans <$> getState
   for sat $ \(σ, τ) -> do
