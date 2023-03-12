@@ -449,7 +449,7 @@ isStatementF (Language.Bind _ _) = True
 isStatementF (Language.TermRuntime (Language.Alias _ _)) = True
 isStatementF (Language.TermRuntime (Language.Loop _ _)) = True
 isStatementF (Language.TermSugar (Language.If _ _ _)) = True
-isStatementF (Language.TermErasure (Language.Borrow _ _ _)) = True
+isStatementF (Language.TermErasure (Language.Borrow _ _)) = True
 isStatementF (Language.TermRuntime (Language.Case _ _ _)) = True
 isStatementF _ = False
 
@@ -461,14 +461,8 @@ termStatement = Language.termSource ⊣ position ⊗ choice options ∥ apply �
         Language.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ termRuntimePattern ≪ binaryToken "=" ⊗ term ≪ delimit ⊗ termStatement,
         Language.loop ⊣ rotateBind ⊣ prefixKeyword "loop" ≫ betweenParens (prefixKeyword "let" ≫ termRuntimePattern ≪ binaryToken "=" ⊗ term) ⊗ lambdaBrace termStatement,
         Language.ifx ⊣ prefixKeyword "if" ≫ termCore ⊗ lambdaBrace termStatement ≪ binaryKeyword "else" ⊗ lambdaBrace termStatement,
-        Language.casex ⊣ prefixKeyword "switch" ≫ termCore ⊗ lambdaBrace (many $ Language.bound ⊣ termRuntimePattern ⊗ binaryToken "=>" ≫ term ≪ delimit),
-        borrow
+        Language.casex ⊣ prefixKeyword "switch" ≫ termCore ⊗ lambdaBrace (many $ Language.bound ⊣ termRuntimePattern ⊗ binaryToken "=>" ≫ term ≪ delimit)
       ]
-    borrow = Language.borrow ⊣ prefixKeyword "borrow" ≫ termCore ⊗ binaryKeyword "as" ≫ binding ⊗ binaryKeyword "uses" ≫ typex
-      where
-        binding = Language.bound ⊣ betweenAngle typePattern ⊗ binding'
-          where
-            binding' = Language.bound ⊣ termRuntimePatternParen ⊗ lambdaBrace termStatement
     rotateBind = secondI Language.bound . associate . firstI swap
     apply = withInnerPosition Language.positionTerm Language.termSource Language.dox `branchDistribute` unit'
 
@@ -559,6 +553,7 @@ termCore = Language.termSource ⊣ position ⊗ choice options ∥ pick isStatem
         Language.continue ⊣ prefixKeyword "continue" ≫ termCore,
         Language.wrap ⊣ prefixKeyword "wrap" ≫ termCore,
         Language.unwrap ⊣ prefixKeyword "unwrap" ≫ termCore,
+        Language.borrow ⊣ prefixKeyword "borrow" ≫ termIdentifier ⊗ space ≫ (wrapTerm ⊣ scheme ⊗ betweenBraces term),
         termLambdas (lambdaBrace termStatement ∥ lambdaCore term)
       ]
 

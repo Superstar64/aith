@@ -561,20 +561,6 @@ freeVariablesSameTypeSource = freeVariablesBoundSource bindingsType freeVariable
 
 freeVariablesGlobalHigherTypeSource = freeVariablesHigherSource freeVariablesGlobalTypeSource freeVariablesGlobalTypeSource
 
-freeVariablesRgnForType = freeVariablesBound bindingsType freeVariablesType freeVariablesHigherType
-
-freeVariablesRgnForTypeSource = freeVariablesBoundSource bindingsType freeVariablesTypeSource freeVariablesHigherTypeSource
-
-freeVariablesGlobalRgnForType = freeVariablesHigher freeVariablesGlobalType freeVariablesGlobalHigherType
-
-freeVariablesGlobalRgnForTypeSource = freeVariablesHigherSource freeVariablesGlobalTypeSource freeVariablesGlobalHigherTypeSource
-
-convertRgnForType = substituteDependent (avoidTypeConvert' convertHigherType) convertType convertHigherType
-
-substituteRgnForType = substituteDependent (avoidType' convertHigherType) substituteType substituteHigherType
-
-substituteGlobalRgnForType = substituteBound skip (avoidCapture (avoidType' convertHigherType)) substituteGlobalType substituteGlobalHigherType
-
 avoidType = avoidType' convertType
 
 avoidType' = Avoid bindingsType renameType freeVariablesType

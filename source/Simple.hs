@@ -94,18 +94,16 @@ convertTermPattern (TermRuntimePattern p pm) =
 
 simpleFailPattern = error "illegal simple pattern"
 
+-- used for borrow, so augmenting types is not neccisary
+convertTermScheme (TermScheme _ (MonoTerm e _)) = convertTerm e
+convertTermScheme (TermScheme _ (TypeAbstraction (Bound _ e))) = convertTermScheme e
+
 convertTerm :: TermInfer p -> Simplify (SimpleTerm p)
 convertTerm (Term p (TermRuntime e)) =
   SimpleTerm p
     <$> traverseTermRuntime (const $ pure ()) (const $ pure ()) (pure . convertTypeSigned . runCore) (convertType . runCore) (traverseBound convertTermPattern convertTerm) convertTerm e
-convertTerm (Term p (TermErasure e)) = case e of
-  (Borrow ep (Bound (TypePattern () α κ) (Bound pm@(TermRuntimePattern _ (RuntimePatternVariable x _)) e)) _) -> do
-    ep <- convertTerm ep
-    withSimplify (Map.insert α κ) $ do
-      pm <- convertTermPattern pm
-      e <- convertTerm e
-      pure $ SimpleTerm p $ Alias ep (Bound pm $ SimpleTerm p $ TupleIntroduction [e, SimpleTerm p $ Variable x ()])
-  Borrow _ _ _ -> simpleFailTerm
+convertTerm (Term _ (TermErasure e)) = case e of
+  Borrow _ e -> convertTermScheme e
   Wrap _ e -> convertTerm e
   Unwrap _ e -> convertTerm e
   IsolatePointer e -> convertTerm e

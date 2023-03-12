@@ -73,6 +73,8 @@ data TypeError p
   | ExpectedBoolean p TypeUnify
   | ExpectedStep p TypeUnify
   | ExpectedLabel p TypeUnify
+  | BadBorrowIdentifier p TermIdentifier
+  | BadBorrowSyntax p
   deriving (Show)
 
 newtype Check p a = Check {runChecker'' :: ReaderT (CheckEnvironment p) (StateT (CheckState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
@@ -82,9 +84,15 @@ runChecker' c = runStateT . runReaderT (runChecker'' c)
 runChecker :: Check p a -> CheckEnvironment p -> CheckState p -> Either (TypeError p) a
 runChecker c = (fmap fst .) . runChecker' c
 
+data Brand
+  = Runtime
+  | Meta
+  deriving (Show)
+
 data TermBinding p = TermBinding
   { termPosition :: p,
     termMultiplicity :: TypeUnify,
+    tertmBrand :: Brand,
     termType :: LabelSchemeUnify
   }
   deriving (Functor)
@@ -93,8 +101,12 @@ data NominalBinding
   = Unnamed
   | Named TypeInfer
 
-data TypeBinding p
-  = TypeBinding p TypeUnify Level NominalBinding
+data TypeBinding p = TypeBinding
+  { typePosition :: p,
+    typeKind :: TypeUnify,
+    typeLevel :: Level,
+    typeNominal :: NominalBinding
+  }
   deriving (Functor)
 
 data CheckEnvironment p = CheckEnvironment
@@ -131,8 +143,8 @@ emptyEnvironment = CheckEnvironment Map.empty Map.empty Map.empty Map.empty [] M
 askEnvironment :: Check p (CheckEnvironment p)
 askEnvironment = Check ask
 
-augmentTypeEnvironment :: TermIdentifier -> p -> TypeUnify -> LabelSchemeUnify -> Check p a -> Check p a
-augmentTypeEnvironment x p l σ = modifyTypeEnvironment (Map.insert x (TermBinding p l σ))
+augmentTypeEnvironment :: TermIdentifier -> p -> TypeUnify -> Brand -> LabelSchemeUnify -> Check p a -> Check p a
+augmentTypeEnvironment x p l b σ = modifyTypeEnvironment (Map.insert x (TermBinding p l b σ))
   where
     modifyTypeEnvironment f = withEnvironment (\env -> env {typeEnvironment = f (typeEnvironment env)})
     withEnvironment f (Check r) = Check $ withReaderT f r
@@ -163,27 +175,22 @@ augmentTypePatternLevel (TypePatternIntermediate p x κ) f = do
   useTypeVar x
   level <- levelCounter <$> getState
   f' <- augmentKindEnvironment p x (flexible κ) (succ level) $ leveled $ f
-  logical <- typeLogicalMap <$> getState
-  sat <- booleans <$> getState
-  for sat $ \(σ, τ) -> do
-    check logical x σ
-    check logical x τ
+  -- after leveled, `booleans` in state should be pre zonked
+  modifyState $ \state -> state {booleans = constantElimination $ booleans state}
   pure f'
   where
     useTypeVar (TypeIdentifier x) = do
       modifyState $ \state -> state {usedVars = Set.insert x $ usedVars state}
-    check _ x (TypeAst () (TypeConstant (TypeVariable x'))) | x == x' = quit $ EscapingSkolemType p x
-    check logical x (TypeAst () (TypeLogical v)) = case logical ! v of
-      UnboundType _ _ _ -> pure ()
-      LinkType σ -> check logical x σ
-    check logical x (TypeAst () σ) = do
-      traverseTypeF
-        (absurd . runCore)
-        (error "handled manually")
-        (error "scheme in boolean")
-        (check logical x)
-        σ
-      pure ()
+    constantElimination [] = []
+    constantElimination ((σ, τ) : problems)
+      | Set.member x $ freeVariablesType σ <> freeVariablesType τ =
+        let σ' = substituteType (TypeAst () TypeTrue) x σ
+            σ'' = substituteType (TypeAst () TypeFalse) x σ
+            τ' = substituteType (TypeAst () TypeTrue) x τ
+            τ'' = substituteType (TypeAst () TypeFalse) x τ
+         in (σ', τ') : (σ'', τ'') : constantElimination problems
+      | otherwise =
+        (σ, τ) : constantElimination problems
 
 leveled :: Check p b -> Check p b
 leveled f = do
@@ -788,8 +795,8 @@ checkLabel p σ = quit $ ExpectedLabel p σ
 
 data Mode = InlineMode | SymbolMode
 
-augmentVariableLinear p x l ς check = do
-  Checked e σ lΓ <- augmentTypeEnvironment x p l ς check
+augmentVariableLinear p x l b ς check = do
+  Checked e σ lΓ <- augmentTypeEnvironment x p l b ς check
   case count x lΓ of
     Single -> pure ()
     _ -> matchType p l unrestricted
@@ -798,7 +805,7 @@ augmentVariableLinear p x l ς check = do
 capture p base lΓ = do
   let captures = variablesUsed lΓ
   for (Set.toList captures) $ \x -> do
-    (TermBinding _ l _) <- fromJust <$> Map.lookup x <$> typeEnvironment <$> askEnvironment
+    (TermBinding _ l _ _) <- fromJust <$> Map.lookup x <$> typeEnvironment <$> askEnvironment
     matchType p l (TypeAst () $ TypeBoolean $ TypeAnd base l)
     pure ()
   pure ()
@@ -812,7 +819,7 @@ requireUnrestricted p σ = do
 -- todo relabel seems somewhat fragile here
 -- this depends on `(σ, κ) <- kindCheck σ`, never having unification variables in σ
 -- because relabel ignores unification variables
-augmentMetaTermPattern l (TermPattern p (PatternVariable x σ)) = augmentVariableLinear p x l (reLabel (TypeScheme () $ MonoType σ))
+augmentMetaTermPattern l (TermPattern p (PatternVariable x σ)) = augmentVariableLinear p x l Meta (reLabel (TypeScheme () $ MonoType σ))
 
 nullEffect σ = TypeScheme () $ MonoType $ TypeAst () $ Effect σ none
 
@@ -821,7 +828,7 @@ augmentRuntimeTermPattern pm = go pm
     go (TermRuntimePattern p (RuntimePatternVariable x σ)) = \e -> do
       κ <- reconstruct p σ
       (_, l) <- checkPretype p κ
-      augmentVariableLinear p x l (MonoLabel (nullEffect σ)) e
+      augmentVariableLinear p x l Runtime (MonoLabel (nullEffect σ)) e
     go (TermRuntimePattern _ (RuntimePatternTuple pms)) = foldr (.) id (map go pms)
     go (TermRuntimePattern _ (RuntimePatternBoolean _)) = id
 
@@ -1061,7 +1068,7 @@ typeCheck (Term p e) = case e of
   TermRuntime (Variable x (Source ())) -> do
     mσ <- Map.lookup x <$> typeEnvironment <$> askEnvironment
     case mσ of
-      Just (TermBinding _ _ σ) -> do
+      Just (TermBinding _ _ _ σ) -> do
         (τ, θ) <- instantiateLabel p σ
         pure $ Checked (Term p $ TermRuntime $ Variable x (Core θ)) τ (Use x)
       Nothing -> do
@@ -1070,7 +1077,7 @@ typeCheck (Term p e) = case e of
   GlobalVariable x (Source ()) -> do
     mσ <- Map.lookup x <$> typeGlobalEnvironment <$> askEnvironment
     case mσ of
-      Just (TermBinding _ _ σ) -> do
+      Just (TermBinding _ _ _ σ) -> do
         (τ, θ) <- instantiateLabel p σ
         -- todo useNothing here is kinda of a hack
         pure $ Checked (Term p $ GlobalVariable x (Core θ)) τ useNothing
@@ -1326,34 +1333,38 @@ typeCheck (Term p e) = case e of
     Checked e2' (σ, π2) lΓ2 <- traverse (checkEffect p) =<< typeCheck e2
     let π = regions [π1, π2]
     pure $ Checked (Term p $ TermSugar $ Do e1' e2') (TypeAst () $ Effect σ π) (lΓ1 `combine` lΓ2)
-  TermErasure (Borrow eu (Bound (TypePattern p' α κ) (Bound pm e)) π2) -> do
-    -- Shadowing type variables is prohibited
-    α' <- flip fresh α . Map.keysSet . kindEnvironment <$> askEnvironment
-    pm <- pure $ convertType α' α pm
-    e <- pure $ convertType α' α e
+  TermErasure
+    ( Borrow
+        x
+        (TermScheme _ (TypeAbstraction (Bound (TypePattern p' α κpm) (TermScheme _ (MonoTerm e (Source ()))))))
+      ) -> do
+      -- Shadowing type variables is prohibited
+      vars <- Map.keysSet <$> kindEnvironment <$> askEnvironment
+      let α' = fresh vars α
+      let pm = TypePattern p' α' κpm
+      e <- pure $ convertType α' α e
+      let α = TypeAst () $ TypeConstant $ TypeVariable α'
 
-    let α = α'
+      Map.lookup x <$> typeEnvironment <$> askEnvironment >>= \case
+        Just (TermBinding _ _ Runtime (MonoLabel (TypeScheme _ (MonoType xσ)))) -> do
+          σ <- freshPretypeTypeVariable p
+          π <- freshRegionTypeVariable p
+          τ <- freshBoxedTypeVariable p
 
-    Checked eu' (τ, π1) lΓ1 <- traverse (firstM (checkUnique p) <=< checkEffect p) =<< typeCheck eu
-    (pmσ', ()) <- secondM (checkRegion p) =<< kindCheckPattern SymbolMode (TypePattern p' α κ)
-    π2 <- (flexible . fst) <$> (secondM (checkRegion p) =<< kindCheck π2)
-    σ <- freshPretypeTypeVariable p
-    augmentTypePatternLevel pmσ' $ do
-      (pm', (τ', α')) <- secondM (checkShared p) =<< typeCheckRuntimePattern pm
-      matchType p τ τ'
-      matchType p (TypeAst () $ TypeConstant $ TypeVariable α) α'
-      augmentRuntimeTermPattern pm' $ do
-        Checked e' (σ', πe) lΓ2 <- traverse (checkEffect p) =<< typeCheck e
-        matchType p σ σ'
-        ρ <- freshRegionTypeVariable p
-        matchType p πe $
-          TypeAst () $ TypeBoolean $ TypeOr π2 $ TypeAst () $ TypeBoolean $ TypeAnd ρ $ TypeAst () $ TypeConstant $ TypeVariable α
-        let π = regions [π1, π2]
-        pure $
-          Checked
-            (Term p $ TermErasure $ Borrow eu' (Bound (flexible $ toTypePattern pmσ') (Bound pm' e')) π2)
-            (TypeAst () $ Effect (TypeAst () (Tuple [σ, TypeAst () $ Unique τ])) π)
-            (lΓ1 `combine` lΓ2)
+          matchType p xσ $ TypeAst () $ Effect (TypeAst () $ Unique $ τ) (TypeAst () $ TypeFalse)
+          (pm, ()) <- secondM (checkRegion p) =<< kindCheckPattern SymbolMode pm
+
+          augmentTypePatternLevel pm $ do
+            augmentTypeEnvironment x p (TypeAst () $ TypeTrue) Runtime (MonoLabel $ nullEffect $ TypeAst () (Shared τ α)) $ do
+              ρ <- freshRegionTypeVariable p
+              Checked e (σ', l) lΓ <- traverse (checkEffect p) =<< typeCheck e
+              matchType p σ σ'
+              matchType p l $ TypeAst () $ TypeBoolean $ TypeOr π $ TypeAst () $ TypeBoolean $ TypeAnd α ρ
+              let pm' = flexible $ toTypePattern pm
+              let borrow = Term p $ TermErasure $ Borrow x (TermScheme p (TypeAbstraction (Bound pm' (TermScheme p (MonoTerm e $ Core $ TypeAst () $ Effect σ l)))))
+              pure $ Checked borrow (TypeAst () $ Effect σ π) (Remove x lΓ)
+        _ -> quit $ BadBorrowIdentifier p x
+  TermErasure (Borrow _ _) -> quit $ BadBorrowSyntax p
 
 typeCheckScheme :: Mode -> TermSchemeSource p -> Check p (CheckedScheme p TypeSchemeUnify)
 typeCheckScheme mode (TermScheme p (TypeAbstraction (Bound (TypePattern p' α κpm) e))) = do

@@ -274,11 +274,14 @@ module sort = {
 module borrowed = {
 	increment<>(p :: unique int*) :: unique int* in false;
 	increment (p :: unique int*) {
-		let ((), p) = {
-			borrow p as <A : region>(x :: int* @ A) {
-				*x = (*x + 1)
-			} uses false
+		borrow p <A : region> {
+			*p = (*p + 1)
 		};
+		p
+	}
+
+	infer(p) {
+		borrow p <A : region> { () };
 		p
 	}
 };

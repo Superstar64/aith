@@ -291,7 +291,7 @@ e \Coloneqq & \\
 \subsubsection{Boxed}
 \begin{align*}
 e \Coloneqq & \\
-& \text{borrow} (e) \text{as} \, \Lambda \alpha. (x) \{ e' \} \\
+& \text{borrow} (x)  \Lambda \alpha. \{ e' \} \\
 \sigma, \tau, \pi \Coloneqq & \\
 & \text{unique} \, \sigma \\
 & \sigma \, @ \, \pi \\
@@ -303,8 +303,8 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi | \Gamma \vdash e : (\text{unique} \, \tau)^\pi \quad \Phi,\alpha : \text{Region}  \, | \, \Gamma', x :^\texttt{true} (\tau @ \, \alpha)^\texttt{false} \vdash e' : \sigma^{\pi' \lor (\alpha \land \rho)} \quad \alpha \notin \text{Free}(\sigma, \pi, \tau)}
-{\Phi | \Gamma, \Gamma' \vdash \text{borrow} (e) \text{as} \, \Lambda \alpha. (x) \{ e' \} : (\sigma, \text{unique} \, \tau)^{\pi \lor \pi'} }
+{\splitfrac{x : (\text{unique} \, \tau)^\texttt{false} \in \Gamma \quad \Phi,\alpha : \text{Region}  \, | \, \Gamma', x :^\texttt{true} (\tau @ \, \alpha)^\texttt{false} \vdash e' : \sigma^{\pi \lor (\alpha \land \rho)}}{\alpha \notin \text{Free}(\sigma, \pi, \tau) \quad \text{$x$ is bound from a runtime let binding}}}
+{\Phi | \Gamma \vdash \text{borrow} (x)  \Lambda \alpha. \{ e' \} : \sigma^{\pi} }
 \end{gather*}
 
 \begin{gather*}

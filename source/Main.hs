@@ -1,5 +1,6 @@
 module Main where
 
+import Ast.Term (TermIdentifier (..))
 import Ast.Type hiding (Inline, kind, typeGlobalIdentifier, typeIdentifier, typex)
 import qualified Ast.Type as Type
 import qualified C.Ast as C
@@ -75,6 +76,8 @@ prettyError e = case e of
   ExpectedBoolean p σ -> prettyError (TypeMismatch p (TypeAst () (Boolean)) σ)
   ExpectedStep p σ -> prettyError (TypeMismatch p (TypeAst () (Step v v)) σ)
   ExpectedLabel p σ -> prettyError (TypeMismatch p (TypeAst () (Label)) σ)
+  BadBorrowIdentifier p (TermIdentifier x) -> "Bad Borrow Identifier `" ++ x ++ "`" ++ positions p
+  BadBorrowSyntax p -> "Bad Borrow Syntax" ++ positions p
 
 quoted x = "\"" ++ x ++ "\""
 

@@ -81,16 +81,16 @@ data TermSugar e
   | If e e e
   deriving (Show, Functor)
 
-data TermErasure σauto σ λrgn_e e
-  = Borrow e λrgn_e σ
+data TermErasure σauto λσe e
+  = Borrow TermIdentifier λσe
   | IsolatePointer e
   | Wrap σauto e
   | Unwrap σauto e
   deriving (Show)
 
-data TermF ann θ σauto σ λrgn_e λσe λe λrun_e e
+data TermF ann θ σauto λσe λe λrun_e e
   = TermRuntime (TermRuntime θ σauto σauto σauto λrun_e e)
-  | TermErasure (TermErasure σauto σ λrgn_e e)
+  | TermErasure (TermErasure σauto λσe e)
   | TermSugar (TermSugar e)
   | Annotation ann
   | GlobalVariable TermGlobalIdentifier θ
@@ -176,22 +176,20 @@ traverseTermF ::
   (ann -> m ann') ->
   (θ -> m θ') ->
   (σauto -> m σauto') ->
-  (σ -> m σ') ->
-  (λrgn_e -> m λrgn_e') ->
   (λσe -> m λσe') ->
   (λe -> m λe') ->
   (λrun_e -> m λrun_e') ->
   (e -> m e') ->
-  TermF ann θ σauto σ λrgn_e λσe λe λrun_e e ->
-  m (TermF ann' θ' σauto' σ' λrgn_e' λσe' λe' λrun_e' e')
-traverseTermF y d z q r k h m i e =
+  TermF ann θ σauto λσe λe λrun_e e ->
+  m (TermF ann' θ' σauto' λσe' λe' λrun_e' e')
+traverseTermF y d z k h m i e =
   case e of
     TermRuntime e -> pure TermRuntime <*> traverseTermRuntime d z z z m i e
     TermSugar e -> pure TermSugar <*> traverseTermSugar i e
     Annotation e -> pure Annotation <*> y e
     GlobalVariable x θ -> pure GlobalVariable <*> pure x <*> d θ
     FunctionLiteral λ -> pure FunctionLiteral <*> m λ
-    TermErasure (Borrow e λ σ) -> TermErasure <$> (Borrow <$> i e <*> r λ <*> q σ)
+    TermErasure (Borrow x λ) -> TermErasure <$> (Borrow <$> pure x <*> k λ)
     TermErasure (IsolatePointer e) -> TermErasure <$> (IsolatePointer <$> i e)
     TermErasure (Wrap σ e) -> TermErasure <$> (Wrap <$> z σ <*> i e)
     TermErasure (Unwrap σ e) -> TermErasure <$> (Unwrap <$> z σ <*> i e)
@@ -201,9 +199,9 @@ traverseTermF y d z q r k h m i e =
     PolyIntroduction λ -> pure PolyIntroduction <*> k λ
     PolyElimination e θ σ2 -> pure PolyElimination <*> i e <*> d θ <*> z σ2
 
-foldTermF d j z a f r h m i = getConst . traverseTermF (Const . d) (Const . j) (Const . z) (Const . a) (Const . f) (Const . r) (Const . h) (Const . m) (Const . i)
+foldTermF d j z a f r h = getConst . traverseTermF (Const . d) (Const . j) (Const . z) (Const . a) (Const . f) (Const . r) (Const . h)
 
-mapTermF d j z a f r h m i = runIdentity . traverseTermF (Identity . d) (Identity . j) (Identity . z) (Identity . a) (Identity . f) (Identity . r) (Identity . h) (Identity . m) (Identity . i)
+mapTermF d j z a f r h = runIdentity . traverseTermF (Identity . d) (Identity . j) (Identity . z) (Identity . a) (Identity . f) (Identity . r) (Identity . h)
 
 data Term p phase p' v
   = Term
@@ -212,8 +210,6 @@ data Term p phase p' v
           (phase (Annotation p phase p' v) Void)
           (phase () (Instantiation phase p' v))
           (phase () (Type phase p' v))
-          (Type phase p' v)
-          (Bound (TypePattern phase p' v) (Bound (TermRuntimePattern p phase p' v) (Term p phase p' v)))
           (TermScheme p phase p' v)
           (Bound (TermPattern p phase p' v) (Term p phase p' v))
           (Bound (TermRuntimePattern p phase p' v) (Term p phase p' v))
@@ -471,8 +467,8 @@ termErasure = Prism TermErasure $ \case
   _ -> Nothing
 
 borrow = (termErasure .) $
-  Prism (uncurry $ uncurry Borrow) $ \case
-    (Borrow e λ σ) -> Just ((e, λ), σ)
+  Prism (uncurry Borrow) $ \case
+    (Borrow x λ) -> Just (x, λ)
     _ -> Nothing
 
 isolatePointer = (termErasure .) $
@@ -559,20 +555,6 @@ substituteLowerGlobalTerm = substituteLowerGlobalTerm' avoidTerm
 
 substituteLowerGlobalTerm' avoid = substituteLower avoid substituteGlobalTerm
 
-freeVariablesRgnForTerm = freeVariablesLower freeVariablesSameTerm
-
-freeVariablesGlobalRgnForTerm = freeVariablesLower freeVariablesLowerGlobalTerm
-
-freeVariablesRgnSourceForTerm = freeVariablesLower freeVariablesSameTermSource
-
-freeVariablesGlobalRGNSourceForTerm = freeVariablesLower freeVariablesLowerGlobalTermSource
-
-convertRgnForTerm = convertLower convertSameTerm
-
-substituteRgnForTerm = substituteLower (avoidType' convertHigherType) substituteSameTerm
-
-substituteRgnForTermGlobal = substituteLower (avoidType' convertHigherType) substituteLowerGlobalTerm
-
 avoidTerm = avoidTerm' convertTerm
 
 avoidTerm' = Avoid bindingsTerm renameTerm freeVariablesTerm
@@ -640,8 +622,6 @@ instance TraverseTerm Term where
         (bitraverse go absurd)
         (bitraverse pure go')
         (bitraverse pure go')
-        go'
-        (traverseBound go' (traverseBound go go))
         go
         (traverseBound go go)
         (traverseBound go go)
@@ -651,49 +631,44 @@ instance TraverseTerm Term where
       go = traverseTerm fp fp' fv
       go' = traverseType fp' fv
 
+-- todo, should borrow be part of free variables?
+
 instance TermAlgebra Term where
   freeVariablesTerm (Term _ (TermRuntime (Variable x _))) = Set.singleton x
-  freeVariablesTerm (Term _ e) = foldTermF (bifoldMap go absurd) mempty mempty mempty go'' go go' go' go e
+  freeVariablesTerm (Term _ e) = foldTermF (bifoldMap go absurd) mempty mempty go go' go' go e
     where
       go = freeVariablesTerm
       go' = freeVariablesSameTerm
-      go'' = freeVariablesRgnForTerm
   freeVariablesGlobalTerm (Term _ (GlobalVariable x _)) = Set.singleton x
-  freeVariablesGlobalTerm (Term _ e) = foldTermF (bifoldMap go absurd) mempty mempty mempty go'' go go' go' go e
+  freeVariablesGlobalTerm (Term _ e) = foldTermF (bifoldMap go absurd) mempty mempty go go' go' go e
     where
       go = freeVariablesGlobalTerm
       go' = freeVariablesLowerGlobalTerm
-      go'' = freeVariablesGlobalRgnForTerm
   convertTerm ux x (Term p (TermRuntime (Variable x' θ))) | x == x' = Term p $ TermRuntime $ Variable ux θ
-  convertTerm ux x (Term p e) = Term p $ mapTermF (bimap go absurd) id id id go'' go go' go' go e
+  convertTerm ux x (Term p e) = Term p $ mapTermF (bimap go absurd) id id go go' go' go e
     where
       go = convertTerm ux x
       go' = convertSameTerm ux x
-      go'' = convertRgnForTerm ux x
   freeVariablesTermSource (Term p (TermRuntime (Variable x _))) = Variables $ Map.singleton x p
-  freeVariablesTermSource (Term _ e) = foldTermF (bifoldMap go absurd) mempty mempty mempty go'' go go' go' go e
+  freeVariablesTermSource (Term _ e) = foldTermF (bifoldMap go absurd) mempty mempty go go' go' go e
     where
       go = freeVariablesTermSource
       go' = freeVariablesSameTermSource
-      go'' = freeVariablesRgnSourceForTerm
   freeVariablesGlobalTermSource (Term p (GlobalVariable x _)) = Variables $ Map.singleton x p
-  freeVariablesGlobalTermSource (Term _ e) = foldTermF (bifoldMap go absurd) mempty mempty mempty go'' go go' go' go e
+  freeVariablesGlobalTermSource (Term _ e) = foldTermF (bifoldMap go absurd) mempty mempty go go' go' go e
     where
       go = freeVariablesGlobalTermSource
       go' = freeVariablesLowerGlobalTermSource
-      go'' = freeVariablesGlobalRGNSourceForTerm
   substituteTerm ux x (Term _ (TermRuntime (Variable x' (Core θ)))) | x == x' = applySchemeImpl ux θ
-  substituteTerm ux x (Term p e) = Term p $ mapTermF (bimap go absurd) id id id go'' go go' go' go e
+  substituteTerm ux x (Term p e) = Term p $ mapTermF (bimap go absurd) id id go go' go' go e
     where
       go = substituteTerm ux x
       go' = substituteSameTerm ux x
-      go'' = substituteRgnForTerm ux x
   substituteGlobalTerm ux x (Term _ (GlobalVariable x' (Core θ))) | x == x' = applySchemeImpl ux θ
-  substituteGlobalTerm ux x (Term p e) = Term p $ mapTermF (bimap go absurd) id id id go'' go go' go' go e
+  substituteGlobalTerm ux x (Term p e) = Term p $ mapTermF (bimap go absurd) id id go go' go' go e
     where
       go = substituteGlobalTerm ux x
       go' = substituteLowerGlobalTerm ux x
-      go'' = substituteRgnForTermGlobal ux x
   reduce (Term _ (Bind e λ)) = applyTerm (mapBound id reduce λ) (reduce e)
   reduce (Term _ (InlineApplication e1 e2 _)) | (Term _ (InlineAbstraction λ)) <- reduce e1 = applyTerm λ (reduce e2)
   reduce (Term _ (PolyElimination e1 (Core (Instantiation InstantiateEmpty)) _))
@@ -705,7 +680,7 @@ instance TermAlgebra Term where
     where
       applyType (Bound (TypePattern _ α _) e) σ = substituteType σ α e
   reduce (Term p (TermSugar e)) = reduce (desugar p e)
-  reduce (Term p e) = Term p (mapTermF (bimap go absurd) id id id (mapBound id (mapBound id go)) go (mapBound id go) (mapBound id go) go e)
+  reduce (Term p e) = Term p (mapTermF (bimap go absurd) id id go (mapBound id go) (mapBound id go) go e)
     where
       go = reduce
 
@@ -797,49 +772,40 @@ instance TermAlgebra TermControl where
   reduce (TermManualSource e) = TermManualSource (reduce e)
 
 instance TypeAlgebra (Term p) where
-  freeVariablesType (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) go go'' go go' go' go e
+  freeVariablesType (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) go go' go' go e
     where
       go = freeVariablesType
       go' = freeVariablesHigherType
-      go'' = freeVariablesRgnForType
-  freeVariablesGlobalType (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) go go'' go go' go' go e
+  freeVariablesGlobalType (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) go go' go' go e
     where
       go = freeVariablesGlobalType
       go' = freeVariablesGlobalHigherType
-      go'' = freeVariablesGlobalRgnForType
-  freeVariablesTypeSource (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) (go) go'' go go' go' go e
+  freeVariablesTypeSource (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) go go' go' go e
     where
       go = freeVariablesTypeSource
       go' = freeVariablesHigherTypeSource
-      go'' = freeVariablesRgnForTypeSource
-  freeVariablesGlobalTypeSource (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) (go) go'' go go' go' go e
+  freeVariablesGlobalTypeSource (Term _ e) = foldTermF (bifoldMap go absurd) (bifoldMap mempty go) (bifoldMap mempty go) go go' go' go e
     where
       go = freeVariablesGlobalTypeSource
       go' = freeVariablesGlobalHigherTypeSource
-      go'' = freeVariablesGlobalRgnForTypeSource
-  convertType ux x (Term p e) = Term p $ mapTermF (bimap go absurd) (bimap id go) (bimap id go) (go) go'' go go' go' go e
+  convertType ux x (Term p e) = Term p $ mapTermF (bimap go absurd) (bimap id go) (bimap id go) go go' go' go e
     where
       go = convertType ux x
       go' = convertHigherType ux x
-      go'' = convertRgnForType ux x
-  substituteType ux x (Term p e) = Term p $ mapTermF (bimap go absurd) (bimap id go) (bimap id go) (go) go'' go go' go' go e
+  substituteType ux x (Term p e) = Term p $ mapTermF (bimap go absurd) (bimap id go) (bimap id go) go go' go' go e
     where
       go = substituteType ux x
       go' = substituteHigherType ux x
-      go'' = substituteRgnForType ux x
-  substituteGlobalType ux x (Term p e) = Term p $ mapTermF (bimap go absurd) (bimap id go) (bimap id go) (go) go'' go go' go' go e
+  substituteGlobalType ux x (Term p e) = Term p $ mapTermF (bimap go absurd) (bimap id go) (bimap id go) go go' go' go e
     where
       go = substituteGlobalType ux x
       go' = substituteGlobalHigherType ux x
-      go'' = substituteGlobalRgnForType ux x
   zonkType f (Term p e) =
     Term p
       <$> traverseTermF
         (bitraverse (zonkType f) absurd)
         (bitraverse pure (zonkType f))
         (bitraverse pure (zonkType f))
-        (zonkType f)
-        (traverseBound (zonkType f) (traverseBound (zonkType f) (zonkType f)))
         (zonkType f)
         (traverseBound (zonkType f) (zonkType f))
         (traverseBound (zonkType f) (zonkType f))
@@ -852,8 +818,6 @@ instance TypeAlgebra (Term p) where
         (bitraverse (traverseTypes fp f) absurd)
         (bitraverse pure (traverseTypes fp f))
         (bitraverse pure (traverseTypes fp f))
-        (traverseTypes fp f)
-        (traverseBound (traverseTypes fp f) (traverseBound (traverseTypes fp f) (traverseTypes fp f)))
         (traverseTypes fp f)
         (traverseBound (traverseTypes fp f) (traverseTypes fp f))
         (traverseBound (traverseTypes fp f) (traverseTypes fp f))
@@ -1102,12 +1066,7 @@ sourceTerm (Term _ e) =
     TermSugar e -> TermSugar (fmap sourceTerm e)
     GlobalVariable x _ -> GlobalVariable x ann
     FunctionLiteral λ -> FunctionLiteral (mapBound (sourceTermRuntimePattern False) sourceTerm λ)
-    TermErasure (Borrow e λ σ) ->
-      TermErasure $
-        Borrow
-          (sourceTerm e)
-          (mapBound sourceTypePattern (mapBound (sourceTermRuntimePattern False) sourceTerm) λ)
-          (sourceType σ)
+    TermErasure (Borrow x λ) -> TermErasure $ Borrow x (sourceTermScheme True λ)
     TermErasure (IsolatePointer e) -> TermErasure $ IsolatePointer (sourceTerm e)
     TermErasure (Wrap (Core σ) e) ->
       Annotation $ Source $ PretypeAnnotation (Term () $ TermErasure $ Wrap ann (sourceTerm e)) (sourceType σ)

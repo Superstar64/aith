@@ -305,7 +305,7 @@ typeCheckModule ((path@(Path heading _), item) : nodes) = do
           { typeGlobalEnvironment =
               Map.insert
                 (TermGlobalIdentifier path)
-                (TermBinding p unrestricted (reLabel σ))
+                (TermBinding p unrestricted Meta (reLabel σ))
                 $ typeGlobalEnvironment environment
           }
       UpdateSym σ ->

@@ -183,7 +183,7 @@ Files are a single decleration named `this`.
 | Switch | `switch e { pm => e; pm' => e'; ... }`
 | Poly Introduction| `ς e` |
 | Poly Elimination | `e <_>` |
-| Borrow | `borrow e as <α >= π>(pm) { e } uses σ` |
+| Borrow | `borrow x <α : Region> { e }` |
 | Type Annotation | `e : σ` |
 | Pretype Annotation | `e :: σ` |
 | Continue | `continue e` |
