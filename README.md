@@ -62,77 +62,13 @@ These expressions can only access memory in their region or regions proven to be
 Install ghc, cabal and make.
 Run `make` to build aith, `make tests` to run the tests and `make test.c` to generate the test c source file.
 
+# Todo List
 
-# Road Map (subject to change)
-
-* [ ] Essentials
-  * [ ] Runtime Primitives
-    * [x] Booleans
-      * [x] Boolean Type
-      * [x] Boolean Literals
-      * [x] If expression
-      * [x] Logical Operators
-    * [x] Integers
-      * [x] Arithmatic
-      * [x] Relational Operators
-    * [x] Pointers
-      * [x] Shared
-        * [x] Type
-        * [ ] Stack Allocation
-        * [x] Get
-        * [x] Set
-      * [ ] Unique
-        * [x] Type
-        * [ ] Heap Allocation
-      * [x] Borrowing
-    * [ ] Arrays
-      * [ ] Shared
-        * [x] Type
-        * [x] Array to Pointer
-        * [x] Pointer Addition
-        * [ ] Pointer Difference
-        * [ ] Heap Allocation
-      * [ ] Unique
-        * [x] Type
-        * [ ] Heap Allocation
-      * [x] Borrowing
-    * [ ] Tuples
-      * [x] Type
-      * [x] Construction
-      * [x] Destruction
-      * [x] Multiplicity Polymorphism
-      * [ ] Multiplicity Inference 
-    * [x] Function Pointers
-    * [ ] Records
-    * [ ] Tagged Unions
-      * [x] Union Representation
-      * [ ] Tagged Union Type
-    * [x] Loops
-  * [x] New Types
-  * [x] Type Synonyms
-  * [x] Modules
-  * [ ] Hindley Milner
-    * [x] Syntatical Unification
-    * [ ] Typeclasses
-  * [ ] Pattern Matching
-    * [x] Destructure Products
-    * [ ] Literals
-    * [ ] Destructure Unions
-* [x] Inline Lambda Calculus
-* [ ] System-F
-  * [x] Levity Polymorphism
-  * [x] Type Lambda / Application
-  * [ ] Type Lambda / Application for Runtime Terms
-  * [ ] Higher Order Unification (System-F ω)
-* [x] Linear / Unique Types
-* [ ] Regions
-  * [x] Effects
-  * [x] References
-    * [x] Type
-    * [x] Read
-    * [x] Write
-  * [ ] Let Region
-* [x] C Code Generation
+* Better newtypes
+* Add higher kinded types (System-F A)
+* Runtime level higher rank polymorphism
+* Simplify boolean types to DNF rather then ANF
+* Refactoring and syntax changes as usual
 
 # Syntax
 
