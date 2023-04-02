@@ -22,8 +22,8 @@ executable aith
         Ast.Common
         Ast.Type
         Ast.Term
+        Ast.Module
         TypeCheck
-        Module
         Syntax
         Simple
         Codegen
@@ -44,6 +44,5 @@ executable aith
         directory,
         filepath,
         transformers,
-        megaparsec,
-        pretty-simple
+        megaparsec
     main-is:            Main.hs

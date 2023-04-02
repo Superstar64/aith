@@ -95,7 +95,7 @@ convertTermPattern (TermRuntimePattern p pm) =
 simpleFailPattern = error "illegal simple pattern"
 
 -- used for borrow, so augmenting types is not neccisary
-convertTermScheme (TermScheme _ (MonoTerm e _)) = convertTerm e
+convertTermScheme (TermScheme _ (MonoTerm e)) = convertTerm e
 convertTermScheme (TermScheme _ (TypeAbstraction (Bound _ e))) = convertTermScheme e
 
 convertTerm :: TermInfer p -> Simplify (SimpleTerm p)
@@ -119,7 +119,7 @@ convertFunctionType (TypeScheme () (MonoType (TypeAst () (FunctionLiteralType σ
 convertFunctionType _ = error "failed to convert function type"
 
 convertFunction (TermScheme _ (TypeAbstraction (Bound (TypePattern () x κ) e))) = withSimplify (Map.insert x κ) $ convertFunction e
-convertFunction (TermScheme _ (MonoTerm (Term p (FunctionLiteral (Bound pm e))) _)) = do
+convertFunction (TermScheme _ (MonoTerm (Term p (FunctionLiteral (Bound pm e) _ _)))) = do
   pm' <- convertTermPattern pm
   e' <- convertTerm e
   pure $ SimpleFunction p $ Bound pm' e'

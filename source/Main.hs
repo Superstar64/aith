@@ -1,6 +1,7 @@
 module Main where
 
-import Ast.Term (TermIdentifier (..))
+import Ast.Module as Module hiding (modulex)
+import Ast.Term (TermIdentifier (..), textType)
 import Ast.Type hiding (Inline, kind, typeGlobalIdentifier, typeIdentifier, typex)
 import qualified Ast.Type as Type
 import qualified C.Ast as C
@@ -14,9 +15,8 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Traversable (for)
 import Misc.Path hiding (path)
-import Module hiding (modulex)
 import Simple
-import Syntax hiding (Item (..))
+import Syntax
 import System.Console.GetOpt
 import System.Directory
 import System.Environment
@@ -170,10 +170,10 @@ compileModule newtypes (CoreModule code) heading = concat <$> traverse (\(name, 
 
 compileItem :: Map TypeGlobalIdentifier TypeInfer -> Item (GlobalInfer p) -> Path -> Dependency [C.Statement]
 compileItem newtypes (Module items) (Path path name) = compileModule newtypes items (path ++ [name])
-compileItem newtypes (Global (GlobalInfer (Text σ e))) path = do
-  fn <- codegen (mangle path) (runSimplify (convertFunctionType σ) Map.empty newtypes) (runSimplify (convertFunction e) Map.empty newtypes)
+compileItem newtypes (Global (GlobalInfer (Text e))) path = do
+  fn <- codegen (mangle path) (runSimplify (convertFunctionType $ textType e) Map.empty newtypes) (runSimplify (convertFunction e) Map.empty newtypes)
   pure [fn]
-compileItem _ (Global (GlobalInfer (Inline _ _))) _ = pure []
+compileItem _ (Global (GlobalInfer (Inline _))) _ = pure []
 compileItem _ (Global (GlobalInfer (Synonym _))) _ = pure []
 compileItem _ (Global (GlobalInfer (NewType _ _))) _ = pure []
 

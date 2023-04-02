@@ -53,10 +53,9 @@ sortTopological view quit children items = go Map.empty items
         Nothing -> runStateT (visitTopological item) marks
         Just Temporary -> error "Unexpected temporary"
         Just Permanent -> pure ([], marks)
-      (reverse depend ++) <$> go marks' items
+      (depend ++) <$> go marks' items
     go _ [] = pure []
 
-    -- builds a list in sTypeAndard topological sort to then get reversed by `go`
     visitTopological node = do
       marks <- get
       case Map.lookup (view node) marks of
@@ -67,4 +66,4 @@ sortTopological view quit children items = go Map.empty items
           nodes <- lift $ children node
           depend <- for nodes visitTopological
           modify $ Map.insert (view node) Permanent
-          pure (node : concat depend)
+          pure (concat depend ++ [node])

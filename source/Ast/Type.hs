@@ -863,3 +863,9 @@ unconvertBoolean (Polynomial e) = foldl1 (\σ τ -> TypeAst () $ TypeBoolean $ T
       where
         var (Flexible v) = TypeAst () $ TypeLogical v
         var (Constant c) = TypeAst () $ TypeConstant c
+
+simplify :: (TypeAlgebra u, Ord v') => u Core () v' -> u Core () v'
+simplify = mapTypes id go
+  where
+    go σ@(TypeAst () (TypeBoolean _)) = unconvertBoolean $ convertBoolean σ
+    go (TypeAst () σ) = TypeAst () $ mapTypeF (absurd . runCore) id simplify simplify σ

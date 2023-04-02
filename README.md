@@ -144,11 +144,12 @@ Files are a single decleration named `this`.
 | Module | `module x = { code ... };` |
 | Module | `module x; code ...` |
 | Inline Term | `inline x = e;`|
-| Inline Term Ascribe | `inline x : σ; inline x = e;`|
+| Inline Term Ascribe | `inline x : σ = e;`|
 | Function | `f(pm) { e }` |
-| Function Ascribe | `f(pm) :: σ in π; f(pm) { e }`|
+| Function Ascribe | `f(pm) : σ in π { e }`|
+| Function Ascribe | `f(pm) :: σ { e }`|
 | Synonym | `type x = σ;` |
-| New Type | `wrapper x :: κ; wrapper x = σ;` |
+| New Type | `wrapper x : κ = σ;` |
 
 ## Terms(e)
 | Description | Syntax |
@@ -211,7 +212,8 @@ Files are a single decleration named `this`.
 | Description | Syntax |
 |-|-|
 | Variable | `x`|
-| Variable Abscribe | `x : σ` |
+| Variable Abscribe | `x :[π] σ` |
+| Variable Abscribe | `x :[] σ` |
 | Tuple Destruction | `(pm , pm', ...)` |
 | True | `true` |
 | False | `false` |
@@ -291,7 +293,12 @@ Files are a single decleration named `this`.
 | UShort | `ushort` | `unsigned integer(short)` |
 | UInt | `uint` | `unsigned integer(int)` |
 | ULong | `ulong` | `unsigned integer(long)` |
-| Native | `native` | `unsigned integer(native)` |
+| Integer | `integer(σ)` | `signed integer(σ)` |
+| Natural | `natural(σ)` | `unsigned integer(σ)` |
+| Native Integer | `integer` | `signed integer(native)` |
+| Native Natural | `natural` | `unsigned integer(native)` |
+
+
 
 ## Type Pattern(pmσ)
 | Description | Syntax |

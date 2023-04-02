@@ -124,7 +124,7 @@ compileMatch target (SimplePattern _ (RuntimePatternBoolean True)) = pure $ C.Eq
 compileMatch target (SimplePattern _ (RuntimePatternBoolean False)) = pure $ C.Equal target (C.IntegerLiteral 0)
 
 compileTerm :: SimpleTerm p -> SimpleType -> WriterT [C.Statement] Codegen C.Expression
-compileTerm (SimpleTerm _ (Variable x ())) _ = do
+compileTerm (SimpleTerm _ (Variable x () _)) _ = do
   x' <- lift $ lookupVariable x
   pure $ x'
 compileTerm (SimpleTerm _ (Extern (Symbol name) σ () τ)) _ = do
@@ -164,7 +164,7 @@ compileTerm (SimpleTerm _ (WriteReference ep ev σ)) (SimpleType (StructRep []))
   ev <- compileTerm ev σ
   tell [C.Expression $ C.Assign (C.Dereference ep) ev]
   pure $ C.IntegerLiteral 0
-compileTerm (SimpleTerm _ (NumberLiteral n)) _ = pure $ C.IntegerLiteral n
+compileTerm (SimpleTerm _ (NumberLiteral n _)) _ = pure $ C.IntegerLiteral n
 compileTerm (SimpleTerm _ (Arithmatic o e1 e2 s)) σ@(SimpleType (WordRep size)) = do
   let σ' = cint size s
   e1 <- compileTerm e1 σ
@@ -195,7 +195,7 @@ compileTerm (SimpleTerm _ (Relational o e1 e2 σ@(SimpleType (WordRep size)) s))
       GreaterThenEqual -> C.GreaterThenEqual
 compileTerm (SimpleTerm _ (BooleanLiteral True)) _ = pure $ C.IntegerLiteral 1
 compileTerm (SimpleTerm _ (BooleanLiteral False)) _ = pure $ C.IntegerLiteral 0
-compileTerm (SimpleTerm _ (Case e τ λs)) σ = do
+compileTerm (SimpleTerm _ (Case e τ λs ())) σ = do
   e <- compileTerm e τ
   result <- lift temporary
   σ' <- lift $ ctype σ
@@ -219,10 +219,10 @@ compileTerm (SimpleTerm _ (PointerIncrement ep ei σ)) (SimpleType PointerRep) =
   ei <- compileTerm ei (SimpleType $ WordRep $ Native)
   ei <- putIntoVariableRaw (cint Native Unsigned) (C.Scalar ei)
   pure $ C.Addition ep ei
-compileTerm (SimpleTerm _ (Continue e)) μ@(SimpleType (StructRep [_, SimpleType (UnionRep [_, σ])])) = do
+compileTerm (SimpleTerm _ (Continue e ())) μ@(SimpleType (StructRep [_, SimpleType (UnionRep [_, σ])])) = do
   e <- compileTerm e σ
   putIntoVariableInit μ (C.Brace [C.Scalar (C.IntegerLiteral 1), C.Designator [("_1", C.Scalar e)]])
-compileTerm (SimpleTerm _ (Break e)) μ@(SimpleType (StructRep [_, SimpleType (UnionRep [τ, _])])) = do
+compileTerm (SimpleTerm _ (Break e ())) μ@(SimpleType (StructRep [_, SimpleType (UnionRep [τ, _])])) = do
   e <- compileTerm e τ
   putIntoVariableInit μ (C.Brace [C.Scalar (C.IntegerLiteral 0), C.Designator [("_0", C.Scalar e)]])
 compileTerm (SimpleTerm _ (Loop es (Bound pm el))) τ = do

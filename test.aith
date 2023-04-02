@@ -12,34 +12,34 @@ module combinators = {
 };
 
 module systemf = {
-	type natural = <A : type> A -> (A -> A) -> A;
+	type number = <A : type> A -> (A -> A) -> A;
 
-	inline zero<> : natural;
-	inline zero = <A : type> \z : A => \inc : A -> A => z;
+	inline zero<> : number
+		= <A : type> \z : A => \inc : A -> A => z;
 
-	inline inc<> : natural -> natural;
-	inline inc = \n : natural => <A : type> \z : A => \inc => inc !(n <_> !z !inc);
+	inline inc<> : number -> number
+		= \n : number => <A : type> \z : A => \inc => inc !(n <_> !z !inc);
 
-	inline one<> : natural;
-	inline one = inc !zero;
+	inline one<> : number
+		= inc !zero;
 
-	inline two<> : natural;
-	inline two = inc !one;
+	inline two<> : number
+		= inc !one;
 };
 
 module systemfPoly = {
-	inline explicit<> : <A : type> A -> A;
-	inline explicit<> = <A : type> \x : A => x;
+	inline explicit<> : <A : type> A -> A
+		= <A : type> \x : A => x;
 	
-	inline implicit<A : type> : A -> A;
-	inline implicit = explicit <_>;
+	inline implicit<A : type> : A -> A
+		= explicit <_>;
 
 	inline use = implicit !(explicit) <_>;
 
 	inline useArgument = \x : <A :type> A -> A => x <_>;
 
-	inline curry<> : <A : type> <B : type> (A -> B) -> A -> B;
-	inline curry<> = <A : type> <B : type> \f : A -> B => f;
+	inline curry<> : <A : type> <B : type> (A -> B) -> A -> B
+		= <A : type> <B : type> \f : A -> B => f;
 
 	inline useCurry = curry <_> <_> !(implicit);
 
@@ -114,13 +114,11 @@ module ptr = {
 		***x
 	}
 
-	deref <A : region, T : pretype<pointer, true>>(x :: T* @ A) :: T in A;
-	deref (x) {
+	deref <A : region, T : pretype<pointer, true>>(x :: T* @ A) : T in A {
 		*x
 	}
 
-	write<A:region>(x :: int* @ A) :: () in A;
-	write<A:region>(x :: int* @ A) {
+	write<A:region>(x :: int* @ A) : () in A {
 		*x = (1 :: int)
 	}
 
@@ -140,13 +138,13 @@ module ptr = {
 module number = {
 	type point = (int, int, int);
 
-	dotProduct<>(x :: point, y :: point) :: int in false;
-	dotProduct((x1,y1,z1), (x2, y2, z2)) {
+	dotProduct<>(x :: point, y :: point) :: int {
+		let (x1,y1,z1) = x;
+		let (x2, y2, z2) = y;
 		(x1 * x2 + y1 * y2 + z1 * z2)
 	}
   
-	mid <>(x :: uint, y:: uint) :: uint in false;
-	mid <>(x,y) {
+	mid <>(x :: uint, y :: uint) :: uint {
 		(x + y) / 2
 	}
 
@@ -154,8 +152,7 @@ module number = {
 		x <= y
 	}
 
-	factorial<>(x :: ulong) :: ulong in false; 
-	factorial<>(x) {
+	factorial<>(x :: ulong) :: ulong {
 		if (x == 0) {
 			1
 		} else {
@@ -169,15 +166,13 @@ module fptr = {
 		f (1)
 	}
 
-	callUnit <>(f :: function(uint) => () uses false) :: () in false;
-	callUnit <>(f) {
+	callUnit <>(f :: function(uint) => () uses false) :: () {
 		f (2)
 	}
 };
 
 module recurse = {
-	explode<L : multiplicity, A:pretype<pointer, L>>() :: A in false;
-	explode<L : multiplicity, A:pretype<pointer, L>>() {
+	explode<L : multiplicity, A:pretype<pointer, L>>() :: A {
 		explode ()
 	}
 };
@@ -196,11 +191,10 @@ module world = {
 	};
 
 
-	inline putchar<> : function(int) => int uses io in false;
-	inline putchar<> = extern "putchar";
+	inline putchar<> : function(int) => int uses io in false
+		= extern "putchar";
 
-	putPtr<A:region>(ptr :: int* @ A) :: int in A | io;
-	putPtr(ptr) {
+	putPtr<A:region>(ptr :: int* @ A) : int in A | io {
 		putchar (*ptr)
 	}
 
@@ -260,8 +254,7 @@ module sort = {
 		}
 	}
 
-	sort <R : region> (array :: int[] @ R, index :: unsigned integer(native)) :: () in R;
-	sort <R : region>(array, length) {
+	sort <R : region> (array :: int[] @ R, length :: unsigned integer(native)) : () in R {
 		if (length > 1) {
 			sort(array, length - 1);
 			insert(array, length - 1)
@@ -272,8 +265,7 @@ module sort = {
 };
 
 module borrowed = {
-	increment<>(p :: unique int*) :: unique int* in false;
-	increment (p :: unique int*) {
+	increment<>(p :: unique int*) :: unique int* {
 		borrow p <A : region> {
 			*p = (*p + 1)
 		};
@@ -284,18 +276,6 @@ module borrowed = {
 		borrow p <A : region> { () };
 		p
 	}
-};
-
-module partial = {
-	inline auto = \x => x;
-	
-	inline semi<A : type> = \x : A => x;
-
-	inline scoped<A : type> : A -> A;
-	inline scoped = \x : A => x;
-
-	inline manual<A : type> : A -> A;
-	inline manual<A : type> = \x => x;
 };
 
 module import = {
@@ -332,16 +312,14 @@ module sum = {
 };
 
 module newtype = {
-	wrapper num : pretype<32bit word, true>;
-	wrapper num = int;
+	wrapper num : pretype<32bit word, true> = int;
 
 	makeNum() {
 		wrap 1 :: num
 	}
 
 
-	wrapper linked : pretype<pointer, true>;
-	wrapper linked = linked2* @ io;
+	wrapper linked : pretype<pointer, true> = linked2* @ io;
 
 	type linked2 = linked;
 
@@ -372,8 +350,7 @@ module use = {
 	>(
 		x :: int* @ B,
 		y :: int* @ C
-	) :: int in B | C;
-	use(x, y) {
+	) : int in B | C {
 		*x + *y
 	}
 };
