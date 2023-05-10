@@ -72,20 +72,21 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 
 # Syntax
 
-Files are a single decleration named `this`.
+Files are lists of declarations, where these declarations could be a plain variable declaration or a path declaration. For example `f(x) { x }` is a plain declaration and `example/f(x) { x }` is a path declaration.
 
-## Modules(code)
+Folders concatenates all it's contents where the folder name is prepend to all the declarations. A folder named `abc` prepends `abc/` to all it's contents.
+
+## Declarations(code)
 | Description | Syntax |
 |-|-|
-| Module | `module x = { code ... };` |
-| Module | `module x; code ...` |
 | Inline Term | `inline x = e;`|
 | Inline Term Ascribe | `inline x : σ = e;`|
-| Function | `f(pm) { e }` |
-| Function Ascribe | `f(pm) : σ in π { e }`|
-| Function Ascribe | `f(pm) :: σ { e }`|
+| Function | `x(pm) { e }` |
+| Function Ascribe | `x(pm) : σ in π { e }`|
+| Function Ascribe | `x(pm) :: σ { e }`|
 | Synonym | `type x = σ;` |
 | New Type | `wrapper x : κ = σ;` |
+
 
 ## Terms(e)
 | Description | Syntax |

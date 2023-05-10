@@ -1,0 +1,27 @@
+inline lenient = {
+    if false {
+        * {
+            switch() {
+                
+            }
+        }
+    } else {
+        ()
+    }
+};
+
+
+inline putchar<> : function(int) => int uses io in false
+    = extern "putchar";
+
+putPtr<A:region>(ptr :: int* @ A) : int in A | io {
+    putchar (*ptr)
+}
+
+inline count = /systemf/two;
+putHashes() {
+    count <_> !(lenient) !\s { 
+        let n = putchar (35);
+        s
+    }
+}

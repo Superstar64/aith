@@ -1,0 +1,9 @@
+use<
+    B:region,
+    C:region
+>(
+    x :: int* @ B,
+    y :: int* @ C
+) : int in B | C {
+    *x + *y
+}

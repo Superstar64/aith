@@ -1,0 +1,11 @@
+fst(x, y) {
+    x
+}
+
+snd(x, y) {
+    y
+}
+
+pattern (pair) {
+    (fst(pair), snd(pair))
+}

@@ -1,0 +1,13 @@
+type number = <A : type> A -> (A -> A) -> A;
+
+inline zero<> : number
+    = <A : type> \z : A => \inc : A -> A => z;
+
+inline inc<> : number -> number
+    = \n : number => <A : type> \z : A => \inc => inc !(n <_> !z !inc);
+
+inline one<> : number
+    = inc !zero;
+
+inline two<> : number
+    = inc !one;

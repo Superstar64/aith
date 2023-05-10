@@ -1,8 +1,8 @@
 module Codegen where
 
-import Ast.Common hiding (fresh)
-import Ast.Term
-import Ast.Type (KindRuntime (..), KindSignedness (..), KindSize (..))
+import Ast.Common.Variable
+import Ast.Term.Runtime
+import Ast.Type.Runtime
 import qualified C.Ast as C
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT, withReaderT)
@@ -142,7 +142,7 @@ compileTerm (SimpleTerm _ (FunctionApplication e1 e2 τ)) σ = do
       (C.Scalar e1)
   e2 <- compileTerm e2 τ
   putIntoVariable σ $ C.Call e1 [e2]
-compileTerm (SimpleTerm _ (Alias e1 (Bound pm e2))) σ = do
+compileTerm (SimpleTerm _ (Alias e1 (SimpleBound pm e2))) σ = do
   let τ = simplePatternType pm
   e1' <- putIntoVariable τ =<< compileTerm e1 τ
   augmentPatternW e1' pm $ do
@@ -203,7 +203,7 @@ compileTerm (SimpleTerm _ (Case e τ λs ())) σ = do
   go e result λs
   pure $ C.Variable result
   where
-    go e result (Bound pm et : λs) = do
+    go e result (SimpleBound pm et : λs) = do
       valid <- compileMatch e pm
       (et, depend) <- lift $ runWriterT $ compileTerm et σ
       remain <- lift $ execWriterT $ go e result λs
@@ -225,7 +225,7 @@ compileTerm (SimpleTerm _ (Continue e ())) μ@(SimpleType (StructRep [_, SimpleT
 compileTerm (SimpleTerm _ (Break e ())) μ@(SimpleType (StructRep [_, SimpleType (UnionRep [τ, _])])) = do
   e <- compileTerm e τ
   putIntoVariableInit μ (C.Brace [C.Scalar (C.IntegerLiteral 0), C.Designator [("_0", C.Scalar e)]])
-compileTerm (SimpleTerm _ (Loop es (Bound pm el))) τ = do
+compileTerm (SimpleTerm _ (Loop es (SimpleBound pm el))) τ = do
   let σ = simplePatternType pm
   let μ = SimpleType $ StructRep [SimpleType $ WordRep $ Byte, SimpleType $ UnionRep [τ, σ]]
   μ' <- lift $ ctype μ
@@ -246,7 +246,7 @@ compileTerm (SimpleTerm _ (Loop es (Bound pm el))) τ = do
 compileTerm _ _ = error "invalid type for simple term"
 
 compileFunction :: Symbol -> SimpleFunction p -> SimpleFunctionType -> Codegen C.Statement
-compileFunction (Symbol name) (SimpleFunction _ (Bound pm e)) (SimpleFunctionType σ τ) = do
+compileFunction (Symbol name) (SimpleFunction _ (SimpleBound pm e)) (SimpleFunctionType σ τ) = do
   argumentName <- temporary
   (result, depend) <- augmentPattern (C.Variable argumentName) pm $ do
     runWriterT (compileTerm e τ)

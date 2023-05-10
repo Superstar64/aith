@@ -1,0 +1,25 @@
+inline get = \x => \i {
+    * &* &x[i]
+};
+
+inline set = \x => \i => \a {
+    * &* &x[i] = (a)
+};
+
+swap(a, b, i) {
+    let tmp = get !a !i;
+    set !a !i !(get !b !i);
+    set !b !i !tmp;
+    ()
+}
+
+memcpyPtr(dst, src, i) {
+    loop (let (dst, src, i) = (dst, src, i)) {
+        if(i != 0) {
+            * &* dst = (* &* src);
+            continue (&dst[1], &src[1], i - 1)
+        } else {
+            break ()
+        }
+    }
+}

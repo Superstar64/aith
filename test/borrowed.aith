@@ -1,0 +1,11 @@
+increment<>(p :: unique int*) :: unique int* {
+    borrow p <A : region> {
+        *p = (*p + 1)
+    };
+    p
+}
+
+infer(p) {
+    borrow p <A : region> { () };
+    p
+}

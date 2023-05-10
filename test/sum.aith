@@ -1,0 +1,9 @@
+triangular(start, end) {
+    loop (let (i, total) = (start, 0)) {
+        if (i <= end) {
+            continue (i + 1, total + i)
+        } else {
+            break (total)
+        }
+    }
+}

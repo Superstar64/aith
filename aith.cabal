@@ -19,10 +19,22 @@ executable aith
         C.Ast
         C.Print
         Linearity
-        Ast.Common
-        Ast.Type
-        Ast.Term
-        Ast.Module
+        Ast.Common.Variable
+        Ast.Common.Surface
+        Ast.Type.Runtime
+        Ast.Type.Algebra
+        Ast.Type.Surface
+        Ast.Type.Core
+        Ast.Type.Convert
+        Ast.Term.Runtime
+        Ast.Term.Algebra
+        Ast.Term.Surface
+        Ast.Term.Core
+        Ast.Term.Convert
+        Ast.Module.Algebra
+        Ast.Module.Surface
+        Ast.Module.Core
+        Ast.Module.Convert
         TypeCheck
         Syntax
         Simple
@@ -36,6 +48,8 @@ executable aith
         ScopedTypeVariables
         GeneralizedNewtypeDeriving
         LambdaCase
+        MultiWayIf
+        NamedFieldPuns
 
     ghc-options: -W -Worphans -Wcompat -Wincomplete-uni-patterns -rtsopts=all
     build-depends:

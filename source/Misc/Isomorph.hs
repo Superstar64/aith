@@ -17,9 +17,6 @@ instance Category Isomorph where
 inverse :: Isomorph a b -> Isomorph b a
 inverse (Isomorph f g) = Isomorph g f
 
-monotonic :: Isomorph f g -> Map f v -> Map g v
-monotonic (Isomorph f _) = Map.mapKeysMonotonic f
-
 unit :: Isomorph ((), a) a
 unit = Isomorph f g
   where
@@ -67,16 +64,6 @@ bimapI (Isomorph f g) (Isomorph f' g') = Isomorph (bimap f f') (bimap g g')
 firstI iso = bimapI iso id
 
 secondI iso = bimapI id iso
-
--- extract info from something already parsed
-
-extractInfo :: (b -> a) -> Isomorph b (a, b)
-extractInfo extract = Isomorph (\a -> (extract a, a)) snd
-
--- discord info, prefering the second
-
-discardInfo :: (b -> a) -> Isomorph (a, b) b
-discardInfo generate = inverse (extractInfo generate)
 
 distribute :: Isomorph (a, Either b1 b2) (Either (a, b1) (a, b2))
 distribute = Isomorph f g
@@ -126,3 +113,20 @@ orderlessMulti = Isomorph to from
   where
     to = foldr (\(k, v) -> Map.insertWith (<>) k (v :| [])) Map.empty
     from = Map.foldrWithKey (\k vs -> (zip (repeat k) (NonEmpty.toList vs) ++)) []
+
+tuple3 = Isomorph to from
+  where
+    to ((a, b), c) = (a, b, c)
+    from (a, b, c) = ((a, b), c)
+
+tuple3' = tuple3 . associate'
+
+tuple4 = Isomorph to from
+  where
+    to (((a, b), c), d) = (a, b, c, d)
+    from (a, b, c, d) = (((a, b), c), d)
+
+tuple4' = Isomorph to from
+  where
+    to (a, ((b, c), d)) = (a, b, c, d)
+    from (a, b, c, d) = (a, ((b, c), d))

@@ -1,9 +1,10 @@
 module Syntax where
 
-import qualified Ast.Common as Language
-import qualified Ast.Module as Module
-import qualified Ast.Term as Language
-import qualified Ast.Type as Language
+import qualified Ast.Module.Surface as Module
+import qualified Ast.Term.Algebra as Language
+import qualified Ast.Term.Runtime as Language
+import qualified Ast.Term.Surface as Language
+import qualified Ast.Type.Surface as Language
 import Control.Applicative (Alternative, empty, (<|>))
 import Control.Category (id, (.))
 import Control.Monad (MonadPlus, guard, liftM2)
@@ -12,13 +13,15 @@ import Control.Monad.Trans.State.Strict (State, get, put, runState)
 import Control.Monad.Trans.Writer.Strict (WriterT, runWriterT, tell)
 import Data.Foldable (asum)
 import Data.List (isPrefixOf)
+import Data.List.NonEmpty (NonEmpty)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import qualified Data.Set as Set
 import Data.Void (Void)
 import Misc.Isomorph
-import qualified Misc.Path as Path
+import Misc.Path (Path)
+import qualified Misc.Path as Path hiding (combine)
 import Misc.Prism
 import qualified Misc.Symbol as Symbol
 import Misc.Syntax
@@ -49,6 +52,7 @@ keywords =
       "extern",
       "false",
       "function",
+      "extern",
       "if",
       "in",
       "inline",
@@ -63,7 +67,6 @@ keywords =
       "linear",
       "long",
       "loop",
-      "module",
       "multiarg",
       "multiplicity",
       "native",
@@ -233,19 +236,13 @@ multiargExclusionary core = apply ⊣ keyword "multiarg" ≫ betweenParens (core
   where
     apply = branch (cons . secondP (cons . toPrism (inverse nonEmpty))) nil
 
-withInnerPosition1 location core app = toPrism core . secondP app . toPrism (extractInfo $ location) . toPrism unit'
+pathTail = cons ⊣ token "/" ≫ identifer ⊗ pathTail ∥ nil ⊣ always
 
-withInnerPosition location core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst)
+path = Path.path . nonEmpty ⊣ token "/" ≫ identifer ⊗ pathTail
 
-withInnerPosition3 location core app = toPrism core . secondP app . toPrism (extractInfo $ location . fst . fst) . toPrism associate'
+localPath = Path.path . nonEmpty ⊣ identifer ⊗ pathTail
 
-path = (Path.path . swapNonEmpty) ⊣ token "/" ≫ identifer ⊗ pathTail
-  where
-    pathTail = cons ⊣ token "/" ≫ identifer ⊗ pathTail ∥ nil ⊣ always
-
-semiPath = token "/" ≫ pathTail ∥ nil ⊣ always
-  where
-    pathTail = cons ⊣ identifer ⊗ (token "/" ≫ pathTail ∥ nil ⊣ always)
+semiPath = Path.semiPath ⊣ pathTail
 
 termIdentifier = Language.termIdentifier ⊣ identifer
 
@@ -257,16 +254,16 @@ typeGlobalIdentifier = Language.typeGlobalIdentifier ⊣ path
 
 typePattern ::
   (Syntax δ, Position δ p) =>
-  δ (Language.TypePatternSource p)
+  δ (Language.TypePattern p)
 typePattern =
-  Language.typePatternSource ⊣ position ⊗ typeIdentifier ⊗ k
+  Language.typePattern ⊣ position ⊗ typeIdentifier ⊗ k
   where
     k = token ":" ≫ typex
 
-typeParen :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
+typeParen :: (Position δ p, Syntax δ) => δ (Language.Type p)
 typeParen = branch' (toPrism Language.typeSource . secondP Language.tuple) id ⊣ commaNonSingle typex
 
-typex :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
+typex :: (Position δ p, Syntax δ) => δ (Language.Type p)
 typex = typeLambda
   where
     typeLambda = Language.typeSource ⊣ position ⊗ poly ∥ typeArrow
@@ -276,47 +273,40 @@ typex = typeLambda
             label = ambiguous ∥# token "%[" ≫ typeCore ≪ token "]" ∥ ambiguous
               where
                 ambiguous = Language.typeSource ⊣ position ⊗ (Language.ambiguousLabel ⊣ always)
-            body = wrapType ⊣ scheme False ≪ space ⊗ typeLambda
+            body = wrapType ⊣ scheme False ≪ space ⊗ position ⊗ typeLambda
     typeArrow = applyBinary ⊣ typeEffect ⊗ ((partial ∥ full) ⊕ always)
       where
-        applyBinary = inline `branchDistribute` unit'
-        full = space ≫ token "-[" ≫ typex ⊗ token "]>" ≫ space ≫ typeArrow
-        partial = binaryToken "->" ≫ unres ⊗ typeArrow
+        applyBinary = Language.inline `branchDistribute` unit'
+        full = position ⊗ space ≫ token "-[" ≫ typex ⊗ token "]>" ≫ space ≫ typeArrow
+        partial = position ⊗ binaryToken "->" ≫ unres ⊗ typeArrow
           where
             unres = Language.typeSource ⊣ position ⊗ (Language.typeTrue ⊣ always)
-        inline = withInnerPosition3 Language.positionType Language.typeSource Language.inline
-    typeEffect = effect `branchDistribute` unit' ⊣ typeUnique ⊗ (binaryKeyword "in" ≫ typeCore ⊕ always)
-      where
-        effect = withInnerPosition Language.positionType Language.typeSource Language.effect
+    typeEffect = Language.effect `branchDistribute` unit' ⊣ typeUnique ⊗ (position ⊗ binaryKeyword "in" ≫ typeCore ⊕ always)
 
+typeUnique :: (Position δ p, Syntax δ) => δ (Language.Type p)
 typeUnique = Language.typeSource ⊣ position ⊗ unique ∥ typePtr
   where
     unique = Language.unique ⊣ prefixKeyword "unique" ≫ typePtr
-    typePtr = foldlP apply ⊣ typeInt ⊗ many (token "*" ⊕ token "[" ≫ token "]" ⊕ binaryToken "@" ≫ typeInt)
+    typePtr =
+      foldlP apply ⊣ typeInt
+        ⊗ many
+          (position ≪ token "*" ⊕ position ≪ token "[" ≪ token "]" ⊕ position ⊗ binaryToken "@" ≫ typeInt)
       where
-        apply = ptr `branchDistribute` arr `branchDistribute` shared
-        ptr = withInnerPosition1 Language.positionType Language.typeSource Language.pointer
-        arr = withInnerPosition1 Language.positionType Language.typeSource Language.array
-        shared = withInnerPosition Language.positionType Language.typeSource Language.shared
-    typeInt = integers ∥# apply ⊣ kindWord ⊗ (space ≫ keyword "integer" ≫ typeParen ⊕ always)
+        apply = Language.pointer `branchDistribute` Language.array `branchDistribute` Language.shared
+    typeInt = integers ∥# apply ⊣ kindWord ⊗ (position ⊗ space ≫ keyword "integer" ≫ typeParen ⊕ always)
       where
-        apply = num `branchDistribute` unit'
-        num = withInnerPosition Language.positionType Language.typeSource Language.number
-    kindWord = (word `branchDistribute` unit') ⊣ typeOr ⊗ (space ≫ keyword "word" ⊕ always)
+        apply = Language.number `branchDistribute` unit'
+    kindWord = apply ⊣ typeXor ⊗ (position ≪ space ≪ keyword "word" ⊕ always)
       where
-        word = withInnerPosition1 Language.positionType Language.typeSource Language.wordRep
-    typeOr = foldlP apply ⊣ typeAnd ⊗ many (binaryToken "(+)" ≫ typeAnd ⊕ binaryToken "|" ≫ typeOr)
-      where
-        apply = xor `branchDistribute` or
-        xor = withInnerPosition Language.positionType Language.typeSource Language.typeXor
-        or = withInnerPosition Language.positionType Language.typeSource Language.typeOr
-    typeAnd = foldlP apply ⊣ typeNot ⊗ many (binaryToken "&" ≫ typeNot)
-      where
-        apply = withInnerPosition Language.positionType Language.typeSource Language.typeAnd
+        apply = Language.wordRep `branchDistribute` unit'
+    typeXor = foldlP Language.typeXor ⊣ typeOr ⊗ many (position ⊗ binaryToken "(+)" ≫ typeOr)
+    typeOr = foldlP Language.typeOr ⊣ typeAnd ⊗ many (position ⊗ binaryToken "|" ≫ typeAnd)
+    typeAnd = foldlP Language.typeAnd ⊣ typeNot ⊗ many (position ⊗ binaryToken "&" ≫ typeNot)
     typeNot = Language.typeSource ⊣ position ⊗ not ∥ typeCore
       where
         not = Language.typeNot ⊣ token "!" ≫ typeNot
 
+integers :: (Position δ p, Syntax δ) => δ (Language.Type p)
 integers =
   Language.typeSource ⊣ position
     ⊗ choice
@@ -328,15 +318,15 @@ integers =
         shortcut "ushort" Language.unsigned Language.short,
         shortcut "uint" Language.unsigned Language.int,
         shortcut "ulong" Language.unsigned Language.long,
-        Language.number ⊣ keyword "integer" ≫ literal Language.signed ⊗ parameterized,
-        Language.number ⊣ keyword "natural" ≫ literal Language.unsigned ⊗ parameterized
+        Language.number' ⊣ keyword "integer" ≫ literal Language.signed ⊗ parameterized,
+        Language.number' ⊣ keyword "natural" ≫ literal Language.unsigned ⊗ parameterized
       ]
   where
-    shortcut name signed size = Language.number ⊣ keyword name ≫ literal signed ⊗ literal size
+    shortcut name signed size = Language.number' ⊣ keyword name ≫ literal signed ⊗ literal size
     parameterized = literal Language.native ∥# betweenParens typex ∥ literal Language.native
     literal x = Language.typeSource ⊣ position ⊗ (x ⊣ always)
 
-typeCore :: (Position δ p, Syntax δ) => δ (Language.TypeSource p)
+typeCore :: (Position δ p, Syntax δ) => δ (Language.Type p)
 typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers ∥ typeParen
   where
     options =
@@ -380,10 +370,10 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
       ]
     rotate = swap_2_3_of_3
     -- todo remove this eventually
-    funLiteral = Language.functionLiteralType ⊣ rotate ⊣ prefixKeyword "internal" ≫ typeParen ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
+    funLiteral = Language.functionLiteralType ⊣ rotate ⊣ space ≫ prefixKeyword "internal" ≫ typeParen ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
     funPointer = Language.functionPointer ⊣ rotate ⊣ typeParen ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
 
-newtype Scheme p = Scheme {runScheme :: [(p, Language.TypePatternSource p)]}
+newtype Scheme p = Scheme {runScheme :: [(p, Language.TypePattern p)]}
 
 isoScheme = Isomorph Scheme runScheme
 
@@ -395,41 +385,30 @@ scheme line = isoScheme ⊣ schema
         seperate = if line then commaSeperatedManyLine else commaSeperatedMany
     schemeCore = typePattern
 
-wrapType :: Isomorph (Scheme p, Language.TypeSource p) (Language.TypeSchemeSource p)
+wrapType :: Isomorph ((Scheme p, p), Language.Type p) (Language.TypeScheme p)
 wrapType =
-  wrap Language.typeSchemeSource Language.typeForall
-    . secondI
-      (assumeIsomorph (toPrism Language.typeSchemeSource . secondP Language.monoType) . extractInfo Language.positionType)
+  wrap Language.typeForall . secondI (assumeIsomorph Language.monoType) . associate
 
-wrapTerm :: Isomorph (Scheme p, Language.TermSource p) (Language.TermSchemeSource p)
+wrapTerm :: Isomorph ((Scheme p, p), Language.Term p) (Language.TermScheme p)
 wrapTerm =
-  wrap Language.termSchemeSource Language.typeAbstraction
-    . secondI
-      (assumeIsomorph (toPrism Language.termSchemeSource . secondP Language.monoTerm) . extractInfo Language.positionTerm)
+  wrap Language.typeAbstraction . secondI (assumeIsomorph Language.monoTerm) . associate
 
-wrap c t =
-  foldrP
-    ( toPrism c
-        . secondP
-          (t . toPrism Language.bound)
-        . toPrism associate
-    )
-    . firstI (inverse isoScheme)
+wrap scheme = foldrP scheme . firstI (inverse isoScheme)
 
-termRuntimePatternParen :: (Position δ p, Syntax δ) => Bool -> δ (Language.TermRuntimePatternSource p)
-termRuntimePatternParen top =
-  branch' (toPrism Language.termRuntimePatternSource . secondP Language.runtimePatternTuple) id
-    ⊣ commaNonSingle' last (go termRuntimePattern)
+termPatternParen :: (Position δ p, Syntax δ) => Bool -> δ (Language.TermPattern p)
+termPatternParen top =
+  branch' (toPrism Language.termPattern . secondP Language.runtimePatternTuple) id
+    ⊣ commaNonSingle' last (go termPattern)
   where
     go e
       | top = indent ≫ line ≫ e ≪ dedent
       | otherwise = e
     last = if top then line else always
 
-termRuntimePattern :: (Position δ p, Syntax δ) => δ (Language.TermRuntimePatternSource p)
-termRuntimePattern = patternCore
+termPattern :: (Position δ p, Syntax δ) => δ (Language.TermPattern p)
+termPattern = patternCore
   where
-    patternCore = Language.termRuntimePatternSource ⊣ position ⊗ choice options ∥ termRuntimePatternParen False
+    patternCore = Language.termPattern ⊣ position ⊗ choice options ∥ termPatternParen False
       where
         options =
           [ Language.runtimePatternVariable ⊣ termIdentifier ⊗ annotation,
@@ -439,10 +418,10 @@ termRuntimePattern = patternCore
         annotation = blank ∥# binaryToken "::" ≫ typex ∥ blank
         blank = Language.typeSource ⊣ (position ⊗ (Language.hole ⊣ always))
 
-termPattern :: (Position δ p, Syntax δ) => δ (Language.TermPatternSource p)
-termPattern = patternCore
+termMetaPattern :: (Position δ p, Syntax δ) => δ (Language.TermMetaPattern p)
+termMetaPattern = patternCore
   where
-    patternCore = Language.termPatternSource ⊣ position ⊗ choice options ∥ betweenParens termPattern
+    patternCore = Language.termMetaPattern ⊣ position ⊗ choice options ∥ betweenParens termMetaPattern
       where
         options =
           [ Language.patternVariable ⊣ associate' ⊣ termIdentifier ⊗ annotation
@@ -452,8 +431,8 @@ termPattern = patternCore
         blank = Language.typeSource ⊣ (position ⊗ (Language.hole ⊣ always))
         unres = Language.typeSource ⊣ (position ⊗ (Language.typeTrue ⊣ always))
 
-termParen :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
-termParen = branch' (toPrism Language.termSource . secondP Language.tupleIntroduction) id ⊣ commaNonSingle term
+termParen :: (Position δ p, Syntax δ) => δ (Language.Term p)
+termParen = branch' (toPrism Language.term . secondP Language.tupleIntroduction) id ⊣ commaNonSingle term
 
 isStatement (Language.Term _ e) = isStatementF e
 
@@ -465,74 +444,66 @@ isStatementF (Language.TermErasure (Language.Borrow _ _)) = True
 isStatementF (Language.TermRuntime (Language.Case _ _ _ _)) = True
 isStatementF _ = False
 
-termStatement :: (Position δ p, Syntax δ) => δ (Language.TermSource p)
-termStatement = Language.termSource ⊣ position ⊗ choice options ∥ apply ⊣ term ⊗ (delimit ≫ termStatement ⊕ always)
+termStatement :: (Position δ p, Syntax δ) => δ (Language.Term p)
+termStatement =
+  Language.term ⊣ position ⊗ choice options
+    ∥ apply ⊣ term ⊗ (position ⊗ delimit ≫ termStatement ⊕ always)
   where
     options =
-      [ Language.bind ⊣ rotateBind ⊣ prefixKeyword "inline" ≫ termPattern ≪ binaryToken "=" ⊗ term ≪ delimit ⊗ termStatement,
-        Language.alias ⊣ rotateBind ⊣ prefixKeyword "let" ≫ termRuntimePattern ≪ binaryToken "=" ⊗ term ≪ delimit ⊗ termStatement,
-        Language.loop ⊣ rotateBind ⊣ prefixKeyword "loop" ≫ betweenParens (prefixKeyword "let" ≫ termRuntimePattern ≪ binaryToken "=" ⊗ term) ⊗ lambdaBrace termStatement,
+      [ Language.bind ⊣ rotateBind Language.termMetaBound ⊣ prefixKeyword "inline" ≫ termMetaPattern ≪ binaryToken "=" ⊗ term ≪ delimit ⊗ termStatement,
+        Language.alias ⊣ rotateBind Language.termBound ⊣ prefixKeyword "let" ≫ termPattern ≪ binaryToken "=" ⊗ term ≪ delimit ⊗ termStatement,
+        Language.loop ⊣ rotateBind Language.termBound ⊣ prefixKeyword "loop" ≫ betweenParens (prefixKeyword "let" ≫ termPattern ≪ binaryToken "=" ⊗ term) ⊗ lambdaBrace termStatement,
         Language.ifx ⊣ prefixKeyword "if" ≫ termCore ⊗ lambdaBrace termStatement ≪ binaryKeyword "else" ⊗ lambdaBrace termStatement,
-        Language.casex ⊣ prefixKeyword "switch" ≫ termCore ⊗ lambdaBrace (many $ Language.bound ⊣ termRuntimePattern ⊗ binaryToken "=>" ≫ term ≪ delimit)
+        Language.casex ⊣ prefixKeyword "switch" ≫ termCore ⊗ lambdaBrace (many $ Language.termBound ⊣ termPattern ⊗ binaryToken "=>" ≫ term ≪ delimit)
       ]
-    rotateBind = secondI Language.bound . associate . firstI swap
-    apply = withInnerPosition Language.positionTerm Language.termSource Language.dox `branchDistribute` unit'
+    rotateBind bound = secondI bound . associate . firstI swap
+    apply = Language.dox `branchDistribute` unit'
 
+termTop :: forall δ p. (Position δ p, Syntax δ) => δ (Language.Term p)
 termTop = prettyLambda ∥# term
   where
-    prettyLambda = Language.termSource ⊣ (position ⊗ lambda)
-    lambda = Language.inlineAbstraction ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ line ≫ lambdaCore termTop
+    prettyLambda = Language.term ⊣ (position ⊗ lambda)
+    lambda = Language.inlineAbstraction ⊣ Language.termMetaBound ⊣ token "\\" ≫ termMetaPattern ⊗ line ≫ lambdaCore termTop
 
-term :: forall δ p. (Position δ p, Syntax δ) => δ (Language.TermSource p)
+term :: forall δ p. (Position δ p, Syntax δ) => δ (Language.Term p)
 term = termLambda
   where
-    termLambda = Language.termSource ⊣ position ⊗ (lambdas ∥# poly) ∥ termAnnotate
+    termLambda = Language.term ⊣ position ⊗ (lambdas ∥# poly) ∥ termAnnotate
       where
         lambdas = termLambdas (pick isStatement never (lambdaCore term))
-        poly = Language.polyIntroduction ⊣ wrapTerm ⊣ scheme False ≪ space ⊗ term
-    termAnnotate :: δ (Language.TermSource p)
-    termAnnotate = apply ⊣ termOr ⊗ (binaryToken "::" ≫ typex ⊕ binaryToken ":" ≫ typex ⊕ always)
+        poly = Language.polyIntroduction ⊣ wrapTerm ⊣ scheme False ≪ space ⊗ position ⊗ term
+    termAnnotate :: δ (Language.Term p)
+    termAnnotate = apply ⊣ termOr ⊗ (position ⊗ binaryToken "::" ≫ typex ⊕ position ⊗ binaryToken ":" ≫ typex ⊕ always)
       where
-        apply = preAnnotate `branchDistribute` annotate `branchDistribute` unit'
-        annotate = withInnerPosition Language.positionTerm Language.termSource Language.typeAnnotation
-        preAnnotate = withInnerPosition Language.positionTerm Language.termSource Language.preTypeAnnotation
-    termOr = foldlP apply ⊣ termAnd ⊗ many (binaryToken "|" ≫ termAnd)
-      where
-        apply = withInnerPosition Language.positionTerm Language.termSource Language.or
-    termAnd = foldlP apply ⊣ termEqual ⊗ many (binaryToken "&" ≫ termEqual)
-      where
-        apply = withInnerPosition Language.positionTerm Language.termSource Language.and
+        apply = Language.pretypeAnnotation `branchDistribute` Language.typeAnnotation `branchDistribute` unit'
+    termOr = foldlP Language.or ⊣ termAnd ⊗ many (position ⊗ binaryToken "|" ≫ termAnd)
+    termAnd = foldlP Language.and ⊣ termEqual ⊗ many (position ⊗ binaryToken "&" ≫ termEqual)
     termEqual = apply ⊣ termAdd ⊗ operators
       where
-        i o = withInnerPosition Language.positionTerm Language.termSource (Language.relational o)
-        r op = binaryToken op ≫ termAdd
-        b = branchDistribute
         apply = equal `b` notEqual `b` lessThenEqual `b` lessThen `b` greaterThenEqual `b` greaterThen `b` unit'
           where
+            i o = Language.relational o
+            b = branchDistribute
             equal = i Language.Equal
             notEqual = i Language.NotEqual
             lessThen = i Language.LessThen
             lessThenEqual = i Language.LessThenEqual
             greaterThen = i Language.GreaterThen
             greaterThenEqual = i Language.GreaterThenEqual
-
         operators = r "==" ⊕ r "!=" ⊕ r "<=" ⊕ r "<" ⊕ r ">=" ⊕ r ">" ⊕ always
-
-    termAdd = foldlP applyAdd ⊣ termMul ⊗ many (binaryToken "+" ≫ termMul ⊕ binaryToken "-" ≫ termMul)
+          where
+            r op = position ⊗ binaryToken op ≫ termAdd
+    termAdd = foldlP apply ⊣ termMul ⊗ many (position ⊗ binaryToken "+" ≫ termMul ⊕ position ⊗ binaryToken "-" ≫ termMul)
       where
-        applyAdd = add `branchDistribute` sub
-        add = withInnerPosition Language.positionTerm Language.termSource (Language.arithmatic Language.Addition)
-        sub = withInnerPosition Language.positionTerm Language.termSource (Language.arithmatic Language.Subtraction)
-    termMul = foldlP applyMul ⊣ termDeref ⊗ many (binaryToken "*" ≫ termDeref ⊕ binaryToken "/" ≫ termDeref)
+        apply = Language.arithmatic Language.Addition `branchDistribute` Language.arithmatic Language.Subtraction
+    termMul = foldlP apply ⊣ termDeref ⊗ many (position ⊗ binaryToken "*" ≫ termDeref ⊕ position ⊗ binaryToken "/" ≫ termDeref)
       where
-        applyMul = mul `branchDistribute` div
-        mul = withInnerPosition Language.positionTerm Language.termSource (Language.arithmatic Language.Multiplication)
-        div = withInnerPosition Language.positionTerm Language.termSource (Language.arithmatic Language.Division)
-    termDeref = Language.termSource ⊣ position ⊗ deref ∥ termPrefix
+        apply = Language.arithmatic Language.Multiplication `branchDistribute` Language.arithmatic Language.Division
+    termDeref = Language.term ⊣ position ⊗ deref ∥ termPrefix
       where
         apply = branchDistribute (Language.writeReference) (Language.readReference . toPrism unit')
         deref = apply ⊣ token "*" ≫ termPrefix ⊗ (binaryToken "=" ≫ betweenParens term ⊕ always)
-    termPrefix = Language.termSource ⊣ position ⊗ options ∥ termIndex
+    termPrefix = Language.term ⊣ position ⊗ options ∥ termIndex
       where
         options =
           choice
@@ -541,23 +512,20 @@ term = termLambda
               Language.not ⊣ token "!" ≫ termPrefix,
               Language.isolatePointer ⊣ token "&*" ≫ termPrefix
             ]
-    termIndex = Language.termSource ⊣ position ⊗ index ∥ termApply
+    termIndex = Language.term ⊣ position ⊗ index ∥ termApply
       where
         index = Language.pointerIncrement ⊣ token "&" ≫ termApply ⊗ betweenSquares term
-    termApply = foldlP applyBinary ⊣ termCore ⊗ many (applySyntax ⊕ rtApplySyntax ⊕ elimSyntax)
+    termApply = foldlP apply ⊣ termCore ⊗ many (applySyntax ⊕ rtApplySyntax ⊕ elimSyntax)
       where
-        applyBinary = application `branchDistribute` rtApplication `branchDistribute` elimatePoly
-        application = withInnerPosition Language.positionTerm Language.termSource Language.inlineApplication
-        rtApplication = withInnerPosition Language.positionTerm Language.termSource Language.functionApplication
-        elimatePoly = withInnerPosition1 Language.positionTerm Language.termSource Language.polyElimination
-        applySyntax = space ≫ token "!" ≫ termCore
-        rtApplySyntax = space ≫ termParen
-        elimSyntax = space ≫ token "<_>"
+        apply = Language.inlineApplication `branchDistribute` Language.functionApplication `branchDistribute` Language.polyElimination
+        applySyntax = position ⊗ space ≫ token "!" ≫ termCore
+        rtApplySyntax = position ⊗ space ≫ termParen
+        elimSyntax = position ≪ space ≪ token "<_>"
 
-termLambdas e = Language.inlineAbstraction ⊣ Language.bound ⊣ token "\\" ≫ termPattern ⊗ e
+termLambdas e = Language.inlineAbstraction ⊣ Language.termMetaBound ⊣ token "\\" ≫ termMetaPattern ⊗ e
 
-termCore :: forall δ p. (Position δ p, Syntax δ) => δ (Language.TermSource p)
-termCore = Language.termSource ⊣ position ⊗ choice options ∥ pick isStatement (betweenBraces termStatement) termParen
+termCore :: forall δ p. (Position δ p, Syntax δ) => δ (Language.Term p)
+termCore = Language.term ⊣ position ⊗ choice options ∥ pick isStatement (betweenBraces termStatement) termParen
   where
     options =
       [ Language.variable ⊣ termIdentifier,
@@ -570,33 +538,29 @@ termCore = Language.termSource ⊣ position ⊗ choice options ∥ pick isStatem
         Language.continue ⊣ prefixKeyword "continue" ≫ termCore,
         Language.wrap ⊣ prefixKeyword "wrap" ≫ termCore,
         Language.unwrap ⊣ prefixKeyword "unwrap" ≫ termCore,
-        Language.borrow ⊣ prefixKeyword "borrow" ≫ termIdentifier ⊗ space ≫ (wrapTerm ⊣ scheme False ⊗ betweenBraces term),
+        Language.borrow ⊣ prefixKeyword "borrow" ≫ termIdentifier ⊗ space ≫ (wrapTerm ⊣ scheme False ⊗ position ⊗ betweenBraces term),
         termLambdas (lambdaBrace termStatement ∥ lambdaCore term)
       ]
 
-itemSingleton ::
-  (Syntax δ, Position δ p) => δ (Module.Item (Module.GlobalSource p))
-itemSingleton =
-  prefixKeyword "module" ≫ keyword "this" ≫ delimit ≫ (Module.modulex ⊣ Module.coreModule ⊣ items identifer)
-    ∥# inverse (assumeIsomorph singletonMap) ⊣ items (keyword "this")
-
-inline name = prefixKeyword "inline" ≫ name ⊗ (Module.global ⊣ Module.inline ⊣ definition)
+inline :: (Syntax δ, Position δ p) => δ (Path, Module.Global p)
+inline = prefixKeyword "inline" ≫ localPath ⊗ (Module.inline ⊣ definition)
   where
     definition = manual ∥ auto
-    manual = Language.termManualSource ⊣ wrapTerm ⊣ scheme True ⊗ body
-    auto = Language.termAutoSource ⊣ body
+    manual = Language.termManual ⊣ wrapTerm ⊣ scheme True ⊗ position ⊗ body
+    auto = Language.termAuto ⊣ body
     body = annotated ∥ plain
-    annotated = Language.termSource ⊣ position ⊗ (Language.typeAnnotation ⊣ swap ⊣ marked)
-    marked = binaryToken ":" ≫ typex ⊗ binaryToken "=" ≫ termTop ≪ token ";"
+    annotated = Language.typeAnnotation' ⊣ marked
+    marked = position ⊗ binaryToken ":" ≫ typex ⊗ binaryToken "=" ≫ termTop ≪ token ";"
     plain = binaryToken "=" ≫ termTop ≪ token ";"
 
-text name = name ⊗ (Module.global ⊣ Module.text ⊣ definition)
+text :: (Syntax δ, Position δ p) => δ (Path, Module.Global p)
+text = localPath ⊗ (Module.text ⊣ definition)
   where
-    definition = Language.termManualSource ⊣ manual ∥ Language.termAutoSource ⊣ auto
-    manual = wrapTerm ⊣ scheme True ⊗ (Language.termSource ⊣ position ⊗ (Language.functionLiteral ⊣ body))
-    auto = Language.termSource ⊣ position ⊗ (Language.functionLiteral ⊣ body)
-    body = associate' . firstI Language.bound . associate' . secondI (swap) ⊣ syntax
-    syntax = termRuntimePatternParen True ⊗ main
+    definition = Language.termManual ⊣ manual ∥ Language.termAuto ⊣ auto
+    manual = wrapTerm ⊣ scheme True ⊗ position ⊗ (Language.term ⊣ position ⊗ (Language.functionLiteral ⊣ body))
+    auto = Language.term ⊣ position ⊗ (Language.functionLiteral ⊣ body)
+    body = associate' . firstI Language.termBound . associate' . secondI (swap) ⊣ syntax
+    syntax = termPatternParen True ⊗ main
     main = implicit ∥# semi ∥ explicit ∥ implicit
     semi = binaryToken "::" ≫ typeUnique ⊗ false ⊗ braced
     false = Language.typeSource ⊣ (position ⊗ (Language.typeFalse ⊣ always))
@@ -605,28 +569,34 @@ text name = name ⊗ (Module.global ⊣ Module.text ⊣ definition)
     explicit = binaryToken ":" ≫ typeUnique ⊗ binaryKeyword "in" ≫ typex ⊗ braced
     braced = lambdaBrace termStatement
 
-synonym name = prefixKeyword "type" ≫ name ⊗ binaryToken "=" ≫ (Module.global ⊣ Module.synonym ⊣ typex) ≪ token ";"
+synonym :: (Syntax δ, Position δ p) => δ (Path, Module.Global p)
+synonym = prefixKeyword "type" ≫ localPath ⊗ binaryToken "=" ≫ (Module.synonym ⊣ typex) ≪ token ";"
 
-newType name = prefixKeyword "wrapper" ≫ name ⊗ wrapper
+newType :: (Syntax δ, Position δ p) => δ (Path, Module.Global p)
+newType = prefixKeyword "wrapper" ≫ localPath ⊗ (define ∥ declare)
   where
-    wrapper = Module.global ⊣ Module.newtypex ⊣ binaryToken ":" ≫ typex ⊗ binaryToken "=" ≫ typex ≪ token ";"
+    define = Module.newType ⊣ binaryToken "=" ≫ typex ≪ token ";"
+    declare = Module.forwardNewtype ⊣ binaryToken ":" ≫ typex ≪ token ";"
 
-modulex name = prefixKeyword "module" ≫ name ⊗ (scoped ∥ inline)
-  where
-    scoped = space ≫ token "=" ≫ lambdaBrace contents ≪ token ";"
-    inline = delimit ≫ contents
-    contents = Module.modulex ⊣ Module.coreModule ⊣ items identifer
+itemsRaw = seperatedMany (inline ∥ text ∥ synonym ∥ newType) (line ≫ line) where
 
-items :: (Syntax δ, Position δ p, Show x, Ord x) => δ x -> δ (Map x (Module.Item (Module.GlobalSource p)))
-items name = orderless ⊣ list ⊣ left ⊣ seperatedSome (inline name ∥ text name ∥ modulex name ∥ synonym name ∥ newType name) (line ≫ line)
+-- todo readd syntax for forward declarations
+items :: (Syntax δ, Position δ p) => δ (Map Path (NonEmpty (Module.Global p)))
+items = orderlessMulti ⊣ itemsRaw
 
 newtype Parser a = Parser (Parsec Void String a) deriving (Functor, Applicative, Monad, Alternative, MonadPlus)
 
-parseTest (Parser p) = Megaparsec.parseTest p
+parseMain ::
+  Parser a ->
+  String ->
+  String ->
+  Either
+    (Megaparsec.ParseErrorBundle String Void)
+    a
+parseMain (Parser p) = Megaparsec.parse (Megaparsec.space *> p <* Megaparsec.eof)
 
-parse (Parser p) = Megaparsec.parse p
-
-parseMaybe (Parser p) = Megaparsec.parseMaybe p
+parseMaybe :: Parser a -> String -> Maybe a
+parseMaybe (Parser p) = Megaparsec.parseMaybe (p <* Megaparsec.eof)
 
 instance SyntaxBase Parser where
   syntaxmap (Prism f _) p = f <$> p

@@ -1,20 +1,33 @@
 module Main where
 
-import Ast.Module as Module hiding (modulex)
-import Ast.Term (TermIdentifier (..), textType)
-import Ast.Type hiding (Inline, kind, typeGlobalIdentifier, typeIdentifier, typex)
-import qualified Ast.Type as Type
-import qualified C.Ast as C
+import Ast.Common.Variable
+import Ast.Module.Algebra
+import Ast.Module.Convert (sourceGlobal)
+import Ast.Module.Core (reduceModule)
+import qualified Ast.Module.Core as Core (Global (..))
+import Ast.Module.Surface (ModuleError (..), order, removeInserted, validateDuplicates)
+import qualified Ast.Module.Surface as Surface (Global (..))
+import Ast.Term.Core (textType)
+import Ast.Type.Algebra hiding (Inline, Type)
+import qualified Ast.Type.Algebra as Algebra (TypeF (Type))
+import qualified Ast.Type.Algebra as Type
+import Ast.Type.Convert (nameType)
+import Ast.Type.Core (Type (..), zonkType)
 import qualified C.Print as C
 import Codegen
-import Control.Monad
 import Control.Monad.Trans.State
+import Data.Either (fromRight)
 import Data.Foldable
+import Data.Functor.Identity
 import qualified Data.List as List
+import Data.List.NonEmpty (NonEmpty)
+import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map (Map)
 import qualified Data.Map as Map
+import Data.Maybe (isJust)
 import Data.Traversable (for)
-import Misc.Path hiding (path)
+import Misc.Path (Path (..), SemiPath (..))
+import qualified Misc.Path as Path
 import Simple
 import Syntax
 import System.Console.GetOpt
@@ -24,10 +37,10 @@ import System.Exit
 import System.FilePath
 import Text.Megaparsec (SourcePos, errorBundlePretty)
 import TypeCheck
-import Prelude hiding (readFile, writeFile)
-import qualified Prelude
 
-v = TypeAst () (TypeLogical (TypeLogicalRaw 0))
+unorder = Map.fromListWith (flip (<>)) . map (fmap NonEmpty.singleton)
+
+v = Type (TypeLogical (TypeLogicalRaw 0))
 
 prettyType σ = pretty typex (nameType σ)
 
@@ -37,7 +50,7 @@ prettyError e = case e of
     "Type mismatch between `" ++ prettyType σ ++ "` and `" ++ prettyType σ' ++ "`" ++ positions p
   TypePolyMismatch p ς ς' ->
     prettyError
-      (TypeMismatch p (TypeAst () $ Poly (TypeAst () AmbiguousLabel) ς) (TypeAst () $ Poly (TypeAst () AmbiguousLabel) ς'))
+      (TypeMismatch p (Type $ Poly (Type AmbiguousLabel) ς) (Type $ Poly (Type AmbiguousLabel) ς'))
   TypeBooleanMismatch p σ -> "Unable to solve boolean expressions: " ++ List.intercalate " and " (map prettyType σ) ++ positions p
   ExpectedTypeAnnotation p -> "Expected type annotation: " ++ positions p
   ExpectedBooleanType p σ -> "Expected boolean type: " ++ prettyType σ ++ positions p
@@ -45,37 +58,37 @@ prettyError e = case e of
   UnknownGlobalIdentifier p x -> "Unknown Global: " ++ pretty termGlobalIdentifier x ++ positions p
   UnknownTypeGlobalIdentifier p x -> "Unknown Type Global: " ++ pretty typeGlobalIdentifier x ++ positions p
   TypeOccursCheck p v σ ->
-    "Occurance Check: `" ++ prettyType (TypeAst () $ TypeLogical v) ++ "` in` " ++ prettyType σ ++ "`" ++ positions p
+    "Occurance Check: `" ++ prettyType (Type $ TypeLogical v) ++ "` in` " ++ prettyType σ ++ "`" ++ positions p
   EscapingSkolemType p x ->
     "Escaping Skolem: `" ++ pretty typeIdentifier x ++ "`" ++ positions p
   MismatchedTypeLambdas p -> "Mismatched type lambdas: " ++ positions p
   IncorrectRegionBounds p -> "Incorrect Region Bounds: " ++ positions p
   NotTypable p -> "Not typable: " ++ positions p
   ExpectedNewtype p σ -> "Expected Newtype: `" ++ prettyType σ ++ "`" ++ positions p
-  ExpectedKind p σ -> prettyError (TypeMismatch p (TypeAst () (Kind v v)) σ)
-  ExpectedRepresentation p σ -> prettyError (TypeMismatch p (TypeAst () (Kind v v)) σ)
-  ExpectedMultiplicity p σ -> prettyError (TypeMismatch p (TypeAst () (Kind v v)) σ)
-  ExpectedSize p σ -> prettyError (TypeMismatch p (TypeAst () (Size)) σ)
-  ExpectedSignedness p σ -> prettyError (TypeMismatch p (TypeAst () (Signedness)) σ)
-  ExpectedType p σ -> prettyError (TypeMismatch p (TypeAst () (Type)) σ)
-  ExpectedPretype p σ -> prettyError (TypeMismatch p (TypeAst () (Pretype v v)) σ)
-  ExpectedBoxed p σ -> prettyError (TypeMismatch p (TypeAst () (Boxed)) σ)
-  ExpectedRegion p σ -> prettyError (TypeMismatch p (TypeAst () (Region)) σ)
-  ExpectedPropositional p σ -> prettyError (TypeMismatch p (TypeAst () (Propositional)) σ)
-  ExpectedUnification p σ -> prettyError (TypeMismatch p (TypeAst () (Unification)) σ)
-  ExpectedTransparency p σ -> prettyError (TypeMismatch p (TypeAst () (Transparency)) σ)
-  ExpectedInline p σ -> prettyError (TypeMismatch p (TypeAst () (Type.Inline v v v)) σ)
-  ExpectedFunctionPointer p σ -> prettyError (TypeMismatch p (TypeAst () (FunctionPointer v v v)) σ)
-  ExpectedFunctionLiteralType p σ -> prettyError (TypeMismatch p (TypeAst () (FunctionLiteralType v v v)) σ)
-  ExpectedUnique p σ -> prettyError (TypeMismatch p (TypeAst () (Unique v)) σ)
-  ExpectedPointer p σ -> prettyError (TypeMismatch p (TypeAst () (Pointer v)) σ)
-  ExpectedArray p σ -> prettyError (TypeMismatch p (TypeAst () (Array v)) σ)
-  ExpectedEffect p σ -> prettyError (TypeMismatch p (TypeAst () (Effect v v)) σ)
-  ExpectedShared p σ -> prettyError (TypeMismatch p (TypeAst () (Shared v v)) σ)
-  ExpectedNumber p σ -> prettyError (TypeMismatch p (TypeAst () (Number v v)) σ)
-  ExpectedBoolean p σ -> prettyError (TypeMismatch p (TypeAst () (Boolean)) σ)
-  ExpectedStep p σ -> prettyError (TypeMismatch p (TypeAst () (Step v v)) σ)
-  ExpectedLabel p σ -> prettyError (TypeMismatch p (TypeAst () (Label)) σ)
+  ExpectedKind p σ -> prettyError (TypeMismatch p (Type (Kind v v)) σ)
+  ExpectedRepresentation p σ -> prettyError (TypeMismatch p (Type (Kind v v)) σ)
+  ExpectedMultiplicity p σ -> prettyError (TypeMismatch p (Type (Kind v v)) σ)
+  ExpectedSize p σ -> prettyError (TypeMismatch p (Type (Size)) σ)
+  ExpectedSignedness p σ -> prettyError (TypeMismatch p (Type (Signedness)) σ)
+  ExpectedType p σ -> prettyError (TypeMismatch p (Type (Algebra.Type)) σ)
+  ExpectedPretype p σ -> prettyError (TypeMismatch p (Type (Pretype v v)) σ)
+  ExpectedBoxed p σ -> prettyError (TypeMismatch p (Type (Boxed)) σ)
+  ExpectedRegion p σ -> prettyError (TypeMismatch p (Type (Region)) σ)
+  ExpectedPropositional p σ -> prettyError (TypeMismatch p (Type (Propositional)) σ)
+  ExpectedUnification p σ -> prettyError (TypeMismatch p (Type (Unification)) σ)
+  ExpectedTransparency p σ -> prettyError (TypeMismatch p (Type (Transparency)) σ)
+  ExpectedInline p σ -> prettyError (TypeMismatch p (Type (Type.Inline v v v)) σ)
+  ExpectedFunctionPointer p σ -> prettyError (TypeMismatch p (Type (FunctionPointer v v v)) σ)
+  ExpectedFunctionLiteralType p σ -> prettyError (TypeMismatch p (Type (FunctionLiteralType v v v)) σ)
+  ExpectedUnique p σ -> prettyError (TypeMismatch p (Type (Unique v)) σ)
+  ExpectedPointer p σ -> prettyError (TypeMismatch p (Type (Pointer v)) σ)
+  ExpectedArray p σ -> prettyError (TypeMismatch p (Type (Array v)) σ)
+  ExpectedEffect p σ -> prettyError (TypeMismatch p (Type (Effect v v)) σ)
+  ExpectedShared p σ -> prettyError (TypeMismatch p (Type (Shared v v)) σ)
+  ExpectedNumber p σ -> prettyError (TypeMismatch p (Type (Number v v)) σ)
+  ExpectedBoolean p σ -> prettyError (TypeMismatch p (Type (Boolean)) σ)
+  ExpectedStep p σ -> prettyError (TypeMismatch p (Type (Step v v)) σ)
+  ExpectedLabel p σ -> prettyError (TypeMismatch p (Type (Label)) σ)
   BadBorrowIdentifier p (TermIdentifier x) -> "Bad Borrow Identifier `" ++ x ++ "`" ++ positions p
   BadBorrowSyntax p -> "Bad Borrow Syntax" ++ positions p
 
@@ -88,246 +101,197 @@ prettyPath = quoted . pretty path
 expected a b p = "Expected " ++ a ++ " but got " ++ b ++ positions p
 
 prettyModuleError (IllegalPath p path) = "Unknown path " ++ prettyPath path ++ positions p
-prettyModuleError (IncompletePath p path) = "Incomplete path " ++ prettyPath path ++ positions p
-prettyModuleError (IndexingGlobal p path) = "Indexing global declaration" ++ prettyPath path ++ positions p
-prettyModuleError (Cycle p path) = "Global cycle" ++ prettyPath path ++ positions p
+prettyModuleError (Cycle p path) = "Global variable cycle " ++ prettyPath path ++ positions p
+prettyModuleError (Duplicate p path) = "Duplicate declarations " ++ prettyPath path ++ positions p
 
 positions p = " in positions: " ++ show p
 
-readFile "-" = getContents
-readFile name = do
-  file <- Prelude.readFile name
-  pure $ length file `seq` file -- stop lazy io
-
-writeFile "-" file = putStrLn file
-writeFile name file = Prelude.writeFile name file
-
-load :: String -> IO (Item (GlobalSource SourcePos))
-load fileName = do
-  isDirectory <- doesDirectoryExist fileName
-  if isDirectory
-    then do
-      children <- listDirectory fileName
-      inner <- for children $ \child -> do
-        item <- load (fileName ++ [pathSeparator] ++ child)
-        pure (dropExtension child, item)
-      pure (Module $ CoreModule $ Map.fromList inner)
-    else do
-      file <- readFile fileName
-      case parse itemSingleton fileName file of
-        Right x -> pure x
-        Left e -> die $ errorBundlePretty e
-
-save :: String -> Item (GlobalSource ()) -> IO ()
-save fileName item = writeFile fileName (pretty itemSingleton item)
-
-loadModule fileName = do
-  item <- load fileName
-  case item of
-    Module code -> pure code
-    _ -> die $ fileName ++ " is not a module."
-
-saveModule fileName code = save fileName (Module code)
-
-addItems :: Module g -> [String] -> Module g -> IO (Module g)
-addItems (CoreModule code) [] (CoreModule items) = pure $ CoreModule $ Map.union code items
-addItems (CoreModule code) (name : path) items = do
-  let inner = Map.findWithDefault (Module $ CoreModule $ Map.empty) name code
-  case inner of
-    Global _ -> die $ show name ++ " is not a module"
-    Module inner -> do
-      inner' <- addItems inner path items
-      pure $ CoreModule $ Map.insert name (Module inner') code
-
-addItem :: Module g -> Path -> Item g -> IO (Module g)
-addItem code (Path heading name) item = addItems code heading $ CoreModule $ Map.singleton name item
-
-addAll :: [([String], String)] -> IO (Module (GlobalSource SourcePos))
-addAll = add <=< read
-  where
-    add = foldlM (uncurry . addItems) (CoreModule Map.empty)
-    read = traverse (\(path, file) -> pure (,) <*> pure path <*> loadModule file)
-
-pickItem :: Module.Module g -> [String] -> IO (Module.Item g)
-pickItem code [] = pure $ Module code
-pickItem (CoreModule items) [name] = case Map.lookup name items of
-  Just item -> pure item
-  Nothing -> die $ show name ++ " does not exist"
-pickItem (CoreModule items) (first : remainder) = case Map.lookup first items of
-  Just (Module code) -> pickItem code remainder
-  _ -> die $ "unable to index module" ++ show first
-
-formatItem :: Module (GlobalSource ()) -> [String] -> String -> IO ()
-formatItem code path file = do
-  item <- pickItem code path
-  save file item
-
-formatAll :: Module (GlobalSource ()) -> [([String], String)] -> IO ()
-formatAll code = traverse_ (uncurry $ formatItem code)
-
-compileModule :: Map TypeGlobalIdentifier TypeInfer -> Module (GlobalInfer p) -> [String] -> Dependency [C.Statement]
-compileModule newtypes (CoreModule code) heading = concat <$> traverse (\(name, item) -> compileItem newtypes item (Path heading name)) (Map.toList code)
-
-compileItem :: Map TypeGlobalIdentifier TypeInfer -> Item (GlobalInfer p) -> Path -> Dependency [C.Statement]
-compileItem newtypes (Module items) (Path path name) = compileModule newtypes items (path ++ [name])
-compileItem newtypes (Global (GlobalInfer (Text e))) path = do
-  fn <- codegen (mangle path) (runSimplify (convertFunctionType $ textType e) Map.empty newtypes) (runSimplify (convertFunction e) Map.empty newtypes)
-  pure [fn]
-compileItem _ (Global (GlobalInfer (Inline _))) _ = pure []
-compileItem _ (Global (GlobalInfer (Synonym _))) _ = pure []
-compileItem _ (Global (GlobalInfer (NewType _ _))) _ = pure []
-
-newtypes :: Module (GlobalInfer p) -> Map TypeGlobalIdentifier TypeInfer
-newtypes = Map.mapKeysMonotonic TypeGlobalIdentifier . flatten . mapMaybe new
-  where
-    new (GlobalInfer (NewType κ _)) = Just κ
-    new _ = Nothing
-
-generateItem code [] file = do
-  let (functions, structs) = runDependency $ compileModule (newtypes code) code []
-  writeFile file (C.emit C.code $ structs ++ functions)
-generateItem code path file = do
-  item <- pickItem code path
-  let (functions, structs) = runDependency $ compileItem (newtypes code) item (Path (init path) (last path))
-  writeFile file (C.emit C.code $ structs ++ functions)
-
-generateAll code = traverse_ (uncurry $ generateItem code)
-
 data CommandLine = CommandLine
-  { loadItem :: [([String], FilePath)],
-    prettyItem :: [([String], FilePath)],
-    prettyItemAnnotated :: [([String], FilePath)],
-    prettyItemReduced :: [([String], FilePath)],
-    generateCItem :: [([String], FilePath)]
+  { loadItem :: [(SemiPath, FilePath)],
+    prettyItem :: [(SemiPath, FilePath)],
+    prettyItemAnnotated :: [(SemiPath, FilePath)],
+    prettyItemReduced :: [(SemiPath, FilePath)],
+    generateCItem :: [(SemiPath, FilePath)]
   }
   deriving (Show)
 
-parsePathPair modify filePath targetPath cmd = case parseMaybe semiPath targetPath of
-  Nothing -> die $ "Unable to parse path: " ++ targetPath
-  Just path -> pure $ modify (path, filePath) cmd
+baseMain command = do
+  code <- foldrM (\item code -> Map.union <$> loadSection item <*> pure code) Map.empty (loadItem command)
+  code <- handleModuleError $ do
+    validateDuplicates code
+    order code
+  let (origin, paths, items) = unzip3 code
+  for (prettyItem command) (saveSection $ unorder $ removeInserted (zip3 origin paths items))
+  (code, environment) <- handleTypeError $ runStateT (typeCheckModule (zip paths items)) emptyEnvironment
+  let (paths, items) = unzip code
+  for (prettyItemAnnotated command) (saveSection $ unorder $ fmap sourceGlobal <$> removeInserted (zip3 origin paths items))
 
-loadCmd item command = command {loadItem = item : loadItem command}
+  code <- pure $ reduceModule Map.empty code
+  let (paths, items) = unzip code
 
-formatCmd item command = command {prettyItem = item : prettyItem command}
+  for (prettyItemReduced command) (saveSection $ unorder $ fmap sourceGlobal <$> removeInserted (zip3 origin paths items))
+  for (generateCItem command) (saveC environment code)
+  pure ()
+  where
+    readFile "-" = getContents
+    readFile name = do
+      file <- Prelude.readFile name
+      pure $ length file `seq` file -- stop lazy io
+    writeFile "-" file = putStrLn file
+    writeFile name file = Prelude.writeFile name file
 
-annotateCmd item command = command {prettyItemAnnotated = item : prettyItemAnnotated command}
+    handleModuleError (Left e) = die $ prettyModuleError e
+    handleModuleError (Right e) = pure e
+    handleTypeError (Left e) = die $ prettyError e
+    handleTypeError (Right e) = pure e
+    loadSection :: (SemiPath, FilePath) -> IO (Map Path (NonEmpty (Surface.Global [SourcePos])))
+    loadSection (semi, fileName) = do
+      directory <- doesDirectoryExist fileName
+      case directory of
+        False -> do
+          file <- readFile fileName
+          case parseMain items fileName file of
+            Right items -> pure (Map.mapKeysMonotonic (Path.prepend semi) (Map.map (fmap (fmap (: []))) items))
+            Left err -> die $ errorBundlePretty err
+        True -> do
+          fileNames <- listDirectory fileName
+          modules <- traverse (\name -> loadSection (Path.forget $ Path.combine semi (dropExtension name), fileName </> name)) fileNames
+          pure $ Map.unions modules
 
-reduceCmd item command = command {prettyItemReduced = item : prettyItemReduced command}
+    saveSection :: Map Path (NonEmpty (Surface.Global p)) -> (SemiPath, FilePath) -> IO ()
+    saveSection code (semi, fileName) = do
+      code <- pure $ (removeInserted $ fromRight undefined $ order ((fmap . fmap . fmap) (const ()) code)) >>= starts
+      let text = pretty itemsRaw code
+      writeFile fileName text
+      where
+        starts (path, item) = do
+          case Path.startsWith semi path of
+            Nothing -> []
+            Just path -> [(path, item)]
 
-cCmd item command = command {generateCItem = item : generateCItem command}
+    saveC environment code (semi, fileName) = do
+      writeFile fileName $ C.emit C.code (dependency ++ statements)
+      where
+        (statements, dependency) = runDependency $ do
+          let wrappers = fmap (assumeDone . typeKind) (kindGlobalEnvironment environment)
+          code <- pure $ filter (isJust . Path.startsWith semi . fst) code
+          fmap concat $
+            for code $ \(path, item) -> case item of
+              Core.Global (Text e) -> do
+                let σ = textType e
+                    e' = runSimplify (convertFunction e) Map.empty wrappers
+                    σ' = runSimplify (convertFunctionType σ) Map.empty wrappers
+                (: []) <$> codegen (Path.mangle path) σ' e'
+              _ -> pure []
+          where
+            assumeDone = runIdentity . zonkType (error "bad unification vaniable")
 
 data Flags
   = Help
   | Load String
   | Output String
-  | Wd String
+  | Directory String
   | Format
   | Annotate
   | Reduce
   | C
   deriving (Show, Eq)
 
-descriptions =
-  [ Option [] ["help"] (NoArg Help) "Help",
-    Option ['d'] ["directory"] (ReqArg Wd "path") "Set",
-    Option ['o'] ["output"] (ReqArg Output "file") "Output",
-    Option ['F'] ["format"] (NoArg Format) "Format",
-    Option ['A'] ["annotate"] (NoArg Annotate) "Annotate",
-    Option ['R'] ["reduce"] (NoArg Reduce) "Reduce",
-    Option ['C'] [] (NoArg C) "C"
-  ]
-
-printHelp = do
-  putStrLn "Usage: aith [options] file..."
-  putStrLn "Options:"
-  putStrLn " -o<file>"
-  putStrLn "     Set output file"
-  putStrLn " -d<aith path>"
-  putStrLn " --directory <aith path>"
-  putStrLn "     Set the Aith path for the next command"
-  putStrLn " -F"
-  putStrLn " --format"
-  putStrLn "     Format the output"
-  putStrLn " -A"
-  putStrLn " --annotate"
-  putStrLn "     Annotate the outpt"
-  putStrLn " -R"
-  putStrLn " --reduce"
-  putStrLn "     Reduce the output"
-  putStrLn " -C"
-  putStrLn "     Generate C into the output"
-  exitSuccess
-
-targets [] = [[]]
-targets (x@(Load _) : xs) = [x] : targets xs
-targets (x@(Output _) : xs) = [x] : targets xs
-targets (x : xs) = (x : head remain) : tail remain
-  where
-    remain = targets xs
-
-findLoad [] = []
-findLoad (Load load : xs) = load : findLoad xs
-findLoad (_ : xs) = findLoad xs
-
-findOutput [] = []
-findOutput (Output output : xs) = output : findOutput xs
-findOutput (_ : xs) = findOutput xs
-
-findWorking [] = []
-findWorking (Wd wd : xs) = wd : findWorking xs
-findWorking (_ : xs) = findWorking xs
-
-countFormat = length . filter (== Format)
-
-countAnnotate = length . filter (== Annotate)
-
-countReduce = length . filter (== Reduce)
-
-countC = length . filter (== C)
-
-processCmd cmd [] = pure cmd
-processCmd cmd t = case (findLoad t, findOutput t, working $ findWorking t, countFormat t, countAnnotate t, countReduce t, countC t) of
-  ([file], [], Just wd, 0, 0, 0, 0) -> parsePathPair loadCmd file wd cmd
-  ([], [file], Just wd, 1, 0, 0, 0) -> parsePathPair formatCmd file wd cmd
-  ([], [file], Just wd, 0, 1, 0, 0) -> parsePathPair annotateCmd file wd cmd
-  ([], [file], Just wd, 0, 0, 1, 0) -> parsePathPair reduceCmd file wd cmd
-  ([], [file], Just wd, 0, 0, 0, 1) -> parsePathPair cCmd file wd cmd
-  _ -> die $ "invalid flags" ++ show t
-  where
-    working [] = Just ""
-    working [x] = Just x
-    working _ = Nothing
-
-baseMain command = do
-  code <- addAll (loadItem command)
-  code <- pure $ fmap (mapGlobalPosition (: [])) code
-  formatAll (fmap (mapGlobalPosition (const ())) code) (prettyItem command)
-  code <- handleModuleError $ order code
-  code <- handleTypeError $ evalStateT (typeCheckModule code) emptyEnvironment
-
-  formatAll (sourceGlobal <$> unorder code) (prettyItemAnnotated command)
-
-  code <- pure $ reduceModule Map.empty code
-
-  formatAll (sourceGlobal <$> unorder code) (prettyItemReduced command)
-  generateAll (unorder code) (generateCItem command)
-  where
-    handleModuleError (Left e) = die $ prettyModuleError e
-    handleModuleError (Right e) = pure e
-    handleTypeError (Left e) = die $ prettyError e
-    handleTypeError (Right e) = pure e
-
 main' args = do
   let (flags, _, errors) = getOpt (ReturnInOrder Load) descriptions args
-  case errors of
-    [] -> case flags of
-      [] -> printHelp
-      _ -> case find (== Help) flags of
-        Just _ -> printHelp
-        _ -> do
-          let options = targets flags
-          cmd <- foldlM processCmd (CommandLine [] [] [] [] []) options
-          baseMain cmd
-    _ -> die $ List.intercalate "\n" errors
+  if
+      | (_ : _) <- errors -> die $ List.intercalate "\n" errors
+      | [] <- flags -> printHelp
+      | Just _ <- find (== Help) flags -> printHelp
+      | otherwise -> do
+        let options = targets flags
+        cmd <- foldlM processCmd (CommandLine [] [] [] [] []) options
+        baseMain cmd
+  where
+    descriptions =
+      [ Option [] ["help"] (NoArg Help) "Help",
+        Option ['d'] ["directory"] (ReqArg Directory "path") "Set",
+        Option ['o'] ["output"] (ReqArg Output "file") "Output",
+        Option ['F'] ["format"] (NoArg Format) "Format",
+        Option ['A'] ["annotate"] (NoArg Annotate) "Annotate",
+        Option ['R'] ["reduce"] (NoArg Reduce) "Reduce",
+        Option ['C'] [] (NoArg C) "C"
+      ]
+
+    printHelp = do
+      traverse
+        putStrLn
+        [ "Usage: aith [options] file...",
+          "Options:",
+          " -o<file>",
+          "     Set output file",
+          " -d<aith path>",
+          " --directory <aith path>",
+          "     Set the Aith path for the next command",
+          " -F",
+          " --format",
+          "     Format the output",
+          " -A",
+          " --annotate",
+          "     Annotate the outpt",
+          " -R",
+          " --reduce",
+          "     Reduce the output",
+          " -C",
+          "     Generate C into the output"
+        ]
+      exitSuccess
+    targets [] = [[]]
+    targets (x@(Load _) : xs) = [x] : targets xs
+    targets (x@(Output _) : xs) = [x] : targets xs
+    targets (x : xs) = (x : head remain) : tail remain
+      where
+        remain = targets xs
+
+    processCmd cmd [] = pure cmd
+    processCmd cmd t = case (findLoad t, findOutput t, working $ findWorking t, countFormat t, countAnnotate t, countReduce t, countC t) of
+      ([file], [], Just wd, 0, 0, 0, 0) -> parsePathPair loadCmd file wd cmd
+      ([], [file], Just wd, 1, 0, 0, 0) -> parsePathPair formatCmd file wd cmd
+      ([], [file], Just wd, 0, 1, 0, 0) -> parsePathPair annotateCmd file wd cmd
+      ([], [file], Just wd, 0, 0, 1, 0) -> parsePathPair reduceCmd file wd cmd
+      ([], [file], Just wd, 0, 0, 0, 1) -> parsePathPair cCmd file wd cmd
+      _ -> die $ "invalid flags" ++ show t
+      where
+        working [] = Just ""
+        working [x] = Just x
+        working _ = Nothing
+
+        findLoad [] = []
+        findLoad (Load load : xs) = load : findLoad xs
+        findLoad (_ : xs) = findLoad xs
+
+        findOutput [] = []
+        findOutput (Output output : xs) = output : findOutput xs
+        findOutput (_ : xs) = findOutput xs
+
+        findWorking [] = []
+        findWorking (Directory wd : xs) = wd : findWorking xs
+        findWorking (_ : xs) = findWorking xs
+
+        countFormat = length . filter (== Format)
+
+        countAnnotate = length . filter (== Annotate)
+
+        countReduce = length . filter (== Reduce)
+
+        countC = length . filter (== C)
+
+        loadCmd item command = command {loadItem = item : loadItem command}
+
+        formatCmd item command = command {prettyItem = item : prettyItem command}
+
+        annotateCmd item command = command {prettyItemAnnotated = item : prettyItemAnnotated command}
+
+        reduceCmd item command = command {prettyItemReduced = item : prettyItemReduced command}
+
+        cCmd item command = command {generateCItem = item : generateCItem command}
+        parsePathPair modify filePath targetPath cmd = case parseMaybe semiPath targetPath of
+          Nothing -> die $ "Unable to parse path: " ++ targetPath
+          Just path -> pure $ modify (path, filePath) cmd
 
 main = getArgs >>= main'

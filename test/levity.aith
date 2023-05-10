@@ -1,0 +1,11 @@
+idPolyPair<A : pretype<struct(pointer, 32bit word), false>>(x :: A) {
+    x
+}
+
+idPolyUnion<A : pretype<union(pointer, 32bit word), false>>(x :: A) {
+    x
+}
+
+useId(ptr) {
+    idPolyPair(ptr, 0)
+}

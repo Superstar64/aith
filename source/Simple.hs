@@ -1,8 +1,13 @@
 module Simple where
 
-import Ast.Common
-import Ast.Term hiding (convertTerm)
-import Ast.Type hiding (convertType)
+import Ast.Common.Variable
+import Ast.Term.Algebra
+import Ast.Term.Core hiding (convertTerm)
+import Ast.Term.Runtime
+import Ast.Type.Algebra hiding (Type)
+import Ast.Type.Core hiding (convertType, reconstruct)
+import qualified Ast.Type.Core as Core (reconstruct)
+import Ast.Type.Runtime
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (Reader, ReaderT, ask, runReader, runReaderT, withReaderT)
 import Data.Map (Map, (!))
@@ -23,7 +28,7 @@ runSimplify (Simplify s) = runReader . runReaderT s
 
 newtype SimpleType = SimpleType (KindRuntime KindSize SimpleType) deriving (Eq, Ord)
 
-data SimplePattern p = SimplePattern p (TermRuntimePatternF SimpleType (SimplePattern p))
+data SimplePattern p = SimplePattern p (TermPatternF SimpleType (SimplePattern p))
 
 data SimpleTerm p
   = SimpleTerm
@@ -33,11 +38,13 @@ data SimpleTerm p
           ()
           KindSignedness
           SimpleType
-          (Bound (SimplePattern p) (SimpleTerm p))
+          (SimpleBound p)
           (SimpleTerm p)
       )
 
-data SimpleFunction p = SimpleFunction p (Bound (SimplePattern p) (SimpleTerm p))
+data SimpleBound p = SimpleBound (SimplePattern p) (SimpleTerm p)
+
+data SimpleFunction p = SimpleFunction p (SimpleBound p)
 
 data SimpleFunctionType = SimpleFunctionType SimpleType SimpleType
 
@@ -52,19 +59,19 @@ mangleType (SimpleType (WordRep Long)) = "l"
 mangleType (SimpleType (WordRep Native)) = "n"
 
 convertKindImpl :: TypeInfer -> SimpleType
-convertKindImpl (TypeAst () (KindRuntime PointerRep)) = SimpleType $ PointerRep
-convertKindImpl (TypeAst () (KindRuntime (StructRep ρs))) = SimpleType $ StructRep (convertKindImpl <$> ρs)
-convertKindImpl (TypeAst () (KindRuntime (UnionRep ρs))) = SimpleType $ UnionRep (convertKindImpl <$> ρs)
-convertKindImpl (TypeAst () (KindRuntime (WordRep (TypeAst () (KindSize s))))) = SimpleType $ WordRep s
+convertKindImpl (Type (KindRuntime PointerRep)) = SimpleType $ PointerRep
+convertKindImpl (Type (KindRuntime (StructRep ρs))) = SimpleType $ StructRep (convertKindImpl <$> ρs)
+convertKindImpl (Type (KindRuntime (UnionRep ρs))) = SimpleType $ UnionRep (convertKindImpl <$> ρs)
+convertKindImpl (Type (KindRuntime (WordRep (Type (KindSize s))))) = SimpleType $ WordRep s
 convertKindImpl _ = simpleFailType
 
 simpleFailType = error "illegal simple type"
 
 convertKind :: TypeInfer -> SimpleType
-convertKind (TypeAst () (Pretype κ _)) = convertKindImpl κ
+convertKind (Type (Pretype κ _)) = convertKindImpl κ
 convertKind _ = simpleFailType
 
-reconstruct = reconstructF index indexGlobal absurd poly representation multiplicities propositional
+reconstruct = Core.reconstruct index indexGlobal absurd poly representation multiplicities propositional
   where
     poly = error "poly type in runtime types"
     index x = do
@@ -79,29 +86,36 @@ reconstruct = reconstructF index indexGlobal absurd poly representation multipli
     multiplicities _ = error "multiplicity not needed during simple reconstruction"
     propositional _ = error "propostional not needed during simple reconstruction"
 
-    checkRepresentation (TypeAst () (Pretype κ _)) = κ
+    checkRepresentation (Type (Pretype κ _)) = κ
     checkRepresentation _ = error "reconstruction of pair didn't return pretype"
 
 convertType σ = convertKind <$> reconstruct σ
 
-convertTypeSigned (TypeAst () (KindSignedness Signed)) = Signed
-convertTypeSigned (TypeAst () (KindSignedness Unsigned)) = Unsigned
+convertTypeSigned (Type (KindSignedness Signed)) = Signed
+convertTypeSigned (Type (KindSignedness Unsigned)) = Unsigned
 convertTypeSigned _ = error "bad sign"
 
-convertTermPattern :: TermRuntimePatternInfer p -> Simplify (SimplePattern p)
-convertTermPattern (TermRuntimePattern p pm) =
-  SimplePattern p <$> traverseTermRuntimePatternF (convertType) convertTermPattern pm
+convertTermMetaPattern :: TermPatternInfer p -> Simplify (SimplePattern p)
+convertTermMetaPattern (TermPattern p pm) =
+  SimplePattern p <$> traverseTermPatternF (convertType) convertTermMetaPattern pm
 
 simpleFailPattern = error "illegal simple pattern"
 
 -- used for borrow, so augmenting types is not neccisary
 convertTermScheme (TermScheme _ (MonoTerm e)) = convertTerm e
-convertTermScheme (TermScheme _ (TypeAbstraction (Bound _ e))) = convertTermScheme e
+convertTermScheme (TermScheme _ (TypeAbstraction _ e)) = convertTermScheme e
 
 convertTerm :: TermInfer p -> Simplify (SimpleTerm p)
 convertTerm (Term p (TermRuntime e)) =
   SimpleTerm p
-    <$> traverseTermRuntime (const $ pure ()) (const $ pure ()) (pure . convertTypeSigned . runCore) (convertType . runCore) (traverseBound convertTermPattern convertTerm) convertTerm e
+    <$> traverseTermRuntime
+      (const $ pure ())
+      (const $ pure ())
+      (pure . convertTypeSigned)
+      (convertType)
+      (\(TermBound pm e) -> SimpleBound <$> (convertTermMetaPattern pm) <*> (convertTerm e))
+      convertTerm
+      e
 convertTerm (Term _ (TermErasure e)) = case e of
   Borrow _ e -> convertTermScheme e
   Wrap _ e -> convertTerm e
@@ -111,18 +125,18 @@ convertTerm (Term _ _) = simpleFailTerm
 
 simpleFailTerm = error "illegal simple term"
 
-convertFunctionType (TypeScheme () (TypeForall (Bound (TypePattern () x κ) σ))) = withSimplify (Map.insert x κ) $ convertFunctionType σ
-convertFunctionType (TypeScheme () (MonoType (TypeAst () (FunctionLiteralType σ _ τ)))) = do
+convertFunctionType (TypeForall (TypePattern x κ) σ) = withSimplify (Map.insert x κ) $ convertFunctionType σ
+convertFunctionType (MonoType (Type (FunctionLiteralType σ _ τ))) = do
   σ' <- convertType σ
   τ' <- convertType τ
   pure $ SimpleFunctionType σ' τ'
 convertFunctionType _ = error "failed to convert function type"
 
-convertFunction (TermScheme _ (TypeAbstraction (Bound (TypePattern () x κ) e))) = withSimplify (Map.insert x κ) $ convertFunction e
-convertFunction (TermScheme _ (MonoTerm (Term p (FunctionLiteral (Bound pm e) _ _)))) = do
-  pm' <- convertTermPattern pm
+convertFunction (TermScheme _ (TypeAbstraction (TypePattern x κ) e)) = withSimplify (Map.insert x κ) $ convertFunction e
+convertFunction (TermScheme _ (MonoTerm (Term p (FunctionLiteral (TermBound pm e) _ _)))) = do
+  pm' <- convertTermMetaPattern pm
   e' <- convertTerm e
-  pure $ SimpleFunction p $ Bound pm' e'
+  pure $ SimpleFunction p $ SimpleBound pm' e'
 convertFunction _ = error "failed to convert function"
 
 simplePatternType :: SimplePattern p -> SimpleType

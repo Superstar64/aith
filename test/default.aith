@@ -1,0 +1,8 @@
+add(x,y) {
+    x + y
+}
+
+ambigous(x) {
+    inline y = 1;
+    x
+}

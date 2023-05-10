@@ -1,0 +1,22 @@
+derefTriple(x) {
+    ***x
+}
+
+deref <A : region, T : pretype<pointer, true>>(x :: T* @ A) : T in A {
+    *x
+}
+
+write<A:region>(x :: int* @ A) : () in A {
+    *x = (1 :: int)
+}
+
+writeTriple(x) {
+    ***x = (1) 
+}
+
+swap(x,y) {
+    let xp = (*x);
+    *x = (*y);
+    *y = (xp);
+    ()
+}

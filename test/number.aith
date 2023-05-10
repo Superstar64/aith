@@ -1,0 +1,23 @@
+type point = (int, int, int);
+
+dotProduct<>(x :: point, y :: point) :: int {
+    let (x1,y1,z1) = x;
+    let (x2, y2, z2) = y;
+    (x1 * x2 + y1 * y2 + z1 * z2)
+}
+
+mid <>(x :: uint, y :: uint) :: uint {
+    (x + y) / 2
+}
+
+lessEqual(x,y) {
+    x <= y
+}
+
+factorial<>(x :: ulong) :: ulong {
+    if (x == 0) {
+        1
+    } else {
+        x * factorial (x - 1)  
+    }
+}
