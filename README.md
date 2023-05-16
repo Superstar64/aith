@@ -85,7 +85,8 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | Function Ascribe | `x(pm) : σ in π { e }`|
 | Function Ascribe | `x(pm) :: σ { e }`|
 | Synonym | `type x = σ;` |
-| New Type | `wrapper x : κ = σ;` |
+| New Type Forward | `wrapper x : κ;` |
+| New Type | `wrapper x = σ;` |
 
 
 ## Terms(e)
