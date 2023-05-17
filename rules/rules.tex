@@ -342,11 +342,11 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{\Phi | \Gamma \vdash e : (\sigma* \, @ \pi')^\pi \quad \Phi \vdash \text{Copy} (\sigma)}
+{\Phi | \Gamma \vdash e : (\sigma* \, @ \pi')^\pi \quad \Phi \vdash \sigma : +^\rho_\texttt{true}}
 {\Phi | \Gamma \vdash * e  : \sigma^{\pi \lor \pi'}} \\
 \\
 \frac
-{\Phi | \Gamma \vdash e : (\sigma* \, @ \pi')^\pi \quad \Phi | \Gamma \vdash e' : \sigma^{\pi''}  \quad \Phi \vdash \text{Copy} (\sigma)}
+{\Phi | \Gamma \vdash e : (\sigma* \, @ \pi')^\pi \quad \Phi | \Gamma \vdash e' : \sigma^{\pi''}  \quad \Phi \vdash \sigma : +^\rho_\texttt{true}}
 {\Phi | \Gamma \vdash *e  = e' : ()^{\pi \lor \pi' \lor \pi''} } \\
 \\
 \frac
