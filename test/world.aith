@@ -20,7 +20,7 @@ putPtr<A:region>(ptr :: int* @ A) : int in A | io {
 
 inline count = /systemf/two;
 putHashes() {
-    count <_> !(lenient) !\s { 
+    (count) @_ !(lenient) !\s { 
         let n = putchar (35);
         s
     }

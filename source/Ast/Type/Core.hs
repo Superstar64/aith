@@ -167,6 +167,9 @@ reconstruct
     Hole v -> absurd v
     Top -> error "reconstruct top"
 
+instanciation [] = InstantiateEmpty
+instanciation (σ : σs) = InstantiateType σ (instanciation σs)
+
 convertBoolean (Type (TypeLogical v)) = variable v
 convertBoolean (Type (TypeConstant c)) = constant c
 convertBoolean (Type (TypeBoolean σ)) = case σ of

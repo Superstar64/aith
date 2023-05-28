@@ -21,3 +21,9 @@ sourceTypeScheme (Core.TypeForall pm σ) =
 
 sourceTypePattern :: Core.TypePatternInfer -> Surface.TypePattern ()
 sourceTypePattern (Core.TypePattern x σ) = Surface.TypePattern () x (sourceType σ)
+
+sourceInstanciation :: Core.InstantiationInfer -> Surface.Instantiation ()
+sourceInstanciation θ = Surface.Instantiation (map sourceType $ go θ)
+  where
+    go Core.InstantiateEmpty = []
+    go (Core.InstantiateType σ θ) = σ : go θ

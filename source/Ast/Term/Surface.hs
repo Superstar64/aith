@@ -16,7 +16,7 @@ data Term p
       p
       ( TermF
           (Annotation p)
-          (NoType p)
+          (Instantiation p)
           (Type p)
           (NoType p)
           (TermScheme p)
@@ -95,12 +95,12 @@ termSugar = Prism TermSugar $ \case
   _ -> Nothing
 
 variable = (termRuntime .) $
-  Prism (\x -> Variable x NoType NoType) $ \case
-    (Variable x NoType NoType) -> Just x
+  Prism (\(x, θ) -> Variable x θ) $ \case
+    (Variable x θ) -> Just (x, θ)
     _ -> Nothing
 
-globalVariable = Prism (\x -> GlobalVariable x NoType NoType) $ \case
-  (GlobalVariable x NoType NoType) -> Just x
+globalVariable = Prism (\(x, θ) -> GlobalVariable x θ) $ \case
+  (GlobalVariable x θ) -> Just (x, θ)
   _ -> Nothing
 
 inlineAbstraction = Prism (InlineAbstraction) $ \case
@@ -237,10 +237,10 @@ polyIntroduction = Prism PolyIntroduction $ \case
   PolyIntroduction λ -> Just λ
   _ -> Nothing
 
-polyElimination = Prism to from
+polyElimination = Prism to from . toPrism tuple3'
   where
-    to (e, p) = Term p (PolyElimination e NoType NoType)
-    from (Term p (PolyElimination e NoType NoType)) = Just (e, p)
+    to (e, p, θ) = Term p (PolyElimination e θ)
+    from (Term p (PolyElimination e θ)) = Just (e, p, θ)
     from _ = Nothing
 
 termScheme = Isomorph (uncurry TermScheme) $ \(TermScheme p e) -> (p, e)
@@ -348,8 +348,8 @@ instance Bindings TermPattern where
       go = bindings
 
 instance Alpha Term where
-  freeVariables (Term p (TermRuntime (Variable x NoType NoType))) = termLocal x p
-  freeVariables (Term p (GlobalVariable x NoType NoType)) = termGlobal x p
+  freeVariables (Term p (TermRuntime (Variable x θ))) = termLocal x p <> freeVariables θ
+  freeVariables (Term p (GlobalVariable x θ)) = termGlobal x p <> freeVariables θ
   freeVariables (Term _ e) = foldTermF go go go go go go go go e
     where
       go = freeVariables

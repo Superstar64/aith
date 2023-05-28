@@ -23,17 +23,11 @@ sourceTermAnnotate annotate e σ =
     Annotation $ annotate (sourceTerm e) (sourceType σ)
 
 sourceTerm :: Core.TermInfer p -> Surface.Term ()
-sourceTerm (Core.Term _ (TermRuntime (Variable x (Core.InstantiateType _ _) σ))) =
-  Surface.Term () $ Annotation $ Surface.TypeAnnotation (Surface.Term () $ TermRuntime $ Variable x Surface.NoType Surface.NoType) (sourceType σ)
-sourceTerm (Core.Term _ (GlobalVariable x (Core.InstantiateType _ _) σ)) =
-  Surface.Term () $ Annotation $ Surface.TypeAnnotation (Surface.Term () $ GlobalVariable x Surface.NoType Surface.NoType) (sourceType σ)
 sourceTerm (Core.Term _ (TermRuntime (NumberLiteral n σ))) =
   Surface.Term () $ Annotation $ Surface.PretypeAnnotation (Surface.Term () $ TermRuntime $ NumberLiteral n Surface.NoType) (sourceType σ)
 sourceTerm (Core.Term _ (TermRuntime (Extern sym σ π τ))) =
   Surface.Term () $
     Annotation $ Surface.PretypeAnnotation (Surface.Term () $ TermRuntime $ Extern sym Surface.NoType Surface.NoType Surface.NoType) (Surface.Type () (FunctionPointer (sourceType σ) (sourceType π) (sourceType τ)))
-sourceTerm (Core.Term _ (PolyElimination e (Core.InstantiateType _ _) σ)) =
-  Surface.Term () $ Annotation $ Surface.TypeAnnotation (Surface.Term () $ PolyElimination (sourceTerm e) Surface.NoType Surface.NoType) (sourceType σ)
 sourceTerm (Core.Term _ (TermRuntime (Continue e σ))) =
   Surface.Term () $ Annotation $ Surface.PretypeAnnotation (Surface.Term () $ TermRuntime $ Continue (sourceTerm e) Surface.NoType) (sourceType σ)
 sourceTerm (Core.Term _ (TermRuntime (Break e σ))) =
@@ -43,7 +37,8 @@ sourceTerm (Core.Term _ (TermRuntime (Case e _ [] σ))) =
 sourceTerm (Core.Term _ e) =
   Surface.Term () $ case e of
     TermRuntime e -> TermRuntime $ case e of
-      Variable x (Core.InstantiateEmpty) _ -> Variable x ann Surface.NoType
+      Variable x Core.InstantiateEmpty -> Variable x (Surface.InstantiationInfer)
+      Variable x θ -> Variable x (sourceInstanciation θ)
       Alias e (Core.TermBound pm ex) -> Alias (sourceTerm e) (Surface.TermBound (sourceTermPattern False pm) (sourceTerm ex))
       Case e _ λs _ ->
         Case (sourceTerm e) Surface.NoType (map (\(Core.TermBound pm ex) -> Surface.TermBound (sourceTermPattern False pm) (sourceTerm ex)) λs) Surface.NoType
@@ -57,7 +52,8 @@ sourceTerm (Core.Term _ e) =
       PointerIncrement e e' _ -> PointerIncrement (sourceTerm e) (sourceTerm e') ann
       Loop e (Core.TermBound pm ex) -> Loop (sourceTerm e) (Surface.TermBound (sourceTermPattern False pm) (sourceTerm ex))
     TermSugar e -> TermSugar (mapTermSugar (const $ Surface.NoType) sourceTerm e)
-    GlobalVariable x (Core.InstantiateEmpty) _ -> GlobalVariable x ann ann
+    GlobalVariable x Core.InstantiateEmpty -> GlobalVariable x (Surface.InstantiationInfer)
+    GlobalVariable x θ -> GlobalVariable x (sourceInstanciation θ)
     FunctionLiteral (Core.TermBound pm ex) τ π -> FunctionLiteral (Surface.TermBound (sourceTermPattern True pm) (sourceTerm ex)) (sourceType τ) (sourceType π)
     TermErasure (Borrow x λ) -> TermErasure $ Borrow x (sourceTermScheme λ)
     TermErasure (IsolatePointer e) -> TermErasure $ IsolatePointer (sourceTerm e)
@@ -68,7 +64,7 @@ sourceTerm (Core.Term _ e) =
     InlineApplication e e' -> InlineApplication (sourceTerm e) (sourceTerm e')
     Bind e (Core.TermMetaBound pm ex) -> Bind (sourceTerm e) (Surface.TermMetaBound (sourceTermMetaPattern True pm) (sourceTerm ex))
     PolyIntroduction λ -> PolyIntroduction (sourceTermScheme λ)
-    PolyElimination e (Core.InstantiateEmpty) _ -> PolyElimination (sourceTerm e) Surface.NoType Surface.NoType
+    PolyElimination e θ -> PolyElimination (sourceTerm e) (sourceInstanciation θ)
     Annotation invalid -> absurd invalid
   where
     ann = Surface.NoType

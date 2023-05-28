@@ -194,17 +194,17 @@ desugar p (If eb et ef σ) =
     )
 
 instance TermAlgebra Term where
-  freeVariablesTerm (Term _ (TermRuntime (Variable x _ _))) = TermVariables (Set.singleton x) Set.empty
-  freeVariablesTerm (Term _ (GlobalVariable x _ _)) = TermVariables Set.empty (Set.singleton x)
+  freeVariablesTerm (Term _ (TermRuntime (Variable x _))) = TermVariables (Set.singleton x) Set.empty
+  freeVariablesTerm (Term _ (GlobalVariable x _)) = TermVariables Set.empty (Set.singleton x)
   freeVariablesTerm (Term _ e) = foldTermF mempty mempty mempty mempty go go go go e
     where
       go = freeVariablesTerm
-  substituteTerms (TermSubstitution locals _ _) (Term _ (TermRuntime (Variable x θ _)))
+  substituteTerms (TermSubstitution locals _ _) (Term _ (TermRuntime (Variable x θ)))
     | Just e <- Map.lookup x locals = applyScheme e θ
-  substituteTerms (TermSubstitution _ globals _) (Term _ (GlobalVariable x θ _))
+  substituteTerms (TermSubstitution _ globals _) (Term _ (GlobalVariable x θ))
     | Just e <- Map.lookup x globals = applyScheme e θ
-  substituteTerms (TermSubstitution _ _ alpha) (Term p (TermRuntime (Variable x θ σ)))
-    | Just x' <- Map.lookup x alpha = Term p (TermRuntime (Variable x' θ σ))
+  substituteTerms (TermSubstitution _ _ alpha) (Term p (TermRuntime (Variable x θ)))
+    | Just x' <- Map.lookup x alpha = Term p (TermRuntime (Variable x' θ))
   substituteTerms θ (Term p e) = Term p $ mapTermF id id id id go go go go e
     where
       go = substituteTerms θ
@@ -212,7 +212,7 @@ instance TermAlgebra Term where
   reduce (Term _ (Bind e (TermMetaBound pm ex))) =
     let λ = TermMetaBound pm (reduce ex) in applyTerm e λ
   reduce (Term _ (InlineApplication e1 e)) | (Term _ (InlineAbstraction λ)) <- reduce e1 = applyTerm e λ
-  reduce (Term _ (PolyElimination e θ _)) | Term _ (PolyIntroduction e) <- reduce e = reduce $ applyScheme e θ
+  reduce (Term _ (PolyElimination e θ)) | Term _ (PolyIntroduction e) <- reduce e = reduce $ applyScheme e θ
   reduce (Term p (TermSugar e)) = reduce (desugar p e)
   reduce (Term p e) = Term p (mapTermF id id id id go go go go e)
     where

@@ -29,13 +29,13 @@ data TermF ann θ σ σauto λσe λe λrun_e e
   | TermErasure (TermErasure σauto λσe e)
   | TermSugar (TermSugar σauto e)
   | Annotation ann
-  | GlobalVariable TermGlobalIdentifier θ σauto
+  | GlobalVariable TermGlobalIdentifier θ
   | FunctionLiteral λrun_e σ σ
   | InlineAbstraction λe
   | InlineApplication e e
   | Bind e λe
   | PolyIntroduction λσe
-  | PolyElimination e θ σauto
+  | PolyElimination e θ
   deriving (Show)
 
 traverseTermMetaPatternF ::
@@ -83,7 +83,7 @@ traverseTermF y d a z k h m i e =
     TermRuntime e -> pure TermRuntime <*> traverseTermRuntime d z z z m i e
     TermSugar e -> pure TermSugar <*> traverseTermSugar z i e
     Annotation e -> pure Annotation <*> y e
-    GlobalVariable x θ σ -> pure GlobalVariable <*> pure x <*> d θ <*> z σ
+    GlobalVariable x θ -> pure GlobalVariable <*> pure x <*> d θ
     FunctionLiteral λ τ π -> pure FunctionLiteral <*> m λ <*> a τ <*> a π
     TermErasure (Borrow x λ) -> TermErasure <$> (Borrow <$> pure x <*> k λ)
     TermErasure (IsolatePointer e) -> TermErasure <$> (IsolatePointer <$> i e)
@@ -93,7 +93,7 @@ traverseTermF y d a z k h m i e =
     InlineApplication e1 e2 -> pure InlineApplication <*> i e1 <*> i e2
     Bind e λ -> pure Bind <*> i e <*> h λ
     PolyIntroduction λ -> pure PolyIntroduction <*> k λ
-    PolyElimination e θ σ2 -> pure PolyElimination <*> i e <*> d θ <*> z σ2
+    PolyElimination e θ -> pure PolyElimination <*> i e <*> d θ
 
 foldTermF d j z b a f r h = getConst . traverseTermF (Const . d) (Const . j) (Const . z) (Const . b) (Const . a) (Const . f) (Const . r) (Const . h)
 

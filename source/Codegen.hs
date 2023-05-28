@@ -124,7 +124,7 @@ compileMatch target (SimplePattern _ (RuntimePatternBoolean True)) = pure $ C.Eq
 compileMatch target (SimplePattern _ (RuntimePatternBoolean False)) = pure $ C.Equal target (C.IntegerLiteral 0)
 
 compileTerm :: SimpleTerm p -> SimpleType -> WriterT [C.Statement] Codegen C.Expression
-compileTerm (SimpleTerm _ (Variable x () _)) _ = do
+compileTerm (SimpleTerm _ (Variable x ())) _ = do
   x' <- lift $ lookupVariable x
   pure $ x'
 compileTerm (SimpleTerm _ (Extern (Symbol name) σ () τ)) _ = do

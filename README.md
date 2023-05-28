@@ -93,6 +93,8 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | Description | Syntax |
 |-|-|
 | Variable | `x` |
+| Variable | `x @_` |
+| Variable | `x @<σ, σ', ...>` |
 | Global Variable | `/x/x'/...` |
 | Inline Abstraction | ` \pm { e }` |
 | Inline Abstraction | ` \pm => e` |
@@ -121,7 +123,8 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | False | `false` |
 | Switch | `switch e { pm => e; pm' => e'; ... }`
 | Poly Introduction| `ς e` |
-| Poly Elimination | `e <_>` |
+| Poly Elimination | `e @_` |
+| Poly Elimination | `e @<σ, σ', ...>` |
 | Borrow | `borrow x <α : Region> { e }` |
 | Type Annotation | `e : σ` |
 | Pretype Annotation | `e :: σ` |

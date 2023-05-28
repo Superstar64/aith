@@ -127,7 +127,6 @@ tokens =
     ";",
     "<",
     "<=",
-    "<_>",
     "=",
     "==",
     "=>",
@@ -434,15 +433,14 @@ termMetaPattern = patternCore
 termParen :: (Position δ p, Syntax δ) => δ (Language.Term p)
 termParen = branch' (toPrism Language.term . secondP Language.tupleIntroduction) id ⊣ commaNonSingle term
 
-isStatement (Language.Term _ e) = isStatementF e
-
-isStatementF (Language.Bind _ _) = True
-isStatementF (Language.TermRuntime (Language.Alias _ _)) = True
-isStatementF (Language.TermRuntime (Language.Loop _ _)) = True
-isStatementF (Language.TermSugar (Language.If _ _ _ _)) = True
-isStatementF (Language.TermErasure (Language.Borrow _ _)) = True
-isStatementF (Language.TermRuntime (Language.Case _ _ _ _)) = True
-isStatementF _ = False
+isStatement (Language.Term _ e) = case e of
+  (Language.Bind _ _) -> True
+  (Language.TermRuntime (Language.Alias _ _)) -> True
+  (Language.TermRuntime (Language.Loop _ _)) -> True
+  (Language.TermSugar (Language.If _ _ _ _)) -> True
+  (Language.TermErasure (Language.Borrow _ _)) -> True
+  (Language.TermRuntime (Language.Case _ _ _ _)) -> True
+  _ -> False
 
 termStatement :: (Position δ p, Syntax δ) => δ (Language.Term p)
 termStatement =
@@ -515,22 +513,36 @@ term = termLambda
     termIndex = Language.term ⊣ position ⊗ index ∥ termApply
       where
         index = Language.pointerIncrement ⊣ token "&" ≫ termApply ⊗ betweenSquares term
-    termApply = foldlP apply ⊣ termCore ⊗ many (applySyntax ⊕ rtApplySyntax ⊕ elimSyntax)
+    termApply = termVariable noInstance ∥# foldlP apply ⊣ termLateVariable ⊗ many (applySyntax ⊕ rtApplySyntax ⊕ elimSyntax)
       where
         apply = Language.inlineApplication `branchDistribute` Language.functionApplication `branchDistribute` Language.polyElimination
         applySyntax = position ⊗ space ≫ token "!" ≫ termCore
         rtApplySyntax = position ⊗ space ≫ termParen
-        elimSyntax = position ≪ space ≪ token "<_>"
+        elimSyntax = position ⊗ space ≫ instanciation
+    termLateVariable = termVariable (instanciation ∥ noInstance) ∥ termCore
+
+    noInstance = Language.instantiationInfer ⊣ always
+
+termVariable instanciation = Language.term ⊣ position ⊗ choice variables
+  where
+    instanciationVariable = instanciation ∥ Language.instantiationInfer ⊣ always
+    variables =
+      [ Language.variable ⊣ termIdentifier ⊗ instanciationVariable,
+        Language.globalVariable ⊣ termGlobalIdentifier ⊗ instanciationVariable
+      ]
 
 termLambdas e = Language.inlineAbstraction ⊣ Language.termMetaBound ⊣ token "\\" ≫ termMetaPattern ⊗ e
 
-termCore :: forall δ p. (Position δ p, Syntax δ) => δ (Language.Term p)
-termCore = Language.term ⊣ position ⊗ choice options ∥ pick isStatement (betweenBraces termStatement) termParen
+instanciation = token "@" ≫ inst
   where
+    inst = Language.instanciation ⊣ betweenAngle (commaSeperatedMany typex) ∥ Language.instantiationInfer ⊣ token "_"
+
+termCore :: forall δ p. (Position δ p, Syntax δ) => δ (Language.Term p)
+termCore = Language.term ⊣ position ⊗ choice options ∥ termVariable noInstance ∥ pick isStatement (betweenBraces termStatement) termParen
+  where
+    noInstance = Language.instantiationInfer ⊣ always
     options =
-      [ Language.variable ⊣ termIdentifier,
-        Language.globalVariable ⊣ termGlobalIdentifier,
-        Language.extern ⊣ prefixKeyword "extern" ≫ symbol,
+      [ Language.extern ⊣ prefixKeyword "extern" ≫ symbol,
         Language.numberLiteral ⊣ number,
         Language.truex ⊣ keyword "true",
         Language.falsex ⊣ keyword "false",

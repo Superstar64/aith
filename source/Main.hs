@@ -91,6 +91,7 @@ prettyError e = case e of
   ExpectedLabel p σ -> prettyError (TypeMismatch p (Type (Label)) σ)
   BadBorrowIdentifier p (TermIdentifier x) -> "Bad Borrow Identifier `" ++ x ++ "`" ++ positions p
   BadBorrowSyntax p -> "Bad Borrow Syntax" ++ positions p
+  InstantiationLengthMismatch p -> "Mismatch Instanciation Length" ++ positions p
 
 quoted x = "\"" ++ x ++ "\""
 

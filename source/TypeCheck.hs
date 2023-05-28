@@ -18,7 +18,8 @@ import Ast.Term.Surface (NoType (..))
 import qualified Ast.Term.Surface as Surface
 import Ast.Type.Algebra
 import Ast.Type.Core
-  ( LabelSchemeUnify,
+  ( Instantiation (..),
+    LabelSchemeUnify,
     TypeAlgebra (..),
     TypeInfer,
     TypePatternIntermediate (..),
@@ -116,6 +117,7 @@ data TypeError p
   | ExpectedLabel p TypeUnify
   | BadBorrowIdentifier p TermIdentifier
   | BadBorrowSyntax p
+  | InstantiationLengthMismatch p
   deriving (Show)
 
 newtype Check p a = Check {runChecker'' :: ReaderT (CheckEnvironment p) (StateT (CheckState p) (Either (TypeError p))) a} deriving (Functor, Applicative, Monad)
@@ -565,6 +567,12 @@ matchType p = unify
       (Core.MonoType σ') =
         matchType p σ σ'
     unifyPoly ς ς' = quit $ TypePolyMismatch p ς ς'
+
+matchInstanciation _ InstantiateEmpty InstantiateEmpty = pure ()
+matchInstanciation p (InstantiateType σ θ) (InstantiateType σ' θ') = do
+  matchType p σ σ'
+  matchInstanciation p θ θ'
+matchInstanciation p _ _ = quit $ InstantiationLengthMismatch p
 
 freshTypeVariable p κ = (Core.Type . TypeLogical) <$> (levelCounter <$> getState >>= freshTypeVariableRaw p κ)
 
@@ -1108,24 +1116,38 @@ data CheckedScheme p σ = CheckedScheme (TermSchemeUnify p) σ (Use TermIdentifi
 regions [] = none
 regions σs = foldl1 (\π1 π2 -> Core.Type $ TypeBoolean $ TypeOr π1 π2) σs
 
+validateInstantation p θ θ' = do
+  θ' <- for θ' $ \σ -> do
+    (τ, _) <- kindCheck σ
+    let ς = relabel $ Core.MonoType $ flexible τ
+    (σ, _) <- instantiateLabel instantiate p ς
+    pure σ
+  matchInstanciation p θ (Core.instanciation θ')
+
 typeCheck :: forall p. Surface.Term p -> Check p (Checked p TypeUnify)
 typeCheck (Surface.Term p e) = case e of
-  TermRuntime (Variable x NoType NoType) -> do
+  TermRuntime (Variable x θ') -> do
     mσ <- Map.lookup x <$> typeEnvironment <$> askEnvironment
     case mσ of
       Just (TermBinding _ _ _ σ) -> do
         (τ, θ) <- instantiateLabel instantiate p σ
-        pure $ Checked (Core.Term p $ TermRuntime $ Variable x θ τ) τ (Use x)
+        case θ' of
+          Surface.InstantiationInfer -> pure ()
+          Surface.Instantiation θ' -> validateInstantation p θ θ'
+        pure $ Checked (Core.Term p $ TermRuntime $ Variable x θ) τ (Use x)
       Nothing -> do
         heading <- moduleScope <$> askEnvironment
-        typeCheck (Surface.Term p $ GlobalVariable (globalTerm heading x) NoType NoType)
-  GlobalVariable x NoType NoType -> do
+        typeCheck (Surface.Term p $ GlobalVariable (globalTerm heading x) θ')
+  GlobalVariable x θ' -> do
     mσ <- Map.lookup x <$> typeGlobalEnvironment <$> askEnvironment
     case mσ of
       Just (TermBinding _ _ _ σ) -> do
         (τ, θ) <- instantiateLabel instantiate p σ
+        case θ' of
+          Surface.InstantiationInfer -> pure ()
+          Surface.Instantiation θ' -> validateInstantation p θ θ'
         -- todo useNothing here is kinda of a hack
-        pure $ Checked (Core.Term p $ GlobalVariable x θ τ) τ useNothing
+        pure $ Checked (Core.Term p $ GlobalVariable x θ) τ useNothing
       Nothing -> quit $ UnknownGlobalIdentifier p x
   InlineAbstraction (Surface.TermMetaBound pm e) -> do
     (pm', π, σ) <- typeCheckMetaPattern pm
@@ -1150,14 +1172,17 @@ typeCheck (Surface.Term p e) = case e of
     vars <- typeLogicalMap <$> getState
     let σ' = zonk vars σ
     pure $ Checked (Core.Term p $ PolyIntroduction $ eς) (Core.Type $ Poly τ σ') lΓ
-  PolyElimination e NoType NoType -> do
+  PolyElimination e θ' -> do
     Checked e ς lΓ <- leveled $ typeCheck e
     elimatePoly e ς lΓ
     where
       elimatePoly e (Core.Type (Poly l ς)) lΓ = do
         validateLevel l
         (σ, θ) <- instantiate p ς
-        pure $ Checked (Core.Term p $ PolyElimination e θ σ) σ lΓ
+        case θ' of
+          Surface.InstantiationInfer -> pure ()
+          Surface.Instantiation θ' -> validateInstantation p θ θ'
+        pure $ Checked (Core.Term p $ PolyElimination e θ) σ lΓ
       elimatePoly e (Core.Type (TypeLogical v)) lΓ =
         (! v) <$> typeLogicalMap <$> getState >>= \case
           LinkType σ -> elimatePoly e σ lΓ

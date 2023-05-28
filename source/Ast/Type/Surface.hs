@@ -34,6 +34,11 @@ data TypeSchemeF p
 data TypePattern p = TypePattern p TypeIdentifier (Type p)
   deriving (Show)
 
+data Instantiation p
+  = Instantiation [Type p]
+  | InstantiationInfer
+  deriving (Show)
+
 -- todo inline this
 typeConstant = Prism TypeConstant $ \case
   (TypeConstant σ) -> Just σ
@@ -337,6 +342,18 @@ typePattern =
     (\((p, x), κ) -> TypePattern p x κ)
     (\(TypePattern p x κ) -> ((p, x), κ))
 
+instanciation = Prism to from
+  where
+    to = Instantiation
+    from (Instantiation σ) = Just σ
+    from _ = Nothing
+
+instantiationInfer = Prism to from
+  where
+    to () = InstantiationInfer
+    from InstantiationInfer = Just ()
+    from _ = Nothing
+
 instance Alpha Type where
   freeVariables (Type p (TypeConstant (TypeVariable x))) = typeLocal x p
   freeVariables (Type p (TypeConstant (TypeGlobalVariable x))) = typeGlobal x p
@@ -347,6 +364,10 @@ instance Alpha Type where
 instance Alpha TypeScheme where
   freeVariables (TypeScheme _ (MonoType σ)) = freeVariables σ
   freeVariables (TypeScheme _ (TypeForall (TypePattern _ x κ) σ)) = freeVariables κ <> deleteTypeLocal x (freeVariables σ)
+
+instance Alpha Instantiation where
+  freeVariables (Instantiation θ) = foldMap freeVariables θ
+  freeVariables InstantiationInfer = mempty
 
 instance Functor Type where
   fmap f (Type p σ) = Type (f p) (mapTypeF id id go go σ)
@@ -359,3 +380,7 @@ instance Functor TypeScheme where
 
 instance Functor TypePattern where
   fmap f (TypePattern p x κ) = TypePattern (f p) x (fmap f κ)
+
+instance Functor Instantiation where
+  fmap f (Instantiation θ) = Instantiation ((fmap . fmap) f θ)
+  fmap _ InstantiationInfer = InstantiationInfer

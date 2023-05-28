@@ -22,7 +22,7 @@ data Relational
   deriving (Show, Eq)
 
 data TermRuntime θ σerase s σ λe e
-  = Variable TermIdentifier θ σerase
+  = Variable TermIdentifier θ
   | Alias e λe
   | Case e σ [λe] σerase
   | Extern Symbol σ σerase σ
@@ -58,7 +58,7 @@ traverseTermRuntime ::
   m (TermRuntime θ' σerase' s' σ' λe' e')
 traverseTermRuntime d y h f g i e =
   case e of
-    Variable x θ σ -> pure Variable <*> pure x <*> d θ <*> y σ
+    Variable x θ -> pure Variable <*> pure x <*> d θ
     Alias e λ -> pure Alias <*> i e <*> g λ
     Case e σ λs σ' -> pure Case <*> i e <*> f σ <*> traverse g λs <*> y σ'
     Extern sm σ σ'' σ' -> pure Extern <*> pure sm <*> f σ <*> y σ'' <*> f σ'
