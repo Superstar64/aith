@@ -1,0 +1,3 @@
+inline eta<A : type, B : type> = \f : A -[false]> B => \x : A => f !x;
+
+inline principle = \f => \x => f !x;

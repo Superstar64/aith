@@ -859,7 +859,7 @@ capture p base lΓ = do
   let captures = variablesUsed lΓ
   for (Set.toList captures) $ \x -> do
     (TermBinding _ l _ _) <- fromJust <$> Map.lookup x <$> typeEnvironment <$> askEnvironment
-    matchType p l (Core.Type $ TypeBoolean $ TypeAnd base l)
+    matchType p l (Core.Type $ TypeBoolean $ TypeOr base l)
     pure ()
   pure ()
 
