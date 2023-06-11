@@ -1,6 +1,6 @@
-inline flip = \f => \x => \y => f !y !x;
-inline compose = \f => \g => \x => f !(g !x);
+inline flip = \f -> \x -> \y -> f {y} {x};
+inline compose = \f -> \g -> \x -> f {g {x}};
 
-inline readerPure = \x => \r => x;
-inline readerBind = \m => \f => \r => f !(m !r) !r;
-inline readerMap = \f => \m => readerBind !m !(compose !readerPure !f);
+inline readerPure = \x -> \(r :* _) -> x;
+inline readerBind = \m -> \f -> \(r :* _) -> f {m {r}} {r};
+inline readerMap = \f -> \m -> readerBind {m} {compose {readerPure} {f}};

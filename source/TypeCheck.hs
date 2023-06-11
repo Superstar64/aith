@@ -872,12 +872,12 @@ requireUnrestricted p σ = do
 -- todo relabel seems somewhat fragile here
 -- this depends on `(σ, κ) <- kindCheck σ`, never having unification variables in σ
 -- because relabel ignores unification variables
-augmentMetaTermMetaPattern (Core.TermMetaPattern p (PatternVariable x π σ)) =
+augmentTermMetaPattern (Core.TermMetaPattern p (PatternVariable x π σ)) =
   augmentVariableLinear p x π Meta (relabel (Core.MonoType σ))
 
 nullEffect σ = Core.MonoType $ Core.Type $ Effect σ none
 
-augmentRuntimeTermMetaPattern pm = go pm
+augmentTermPattern pm = go pm
   where
     go (Core.TermPattern p (RuntimePatternVariable x σ)) = \e -> do
       κ <- reconstruct p σ
@@ -1151,7 +1151,7 @@ typeCheck (Surface.Term p e) = case e of
       Nothing -> quit $ UnknownGlobalIdentifier p x
   InlineAbstraction (Surface.TermMetaBound pm e) -> do
     (pm', π, σ) <- typeCheckMetaPattern pm
-    Checked e' τ lΓ <- augmentMetaTermMetaPattern pm' (typeCheck e)
+    Checked e' τ lΓ <- augmentTermMetaPattern pm' (typeCheck e)
     pure $ Checked (Core.Term p $ InlineAbstraction $ Core.TermMetaBound pm' e') (Core.Type $ Inline σ π τ) lΓ
   InlineApplication e1 e2 -> do
     Checked e1' (σ, π, τ) lΓ1 <- traverse (checkInline p) =<< typeCheck e1
@@ -1163,7 +1163,7 @@ typeCheck (Surface.Term p e) = case e of
     Checked e1' τ lΓ1 <- typeCheck e1
     (pm', π, τ') <- typeCheckMetaPattern pm
     matchType p τ τ'
-    Checked e2' σ lΓ2 <- augmentMetaTermMetaPattern pm' $ typeCheck e2
+    Checked e2' σ lΓ2 <- augmentTermMetaPattern pm' $ typeCheck e2
     capture p π lΓ1
     pure $ Checked (Core.Term p $ Bind e1' $ Core.TermMetaBound pm' e2') σ (lΓ1 `combine` lΓ2)
   PolyIntroduction λ -> do
@@ -1201,7 +1201,7 @@ typeCheck (Surface.Term p e) = case e of
     (pm', τ) <- typeCheckRuntimePattern pm
     Checked e1' (τ', π1) lΓ1 <- traverse (checkEffect p) =<< typeCheck e1
     matchType p τ τ'
-    Checked e2' (σ, π2) lΓ2 <- traverse (checkEffect p) =<< augmentRuntimeTermMetaPattern pm' (typeCheck e2)
+    Checked e2' (σ, π2) lΓ2 <- traverse (checkEffect p) =<< augmentTermPattern pm' (typeCheck e2)
     let π = regions [π1, π2]
     pure $ Checked (Core.Term p $ TermRuntime $ Alias e1' $ Core.TermBound pm' e2') (Core.Type $ Effect σ π) (lΓ1 `combine` lΓ2)
   TermRuntime (Case e NoType λs NoType) -> do
@@ -1211,7 +1211,7 @@ typeCheck (Surface.Term p e) = case e of
       for λs $ \(Surface.TermBound pm e2) -> do
         (pm, τ') <- typeCheckRuntimePattern pm
         matchType p τ τ'
-        Checked e2 (σ', π) lΓ2 <- traverse (checkEffect p) =<< augmentRuntimeTermMetaPattern pm (typeCheck e2)
+        Checked e2 (σ', π) lΓ2 <- traverse (checkEffect p) =<< augmentTermPattern pm (typeCheck e2)
         matchType p σ σ'
         pure (e2, pm, π, lΓ2)
     let π = regions $ π1 : πs
@@ -1296,7 +1296,7 @@ typeCheck (Surface.Term p e) = case e of
         (lΓ1 `combine` lΓ2)
   FunctionLiteral (Surface.TermBound pm e) τ' π' -> do
     (pm', σ) <- typeCheckRuntimePattern pm
-    Checked e' (τ, π) lΓ <- traverse (checkEffect p) =<< augmentRuntimeTermMetaPattern pm' (typeCheck e)
+    Checked e' (τ, π) lΓ <- traverse (checkEffect p) =<< augmentTermPattern pm' (typeCheck e)
     case τ' of
       Surface.Type _ (Hole ()) -> pure ()
       τ' -> do
@@ -1390,7 +1390,7 @@ typeCheck (Surface.Term p e) = case e of
     (pm, σ) <- typeCheckRuntimePattern pm
     Checked e1 (σ', π1) lΓ1 <- traverse (checkEffect p) =<< typeCheck e1
     matchType p σ σ'
-    Checked e2 ((τ, σ''), π2) lΓ2 <- traverse (firstM (checkStep p) <=< checkEffect p) =<< augmentRuntimeTermMetaPattern pm (typeCheck e2)
+    Checked e2 ((τ, σ''), π2) lΓ2 <- traverse (firstM (checkStep p) <=< checkEffect p) =<< augmentTermPattern pm (typeCheck e2)
     matchType p σ σ''
     capture p unrestricted lΓ2
     let π = regions [π1, π2]

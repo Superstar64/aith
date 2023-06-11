@@ -120,16 +120,18 @@ tokens =
     ",",
     "-",
     "->",
+    "-*",
     "-[",
     "/",
     ":",
     "::",
+    ":*",
+    ":^",
     ";",
     "<",
     "<=",
     "=",
     "==",
-    "=>",
     ">",
     ">=",
     ">|",
@@ -172,8 +174,11 @@ class SyntaxBase δ => Syntax δ where
   indent :: δ ()
   dedent :: δ ()
 
-class Position δ p where
+class Syntax δ => Position δ p where
   position :: δ p
+  discard :: Functor f => δ (f p) -> δ (f ())
+  discard' :: Functor f => δ (f (p, a)) -> δ (f a)
+  discard' x = fmapI unit' ⊣ inverse compose ⊣ discard (compose ⊣ fmapI swap ⊣ x)
 
 binaryToken op = space ≫ token op ≫ space
 
@@ -193,7 +198,7 @@ betweenSquares = between (token "[") (token "]")
 
 symbol = Symbol.symbol ⊣ stringLiteral
 
-lambdaCore e = binaryToken "=>" ≫ e
+lambdaCore e = binaryToken "->" ≫ e
 
 lambdaBrace e = space ≫ betweenBraces (indent ≫ line ≫ e ≪ dedent ≪ line)
 
@@ -213,19 +218,19 @@ commaNonSingle :: (Syntax δ, Position δ p) => δ a -> δ (Either (p, [a]) a)
 commaNonSingle = commaNonSingle' always
 
 commaNonSingle' :: (Syntax δ, Position δ p) => δ () -> δ a -> δ (Either (p, [a]) a)
-commaNonSingle' final e = bimapI unit' id ⊣ commaNonSingle'' final always e
-
--- todo position is wrong, it should be at the start of the list
--- todo, generalized version isn't needed anymore, refactor into something simplier
-commaNonSingle'' :: (Syntax δ, Position δ p) => δ () -> δ e -> δ a -> δ (Either ((p, [a]), e) a)
-commaNonSingle'' final ex e =
-  token "("
-    ≫ ( left ⊣ position ⊗ (nil ⊣ token ")") ⊗ ex
-          ∥ apply ⊣ e ⊗ (position ⊗ commaSome e ≪ final ≪ token ")" ⊗ ex ⊕ final ≫ token ")")
-      )
+commaNonSingle' final e = discard' positioned
   where
-    apply = bimapP (firstP (secondP packList . toPrism swap_1_2_of_3) . toPrism associate') (toPrism unit') . toPrism distribute
-    packList = cons . secondP cons . secondP (toPrism $ inverse nonEmpty)
+    positioned = distribute ⊣ body final e
+      where
+        body :: (Syntax δ, Position δ p) => δ () -> δ a -> δ (p, Either [a] a)
+        body final e =
+          token "(" ≫ position ⊗ (empty ∥ list)
+          where
+            empty = left ⊣ nil ⊣ token ")"
+            list =
+              branchDistribute (right . toPrism unit') (left . applyList) ⊣ e ⊗ (final ≪ token ")" ⊕ commaSome e ≪ final ≪ token ")")
+              where
+                applyList = cons . secondP cons . secondP (toPrism $ inverse nonEmpty)
 
 multiarg core = multiargExclusionary core ∥ singleton ⊣ core
 
@@ -273,14 +278,17 @@ typex = typeLambda
               where
                 ambiguous = Language.typeSource ⊣ position ⊗ (Language.ambiguousLabel ⊣ always)
             body = wrapType ⊣ scheme False ≪ space ⊗ position ⊗ typeLambda
-    typeArrow = applyBinary ⊣ typeEffect ⊗ ((partial ∥ full) ⊕ always)
+    typeArrow = applyBinary ⊣ typeEffect ⊗ ((linearArrow ∥ unrestrictedArrow ∥ polymorphicArrow) ⊕ always)
       where
         applyBinary = Language.inline `branchDistribute` unit'
-        full = position ⊗ space ≫ token "-[" ≫ typex ⊗ token "]>" ≫ space ≫ typeArrow
-        partial = position ⊗ binaryToken "->" ≫ unres ⊗ typeArrow
+        linearArrow = position ⊗ binaryToken "->" ≫ linear ⊗ typeArrow
           where
-            unres = Language.typeSource ⊣ position ⊗ (Language.typeTrue ⊣ always)
-    typeEffect = Language.effect `branchDistribute` unit' ⊣ typeUnique ⊗ (position ⊗ binaryKeyword "in" ≫ typeCore ⊕ always)
+            linear = Language.typeSource ⊣ position ⊗ (Language.typeFalse ⊣ always)
+        unrestrictedArrow = position ⊗ binaryToken "-*" ≫ unrestricted ⊗ typeArrow
+          where
+            unrestricted = Language.typeSource ⊣ position ⊗ (Language.typeTrue ⊣ always)
+        polymorphicArrow = position ⊗ space ≫ token "-" ≫ typeCore ⊗ space ≫ typeArrow
+    typeEffect = Language.effect `branchDistribute` unit' ⊣ typeUnique ⊗ (position ⊗ binaryKeyword "in" ≫ typeUnique ⊕ always)
 
 typeUnique :: (Position δ p, Syntax δ) => δ (Language.Type p)
 typeUnique = Language.typeSource ⊣ position ⊗ unique ∥ typePtr
@@ -369,8 +377,8 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
       ]
     rotate = swap_2_3_of_3
     -- todo remove this eventually
-    funLiteral = Language.functionLiteralType ⊣ rotate ⊣ space ≫ prefixKeyword "internal" ≫ typeParen ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
-    funPointer = Language.functionPointer ⊣ rotate ⊣ typeParen ⊗ binaryToken "=>" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
+    funLiteral = Language.functionLiteralType ⊣ rotate ⊣ space ≫ prefixKeyword "internal" ≫ typeParen ⊗ binaryToken "->" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
+    funPointer = Language.functionPointer ⊣ rotate ⊣ typeParen ⊗ binaryToken "->" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
 
 newtype Scheme p = Scheme {runScheme :: [(p, Language.TypePattern p)]}
 
@@ -405,30 +413,54 @@ termPatternParen top =
     last = if top then line else always
 
 termPattern :: (Position δ p, Syntax δ) => δ (Language.TermPattern p)
-termPattern = patternCore
+termPattern = Language.termPattern ⊣ position ⊗ choice options ∥ termPatternParen False
   where
-    patternCore = Language.termPattern ⊣ position ⊗ choice options ∥ termPatternParen False
-      where
-        options =
-          [ Language.runtimePatternVariable ⊣ termIdentifier ⊗ annotation,
-            Language.runtimePatternTrue ⊣ keyword "true",
-            Language.runtimePatternFalse ⊣ keyword "false"
-          ]
-        annotation = blank ∥# binaryToken "::" ≫ typex ∥ blank
-        blank = Language.typeSource ⊣ (position ⊗ (Language.hole ⊣ always))
+    options =
+      [ Language.runtimePatternVariable ⊣ termIdentifier ⊗ annotation,
+        Language.runtimePatternTrue ⊣ keyword "true",
+        Language.runtimePatternFalse ⊣ keyword "false"
+      ]
+    annotation = blank ∥# binaryToken "::" ≫ typex ∥ blank
+    blank = Language.typeSource ⊣ (position ⊗ (Language.hole ⊣ always))
+
+termPatternCore = Language.termPattern ⊣ position ⊗ choice options ∥ termPatternParen False
+  where
+    options =
+      [ Language.runtimePatternVariable ⊣ termIdentifier ⊗ annotation,
+        Language.runtimePatternTrue ⊣ keyword "true",
+        Language.runtimePatternFalse ⊣ keyword "false"
+      ]
+    annotation = blank
+    blank = Language.typeSource ⊣ (position ⊗ (Language.hole ⊣ always))
 
 termMetaPattern :: (Position δ p, Syntax δ) => δ (Language.TermMetaPattern p)
-termMetaPattern = patternCore
+termMetaPattern = Language.termMetaPattern ⊣ position ⊗ choice options ∥ betweenParens termMetaPattern
   where
-    patternCore = Language.termMetaPattern ⊣ position ⊗ choice options ∥ betweenParens termMetaPattern
-      where
-        options =
-          [ Language.patternVariable ⊣ associate' ⊣ termIdentifier ⊗ annotation
+    options =
+      [ Language.patternVariable ⊣ associate' ⊣ termIdentifier ⊗ annotation
+      ]
+    annotation =
+      implicit
+        ∥# choice
+          [ linearAnnotation ⊗ typex,
+            unrestrictedAnnotation ⊗ typex,
+            polymorphicAnnotation ⊗ typex,
+            implicit
           ]
-        annotation = blank ⊗ blank ∥# space ≫ token ":" ≫ multi ⊗ space ≫ typex ∥ blank ⊗ blank
-        multi = betweenSquares (unres ∥# typex ∥ unres) ∥ blank
+    implicit = linear ⊗ blank
+      where
+        linear = Language.typeSource ⊣ (position ⊗ (Language.typeFalse ⊣ always))
         blank = Language.typeSource ⊣ (position ⊗ (Language.hole ⊣ always))
-        unres = Language.typeSource ⊣ (position ⊗ (Language.typeTrue ⊣ always))
+    linearAnnotation = Language.typeSource ⊣ position ⊗ (Language.typeFalse ⊣ binaryToken ":")
+    unrestrictedAnnotation = Language.typeSource ⊣ position ⊗ (Language.typeTrue ⊣ binaryToken ":*")
+    polymorphicAnnotation = space ≫ token ":^" ≫ typeCore ≪ space
+
+termMetaPatternCore = Language.termMetaPattern ⊣ position ⊗ variable ∥ betweenParens termMetaPattern
+  where
+    variable = Language.patternVariable ⊣ associate' ⊣ termIdentifier ⊗ implicit where
+    implicit = linear ⊗ blank
+    blank = Language.typeSource ⊣ (position ⊗ (Language.hole ⊣ always))
+    linear = Language.typeSource ⊣ (position ⊗ (Language.typeFalse ⊣ always))
 
 termParen :: (Position δ p, Syntax δ) => δ (Language.Term p)
 termParen = branch' (toPrism Language.term . secondP Language.tupleIntroduction) id ⊣ commaNonSingle term
@@ -452,7 +484,7 @@ termStatement =
         Language.alias ⊣ rotateBind Language.termBound ⊣ prefixKeyword "let" ≫ termPattern ≪ binaryToken "=" ⊗ term ≪ delimit ⊗ termStatement,
         Language.loop ⊣ rotateBind Language.termBound ⊣ prefixKeyword "loop" ≫ betweenParens (prefixKeyword "let" ≫ termPattern ≪ binaryToken "=" ⊗ term) ⊗ lambdaBrace termStatement,
         Language.ifx ⊣ prefixKeyword "if" ≫ termCore ⊗ lambdaBrace termStatement ≪ binaryKeyword "else" ⊗ lambdaBrace termStatement,
-        Language.casex ⊣ prefixKeyword "switch" ≫ termCore ⊗ lambdaBrace (many $ Language.termBound ⊣ termPattern ⊗ binaryToken "=>" ≫ term ≪ delimit)
+        Language.casex ⊣ prefixKeyword "switch" ≫ termCore ⊗ lambdaBrace (many $ Language.termBound ⊣ termPatternCore ⊗ binaryToken "->" ≫ term ≪ delimit)
       ]
     rotateBind bound = secondI bound . associate . firstI swap
     apply = Language.dox `branchDistribute` unit'
@@ -461,14 +493,14 @@ termTop :: forall δ p. (Position δ p, Syntax δ) => δ (Language.Term p)
 termTop = prettyLambda ∥# term
   where
     prettyLambda = Language.term ⊣ (position ⊗ lambda)
-    lambda = Language.inlineAbstraction ⊣ Language.termMetaBound ⊣ token "\\" ≫ termMetaPattern ⊗ line ≫ lambdaCore termTop
+    lambda = Language.inlineAbstraction ⊣ Language.termMetaBound ⊣ token "\\" ≫ termMetaPatternCore ⊗ line ≫ lambdaCore termTop
 
 term :: forall δ p. (Position δ p, Syntax δ) => δ (Language.Term p)
 term = termLambda
   where
-    termLambda = Language.term ⊣ position ⊗ (lambdas ∥# poly) ∥ termAnnotate
+    termLambda = Language.term ⊣ position ⊗ (lambdas ∥ poly) ∥ termAnnotate
       where
-        lambdas = termLambdas (pick isStatement never (lambdaCore term))
+        lambdas = Language.inlineAbstraction ⊣ Language.termMetaBound ⊣ token "\\" ≫ termMetaPatternCore ⊗ lambdaCore term
         poly = Language.polyIntroduction ⊣ wrapTerm ⊣ scheme False ≪ space ⊗ position ⊗ term
     termAnnotate :: δ (Language.Term p)
     termAnnotate = apply ⊣ termOr ⊗ (position ⊗ binaryToken "::" ≫ typex ⊕ position ⊗ binaryToken ":" ≫ typex ⊕ always)
@@ -516,7 +548,7 @@ term = termLambda
     termApply = termVariable noInstance ∥# foldlP apply ⊣ termLateVariable ⊗ many (applySyntax ⊕ rtApplySyntax ⊕ elimSyntax)
       where
         apply = Language.inlineApplication `branchDistribute` Language.functionApplication `branchDistribute` Language.polyElimination
-        applySyntax = position ⊗ space ≫ token "!" ≫ termCore
+        applySyntax = position ⊗ space ≫ pick isStatement (lambdaBrace termStatement) (betweenBraces termStatement)
         rtApplySyntax = position ⊗ space ≫ termParen
         elimSyntax = position ⊗ space ≫ instanciation
     termLateVariable = termVariable (instanciation ∥ noInstance) ∥ termCore
@@ -531,14 +563,12 @@ termVariable instanciation = Language.term ⊣ position ⊗ choice variables
         Language.globalVariable ⊣ termGlobalIdentifier ⊗ instanciationVariable
       ]
 
-termLambdas e = Language.inlineAbstraction ⊣ Language.termMetaBound ⊣ token "\\" ≫ termMetaPattern ⊗ e
-
 instanciation = token "@" ≫ inst
   where
     inst = Language.instanciation ⊣ betweenAngle (commaSeperatedMany typex) ∥ Language.instantiationInfer ⊣ token "_"
 
 termCore :: forall δ p. (Position δ p, Syntax δ) => δ (Language.Term p)
-termCore = Language.term ⊣ position ⊗ choice options ∥ termVariable noInstance ∥ pick isStatement (betweenBraces termStatement) termParen
+termCore = Language.term ⊣ position ⊗ choice options ∥ termVariable noInstance ∥ pick isStatement (lambdaBrace termStatement) termParen
   where
     noInstance = Language.instantiationInfer ⊣ always
     options =
@@ -550,8 +580,7 @@ termCore = Language.term ⊣ position ⊗ choice options ∥ termVariable noInst
         Language.continue ⊣ prefixKeyword "continue" ≫ termCore,
         Language.wrap ⊣ prefixKeyword "wrap" ≫ termCore,
         Language.unwrap ⊣ prefixKeyword "unwrap" ≫ termCore,
-        Language.borrow ⊣ prefixKeyword "borrow" ≫ termIdentifier ⊗ space ≫ (wrapTerm ⊣ scheme False ⊗ position ⊗ betweenBraces term),
-        termLambdas (lambdaBrace termStatement ∥ lambdaCore term)
+        Language.borrow ⊣ prefixKeyword "borrow" ≫ termIdentifier ⊗ space ≫ (wrapTerm ⊣ scheme False ⊗ position ⊗ lambdaBrace term)
       ]
 
 inline :: (Syntax δ, Position δ p) => δ (Path, Module.Global p)
@@ -673,9 +702,11 @@ instance SyntaxBase Printer where
 
 instance Position Parser SourcePos where
   position = Parser $ Megaparsec.getSourcePos
+  discard (Parser p) = Parser (fmap (() <$) p)
 
 instance Position Parser () where
   position = Parser $ pure ()
+  discard = id
 
 instance Syntax Printer where
   token op = Printer $ \() -> Just $ tell op
@@ -711,3 +742,4 @@ instance Syntax Printer where
 
 instance Position Printer () where
   position = Printer $ \() -> Just $ pure ()
+  discard = id

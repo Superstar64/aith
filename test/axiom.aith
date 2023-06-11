@@ -1,6 +1,6 @@
 wrapper axiom : pretype<32bit word, true>;
 
-inline use = extern "use" :: function(axiom) => axiom uses false;
+inline use = extern "use" :: function(axiom) -> axiom uses false;
 
 f(x) {
     use(x)

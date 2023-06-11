@@ -19,10 +19,10 @@ inline explicitBorrow<
     K:multiplicity,
     L:pretype<J, K>,
     M:region
-> = \f :[B] <A:region> I @ A in false -> L in (M | A)
- => \x1 :[E] unique I in G
- => {
+> = \(f :^B <A:region> I @ A in false -* L in (M | A))
+ -> \(x1 :^E unique I in G)
+ -> {
     let x2 = x1;
-    let e = borrow x2 <A:region>{f@_ @<A> !x2};
+    let e = borrow x2 <A:region>{f@_ @<A> {x2} };
     (e, x2)
 };

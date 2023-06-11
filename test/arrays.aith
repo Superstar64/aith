@@ -1,15 +1,15 @@
-inline get = \x => \i {
+inline get = \x -> \i -> {
     * &* &x[i]
 };
 
-inline set = \x => \i => \a {
+inline set = \x -> \i -> \a -> {
     * &* &x[i] = (a)
 };
 
 swap(a, b, i) {
-    let tmp = get !a !i;
-    set !a !i !(get !b !i);
-    set !b !i !tmp;
+    let tmp = get {a} {i};
+    set {a} {i} {get {b} {i}};
+    set {b} {i} {tmp};
     ()
 }
 

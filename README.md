@@ -96,9 +96,8 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | Variable | `x @_` |
 | Variable | `x @<σ, σ', ...>` |
 | Global Variable | `/x/x'/...` |
-| Inline Abstraction | ` \pm { e }` |
-| Inline Abstraction | ` \pm => e` |
-| Inline Application | `e !e'`|
+| Inline Abstraction | ` \pm -> e` |
+| Inline Application | `e {e'}`|
 | Inline Binding | `inline pm = e; e'`|
 | Extern | `extern "sym"` |
 | Function Application | `e (e')`|
@@ -121,7 +120,7 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | Greater or Equal | `e >= e'` |
 | True | `true` |
 | False | `false` |
-| Switch | `switch e { pm => e; pm' => e'; ... }`
+| Switch | `switch e { pm -> e; pm' -> e'; ... }`
 | Poly Introduction| `ς e` |
 | Poly Elimination | `e @_` |
 | Poly Elimination | `e @<σ, σ', ...>` |
@@ -141,21 +140,22 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | And | `e & e'` | `if e { e' } else { false }` |
 | Or | `e \| e'` | `if e { true } else { e' }` |
 | Do | `e; e'` | `let () = e; e'` |
-| If | `if e { e' } else { e''}` | `switch (e) { true => e; false => e'; } ` | 
+| If | `if e { e' } else { e''}` | `switch (e) { true -> e; false -> e'; } ` | 
 
 ## Meta Patterns(pm)
 | Description | Syntax |
 |-|-|
-| Variable | `x`|
-| Variable Abscribe | `x : σ` |
+| Linear Variable | `x`|
+| Linear Variable Abscribe | `x : σ` |
+| Unrestricted Variable Abscribe | `x :* σ` |
+| Polymorphic Variable Abscribe | `x :^τ σ` |
 
 ## Runtime Patterns(pm)
 | Description | Syntax |
 |-|-|
-| Variable | `x`|
-| Variable Abscribe | `x :[π] σ` |
-| Variable Abscribe | `x :[] σ` |
-| Tuple Destruction | `(pm , pm', ...)` |
+| Variable | `x` |
+| Variable Abscribe | `x : σ` |
+| Tuple Destruction | `(pm, pm', ...)` |
 | True | `true` |
 | False | `false` |
 
@@ -167,10 +167,13 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 ## Types(σ, τ, π, s, κ, ρ, μ)
 | Description | Syntax |
 |-|-|
+| Hole | `_` |
 | Variable | `x` |
-| Inline Function | `σ -[π]> τ`|
+| Linear Inline Function | `σ -> τ`|
+| Unrestricted Inline Function | `σ -* τ` |
+| Polymorphic Inline Function | `σ -π τ ` |
 | Poly | `ς σ` |
-| Function Pointer | `function(σ) => τ uses π` |
+| Function Pointer | `function(σ) -> τ uses π` |
 | Tuple | `(σ, σ', ...)` |
 | Effect | `σ in π` |
 | Unique | `unique σ` |
@@ -218,7 +221,7 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | Transparency | `transparency` |
 | Unification | `unification` |
 | Top | `/\|\` |
-| Function Literal Type | `function literal(σ) => τ uses π` |
+| Function Literal Type | `function literal(σ) -> τ uses π` |
 | Label | `label` |
 | Ambiguous Label | `ambiguous` |
 

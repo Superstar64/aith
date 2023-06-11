@@ -35,6 +35,8 @@ $(format) : $(build)/format/%.format : %.hs | $$(dir $$@)
 	ormolu -o -XTypeApplications -i $<
 	touch $@
 
+test/ : test/*
+
 test.c: test/ aith
 	./aith $(aith_flags) $< -C -o $@
 

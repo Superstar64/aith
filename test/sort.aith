@@ -4,10 +4,10 @@ inline set = /arrays/set;
 
 insert(array, index) {
     loop (let (array, index) = (array,index)) {
-        if (index > 0 & get !array !index < get !array !(index - 1) ) {
-            let tmp = get !array !index;
-            set !array !index !(get !array !(index - 1));
-            set !array !(index - 1) !tmp;
+        if (index > 0 & get {array} {index} < get {array} {index - 1} ) {
+            let tmp = get {array} {index};
+            set {array} {index} {get {array} {index - 1}};
+            set {array} {index - 1} {tmp};
             continue (array, index - 1)
         } else {
             break ()

@@ -2,6 +2,7 @@ module Misc.Isomorph where
 
 import Control.Category (Category, id, (.))
 import Data.Bifunctor (Bifunctor, bimap)
+import Data.Functor.Compose (Compose (..))
 import Data.List.NonEmpty (NonEmpty (..))
 import qualified Data.List.NonEmpty as NonEmpty
 import Data.Map (Map)
@@ -130,3 +131,5 @@ tuple4' = Isomorph to from
   where
     to (a, ((b, c), d)) = (a, b, c, d)
     from (a, b, c, d) = (a, ((b, c), d))
+
+compose = Isomorph Compose getCompose

@@ -2,6 +2,6 @@ call(f) {
     f (1)
 }
 
-callUnit <>(f :: function(uint) => () uses false) :: () {
+callUnit <>(f :: function(uint) -> () uses false) :: () {
     f (2)
 }
