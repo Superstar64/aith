@@ -53,6 +53,7 @@ data TypePatternIntermediate p = TypePatternIntermediate
 data LabelScheme v
   = MonoLabel (TypeScheme v)
   | LabelForall TypeIdentifier (LabelScheme v)
+  deriving (Show)
 
 type LabelSchemeUnify = LabelScheme TypeLogical
 
@@ -68,23 +69,24 @@ type InstantiationInfer = Instantiation Void
 
 toTypePattern (TypePatternIntermediate _ x κ) = TypePattern x κ
 
-data ReLabel = ReLabel (Set TypeIdentifier) [TypeIdentifier]
-
+-- uses integers as type names
+-- so integers cannot be type names (as is currently enforced by the syntax)
 relabel :: TypeScheme v -> LabelScheme v
-relabel ς = foldr LabelForall (MonoLabel ς') schemes
+relabel ς = foldr LabelForall (MonoLabel ς') (map labelN [0 .. n - 1])
   where
-    (ς', ReLabel _ schemes) = runState (goTypeScheme ς) (ReLabel (freeLocalVariablesType ς) [])
-    goType (Type (Poly _ ς)) = do
-      ReLabel free schemes <- get
-      let new = fresh free (TypeIdentifier "L")
-      put $ ReLabel (Set.insert new free) (new : schemes)
-      ς <- goTypeScheme ς
-      pure $ Type $ Poly (Type $ TypeConstant $ TypeVariable new) ς
-    goType (Type σ) = Type <$> traverseTypeF pure pure (error "handled manually") goType σ
-    goTypeScheme (MonoType σ) = MonoType <$> goType σ
-    goTypeScheme (TypeForall (TypePattern x κ) ς) = do
-      κ <- goType κ
-      ς <- goTypeScheme ς
+    (ς', n) = runState (relabelTypeScheme ς) 0
+    labelN = TypeIdentifier . show
+
+    relabelType (Type (Poly _ ς)) = do
+      n <- get
+      put $ n + 1
+      ς <- relabelTypeScheme ς
+      pure $ Type $ Poly (Type $ TypeConstant $ TypeVariable $ labelN n) ς
+    relabelType (Type σ) = Type <$> traverseTypeF pure pure (error "handled manually") relabelType σ
+    relabelTypeScheme (MonoType σ) = MonoType <$> relabelType σ
+    relabelTypeScheme (TypeForall (TypePattern x κ) ς) = do
+      κ <- relabelType κ
+      ς <- relabelTypeScheme ς
       pure $ TypeForall (TypePattern x κ) ς
 
 linear = Type TypeFalse
