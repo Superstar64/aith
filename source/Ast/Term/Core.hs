@@ -241,7 +241,7 @@ substituteBound θ (pm, e) =
       alphaTerm x e = let x' = fresh illegal x in convertTerm x' x e
       pm' = foldr alphaPattern pm target
       e' = foldr alphaTerm e target
-      go = substituteTerms θ
+      go = substituteTerms θ'
    in (pm', go e')
 
 instance TermAlgebra TermMetaBound where
