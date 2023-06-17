@@ -580,7 +580,7 @@ termCore = Language.term ⊣ position ⊗ choice options ∥ termVariable noInst
         Language.continue ⊣ prefixKeyword "continue" ≫ termCore,
         Language.wrap ⊣ prefixKeyword "wrap" ≫ termCore,
         Language.unwrap ⊣ prefixKeyword "unwrap" ≫ termCore,
-        Language.borrow ⊣ prefixKeyword "borrow" ≫ termIdentifier ⊗ space ≫ (wrapTerm ⊣ scheme False ⊗ position ⊗ lambdaBrace term)
+        Language.borrow ⊣ prefixKeyword "borrow" ≫ termIdentifier ⊗ space ≫ (wrapTerm ⊣ scheme False ⊗ position ⊗ lambdaBrace termStatement)
       ]
 
 inline :: (Syntax δ, Position δ p) => δ (Path, Module.Global p)
