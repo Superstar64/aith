@@ -40,11 +40,11 @@ keywords =
     [ "ambiguous",
       "as",
       "bool",
-      "borrow",
       "boxed",
       "break",
       "byte",
       "capacity",
+      "cast",
       "continue",
       "copy",
       "else",
@@ -71,6 +71,7 @@ keywords =
       "multiplicity",
       "native",
       "natural",
+      "newtype",
       "opaque",
       "unification",
       "pointer",
@@ -98,13 +99,10 @@ keywords =
       "universe",
       "unrestricted",
       "unsigned",
-      "unwrap",
       "used",
       "uses",
       "ushort",
-      "word",
-      "wrap",
-      "wrapper"
+      "word"
     ]
 
 tokens =
@@ -470,7 +468,6 @@ isStatement (Language.Term _ e) = case e of
   (Language.TermRuntime (Language.Alias _ _)) -> True
   (Language.TermRuntime (Language.Loop _ _)) -> True
   (Language.TermSugar (Language.If _ _ _ _)) -> True
-  (Language.TermErasure (Language.Borrow _ _)) -> True
   (Language.TermRuntime (Language.Case _ _ _ _)) -> True
   _ -> False
 
@@ -578,9 +575,7 @@ termCore = Language.term ⊣ position ⊗ choice options ∥ termVariable noInst
         Language.falsex ⊣ keyword "false",
         Language.break ⊣ prefixKeyword "break" ≫ termCore,
         Language.continue ⊣ prefixKeyword "continue" ≫ termCore,
-        Language.wrap ⊣ prefixKeyword "wrap" ≫ termCore,
-        Language.unwrap ⊣ prefixKeyword "unwrap" ≫ termCore,
-        Language.borrow ⊣ prefixKeyword "borrow" ≫ termIdentifier ⊗ space ≫ (wrapTerm ⊣ scheme False ⊗ position ⊗ lambdaBrace termStatement)
+        Language.cast ⊣ prefixKeyword "cast" ≫ termCore
       ]
 
 inline :: (Syntax δ, Position δ p) => δ (Path, Module.Global p)
@@ -614,9 +609,8 @@ synonym :: (Syntax δ, Position δ p) => δ (Path, Module.Global p)
 synonym = prefixKeyword "type" ≫ localPath ⊗ binaryToken "=" ≫ (Module.synonym ⊣ typex) ≪ token ";"
 
 newType :: (Syntax δ, Position δ p) => δ (Path, Module.Global p)
-newType = prefixKeyword "wrapper" ≫ localPath ⊗ (define ∥ declare)
+newType = prefixKeyword "newtype" ≫ localPath ⊗ declare
   where
-    define = Module.newType ⊣ binaryToken "=" ≫ typex ≪ token ";"
     declare = Module.forwardNewtype ⊣ binaryToken ":" ≫ typex ≪ token ";"
 
 itemsRaw = seperatedMany (inline ∥ text ∥ synonym ∥ newType) (line ≫ line) where

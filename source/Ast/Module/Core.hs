@@ -27,8 +27,6 @@ reduceModule globals ((path, item) : nodes) =
          in (Global $ Text e', Just (makeExtern path p $ textType e))
       Global (Synonym σ) ->
         (Global $ Synonym σ, Nothing)
-      Global (NewType σ) ->
-        (Global $ NewType σ, Nothing)
       Global (ForwardNewType κ) ->
         (Global $ ForwardNewType κ, Nothing)
       Global (ForwardText σ) ->

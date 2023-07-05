@@ -127,28 +127,17 @@ runChecker' c = runStateT . runReaderT (runChecker'' c)
 runChecker :: Check p a -> CheckEnvironment p -> CheckState p -> Either (TypeError p) a
 runChecker c = (fmap fst .) . runChecker' c
 
-data Brand
-  = Runtime
-  | Meta
-  deriving (Show)
-
 data TermBinding p = TermBinding
   { termPosition :: p,
     termMultiplicity :: TypeUnify,
-    termBrand :: Brand,
     termType :: LabelSchemeUnify
   }
   deriving (Functor)
 
-data NominalBinding
-  = Unnamed
-  | Named TypeInfer
-
 data TypeBinding p = TypeBinding
   { typePosition :: p,
     typeKind :: TypeUnify,
-    typeLevel :: Level,
-    typeNominal :: NominalBinding
+    typeLevel :: Level
   }
   deriving (Functor)
 
@@ -188,22 +177,16 @@ emptyEnvironment = CheckEnvironment Map.empty Map.empty Map.empty Map.empty Path
 askEnvironment :: Check p (CheckEnvironment p)
 askEnvironment = Check ask
 
-augmentTypeEnvironment :: TermIdentifier -> p -> TypeUnify -> Brand -> LabelSchemeUnify -> Check p a -> Check p a
-augmentTypeEnvironment x p l b σ = modifyTypeEnvironment (Map.insert x (TermBinding p l b σ))
+augmentTypeEnvironment :: TermIdentifier -> p -> TypeUnify -> LabelSchemeUnify -> Check p a -> Check p a
+augmentTypeEnvironment x p l σ = modifyTypeEnvironment (Map.insert x (TermBinding p l σ))
   where
     modifyTypeEnvironment f = withEnvironment (\env -> env {typeEnvironment = f (typeEnvironment env)})
     withEnvironment f (Check r) = Check $ withReaderT f r
 
 augmentKindEnvironment :: p -> TypeIdentifier -> TypeUnify -> Level -> Check p a -> Check p a
 augmentKindEnvironment p x κ lev f =
-  modifyKindEnvironment (Map.insert x (TypeBinding p κ lev Unnamed)) f
+  modifyKindEnvironment (Map.insert x (TypeBinding p κ lev)) f
   where
-    modifyKindEnvironment f (Check r) = Check $ withReaderT (\env -> env {kindEnvironment = f (kindEnvironment env)}) r
-
-augmentKindUnify :: Bool -> p -> TypeIdentifier -> Check p a -> Check p a
-augmentKindUnify occurs p x = modifyKindEnvironment (Map.insert x (TypeBinding p κ (if occurs then minBound else maxBound) Unnamed))
-  where
-    κ = error "kind used during unification"
     modifyKindEnvironment f (Check r) = Check $ withReaderT (\env -> env {kindEnvironment = f (kindEnvironment env)}) r
 
 augmentSynonym :: TypeIdentifier -> TypeInfer -> Check p a -> Check p a
@@ -292,12 +275,12 @@ occursCheck p x lev σ' = go σ'
     go (Core.Type σ) = do
       case σ of
         TypeConstant (TypeVariable x') -> do
-          TypeBinding _ _ lev' _ <- (! x') <$> kindEnvironment <$> askEnvironment
+          TypeBinding _ _ lev' <- (! x') <$> kindEnvironment <$> askEnvironment
           if lev' > lev
             then quit $ EscapingSkolemType p x'
             else pure ()
         TypeConstant (TypeGlobalVariable x') -> do
-          TypeBinding _ _ lev' _ <- (! x') <$> kindGlobalEnvironment <$> askEnvironment
+          TypeBinding _ _ lev' <- (! x') <$> kindGlobalEnvironment <$> askEnvironment
           if lev' > lev
             then error "type globals aren't supposed to be argumentable"
             else pure ()
@@ -388,7 +371,7 @@ occursCheck p x lev σ' = go σ'
     occursPoly ς = case ς of
       Core.MonoType σ -> recurse σ
       Core.TypeForall (Core.TypePattern x κ) ς -> do
-        augmentKindUnify True p x $ occursPoly ς
+        augmentKindEnvironment p x κ minBound $ occursPoly ς
         recurse κ
         pure ()
 
@@ -406,10 +389,10 @@ reconstruct p = Core.reconstruct indexEnvironment indexGlobalEnvironment indexLo
 
     indexEnvironment x = (! x) <$> kindEnvironment <$> askEnvironment >>= kind
       where
-        kind (TypeBinding _ κ _ _) = pure $ κ
+        kind (TypeBinding _ κ _) = pure $ κ
     indexGlobalEnvironment x = (! x) <$> kindGlobalEnvironment <$> askEnvironment >>= kind
       where
-        kind (TypeBinding _ κ _ _) = pure $ κ
+        kind (TypeBinding _ κ _) = pure $ κ
     indexLogicalMap x = (! x) <$> typeLogicalMap <$> getState >>= index
     index (UnboundType _ x _) = pure x
     index (LinkType σ) = reconstruct p σ
@@ -560,7 +543,7 @@ matchType p = unify
         let αf = fresh vars α
         let ς2 = convertType αf α ς
         let ς'2 = convertType αf α' ς'
-        augmentKindUnify False p αf $ unifyPoly ς2 ς'2
+        augmentKindEnvironment p αf κ maxBound $ unifyPoly ς2 ς'2
         pure ()
     unifyPoly
       (Core.MonoType σ)
@@ -848,8 +831,8 @@ checkLabel p σ = quit $ ExpectedLabel p σ
 
 data Mode = InlineMode | SymbolMode
 
-augmentVariableLinear p x l b ς check = do
-  Checked e σ lΓ <- augmentTypeEnvironment x p l b ς check
+augmentVariableLinear p x l ς check = do
+  Checked e σ lΓ <- augmentTypeEnvironment x p l ς check
   case count x lΓ of
     Single -> pure ()
     _ -> matchType p l unrestricted
@@ -858,7 +841,7 @@ augmentVariableLinear p x l b ς check = do
 capture p base lΓ = do
   let captures = variablesUsed lΓ
   for (Set.toList captures) $ \x -> do
-    (TermBinding _ l _ _) <- fromJust <$> Map.lookup x <$> typeEnvironment <$> askEnvironment
+    (TermBinding _ l _) <- fromJust <$> Map.lookup x <$> typeEnvironment <$> askEnvironment
     matchType p l (Core.Type $ TypeBoolean $ TypeOr base l)
     pure ()
   pure ()
@@ -873,7 +856,7 @@ requireUnrestricted p σ = do
 -- this depends on `(σ, κ) <- kindCheck σ`, never having unification variables in σ
 -- because relabel ignores unification variables
 augmentTermMetaPattern (Core.TermMetaPattern p (PatternVariable x π σ)) =
-  augmentVariableLinear p x π Meta (relabel (Core.MonoType σ))
+  augmentVariableLinear p x π (relabel (Core.MonoType σ))
 
 nullEffect σ = Core.MonoType $ Core.Type $ Effect σ none
 
@@ -882,7 +865,7 @@ augmentTermPattern pm = go pm
     go (Core.TermPattern p (RuntimePatternVariable x σ)) = \e -> do
       κ <- reconstruct p σ
       (_, l) <- checkPretype p κ
-      augmentVariableLinear p x l Runtime (Core.MonoLabel (nullEffect σ)) e
+      augmentVariableLinear p x l (Core.MonoLabel (nullEffect σ)) e
     go (Core.TermPattern _ (RuntimePatternTuple pms)) = foldr (.) id (map go pms)
     go (Core.TermPattern _ (RuntimePatternBoolean _)) = id
 
@@ -939,13 +922,13 @@ kindCheck :: Surface.Type p -> Check p (TypeInfer, TypeUnify)
 kindCheck (Surface.Type p σ) = case σ of
   TypeConstant (TypeVariable x) -> do
     Map.lookup x <$> kindEnvironment <$> askEnvironment >>= \case
-      Just (TypeBinding _ κ _ _) -> pure (Core.Type $ TypeConstant $ TypeVariable x, κ)
+      Just (TypeBinding _ κ _) -> pure (Core.Type $ TypeConstant $ TypeVariable x, κ)
       Nothing -> do
         heading <- moduleScope <$> askEnvironment
         kindCheck (Surface.Type p $ TypeConstant $ TypeGlobalVariable $ globalType heading x)
   TypeConstant (TypeGlobalVariable x) -> do
     Map.lookup x <$> kindGlobalEnvironment <$> askEnvironment >>= \case
-      Just (TypeBinding _ κ _ _) -> pure (Core.Type $ TypeConstant $ TypeGlobalVariable x, κ)
+      Just (TypeBinding _ κ _) -> pure (Core.Type $ TypeConstant $ TypeGlobalVariable x, κ)
       Nothing ->
         Map.lookup x <$> typeGlobalSynonyms <$> askEnvironment >>= \case
           Just σ -> do
@@ -1129,7 +1112,7 @@ typeCheck (Surface.Term p e) = case e of
   TermRuntime (Variable x θ') -> do
     mσ <- Map.lookup x <$> typeEnvironment <$> askEnvironment
     case mσ of
-      Just (TermBinding _ _ _ σ) -> do
+      Just (TermBinding _ _ σ) -> do
         (τ, θ) <- instantiateLabel instantiate p σ
         case θ' of
           Surface.InstantiationInfer -> pure ()
@@ -1141,7 +1124,7 @@ typeCheck (Surface.Term p e) = case e of
   GlobalVariable x θ' -> do
     mσ <- Map.lookup x <$> typeGlobalEnvironment <$> askEnvironment
     case mσ of
-      Just (TermBinding _ _ _ σ) -> do
+      Just (TermBinding _ _ σ) -> do
         (τ, θ) <- instantiateLabel instantiate p σ
         case θ' of
           Surface.InstantiationInfer -> pure ()
@@ -1308,36 +1291,6 @@ typeCheck (Surface.Term p e) = case e of
         (π', _) <- kindCheck π'
         matchType p π (flexible π')
     pure $ Checked (Core.Term p $ FunctionLiteral (Core.TermBound pm' e') τ π) (Core.Type $ FunctionLiteralType σ π τ) lΓ
-  Annotation (Surface.PretypeAnnotation (Surface.Term p (TermErasure (Wrap NoType e))) σ) -> do
-    (σ, _) <- kindCheck σ
-    case σ of
-      (Core.Type (TypeConstant (TypeVariable x))) -> (! x) <$> kindEnvironment <$> askEnvironment >>= go σ
-      (Core.Type (TypeConstant (TypeGlobalVariable x))) -> (! x) <$> kindGlobalEnvironment <$> askEnvironment >>= go σ
-      _ -> quit $ ExpectedNewtype p (flexible σ)
-    where
-      go :: TypeInfer -> TypeBinding p -> Check p (Checked p TypeUnify)
-      go σ (TypeBinding _ _ _ (Named τ)) = do
-        Checked e (τ', π) lΓ <- traverse (checkEffect p) =<< typeCheck e
-        matchType p (flexible τ) τ'
-        pure $ Checked (Core.Term p (TermErasure (Wrap (flexible σ) e))) (Core.Type $ Effect (flexible σ) π) lΓ
-      go σ (TypeBinding _ _ _ Unnamed) = quit $ ExpectedNewtype p (flexible σ)
-  TermErasure (Wrap _ _) -> do
-    quit $ ExpectedTypeAnnotation p
-  TermErasure (Unwrap NoType (Surface.Term _ (Annotation (Surface.PretypeAnnotation e σ)))) -> do
-    (σ, _) <- kindCheck σ
-    case σ of
-      (Core.Type (TypeConstant (TypeVariable x))) -> (! x) <$> kindEnvironment <$> askEnvironment >>= go σ
-      (Core.Type (TypeConstant (TypeGlobalVariable x))) -> (! x) <$> kindGlobalEnvironment <$> askEnvironment >>= go σ
-      _ -> quit $ ExpectedNewtype p (flexible σ)
-    where
-      go :: TypeInfer -> TypeBinding p -> Check p (Checked p TypeUnify)
-      go σ (TypeBinding _ _ _ (Named τ)) = do
-        Checked e (σ', π) lΓ <- traverse (checkEffect p) =<< typeCheck e
-        matchType p (flexible σ) σ'
-        pure $ Checked (Core.Term p (TermErasure (Unwrap (flexible σ) e))) (Core.Type $ Effect (flexible (flexible τ)) π) lΓ
-      go σ (TypeBinding _ _ _ Unnamed) = quit $ ExpectedNewtype p (flexible σ)
-  TermErasure (Unwrap _ (Surface.Term p _)) -> do
-    quit $ ExpectedTypeAnnotation p
   Annotation (Surface.TypeAnnotation e τ) -> do
     Checked e σ lΓ <- typeCheck e
     (τ, _) <- kindCheck τ
@@ -1421,39 +1374,15 @@ typeCheck (Surface.Term p e) = case e of
     Checked e2' (σ, π2) lΓ2 <- traverse (checkEffect p) =<< typeCheck e2
     let π = regions [π1, π2]
     pure $ Checked (Core.Term p $ TermSugar $ Do e1' e2') (Core.Type $ Effect σ π) (lΓ1 `combine` lΓ2)
-  TermErasure
-    ( Borrow
-        x
-        (Surface.TermScheme _ (Surface.TypeAbstraction pm (Surface.TermScheme _ (Surface.MonoTerm e))))
-      ) -> do
-      Map.lookup x <$> typeEnvironment <$> askEnvironment >>= \case
-        Just (TermBinding _ _ Runtime (Core.MonoLabel (Core.MonoType xσ))) -> do
-          σ <- freshPretypeTypeVariable p
-          π <- freshRegionTypeVariable p
-          τ <- freshBoxedTypeVariable p
-
-          matchType p xσ $ Core.Type $ Effect (Core.Type $ Unique $ τ) (Core.Type $ TypeFalse)
-          (pm, ()) <- secondM (checkRegion p) =<< kindCheckPattern SymbolMode pm
-
-          -- Shadowing type variables is prohibited
-          vars <- Map.keysSet <$> kindEnvironment <$> askEnvironment
-          let αo = intermediateBinder pm
-              αn = fresh vars αo
-              pm' = pm {intermediateBinder = αn}
-              α = Core.Type $ TypeConstant $ TypeVariable $ αn
-
-          augmentTypePatternLevel pm $
-            augmentSynonym αo α $ do
-              augmentTypeEnvironment x p (Core.Type $ TypeTrue) Runtime (Core.MonoLabel $ nullEffect $ Core.Type (Shared τ α)) $ do
-                ρ <- freshRegionTypeVariable p
-                Checked e (σ', l) lΓ <- traverse (checkEffect p) =<< typeCheck e
-                matchType p σ σ'
-                matchType p l $ Core.Type $ TypeBoolean $ TypeOr π $ Core.Type $ TypeBoolean $ TypeAnd α ρ
-                let pm'' = flexible $ toTypePattern pm'
-                let borrow = Core.Term p $ TermErasure $ Borrow x (Core.TermScheme p (Core.TypeAbstraction pm'' (Core.TermScheme p (Core.MonoTerm e))))
-                pure $ Checked borrow (Core.Type $ Effect σ π) (Remove x lΓ)
-        _ -> quit $ BadBorrowIdentifier p x
-  TermErasure (Borrow _ _) -> quit $ BadBorrowSyntax p
+  TermErasure (Cast e NoType) -> do
+    Checked e (σ, _) lΓ <- traverse (checkEffect p) =<< typeCheck e
+    κ <- reconstruct p σ
+    (ρ, _) <- checkPretype p κ
+    m <- freshMultiplicityKindVariable p
+    σ' <- freshTypeVariable p (Core.Type $ Pretype ρ m)
+    π' <- freshRegionTypeVariable p
+    let τ = Core.Type $ Effect σ' π'
+    pure $ Checked (Core.Term p $ TermErasure $ Cast e τ) τ lΓ
 
 typeCheckScheme :: Mode -> Surface.TermScheme p -> Check p (CheckedScheme p TypeSchemeUnify)
 typeCheckScheme mode (Surface.TermScheme p (Surface.TypeAbstraction pm e)) = do
@@ -1662,11 +1591,6 @@ typeCheckModule ((path, item) : nodes) | heading <- Path.directory path = do
         σ <- run $ typeCheckGlobalSyn σ
         updateSym σ
         pure $ Core.Global $ Synonym σ
-      NewType σ -> do
-        (σ, κ) <- run $ typeCheckGlobalNew σ
-        run (checkType environment κ)
-        updateNewType σ (flexible κ)
-        pure $ Core.Global $ NewType σ
       ForwardText ς -> do
         ς <- run $ typeCheckGlobalForward ς
         updateTerm (convertFunctionLiteral $ flexible ς)
@@ -1677,18 +1601,12 @@ typeCheckModule ((path, item) : nodes) | heading <- Path.directory path = do
         pure $ Core.Global $ ForwardNewType κ
       where
         p = Surface.positionGlobal item
-        checkType environment κ = case Map.lookup (TypeGlobalIdentifier path) (kindGlobalEnvironment environment) of
-          Nothing -> pure ()
-          Just (TypeBinding {typeKind = κ'}) -> do
-            matchType p (flexible κ) κ'
-            pure ()
-
         updateTerm ς = modify $ \environment ->
           environment
             { typeGlobalEnvironment =
                 Map.insert
                   (TermGlobalIdentifier path)
-                  (TermBinding p unrestricted Meta (relabel ς))
+                  (TermBinding p unrestricted (relabel ς))
                   $ typeGlobalEnvironment environment
             }
         updateSym σ = modify $ \environment ->
@@ -1699,21 +1617,13 @@ typeCheckModule ((path, item) : nodes) | heading <- Path.directory path = do
                   σ
                   $ typeGlobalSynonyms environment
             }
-        updateNewType σ κ = modify $ \environment ->
-          environment
-            { kindGlobalEnvironment =
-                Map.insert
-                  (TypeGlobalIdentifier path)
-                  (TypeBinding p κ minBound (Named σ))
-                  $ kindGlobalEnvironment environment
-            }
         updateNewType' κ = modify $ \environment ->
           environment
             { kindGlobalEnvironment =
                 Map.insertWith
                   (\_ x -> x)
                   (TypeGlobalIdentifier path)
-                  (TypeBinding p κ minBound Unnamed)
+                  (TypeBinding p κ minBound)
                   $ kindGlobalEnvironment environment
             }
 

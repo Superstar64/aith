@@ -18,12 +18,9 @@ where $ \mu $ is an $ \text{Unification} $, $ \kappa $ is a $ \text{Transparency
 \\
 Variables in the type environment are annotated with their multiplicity. ie $ x :^1 ... $. \\
 \\
-Function literals and function literal types can not appear at runtime. They must be bound by a global function binding.
-This binding converts a function literal into an extern and a function literal type into a function pointer type. \\
+Function literals are syntactically required to be top level only. Top level function types are internal.
 \\
 Overlines are used to mean 0 or more. \\
-\\
-New types definitions are module only and are not included in these rules. \\
 \\
 After $ \beta $ reduction, terms not of type $ \sigma^\pi $ must either be a free variable or correspond to these $ \beta $ normal forms. \\
 \\
@@ -46,15 +43,17 @@ Types which use boolean unification all permit the standard boolean operations(\
 \begin{align*}
 e \tag{Terms} \\
 x \tag{Variables} \\
-n \tag{Numbers} \\
 \sigma, \tau, \pi, \kappa, s, \rho, \mu \tag{Types} \\
 \alpha, \beta \tag{Type Variables} \\
 \Gamma \tag{Type Environment} \\
 \Phi \tag{Misc Environment} \\
-\text{sym} \tag{Symbol} \\
-\text{data} \tag{NewType}
 \end{align*}
 
+\subsubsection{Misc Categories}
+\begin{align*}
+n \tag{Numbers} \\
+\text{sym} \tag{Symbol} \\
+\end{align*}
 
 \subsection{Judgment Forms}
 The term rules are not syntax directed.
@@ -70,17 +69,11 @@ The type of a term must be a valid type ($ \Phi | \Gamma \vdash e : \sigma $, re
 & \Gamma, x :^\pi \sigma \\
 & \emptyset \\
 \Phi \Coloneqq & \\
-& \Phi, \alpha : \kappa = \text{data} \\
+& \Phi, \alpha : \kappa \\
 & \emptyset \\
-\\
-\text{data} \Coloneqq & \\
-& \text{wrap} (\sigma) \\
-& \emptyset
 \end{align*} \\
-
-$ \Phi, \alpha : \kappa $ is shorthand for $ \Phi, \alpha : \kappa = \emptyset $ \\
 \\
-In addition, type environments can be multiplied by a multiplicity, following from Linear Haskell.
+Type environments can be multiplied by a multiplicity, following from Linear Haskell.
 Except due to the representation of multiplicity as booleans, multiplication gets mapped to disjunction.
 \begin{gather*}
 \pi \Gamma = \{(x :^{\pi \lor  \pi'}) \, | \, (x :^{\pi'}) \in \Gamma \} \\
@@ -163,7 +156,7 @@ e \Coloneqq & \\
 
 \begin{gather*}
 \frac
-{(\alpha : \kappa = \text{data} ) \in \Phi}
+{(\alpha : \kappa) \in \Phi}
 {\Phi \vdash \alpha : \kappa}
 \end{gather*}
 
@@ -290,8 +283,6 @@ e \Coloneqq & \\
 
 \subsubsection{Boxed}
 \begin{align*}
-e \Coloneqq & \\
-& \text{borrow} (x)  \Lambda \alpha. \{ e' \} \\
 \sigma, \tau, \pi \Coloneqq & \\
 & \text{unique} \, \sigma \\
 & \sigma \, @ \, \pi \\
@@ -300,12 +291,6 @@ e \Coloneqq & \\
 & \text{Pointer} \tag{Pointer Representation} \\
 & \dots \\
 \end{align*}
-
-\begin{gather*}
-\frac
-{\splitfrac{x : (\text{unique} \, \tau)^\texttt{false} \in \Gamma \quad \Phi,\alpha : \text{Region}  \, | \, \Gamma', x :^\texttt{true} (\tau @ \, \alpha)^\texttt{false} \vdash e' : \sigma^{\pi \lor (\alpha \land \rho)}}{\alpha \notin \text{Free}(\sigma, \pi, \tau) \quad \text{$x$ is bound from a runtime let binding}}}
-{\Phi | \Gamma \vdash \text{borrow} (x)  \Lambda \alpha. \{ e' \} : \sigma^{\pi} }
-\end{gather*}
 
 \begin{gather*}
 \frac
@@ -603,24 +588,6 @@ e \Coloneqq & \\
 \frac
 {\Phi \vdash \sigma : +^{\rho}_{\pi} \quad \Phi \vdash \tau : +^{\mu}_{\pi'} }
 {\Phi \vdash \text{Step} \, \sigma \, \tau : +^{\text{Struct} (\text{Word} (8), \text{Union} (\rho, \mu) ) }_\texttt{false} }
-\end{gather*}
-
-\subsubsection{Newtypes}
-
-\begin{align*}
-e \Coloneqq & \\
-& \text{wrap} [\sigma] (e) \\
-& \text{unwrap} [\sigma] (e) \\
-\end{align*}
-
-\begin{gather*}
-\frac
-{\Phi | \Gamma \vdash e : \sigma^\pi \quad (\alpha : +^\rho_\mu = \text{wrap} (\sigma)) \in \Phi}
-{\Phi | \Gamma \vdash \text{wrap} [\alpha] e : \alpha^\pi} \\
-\\
-\frac
-{\Phi | \Gamma \vdash e : \alpha^\pi \quad (\alpha : +^\rho_\mu = \text{wrap} (\sigma)) \in \Phi}
-{\Phi | \Gamma \vdash \text{unwrap} [\alpha] e : \sigma^\pi}
 \end{gather*}
 
 \section{Simple Language}

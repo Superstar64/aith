@@ -25,7 +25,6 @@ instance Functor Global where
   fmap f (Global (Inline e)) = Global (Inline (fmap f e))
   fmap f (Global (Text e)) = Global (Text (fmap f e))
   fmap f (Global (Synonym e)) = Global (Synonym (fmap f e))
-  fmap f (Global (NewType e)) = Global (NewType (fmap f e))
   fmap f (Global (ForwardText e)) = Global (ForwardText (fmap f e))
   fmap f (Global (ForwardNewType e)) = Global (ForwardNewType (fmap f e))
 
@@ -39,10 +38,6 @@ text = Prism (Global . Text) $ \case
 
 synonym = Prism (Global . Synonym) $ \case
   Global (Synonym σ) -> Just σ
-  _ -> Nothing
-
-newType = Prism (Global . NewType) $ \case
-  Global (NewType σ) -> Just σ
   _ -> Nothing
 
 forwardText = Prism (Global . ForwardText) $ \case
@@ -60,7 +55,6 @@ positionGlobal (Global e) = case e of
   Text (TermAuto (Term p _)) -> p
   Text (TermManual (TermScheme p _)) -> p
   Synonym (Type p _) -> p
-  NewType (Type p _) -> p
   ForwardText (TypeScheme p _) -> p
   ForwardNewType (Type p _) -> p
 
@@ -83,7 +77,6 @@ validateDuplicates :: Map Path (NonEmpty (Global p)) -> Either (ModuleError p) (
 validateDuplicates code = Map.traverseWithKey check code >> pure ()
   where
     check _ (_ :| []) = Right ()
-    check _ (Global (ForwardNewType _) :| [Global (NewType _)]) = Right ()
     check path (global :| _) = Left (Duplicate (positionGlobal global) path)
 
 order :: Semigroup p => Map Path (NonEmpty (Global p)) -> Either (ModuleError p) [(Origin, Path, Global p)]
@@ -103,18 +96,8 @@ order code = sortTopological key quit children globals
           Just (Global (Text e) :| [])
             | Just σ <- annotated e ->
               pure [(Auto, path, Global (ForwardText σ))]
-          Just (global@(Global (ForwardNewType _)) :| [global'@(Global (NewType _))]) ->
-            case typeLevel of
-              True -> pure [(Manual, path, global)]
-              False -> pure [(Manual, path, global), (Manual, path, global')]
           Just (global :| []) -> pure [(Manual, path, global)]
           Just (_ :| _) -> error "unexpected module item"
-      where
-        typeLevel = case item of
-          Global (NewType _) -> True
-          Global (ForwardNewType _) -> True
-          Global (Synonym _) -> True
-          _ -> False
     globals =
       Map.toList code >>= \(path, items) -> do
         item <- NonEmpty.toList items
@@ -124,7 +107,6 @@ order code = sortTopological key quit children globals
       Global (Inline e) -> free e
       Global (Text e) -> free e
       Global (Synonym σ) -> free σ
-      Global (NewType σ) -> free σ
       Global (ForwardNewType σ) -> free σ
       Global (ForwardText ς) -> free ς
       where

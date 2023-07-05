@@ -117,10 +117,8 @@ convertTerm (Term p (TermRuntime e)) =
       convertTerm
       e
 convertTerm (Term _ (TermErasure e)) = case e of
-  Borrow _ e -> convertTermScheme e
-  Wrap _ e -> convertTerm e
-  Unwrap _ e -> convertTerm e
   IsolatePointer e -> convertTerm e
+  Cast e _ -> convertTerm e
 convertTerm (Term _ _) = simpleFailTerm
 
 simpleFailTerm = error "illegal simple term"

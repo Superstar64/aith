@@ -85,9 +85,7 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | Function Ascribe | `x(pm) : σ in π { e }`|
 | Function Ascribe | `x(pm) :: σ { e }`|
 | Synonym | `type x = σ;` |
-| New Type Forward | `wrapper x : κ;` |
-| New Type | `wrapper x = σ;` |
-
+| New Type Declaration | `newtype x : κ;` |
 
 ## Terms(e)
 | Description | Syntax |
@@ -124,14 +122,12 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | Poly Introduction| `ς e` |
 | Poly Elimination | `e @_` |
 | Poly Elimination | `e @<σ, σ', ...>` |
-| Borrow | `borrow x <α : Region> { e }` |
 | Type Annotation | `e : σ` |
 | Pretype Annotation | `e :: σ` |
 | Continue | `continue e` |
 | Break | `break e` |
 | Loop | `loop (let pm = e) { e' }` |
-| Wrap | `wrap e :: σ` |
-| Unwrap | `unwrap (e :: σ) `|
+| Unsafe Cast | `cast e` |
 
 ## Terms (Syntax Sugar) (e)
 | Description | Syntax | Meaning |

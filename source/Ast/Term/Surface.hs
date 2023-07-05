@@ -283,24 +283,14 @@ termErasure = Prism TermErasure $ \case
   TermErasure e -> Just e
   _ -> Nothing
 
-borrow = (termErasure .) $
-  Prism (uncurry Borrow) $ \case
-    (Borrow x λ) -> Just (x, λ)
-    _ -> Nothing
-
 isolatePointer = (termErasure .) $
   Prism IsolatePointer $ \case
     IsolatePointer e -> Just e
     _ -> Nothing
 
-wrap = (termErasure .) $
-  Prism (Wrap NoType) $ \case
-    Wrap NoType e -> Just e
-    _ -> Nothing
-
-unwrap = (termErasure .) $
-  Prism (Unwrap NoType) $ \case
-    Unwrap NoType e -> Just e
+cast = (termErasure .) $
+  Prism (\e -> Cast e NoType) $ \case
+    Cast e NoType -> Just e
     _ -> Nothing
 
 termAuto = Prism TermAuto $ \case

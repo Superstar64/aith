@@ -18,10 +18,8 @@ data TermSugar σ e
   deriving (Show, Functor)
 
 data TermErasure σauto λσe e
-  = Borrow TermIdentifier λσe
-  | IsolatePointer e
-  | Wrap σauto e
-  | Unwrap σauto e
+  = IsolatePointer e
+  | Cast e σauto
   deriving (Show)
 
 data TermF ann θ σ σauto λσe λe λrun_e e
@@ -85,10 +83,8 @@ traverseTermF y d a z k h m i e =
     Annotation e -> pure Annotation <*> y e
     GlobalVariable x θ -> pure GlobalVariable <*> pure x <*> d θ
     FunctionLiteral λ τ π -> pure FunctionLiteral <*> m λ <*> a τ <*> a π
-    TermErasure (Borrow x λ) -> TermErasure <$> (Borrow <$> pure x <*> k λ)
     TermErasure (IsolatePointer e) -> TermErasure <$> (IsolatePointer <$> i e)
-    TermErasure (Wrap σ e) -> TermErasure <$> (Wrap <$> z σ <*> i e)
-    TermErasure (Unwrap σ e) -> TermErasure <$> (Unwrap <$> z σ <*> i e)
+    TermErasure (Cast e σ) -> TermErasure <$> (Cast <$> i e <*> z σ)
     InlineAbstraction λ -> pure InlineAbstraction <*> h λ
     InlineApplication e1 e2 -> pure InlineApplication <*> i e1 <*> i e2
     Bind e λ -> pure Bind <*> i e <*> h λ

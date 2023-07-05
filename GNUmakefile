@@ -35,19 +35,17 @@ $(format) : $(build)/format/%.format : %.hs | $$(dir $$@)
 	ormolu -o -XTypeApplications -i $<
 	touch $@
 
-test/ : test/*
-
-test.c: test/ aith
+test.c: test/ aith test/*.aith
 	./aith $(aith_flags) $< -C -o $@
 
 .PHONY: tests
 tests: $(build)/test/idempotency
 
-$(build)/test/format1.aith: test/ aith | $$(dir $$@)
+$(build)/test/format1.aith: test/ aith test/*.aith | $$(dir $$@)
 	./aith $(aith_flags) $< --format -o $@
-$(build)/test/annotate1.aith: test/ aith | $$(dir $$@)
+$(build)/test/annotate1.aith: test/ aith test/*.aith | $$(dir $$@)
 	./aith $(aith_flags) $< --annotate -o $@
-$(build)/test/reduce1.aith: test/ aith | $$(dir $$@)
+$(build)/test/reduce1.aith: test/ aith test/*.aith | $$(dir $$@)
 	./aith $(aith_flags) $< --reduce -o $@
 
 $(build)/test/format2.aith : $(build)/test/format1.aith aith | $$(dir $$@)

@@ -34,6 +34,8 @@ sourceTerm (Core.Term _ (TermRuntime (Break e σ))) =
   Surface.Term () $ Annotation $ Surface.PretypeAnnotation (Surface.Term () $ TermRuntime $ Break (sourceTerm e) Surface.NoType) (sourceType σ)
 sourceTerm (Core.Term _ (TermRuntime (Case e _ [] σ))) =
   Surface.Term () $ Annotation $ Surface.PretypeAnnotation (Surface.Term () $ TermRuntime $ Case (sourceTerm e) Surface.NoType [] Surface.NoType) (sourceType σ)
+sourceTerm (Core.Term _ (TermErasure (Cast e σ))) =
+  Surface.Term () $ Annotation $ Surface.TypeAnnotation (Surface.Term () $ TermErasure $ Cast (sourceTerm e) Surface.NoType) (sourceType σ)
 sourceTerm (Core.Term _ e) =
   Surface.Term () $ case e of
     TermRuntime e -> TermRuntime $ case e of
@@ -55,11 +57,7 @@ sourceTerm (Core.Term _ e) =
     GlobalVariable x Core.InstantiateEmpty -> GlobalVariable x (Surface.InstantiationInfer)
     GlobalVariable x θ -> GlobalVariable x (sourceInstanciation θ)
     FunctionLiteral (Core.TermBound pm ex) τ π -> FunctionLiteral (Surface.TermBound (sourceTermPattern True pm) (sourceTerm ex)) (sourceType τ) (sourceType π)
-    TermErasure (Borrow x λ) -> TermErasure $ Borrow x (sourceTermScheme λ)
     TermErasure (IsolatePointer e) -> TermErasure $ IsolatePointer (sourceTerm e)
-    TermErasure (Wrap σ e) ->
-      Annotation $ Surface.PretypeAnnotation (Surface.Term () $ TermErasure $ Wrap ann (sourceTerm e)) (sourceType σ)
-    TermErasure (Unwrap σ e) -> TermErasure $ Unwrap ann (sourceTermAnnotate Surface.PretypeAnnotation e σ)
     InlineAbstraction (Core.TermMetaBound pm ex) -> InlineAbstraction (Surface.TermMetaBound (sourceTermMetaPattern True pm) (sourceTerm ex))
     InlineApplication e e' -> InlineApplication (sourceTerm e) (sourceTerm e')
     Bind e (Core.TermMetaBound pm ex) -> Bind (sourceTerm e) (Surface.TermMetaBound (sourceTermMetaPattern True pm) (sourceTerm ex))
