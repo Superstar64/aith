@@ -160,7 +160,7 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 |-|-|
 | TypeScheme | `<pmσ, pmσ', ...>` |
 
-## Types(σ, τ, π, s, κ, ρ, μ)
+## Types(σ, τ, π, κ, ρ)
 | Description | Syntax |
 |-|-|
 | Hole | `_` |
@@ -199,11 +199,6 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | Representation | `representation` |
 | Signedness | `signedness` |
 | Size | `size` |
-| Kind | `kind<σ, τ, π>` |
-| Syntactic |`syntactic` |
-| Propositional |`propositional` |
-| Transpaent | `transparent` |
-| Opaque | `opaque` |
 | Type True | `true` |
 | Type False | `false` |
 | Type And | `σ & τ` |
@@ -211,17 +206,19 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | Type Not | `!σ` |
 | Type Xor | `σ (+) τ` |
 
-# Types (Internal) (σ, τ, π, s, κ, ρ, μ)
+# Types (Internal) (σ, τ, π, κ, ρ)
 | Description | Syntax |
 | - | - |
-| Transparency | `transparency` |
 | Unification | `unification` |
+| Kind | `kind<σ>` |
+| Syntactic |`syntactic` |
+| Propositional |`propositional` |
 | Top | `/\|\` |
 | Function Literal Type | `function literal(σ) -> τ uses π` |
 | Label | `label` |
 | Ambiguous Label | `ambiguous` |
 
-# Types (Syntax Sugar) (σ, τ, π, s, κ, ρ, μ)
+# Types (Syntax Sugar) (σ, τ, π, κ, ρ)
 | Description | Syntax | Meaning |
 |-|-|-|
 | Byte | `byte` | `signed integer(byte)` |
@@ -243,8 +240,8 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 ## Type Pattern(pmσ)
 | Description | Syntax |
 |-|-|
-| Variable | `x` |
-| Variable Ascribe | `x : κ` |
+| Variable | `x : κ` |
+| Concrete Variable | `x :* κ` |
 
 
 # C Compiler Requirements

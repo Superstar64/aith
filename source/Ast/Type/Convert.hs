@@ -20,7 +20,7 @@ sourceTypeScheme (Core.TypeForall pm σ) =
   Surface.TypeScheme () $ Surface.TypeForall (sourceTypePattern pm) (sourceTypeScheme σ)
 
 sourceTypePattern :: Core.TypePatternInfer -> Surface.TypePattern ()
-sourceTypePattern (Core.TypePattern x σ) = Surface.TypePattern () x (sourceType σ)
+sourceTypePattern (Core.TypePattern x π σ) = Surface.TypePattern () x π (sourceType σ)
 
 sourceInstanciation :: Core.InstantiationInfer -> Surface.Instantiation ()
 sourceInstanciation θ = Surface.Instantiation (map sourceType $ go θ)

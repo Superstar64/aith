@@ -48,6 +48,8 @@ prettyError :: TypeError [SourcePos] -> String
 prettyError e = case e of
   TypeMismatch p σ σ' ->
     "Type mismatch between `" ++ prettyType σ ++ "` and `" ++ prettyType σ' ++ "`" ++ positions p
+  ErasureMismatch p π π' ->
+    "Erasure mismatch between `" ++ show π ++ "` and `" ++ show π' ++ "`" ++ positions p
   TypePolyMismatch p ς ς' ->
     prettyError
       (TypeMismatch p (Type $ Poly (Type AmbiguousLabel) ς) (Type $ Poly (Type AmbiguousLabel) ς'))
@@ -65,9 +67,9 @@ prettyError e = case e of
   IncorrectRegionBounds p -> "Incorrect Region Bounds: " ++ positions p
   NotTypable p -> "Not typable: " ++ positions p
   ExpectedNewtype p σ -> "Expected Newtype: `" ++ prettyType σ ++ "`" ++ positions p
-  ExpectedKind p σ -> prettyError (TypeMismatch p (Type (Kind v v)) σ)
-  ExpectedRepresentation p σ -> prettyError (TypeMismatch p (Type (Kind v v)) σ)
-  ExpectedMultiplicity p σ -> prettyError (TypeMismatch p (Type (Kind v v)) σ)
+  ExpectedKind p σ -> prettyError (TypeMismatch p (Type (Kind v)) σ)
+  ExpectedRepresentation p σ -> prettyError (TypeMismatch p (Type (Kind v)) σ)
+  ExpectedMultiplicity p σ -> prettyError (TypeMismatch p (Type (Kind v)) σ)
   ExpectedSize p σ -> prettyError (TypeMismatch p (Type (Size)) σ)
   ExpectedSignedness p σ -> prettyError (TypeMismatch p (Type (Signedness)) σ)
   ExpectedType p σ -> prettyError (TypeMismatch p (Type (Algebra.Type)) σ)
@@ -76,7 +78,6 @@ prettyError e = case e of
   ExpectedRegion p σ -> prettyError (TypeMismatch p (Type (Region)) σ)
   ExpectedPropositional p σ -> prettyError (TypeMismatch p (Type (Propositional)) σ)
   ExpectedUnification p σ -> prettyError (TypeMismatch p (Type (Unification)) σ)
-  ExpectedTransparency p σ -> prettyError (TypeMismatch p (Type (Transparency)) σ)
   ExpectedInline p σ -> prettyError (TypeMismatch p (Type (Type.Inline v v v)) σ)
   ExpectedFunctionPointer p σ -> prettyError (TypeMismatch p (Type (FunctionPointer v v v)) σ)
   ExpectedFunctionLiteralType p σ -> prettyError (TypeMismatch p (Type (FunctionLiteralType v v v)) σ)
@@ -92,6 +93,7 @@ prettyError e = case e of
   BadBorrowIdentifier p (TermIdentifier x) -> "Bad Borrow Identifier `" ++ x ++ "`" ++ positions p
   BadBorrowSyntax p -> "Bad Borrow Syntax" ++ positions p
   InstantiationLengthMismatch p -> "Mismatch Instanciation Length" ++ positions p
+  NotErasable p σ -> "Representation not erasable: `" ++ prettyType σ ++ "`" ++ positions p
 
 quoted x = "\"" ++ x ++ "\""
 

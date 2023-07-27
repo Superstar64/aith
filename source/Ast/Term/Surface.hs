@@ -346,7 +346,8 @@ instance Alpha Term where
 
 instance Alpha TermScheme where
   freeVariables (TermScheme _ (MonoTerm e)) = freeVariables e
-  freeVariables (TermScheme _ (TypeAbstraction (TypePattern _ x κ) e)) = freeVariables κ <> deleteTypeLocal x (freeVariables e)
+  freeVariables (TermScheme _ (TypeAbstraction (TypePattern _ x _ κ) e)) =
+    freeVariables κ <> deleteTypeLocal x (freeVariables e)
 
 instance Alpha Annotation where
   freeVariables (TypeAnnotation e σ) = freeVariables e <> freeVariables σ

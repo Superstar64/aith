@@ -46,19 +46,21 @@ data TypeF h v λσ σ
   | Representation
   | Size
   | Signedness
-  | Kind σ σ
+  | Kind σ
   | Syntactic
   | Propositional
   | Unification
-  | Transparent
-  | Opaque
-  | Transparency
   | AmbiguousLabel
   | Label
   | Hole h
   | TypeBoolean (TypeBoolean σ)
   | TypeTrue
   | TypeFalse
+  deriving (Show)
+
+data Erasure
+  = Transparent
+  | Concrete
   deriving (Show)
 
 traverseTypeF ::
@@ -99,13 +101,10 @@ traverseTypeF a f i g σ = case σ of
   Representation -> pure Representation
   Size -> pure Size
   Signedness -> pure Signedness
-  Kind σ τ -> pure Kind <*> g σ <*> g τ
+  Kind σ -> pure Kind <*> g σ
   Syntactic -> pure Syntactic
   Propositional -> pure Propositional
-  Transparent -> pure Transparent
-  Opaque -> pure Opaque
   Unification -> pure Unification
-  Transparency -> pure Transparency
   Top -> pure Top
   Hole h -> Hole <$> a h
   Label -> pure Label

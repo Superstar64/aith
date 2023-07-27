@@ -31,7 +31,7 @@ data TypeSchemeF p
   | TypeForall (TypePattern p) (TypeScheme p)
   deriving (Show)
 
-data TypePattern p = TypePattern p TypeIdentifier (Type p)
+data TypePattern p = TypePattern p TypeIdentifier Erasure (Type p)
   deriving (Show)
 
 data Instantiation p
@@ -247,8 +247,8 @@ top = Prism (const Top) $ \case
   Top -> Just ()
   _ -> Nothing
 
-kind = Prism (uncurry Kind) $ \case
-  Kind κ κ' -> Just (κ, κ')
+kind = Prism Kind $ \case
+  Kind κ -> Just (κ)
   _ -> Nothing
 
 syntactic =
@@ -266,14 +266,9 @@ transparent =
     Transparent -> Just ()
     _ -> Nothing
 
-opaque =
-  Prism (const Opaque) $ \case
-    Opaque -> Just ()
-    _ -> Nothing
-
-transparency =
-  Prism (const Transparency) $ \case
-    Transparency -> Just ()
+concrete =
+  Prism (const Concrete) $ \case
+    Concrete -> Just ()
     _ -> Nothing
 
 unification =
@@ -339,8 +334,8 @@ typeForall = Prism to from
 
 typePattern =
   Isomorph
-    (\((p, x), κ) -> TypePattern p x κ)
-    (\(TypePattern p x κ) -> ((p, x), κ))
+    (\(((p, x), π), κ) -> TypePattern p x π κ)
+    (\(TypePattern p x π κ) -> (((p, x), π), κ))
 
 instanciation = Prism to from
   where
@@ -363,7 +358,8 @@ instance Alpha Type where
 
 instance Alpha TypeScheme where
   freeVariables (TypeScheme _ (MonoType σ)) = freeVariables σ
-  freeVariables (TypeScheme _ (TypeForall (TypePattern _ x κ) σ)) = freeVariables κ <> deleteTypeLocal x (freeVariables σ)
+  freeVariables (TypeScheme _ (TypeForall (TypePattern _ x _ κ) σ)) =
+    freeVariables κ <> deleteTypeLocal x (freeVariables σ)
 
 instance Alpha Instantiation where
   freeVariables (Instantiation θ) = foldMap freeVariables θ
@@ -379,7 +375,7 @@ instance Functor TypeScheme where
   fmap f (TypeScheme p (TypeForall pm σ)) = TypeScheme (f p) (TypeForall (fmap f pm) (fmap f σ))
 
 instance Functor TypePattern where
-  fmap f (TypePattern p x κ) = TypePattern (f p) x (fmap f κ)
+  fmap f (TypePattern p x π κ) = TypePattern (f p) x π (fmap f κ)
 
 instance Functor Instantiation where
   fmap f (Instantiation θ) = Instantiation ((fmap . fmap) f θ)

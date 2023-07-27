@@ -219,26 +219,26 @@ compileTerm (SimpleTerm _ (PointerIncrement ep ei σ)) (SimpleType PointerRep) =
   ei <- compileTerm ei (SimpleType $ WordRep $ Native)
   ei <- putIntoVariableRaw (cint Native Unsigned) (C.Scalar ei)
   pure $ C.Addition ep ei
-compileTerm (SimpleTerm _ (Continue e ())) μ@(SimpleType (StructRep [_, SimpleType (UnionRep [_, σ])])) = do
+compileTerm (SimpleTerm _ (Continue e ())) κ@(SimpleType (StructRep [_, SimpleType (UnionRep [_, σ])])) = do
   e <- compileTerm e σ
-  putIntoVariableInit μ (C.Brace [C.Scalar (C.IntegerLiteral 1), C.Designator [("_1", C.Scalar e)]])
-compileTerm (SimpleTerm _ (Break e ())) μ@(SimpleType (StructRep [_, SimpleType (UnionRep [τ, _])])) = do
+  putIntoVariableInit κ (C.Brace [C.Scalar (C.IntegerLiteral 1), C.Designator [("_1", C.Scalar e)]])
+compileTerm (SimpleTerm _ (Break e ())) κ@(SimpleType (StructRep [_, SimpleType (UnionRep [τ, _])])) = do
   e <- compileTerm e τ
-  putIntoVariableInit μ (C.Brace [C.Scalar (C.IntegerLiteral 0), C.Designator [("_0", C.Scalar e)]])
+  putIntoVariableInit κ (C.Brace [C.Scalar (C.IntegerLiteral 0), C.Designator [("_0", C.Scalar e)]])
 compileTerm (SimpleTerm _ (Loop es (SimpleBound pm el))) τ = do
   let σ = simplePatternType pm
-  let μ = SimpleType $ StructRep [SimpleType $ WordRep $ Byte, SimpleType $ UnionRep [τ, σ]]
-  μ' <- lift $ ctype μ
+  let κ = SimpleType $ StructRep [SimpleType $ WordRep $ Byte, SimpleType $ UnionRep [τ, σ]]
+  κ' <- lift $ ctype κ
 
   es <- compileTerm es σ
   x <- lift $ temporary
   (el, depend) <- lift $
     augmentPattern (C.Member (C.Member (C.Variable x) "_1") "_1") pm $
       runWriterT $ do
-        compileTerm el μ
+        compileTerm el κ
   depend <- pure $ depend ++ [C.Expression $ C.Assign (C.Variable x) el]
   tell
-    [ C.Binding (C.Declaration μ' $ Just x) C.Uninitialized,
+    [ C.Binding (C.Declaration κ' $ Just x) C.Uninitialized,
       C.Expression $ C.Assign (C.Member (C.Member (C.Variable x) "_1") "_1") es,
       C.DoWhile depend (C.Member (C.Variable x) "_0")
     ]

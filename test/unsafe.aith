@@ -1,7 +1,7 @@
 inline unsafeCast = \e -> cast e;
 
 inline unsafeCastValue<
-    A:representation,
+    A:*representation,
     B:multiplicity,
     C:pretype<A,B>,
     D:multiplicity,
@@ -10,7 +10,7 @@ inline unsafeCastValue<
 > = unsafeCast : C in F -> E in F;
 
 inline unsafeCastRegion<
-    A:representation,
+    A:*representation,
     B:multiplicity,
     C:pretype<A,B>,
     D:region,

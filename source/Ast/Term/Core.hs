@@ -79,8 +79,8 @@ makeExtern path p ς = case ς of
         MonoTerm
           (Term p (TermRuntime $ Extern (Path.mangle path) σ π τ))
     )
-  TypeForall (TypePattern x κ) e ->
-    TermScheme p (TypeAbstraction (TypePattern x κ) $ makeExtern path p e)
+  TypeForall (TypePattern x π κ) e ->
+    TermScheme p (TypeAbstraction (TypePattern x π κ) $ makeExtern path p e)
   _ -> error "not function literal"
 
 data TermVariables = TermVariables (Set TermIdentifier) (Set TermGlobalIdentifier)
@@ -139,7 +139,7 @@ substituteGlobalTerm ux x = substituteTerms (TermSubstitution Map.empty (Map.sin
 
 applyScheme :: TermSchemeInfer p -> InstantiationInfer -> TermInfer p
 applyScheme (TermScheme _ (MonoTerm e)) InstantiateEmpty = e
-applyScheme (TermScheme _ (TypeAbstraction (TypePattern x _) e)) (InstantiateType σ θ) =
+applyScheme (TermScheme _ (TypeAbstraction (TypePattern x _ _) e)) (InstantiateType σ θ) =
   applyScheme (substituteType σ x e) θ
 applyScheme _ _ = error "bad scheme pair"
 
@@ -222,8 +222,8 @@ instance TermAlgebra TermScheme where
   freeVariablesTerm (TermScheme _ (MonoTerm e)) = freeVariablesTerm e
   freeVariablesTerm (TermScheme _ (TypeAbstraction _ e)) = freeVariablesTerm e
   substituteTerms θ (TermScheme p (MonoTerm e)) = TermScheme p (MonoTerm $ substituteTerms θ e)
-  substituteTerms θ (TermScheme p (TypeAbstraction (TypePattern x κ) e)) =
-    TermScheme p (TypeAbstraction (TypePattern x' κ) (go e'))
+  substituteTerms θ (TermScheme p (TypeAbstraction (TypePattern x π κ) e)) =
+    TermScheme p (TypeAbstraction (TypePattern x' π κ) (go e'))
     where
       variables = termSubstitutionLocalTypeVariables θ
       x' = fresh variables x
@@ -274,26 +274,27 @@ instance TypeAlgebra (Term p) where
 
 instance TypeAlgebra (TermScheme p) where
   freeLocalVariablesType (TermScheme _ (MonoTerm e)) = freeLocalVariablesType e
-  freeLocalVariablesType (TermScheme _ (TypeAbstraction (TypePattern x κ) e)) =
+  freeLocalVariablesType (TermScheme _ (TypeAbstraction (TypePattern x _ κ) e)) =
     go κ <> Set.delete x (go e)
     where
       go = freeLocalVariablesType
   substituteTypes θ (TermScheme p (MonoTerm e)) = TermScheme p (MonoTerm (substituteTypes θ e))
-  substituteTypes θ (TermScheme p (TypeAbstraction (TypePattern x κ) e))
-    | Set.member x (typeSubstitutionShadow θ) = TermScheme p (TypeAbstraction (TypePattern x κ) e)
-    | otherwise = TermScheme p (TypeAbstraction (TypePattern x' (go κ)) (go e'))
+  substituteTypes θ (TermScheme p (TypeAbstraction (TypePattern x π κ) e))
+    | Set.member x (typeSubstitutionShadow θ) = TermScheme p (TypeAbstraction (TypePattern x π (go κ)) e)
+    | otherwise = TermScheme p (TypeAbstraction (TypePattern x' π (go κ)) (go e'))
     where
       variables = typeSubstitutionLocalVariables θ
       x' = fresh variables x
       e' = convertType x' x e
       go = substituteTypes θ
   zonkType f (TermScheme p (MonoTerm e)) = TermScheme p <$> (MonoTerm <$> zonkType f e)
-  zonkType f (TermScheme p (TypeAbstraction (TypePattern x κ) e)) =
-    TermScheme p <$> (TypeAbstraction <$> (TypePattern x <$> go κ) <*> go e)
+  zonkType f (TermScheme p (TypeAbstraction (TypePattern x π κ) e)) =
+    TermScheme p <$> (TypeAbstraction <$> (TypePattern x π <$> go κ) <*> go e)
     where
       go = zonkType f
   simplify (TermScheme p (MonoTerm e)) = TermScheme p (MonoTerm (simplify e))
-  simplify (TermScheme p (TypeAbstraction (TypePattern x κ) e)) = TermScheme p (TypeAbstraction (TypePattern x (simplify κ)) (simplify e))
+  simplify (TermScheme p (TypeAbstraction (TypePattern x π κ) e)) =
+    TermScheme p (TypeAbstraction (TypePattern x π (simplify κ)) (simplify e))
 
 instance TypeAlgebra (TermMetaBound p) where
   freeLocalVariablesType (TermMetaBound pm e) = go pm <> go e

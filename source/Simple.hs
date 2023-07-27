@@ -123,14 +123,14 @@ convertTerm (Term _ _) = simpleFailTerm
 
 simpleFailTerm = error "illegal simple term"
 
-convertFunctionType (TypeForall (TypePattern x κ) σ) = withSimplify (Map.insert x κ) $ convertFunctionType σ
+convertFunctionType (TypeForall (TypePattern x _ κ) σ) = withSimplify (Map.insert x κ) $ convertFunctionType σ
 convertFunctionType (MonoType (Type (FunctionLiteralType σ _ τ))) = do
   σ' <- convertType σ
   τ' <- convertType τ
   pure $ SimpleFunctionType σ' τ'
 convertFunctionType _ = error "failed to convert function type"
 
-convertFunction (TermScheme _ (TypeAbstraction (TypePattern x κ) e)) = withSimplify (Map.insert x κ) $ convertFunction e
+convertFunction (TermScheme _ (TypeAbstraction (TypePattern x _ κ) e)) = withSimplify (Map.insert x κ) $ convertFunction e
 convertFunction (TermScheme _ (MonoTerm (Term p (FunctionLiteral (TermBound pm e) _ _)))) = do
   pm' <- convertTermMetaPattern pm
   e' <- convertTerm e

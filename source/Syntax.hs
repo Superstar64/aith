@@ -71,8 +71,8 @@ keywords =
       "multiplicity",
       "native",
       "natural",
+      "concrete",
       "newtype",
-      "opaque",
       "unification",
       "pointer",
       "pretype",
@@ -258,9 +258,13 @@ typePattern ::
   (Syntax δ, Position δ p) =>
   δ (Language.TypePattern p)
 typePattern =
-  Language.typePattern ⊣ position ⊗ typeIdentifier ⊗ k
+  Language.typePattern ⊣ position ⊗ typeIdentifier ⊗ erase ⊗ typex
   where
-    k = token ":" ≫ typex
+    erase =
+      choice
+        [ Language.transparent ⊣ token ":",
+          Language.concrete ⊣ token ":*"
+        ]
 
 typeParen :: (Position δ p, Syntax δ) => δ (Language.Type p)
 typeParen = branch' (toPrism Language.typeSource . secondP Language.tuple) id ⊣ commaNonSingle typex
@@ -354,19 +358,16 @@ typeCore = Language.typeSource ⊣ position ⊗ (choice options) ∥ integers �
         Language.native ⊣ keyword "native",
         Language.signed ⊣ keyword "signed",
         Language.unsigned ⊣ keyword "unsigned",
-        Language.kind ⊣ keyword "kind" ≫ betweenAngle (typex ⊗ token "," ≫ space ≫ typex),
+        Language.kind ⊣ keyword "kind" ≫ betweenAngle (typex),
         Language.representation ⊣ keyword "representation",
         Language.size ⊣ keyword "size",
         Language.signedness ⊣ keyword "signedness",
         Language.syntactic ⊣ keyword "syntactic",
         Language.propositional ⊣ keyword "propositional",
-        Language.transparent ⊣ keyword "transparent",
-        Language.opaque ⊣ keyword "opaque",
         Language.multiplicity ⊣ keyword "multiplicity",
         Language.step ⊣ keyword "step" ≫ betweenAngle (typex ≪ token "," ≪ space ⊗ typex),
         Language.top ⊣ token "/|\\",
         Language.unification ⊣ keyword "unification",
-        Language.transparency ⊣ keyword "transparency",
         Language.label ⊣ keyword "label",
         Language.ambiguousLabel ⊣ keyword "ambiguous",
         Language.hole ⊣ token "_",

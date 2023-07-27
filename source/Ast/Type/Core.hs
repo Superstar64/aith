@@ -37,7 +37,7 @@ type TypeSchemeUnify = TypeScheme TypeLogical
 
 type TypeSchemeInfer = TypeScheme Void
 
-data TypePattern v = TypePattern TypeIdentifier (Type v)
+data TypePattern v = TypePattern TypeIdentifier Erasure (Type v)
   deriving (Show)
 
 type TypePatternUnify = TypePattern TypeLogical
@@ -47,6 +47,7 @@ type TypePatternInfer = TypePattern Void
 data TypePatternIntermediate p = TypePatternIntermediate
   { intermediatePosition :: p,
     intermediateBinder :: TypeIdentifier,
+    intermediateErasure :: Erasure,
     intermediateKind :: TypeInfer
   }
 
@@ -67,7 +68,7 @@ type InstantiationUnify = Instantiation TypeLogical
 
 type InstantiationInfer = Instantiation Void
 
-toTypePattern (TypePatternIntermediate _ x κ) = TypePattern x κ
+toTypePattern (TypePatternIntermediate _ x π κ) = TypePattern x π κ
 
 -- uses integers as type names
 -- so integers cannot be type names (as is currently enforced by the syntax)
@@ -84,10 +85,10 @@ relabel ς = foldr LabelForall (MonoLabel ς') (map labelN [0 .. n - 1])
       pure $ Type $ Poly (Type $ TypeConstant $ TypeVariable $ labelN n) ς
     relabelType (Type σ) = Type <$> traverseTypeF pure pure (error "handled manually") relabelType σ
     relabelTypeScheme (MonoType σ) = MonoType <$> relabelType σ
-    relabelTypeScheme (TypeForall (TypePattern x κ) ς) = do
+    relabelTypeScheme (TypeForall (TypePattern x π κ) ς) = do
       κ <- relabelType κ
       ς <- relabelTypeScheme ς
-      pure $ TypeForall (TypePattern x κ) ς
+      pure $ TypeForall (TypePattern x π κ) ς
 
 linear = Type TypeFalse
 
@@ -124,8 +125,8 @@ reconstruct
       pure $ Type $ Pretype (Type $ KindRuntime $ StructRep ρs) τ
     Step σ τ -> do
       κ <- reconstructRuntime σ
-      μ <- reconstructRuntime τ
-      let union = Type $ KindRuntime $ UnionRep $ [κ, μ]
+      ρ <- reconstructRuntime τ
+      let union = Type $ KindRuntime $ UnionRep $ [κ, ρ]
       let wrap = Type $ KindRuntime $ StructRep $ [Type $ KindRuntime $ WordRep $ Type $ KindSize $ Byte, union]
       pure (Type $ Pretype wrap $ linear)
     Effect _ _ -> pure $ Type $ Algebra.Type
@@ -139,24 +140,21 @@ reconstruct
     Array _ -> pure $ Type $ Boxed
     Boolean -> pure $ Type $ Pretype (Type $ KindRuntime $ WordRep $ Type $ KindSize $ Byte) unrestricted
     TypeConstant World -> pure $ Type $ Region
-    Algebra.Type -> pure $ Type $ Kind (Type Syntactic) (Type Transparent)
-    Region -> pure $ Type $ Kind (Type Propositional) (Type Transparent)
-    Pretype _ _ -> pure $ Type $ Kind (Type Syntactic) (Type Transparent)
-    Boxed -> pure $ Type $ Kind (Type Syntactic) (Type Transparent)
-    Multiplicity -> pure $ Type $ Kind (Type Propositional) (Type Transparent)
+    Algebra.Type -> pure $ Type $ Kind (Type Syntactic)
+    Region -> pure $ Type $ Kind (Type Propositional)
+    Pretype _ _ -> pure $ Type $ Kind (Type Syntactic)
+    Boxed -> pure $ Type $ Kind (Type Syntactic)
+    Multiplicity -> pure $ Type $ Kind (Type Propositional)
     KindRuntime _ -> pure $ Type $ Representation
     KindSize _ -> pure $ Type $ Size
     KindSignedness _ -> pure $ Type $ Signedness
-    Representation -> pure $ Type $ Kind (Type Syntactic) (Type Opaque)
-    Size -> pure $ Type $ Kind (Type Syntactic) (Type Opaque)
-    Signedness -> pure $ Type $ Kind (Type Syntactic) (Type Opaque)
+    Representation -> pure $ Type $ Kind (Type Syntactic)
+    Size -> pure $ Type $ Kind (Type Syntactic)
+    Signedness -> pure $ Type $ Kind (Type Syntactic)
     Syntactic -> pure (Type Unification)
     Propositional -> pure (Type Unification)
-    Transparent -> pure (Type Transparency)
-    Opaque -> pure (Type Transparency)
-    Transparency -> pure (Type Top)
     Unification -> pure (Type Top)
-    Kind _ _ -> do
+    Kind _ -> do
       pure (Type $ Top)
     AmbiguousLabel -> pure (Type Label)
     Label -> pure $ Type $ Top
@@ -249,7 +247,7 @@ instance Traversable TypeScheme where
   traverse = traverseDefault
 
 instance Traversable TypePattern where
-  traverse f (TypePattern x κ) = TypePattern x <$> (traverse f κ)
+  traverse f (TypePattern x π κ) = TypePattern x π <$> traverse f κ
 
 instance TypeAlgebra Type where
   freeLocalVariablesType (Type (TypeConstant (TypeVariable x))) = Set.singleton x
@@ -292,23 +290,24 @@ instance TypeAlgebra Instantiation where
 
 instance TypeAlgebra TypeScheme where
   freeLocalVariablesType (MonoType σ) = freeLocalVariablesType σ
-  freeLocalVariablesType (TypeForall (TypePattern x κ) σ) =
+  freeLocalVariablesType (TypeForall (TypePattern x _ κ) σ) =
     freeLocalVariablesType κ <> Set.delete x (freeLocalVariablesType σ)
   substituteTypes θ (MonoType σ) = MonoType $ substituteTypes θ σ
-  substituteTypes θ (TypeForall (TypePattern x κ) σ)
-    | Set.member x (typeSubstitutionShadow θ) = let go = substituteTypes (typeSubstitutionMask x θ) in TypeForall (TypePattern x (go κ)) (go σ)
-    | otherwise = TypeForall (TypePattern x' (go κ)) (go σ')
+  substituteTypes θ (TypeForall (TypePattern x π κ) σ)
+    | Set.member x (typeSubstitutionShadow θ) =
+      TypeForall (TypePattern x π (go κ)) (substituteTypes (typeSubstitutionMask x θ) σ)
+    | otherwise = TypeForall (TypePattern x' π (go κ)) (go σ')
     where
       variables = typeSubstitutionLocalVariables θ
       x' = fresh variables x
       σ' = convertType x' x σ
       go = substituteTypes θ
   zonkType f (MonoType σ) = MonoType <$> zonkType f σ
-  zonkType f (TypeForall (TypePattern x κ) σ) = TypeForall <$> (TypePattern x <$> go κ) <*> go σ
+  zonkType f (TypeForall (TypePattern x π κ) σ) = TypeForall <$> (TypePattern x <$> pure π <*> go κ) <*> go σ
     where
       go = zonkType f
   simplify (MonoType σ) = MonoType $ simplify σ
-  simplify (TypeForall (TypePattern x κ) σ) = TypeForall (TypePattern x (simplify κ)) (simplify σ)
+  simplify (TypeForall (TypePattern x π κ) σ) = TypeForall (TypePattern x π (simplify κ)) (simplify σ)
 
 instance TypeAlgebra LabelScheme where
   freeLocalVariablesType (MonoLabel σ) = freeLocalVariablesType σ

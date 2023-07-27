@@ -11,7 +11,7 @@ inline borrow<
     A:region,
     C:region,
     M:boxed,
-    J:representation,
+    J:*representation,
     K:multiplicity,
     N:pretype<J, K>
 > = \(x : unique M in A)
