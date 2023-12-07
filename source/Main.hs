@@ -1,18 +1,9 @@
 module Main where
 
-import Ast.Common.Variable
-import Ast.Module.Algebra
-import Ast.Module.Convert (sourceGlobal)
-import Ast.Module.Core (reduceModule)
-import qualified Ast.Module.Core as Core (Global (..))
-import Ast.Module.Surface (ModuleError (..), order, removeInserted, validateDuplicates)
-import qualified Ast.Module.Surface as Surface (Global (..))
-import Ast.Term.Core (textType)
-import Ast.Type.Algebra hiding (Inline, Type)
-import qualified Ast.Type.Algebra as Algebra (TypeF (Type))
-import qualified Ast.Type.Algebra as Type
-import Ast.Type.Convert (nameType)
-import Ast.Type.Core (Type (..), zonkType)
+import Ast.Core
+import qualified Ast.Surface as Surface
+import Ast.Symbol (Path (..), SemiPath (..), TermIdentifier (..))
+import qualified Ast.Symbol as Symbol
 import qualified C.Print as C
 import Codegen
 import Control.Monad.Trans.State
@@ -26,9 +17,7 @@ import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe (isJust)
 import Data.Traversable (for)
-import Misc.Path (Path (..), SemiPath (..))
-import qualified Misc.Path as Path
-import Simple
+import qualified Simple
 import Syntax
 import System.Console.GetOpt
 import System.Directory
@@ -40,9 +29,9 @@ import TypeCheck
 
 unorder = Map.fromListWith (flip (<>)) . map (fmap NonEmpty.singleton)
 
-v = Type (TypeLogical (TypeLogicalRaw 0))
+v = TypeLogical (TypeLogicalRaw 0)
 
-prettyType σ = pretty typex (nameType σ)
+prettyType σ = pretty Syntax.typex (nameType σ)
 
 prettyError :: TypeError [SourcePos] -> String
 prettyError e = case e of
@@ -52,44 +41,44 @@ prettyError e = case e of
     "Erasure mismatch between `" ++ show π ++ "` and `" ++ show π' ++ "`" ++ positions p
   TypePolyMismatch p ς ς' ->
     prettyError
-      (TypeMismatch p (Type $ Poly (Type AmbiguousLabel) ς) (Type $ Poly (Type AmbiguousLabel) ς'))
+      (TypeMismatch p (TypeScheme AmbiguousLabel ς) (TypeScheme AmbiguousLabel ς'))
   TypeBooleanMismatch p σ -> "Unable to solve boolean expressions: " ++ List.intercalate " and " (map prettyType σ) ++ positions p
   ExpectedTypeAnnotation p -> "Expected type annotation: " ++ positions p
   ExpectedBooleanType p σ -> "Expected boolean type: " ++ prettyType σ ++ positions p
-  AmbiguousType p σ -> "Ambiguous Type: `" ++ pretty typex (nameType $ flexible σ) ++ "`" ++ positions p
+  AmbiguousType p σ -> "Ambiguous Type: `" ++ pretty Syntax.typex (nameType $ flexible σ) ++ "`" ++ positions p
   UnknownGlobalIdentifier p x -> "Unknown Global: " ++ pretty termGlobalIdentifier x ++ positions p
   UnknownTypeGlobalIdentifier p x -> "Unknown Type Global: " ++ pretty typeGlobalIdentifier x ++ positions p
   TypeOccursCheck p v σ ->
-    "Occurance Check: `" ++ prettyType (Type $ TypeLogical v) ++ "` in` " ++ prettyType σ ++ "`" ++ positions p
+    "Occurance Check: `" ++ prettyType (TypeLogical v) ++ "` in` " ++ prettyType σ ++ "`" ++ positions p
   EscapingSkolemType p x ->
     "Escaping Skolem: `" ++ pretty typeIdentifier x ++ "`" ++ positions p
   MismatchedTypeLambdas p -> "Mismatched type lambdas: " ++ positions p
   IncorrectRegionBounds p -> "Incorrect Region Bounds: " ++ positions p
   NotTypable p -> "Not typable: " ++ positions p
   ExpectedNewtype p σ -> "Expected Newtype: `" ++ prettyType σ ++ "`" ++ positions p
-  ExpectedKind p σ -> prettyError (TypeMismatch p (Type (Kind v)) σ)
-  ExpectedRepresentation p σ -> prettyError (TypeMismatch p (Type (Kind v)) σ)
-  ExpectedMultiplicity p σ -> prettyError (TypeMismatch p (Type (Kind v)) σ)
-  ExpectedSize p σ -> prettyError (TypeMismatch p (Type (Size)) σ)
-  ExpectedSignedness p σ -> prettyError (TypeMismatch p (Type (Signedness)) σ)
-  ExpectedType p σ -> prettyError (TypeMismatch p (Type (Algebra.Type)) σ)
-  ExpectedPretype p σ -> prettyError (TypeMismatch p (Type (Pretype v v)) σ)
-  ExpectedBoxed p σ -> prettyError (TypeMismatch p (Type (Boxed)) σ)
-  ExpectedRegion p σ -> prettyError (TypeMismatch p (Type (Region)) σ)
-  ExpectedPropositional p σ -> prettyError (TypeMismatch p (Type (Propositional)) σ)
-  ExpectedUnification p σ -> prettyError (TypeMismatch p (Type (Unification)) σ)
-  ExpectedInline p σ -> prettyError (TypeMismatch p (Type (Type.Inline v v v)) σ)
-  ExpectedFunctionPointer p σ -> prettyError (TypeMismatch p (Type (FunctionPointer v v v)) σ)
-  ExpectedFunctionLiteralType p σ -> prettyError (TypeMismatch p (Type (FunctionLiteralType v v v)) σ)
-  ExpectedUnique p σ -> prettyError (TypeMismatch p (Type (Unique v)) σ)
-  ExpectedPointer p σ -> prettyError (TypeMismatch p (Type (Pointer v)) σ)
-  ExpectedArray p σ -> prettyError (TypeMismatch p (Type (Array v)) σ)
-  ExpectedEffect p σ -> prettyError (TypeMismatch p (Type (Effect v v)) σ)
-  ExpectedShared p σ -> prettyError (TypeMismatch p (Type (Shared v v)) σ)
-  ExpectedNumber p σ -> prettyError (TypeMismatch p (Type (Number v v)) σ)
-  ExpectedBoolean p σ -> prettyError (TypeMismatch p (Type (Boolean)) σ)
-  ExpectedStep p σ -> prettyError (TypeMismatch p (Type (Step v v)) σ)
-  ExpectedLabel p σ -> prettyError (TypeMismatch p (Type (Label)) σ)
+  ExpectedKind p σ -> prettyError (TypeMismatch p (Kind v) σ)
+  ExpectedRepresentation p σ -> prettyError (TypeMismatch p (Kind v) σ)
+  ExpectedMultiplicity p σ -> prettyError (TypeMismatch p (Kind v) σ)
+  ExpectedSize p σ -> prettyError (TypeMismatch p (Size) σ)
+  ExpectedSignedness p σ -> prettyError (TypeMismatch p (Signedness) σ)
+  ExpectedType p σ -> prettyError (TypeMismatch p (Type) σ)
+  ExpectedPretype p σ -> prettyError (TypeMismatch p (Pretype v v) σ)
+  ExpectedBoxed p σ -> prettyError (TypeMismatch p (Boxed) σ)
+  ExpectedRegion p σ -> prettyError (TypeMismatch p (Region) σ)
+  ExpectedPropositional p σ -> prettyError (TypeMismatch p (Propositional) σ)
+  ExpectedUnification p σ -> prettyError (TypeMismatch p (Unification) σ)
+  ExpectedInline p σ -> prettyError (TypeMismatch p (Inline v v v) σ)
+  ExpectedFunctionPointer p σ -> prettyError (TypeMismatch p (FunctionPointer v v v) σ)
+  ExpectedFunctionLiteralType p σ -> prettyError (TypeMismatch p (FunctionLiteralType v v v) σ)
+  ExpectedUnique p σ -> prettyError (TypeMismatch p (Unique v) σ)
+  ExpectedPointer p σ -> prettyError (TypeMismatch p (Pointer v) σ)
+  ExpectedArray p σ -> prettyError (TypeMismatch p (Array v) σ)
+  ExpectedEffect p σ -> prettyError (TypeMismatch p (Effect v v) σ)
+  ExpectedShared p σ -> prettyError (TypeMismatch p (Shared v v) σ)
+  ExpectedNumber p σ -> prettyError (TypeMismatch p (Number v v) σ)
+  ExpectedBoolean p σ -> prettyError (TypeMismatch p (Boolean) σ)
+  ExpectedStep p σ -> prettyError (TypeMismatch p (Step v v) σ)
+  ExpectedLabel p σ -> prettyError (TypeMismatch p (Label) σ)
   BadBorrowIdentifier p (TermIdentifier x) -> "Bad Borrow Identifier `" ++ x ++ "`" ++ positions p
   BadBorrowSyntax p -> "Bad Borrow Syntax" ++ positions p
   InstantiationLengthMismatch p -> "Mismatch Instanciation Length" ++ positions p
@@ -103,9 +92,9 @@ prettyPath = quoted . pretty path
 
 expected a b p = "Expected " ++ a ++ " but got " ++ b ++ positions p
 
-prettyModuleError (IllegalPath p path) = "Unknown path " ++ prettyPath path ++ positions p
-prettyModuleError (Cycle p path) = "Global variable cycle " ++ prettyPath path ++ positions p
-prettyModuleError (Duplicate p path) = "Duplicate declarations " ++ prettyPath path ++ positions p
+prettyModuleError (Surface.IllegalPath p path) = "Unknown path " ++ prettyPath path ++ positions p
+prettyModuleError (Surface.Cycle p path) = "Global variable cycle " ++ prettyPath path ++ positions p
+prettyModuleError (Surface.Duplicate p path) = "Duplicate declarations " ++ prettyPath path ++ positions p
 
 positions p = " in positions: " ++ show p
 
@@ -120,19 +109,17 @@ data CommandLine = CommandLine
 
 baseMain command = do
   code <- foldrM (\item code -> Map.union <$> loadSection item <*> pure code) Map.empty (loadItem command)
-  code <- handleModuleError $ do
-    validateDuplicates code
-    order code
+  code <- handleModuleError $ Surface.order code
   let (origin, paths, items) = unzip3 code
-  for (prettyItem command) (saveSection $ unorder $ removeInserted (zip3 origin paths items))
+  for (prettyItem command) (saveSection $ unorder $ Surface.removeInserted (zip3 origin paths items))
   (code, environment) <- handleTypeError $ runStateT (typeCheckModule (zip paths items)) emptyEnvironment
   let (paths, items) = unzip code
-  for (prettyItemAnnotated command) (saveSection $ unorder $ fmap sourceGlobal <$> removeInserted (zip3 origin paths items))
+  for (prettyItemAnnotated command) (saveSection $ unorder $ fmap global <$> Surface.removeInserted (zip3 origin paths items))
 
-  code <- pure $ reduceModule Map.empty code
+  code <- pure $ reduceModule code
   let (paths, items) = unzip code
 
-  for (prettyItemReduced command) (saveSection $ unorder $ fmap sourceGlobal <$> removeInserted (zip3 origin paths items))
+  for (prettyItemReduced command) (saveSection $ unorder $ fmap global <$> Surface.removeInserted (zip3 origin paths items))
   for (generateCItem command) (saveC environment code)
   pure ()
   where
@@ -154,21 +141,21 @@ baseMain command = do
         False -> do
           file <- readFile fileName
           case parseMain items fileName file of
-            Right items -> pure (Map.mapKeysMonotonic (Path.prepend semi) (Map.map (fmap (fmap (: []))) items))
+            Right items -> pure (Map.mapKeysMonotonic (Symbol.prepend semi) (Map.map (fmap (fmap (: []))) items))
             Left err -> die $ errorBundlePretty err
         True -> do
           fileNames <- listDirectory fileName
-          modules <- traverse (\name -> loadSection (Path.forget $ Path.combine semi (dropExtension name), fileName </> name)) fileNames
+          modules <- traverse (\name -> loadSection (Symbol.forget $ Symbol.combine semi (dropExtension name), fileName </> name)) fileNames
           pure $ Map.unions modules
 
     saveSection :: Map Path (NonEmpty (Surface.Global p)) -> (SemiPath, FilePath) -> IO ()
     saveSection code (semi, fileName) = do
-      code <- pure $ (removeInserted $ fromRight undefined $ order ((fmap . fmap . fmap) (const ()) code)) >>= starts
+      code <- pure $ (Surface.removeInserted $ fromRight undefined $ Surface.order ((fmap . fmap . fmap) (const ()) code)) >>= starts
       let text = pretty itemsRaw code
       writeFile fileName text
       where
         starts (path, item) = do
-          case Path.startsWith semi path of
+          case Symbol.startsWith semi path of
             Nothing -> []
             Just path -> [(path, item)]
 
@@ -177,14 +164,15 @@ baseMain command = do
       where
         (statements, dependency) = runDependency $ do
           let wrappers = fmap (assumeDone . typeKind) (kindGlobalEnvironment environment)
-          code <- pure $ filter (isJust . Path.startsWith semi . fst) code
+          code <- pure $ filter (isJust . Symbol.startsWith semi . fst) code
           fmap concat $
             for code $ \(path, item) -> case item of
-              Core.Global (Text e) -> do
-                let σ = textType e
-                    e' = runSimplify (convertFunction e) Map.empty wrappers
-                    σ' = runSimplify (convertFunctionType σ) Map.empty wrappers
-                (: []) <$> codegen (Path.mangle path) σ' e'
+              Text e -> do
+                let context = Simple.Context {Simple.localKinds = Map.empty, Simple.globalKinds = wrappers}
+                    σ = textType e
+                    e' = Simple.convertFunction context e
+                    σ' = Simple.convertFunctionType context σ
+                (: []) <$> codegen (Symbol.mangle path) σ' e'
               _ -> pure []
           where
             assumeDone = runIdentity . zonkType (error "bad unification vaniable")

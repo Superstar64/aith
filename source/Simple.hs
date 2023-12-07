@@ -1,143 +1,191 @@
-module Simple where
+module Simple
+  ( Bound (..),
+    Function (..),
+    FunctionType (..),
+    Term (..),
+    Type (..),
+    Size (..),
+    Signedness (..),
+    Pattern (..),
+    Arithmatic (..),
+    Relational (..),
+    Context (..),
+    TermIdentifier,
+    TypeIdentifier,
+    Symbol (..),
+    patternType,
+    mangleType,
+    convertFunction,
+    convertFunctionType,
+  )
+where
 
-import Ast.Common.Variable
-import Ast.Term.Algebra
-import Ast.Term.Core hiding (convertTerm)
-import Ast.Term.Runtime
-import Ast.Type.Algebra hiding (Type)
-import Ast.Type.Core hiding (convertType, reconstruct)
-import qualified Ast.Type.Core as Core (reconstruct)
-import Ast.Type.Runtime
-import Control.Monad.Trans.Class (lift)
-import Control.Monad.Trans.Reader (Reader, ReaderT, ask, runReader, runReaderT, withReaderT)
+import Ast.Core (Arithmatic (..), Relational (..))
+import qualified Ast.Core as Core
+import Ast.Symbol
+import Data.Functor.Identity (runIdentity)
 import Data.Map (Map, (!))
 import qualified Data.Map as Map
 import Data.Void (absurd)
 
-newtype Simplify a = Simplify
-  { runSimplify' ::
-      ReaderT (Map TypeIdentifier TypeInfer) (Reader (Map TypeGlobalIdentifier TypeInfer)) a
+data Context = Context
+  { localKinds :: Map TypeIdentifier Core.TypeInfer,
+    globalKinds :: Map TypeGlobalIdentifier Core.TypeInfer
   }
-  deriving (Functor, Applicative, Monad)
 
-withSimplify :: (Map TypeIdentifier TypeInfer -> Map TypeIdentifier TypeInfer) -> Simplify a -> Simplify a
-withSimplify f (Simplify s) = Simplify $ withReaderT f s
+data Size
+  = Byte
+  | Short
+  | Int
+  | Long
+  | Native
+  deriving (Show, Eq, Ord)
 
-runSimplify :: Simplify a -> Map TypeIdentifier TypeInfer -> Map TypeGlobalIdentifier TypeInfer -> a
-runSimplify (Simplify s) = runReader . runReaderT s
+data Signedness
+  = Signed
+  | Unsigned
+  deriving (Show, Eq, Ord)
 
-newtype SimpleType = SimpleType (KindRuntime KindSize SimpleType) deriving (Eq, Ord)
+data Type
+  = Pointer
+  | Struct [Type]
+  | Union [Type]
+  | Word Size
+  deriving (Eq, Ord)
 
-data SimplePattern p = SimplePattern p (TermPatternF SimpleType (SimplePattern p))
+data Pattern p
+  = MatchVariable p TermIdentifier Type
+  | MatchTuple p [Pattern p]
+  | MatchBoolean p Bool
 
-data SimpleTerm p
-  = SimpleTerm
-      p
-      ( TermRuntime
-          ()
-          ()
-          KindSignedness
-          SimpleType
-          (SimpleBound p)
-          (SimpleTerm p)
-      )
+data Term p
+  = Variable p TermIdentifier
+  | Let p (Term p) (Bound p)
+  | Case p (Term p) Type [Bound p]
+  | Extern p Symbol Type Type
+  | Application p (Term p) (Term p) Type
+  | TupleLiteral p [Term p]
+  | Read p (Term p)
+  | Write p (Term p) (Term p) Type
+  | NumberLiteral p Integer
+  | Arithmatic p Arithmatic (Term p) (Term p) Signedness
+  | Relational p Relational (Term p) (Term p) Type Signedness
+  | BooleanLiteral p Bool
+  | PointerAddition p (Term p) (Term p) Type
+  | Continue p (Term p)
+  | Break p (Term p)
+  | Loop p (Term p) (Bound p)
 
-data SimpleBound p = SimpleBound (SimplePattern p) (SimpleTerm p)
+data Bound p = Bound (Pattern p) (Term p)
 
-data SimpleFunction p = SimpleFunction p (SimpleBound p)
+data Function p = Function p (Bound p)
 
-data SimpleFunctionType = SimpleFunctionType SimpleType SimpleType
+data FunctionType = FunctionType Type Type
 
-mangleType :: SimpleType -> String
-mangleType (SimpleType PointerRep) = "p"
-mangleType (SimpleType (StructRep σs)) = "s" ++ (σs >>= mangleType) ++ "e"
-mangleType (SimpleType (UnionRep σs)) = "u" ++ (σs >>= mangleType) ++ "e"
-mangleType (SimpleType (WordRep Byte)) = "b"
-mangleType (SimpleType (WordRep Short)) = "s"
-mangleType (SimpleType (WordRep Int)) = "i"
-mangleType (SimpleType (WordRep Long)) = "l"
-mangleType (SimpleType (WordRep Native)) = "n"
+mangleType :: Type -> String
+mangleType σ = case σ of
+  Pointer -> "p"
+  Struct σs -> "s" ++ (σs >>= mangleType) ++ "e"
+  Union σs -> "u" ++ (σs >>= mangleType) ++ "e"
+  Word Byte -> "b"
+  Word Short -> "s"
+  Word Int -> "i"
+  Word Long -> "l"
+  Word Native -> "n"
 
-convertKindImpl :: TypeInfer -> SimpleType
-convertKindImpl (Type (KindRuntime PointerRep)) = SimpleType $ PointerRep
-convertKindImpl (Type (KindRuntime (StructRep ρs))) = SimpleType $ StructRep (convertKindImpl <$> ρs)
-convertKindImpl (Type (KindRuntime (UnionRep ρs))) = SimpleType $ UnionRep (convertKindImpl <$> ρs)
-convertKindImpl (Type (KindRuntime (WordRep (Type (KindSize s))))) = SimpleType $ WordRep s
-convertKindImpl _ = simpleFailType
+convertSize :: Core.TypeInfer -> Size
+convertSize σ = case σ of
+  Core.Byte -> Byte
+  Core.Short -> Short
+  Core.Int -> Int
+  Core.Long -> Long
+  Core.Native -> Native
+  _ -> simpleFailType
+
+convertRepresentation :: Core.TypeInfer -> Type
+convertRepresentation σ = case σ of
+  Core.PointerRepresentation -> Pointer
+  Core.StructRepresentation ρs -> Struct (map convertRepresentation ρs)
+  Core.UnionRepresentation ρs -> Union (map convertRepresentation ρs)
+  Core.WordRepresentation ρ -> Word (convertSize ρ)
+  _ -> simpleFailType
 
 simpleFailType = error "illegal simple type"
 
-convertKind :: TypeInfer -> SimpleType
-convertKind (Type (Pretype κ _)) = convertKindImpl κ
+convertKind :: Core.TypeInfer -> Type
+convertKind (Core.Pretype κ _) = convertRepresentation κ
 convertKind _ = simpleFailType
 
-reconstruct = Core.reconstruct index indexGlobal absurd poly representation multiplicities propositional
+reconstruct Context {localKinds, globalKinds} = runIdentity . reconstruct
   where
+    reconstruct = Core.reconstruct index indexGlobal absurd poly representation multiplicities propositional
     poly = error "poly type in runtime types"
-    index x = do
-      map <- Simplify ask
-      pure $ map ! x
-    indexGlobal x = do
-      map <- Simplify $ lift ask
-      pure $ map ! x
-    representation σ = do
-      κ <- reconstruct σ
-      pure $ checkRepresentation κ
+    index x = pure (localKinds ! x)
+    indexGlobal x = pure (globalKinds ! x)
+    representation σ = checkRepresentation <$> reconstruct σ
     multiplicities _ = error "multiplicity not needed during simple reconstruction"
     propositional _ = error "propostional not needed during simple reconstruction"
 
-    checkRepresentation (Type (Pretype κ _)) = κ
+    checkRepresentation (Core.Pretype κ _) = κ
     checkRepresentation _ = error "reconstruction of pair didn't return pretype"
 
-convertType σ = convertKind <$> reconstruct σ
+convertType context σ = convertKind (reconstruct context σ)
 
-convertTypeSigned (Type (KindSignedness Signed)) = Signed
-convertTypeSigned (Type (KindSignedness Unsigned)) = Unsigned
-convertTypeSigned _ = error "bad sign"
+convertSigned Core.Signed = Signed
+convertSigned Core.Unsigned = Unsigned
+convertSigned _ = error "bad sign"
 
-convertTermMetaPattern :: TermPatternInfer p -> Simplify (SimplePattern p)
-convertTermMetaPattern (TermPattern p pm) =
-  SimplePattern p <$> traverseTermPatternF (convertType) convertTermMetaPattern pm
+convertPattern :: Context -> Core.TermPatternInfer p -> Pattern p
+convertPattern context pm = case pm of
+  Core.MatchVariable p x σ -> MatchVariable p x (convertType context σ)
+  Core.MatchTuple p pms -> MatchTuple p (map (convertPattern context) pms)
+  Core.MatchBoolean p b -> MatchBoolean p b
 
-simpleFailPattern = error "illegal simple pattern"
+convertTerm :: Context -> Core.TermInfer p -> Term p
+convertTerm context e = case e of
+  Core.Variable p x _ -> Variable p x
+  Core.Let p pm e1 e2 -> Let p (go e1) (Bound (go' pm) (go e2))
+  Core.Case p e σ λ _ -> Case p (go e) (go'' σ) (map (\(pm, e) -> Bound (go' pm) (go e)) λ)
+  Core.Extern p sym σ _ τ -> Extern p sym (go'' σ) (go'' τ)
+  Core.Application p e1 e2 σ -> Application p (go e1) (go e2) (go'' σ)
+  Core.TupleLiteral p es -> TupleLiteral p (map go es)
+  Core.Read p e -> Read p (go e)
+  Core.Write p e1 e2 σ -> Write p (go e1) (go e2) (go'' σ)
+  Core.NumberLiteral p i _ -> NumberLiteral p i
+  Core.Arithmatic p o e1 e2 s -> Arithmatic p o (go e1) (go e2) (convertSigned s)
+  Core.Relational p o e1 e2 σ s -> Relational p o (go e1) (go e2) (go'' σ) (convertSigned s)
+  Core.BooleanLiteral p b -> BooleanLiteral p b
+  Core.PointerAddition p e1 e2 σ -> PointerAddition p (go e1) (go e2) (go'' σ)
+  Core.Continue p e _ -> Continue p (go e)
+  Core.Break p e _ -> Break p (go e)
+  Core.Loop p pm e1 e2 -> Loop p (go e1) (Bound (go' pm) (go e2))
+  -- desugaring
+  Core.Not p e -> go (Core.If p e (Core.BooleanLiteral p False) (Core.BooleanLiteral p True))
+  Core.And p e1 e2 -> go (Core.If p e1 e2 (Core.BooleanLiteral p False))
+  Core.Or p e1 e2 -> go (Core.If p e1 (Core.BooleanLiteral p True) e2)
+  Core.Do p e1 e2 -> go (Core.Let p (Core.MatchTuple p []) e1 e2)
+  Core.If p eb et ef -> go (Core.Case p eb Core.Boolean [(Core.MatchBoolean p True, et), (Core.MatchBoolean p False, ef)] undefined)
+  Core.Isolate _ e -> go e
+  Core.Cast _ e _ -> go e
+  _ -> error "illegal simple term"
+  where
+    go = convertTerm context
+    go' = convertPattern context
+    go'' = convertType context
 
--- used for borrow, so augmenting types is not neccisary
-convertTermScheme (TermScheme _ (MonoTerm e)) = convertTerm e
-convertTermScheme (TermScheme _ (TypeAbstraction _ e)) = convertTermScheme e
+convertFunctionType context@Context {localKinds} (Core.TypeForall x _ κ σ) =
+  convertFunctionType context {localKinds = Map.insert x κ localKinds} σ
+convertFunctionType context (Core.MonoType (Core.FunctionLiteralType σ _ τ)) = do
+  FunctionType (convertType context σ) (convertType context τ)
+convertFunctionType _ _ = error "failed to convert function type"
 
-convertTerm :: TermInfer p -> Simplify (SimpleTerm p)
-convertTerm (Term p (TermRuntime e)) =
-  SimpleTerm p
-    <$> traverseTermRuntime
-      (const $ pure ())
-      (const $ pure ())
-      (pure . convertTypeSigned)
-      (convertType)
-      (\(TermBound pm e) -> SimpleBound <$> (convertTermMetaPattern pm) <*> (convertTerm e))
-      convertTerm
-      e
-convertTerm (Term _ (TermErasure e)) = case e of
-  IsolatePointer e -> convertTerm e
-  Cast e _ -> convertTerm e
-convertTerm (Term _ _) = simpleFailTerm
+convertFunction context@Context {localKinds} (Core.TypeAbstraction x _ κ e) =
+  convertFunction context {localKinds = Map.insert x κ localKinds} e
+convertFunction context (Core.MonoTerm (Core.FunctionLiteral p pm _ _ e)) =
+  Function p (Bound (convertPattern context pm) (convertTerm context e))
+convertFunction _ _ = error "failed to convert function"
 
-simpleFailTerm = error "illegal simple term"
-
-convertFunctionType (TypeForall (TypePattern x _ κ) σ) = withSimplify (Map.insert x κ) $ convertFunctionType σ
-convertFunctionType (MonoType (Type (FunctionLiteralType σ _ τ))) = do
-  σ' <- convertType σ
-  τ' <- convertType τ
-  pure $ SimpleFunctionType σ' τ'
-convertFunctionType _ = error "failed to convert function type"
-
-convertFunction (TermScheme _ (TypeAbstraction (TypePattern x _ κ) e)) = withSimplify (Map.insert x κ) $ convertFunction e
-convertFunction (TermScheme _ (MonoTerm (Term p (FunctionLiteral (TermBound pm e) _ _)))) = do
-  pm' <- convertTermMetaPattern pm
-  e' <- convertTerm e
-  pure $ SimpleFunction p $ SimpleBound pm' e'
-convertFunction _ = error "failed to convert function"
-
-simplePatternType :: SimplePattern p -> SimpleType
-simplePatternType (SimplePattern _ (RuntimePatternVariable _ σ)) = σ
-simplePatternType (SimplePattern _ (RuntimePatternTuple pms)) = SimpleType $ StructRep $ map simplePatternType pms
-simplePatternType (SimplePattern _ (RuntimePatternBoolean _)) = SimpleType $ WordRep Byte
+patternType :: Pattern p -> Type
+patternType (MatchVariable _ _ σ) = σ
+patternType (MatchTuple _ pms) = Struct $ map patternType pms
+patternType (MatchBoolean _ _) = Word Byte

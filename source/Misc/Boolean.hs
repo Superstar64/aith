@@ -1,4 +1,13 @@
-module Misc.Boolean where
+module Misc.Boolean
+  ( Variable (..),
+    Polynomial (..),
+    variable,
+    constant,
+    renameAnswers,
+    backSubstitute,
+    solve,
+  )
+where
 
 import Data.Bifunctor (first)
 import Data.List (sortOn)

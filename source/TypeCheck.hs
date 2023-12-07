@@ -1,46 +1,30 @@
 module TypeCheck where
 
-import Ast.Common.Variable
-import Ast.Module.Algebra hiding (Inline)
-import qualified Ast.Module.Algebra as Module
-import qualified Ast.Module.Core as Core
-import qualified Ast.Module.Surface as Surface
-import Ast.Term.Algebra
-import Ast.Term.Core
-  ( TermMetaPatternUnify,
+import Ast.Core
+  ( Erasure (..),
+    LabelSchemeUnify,
+    TermMetaPatternUnify,
     TermSchemeInfer,
     TermSchemeUnify,
     TermUnify,
-  )
-import qualified Ast.Term.Core as Core
-import Ast.Term.Runtime
-import Ast.Term.Surface (NoType (..))
-import qualified Ast.Term.Surface as Surface
-import Ast.Type.Algebra
-import Ast.Type.Core
-  ( Instantiation (..),
-    LabelSchemeUnify,
-    TypeAlgebra (..),
+    TypeAlgebra,
     TypeInfer,
-    TypePatternIntermediate (..),
+    TypeLogical (..),
     TypeSchemeInfer,
     TypeSchemeUnify,
     TypeUnify,
     convertBoolean,
     convertType,
     freeLocalVariablesType,
-    linear,
-    none,
     relabel,
     simplify,
     substituteType,
-    toTypePattern,
     unconvertBoolean,
-    unrestricted,
+    zonkType,
   )
-import qualified Ast.Type.Core as Core
-import Ast.Type.Runtime
-import qualified Ast.Type.Surface as Surface
+import qualified Ast.Core as Core
+import qualified Ast.Surface as Surface
+import Ast.Symbol hiding (combine)
 import Control.Monad (filterM, (<=<))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT, withReaderT)
@@ -57,8 +41,6 @@ import Data.Traversable (for)
 import Data.Void (Void, absurd)
 import Linearity
 import qualified Misc.Boolean as Boolean
-import Misc.Path (Path (..), SemiPath (..))
-import qualified Misc.Path as Path
 import Misc.Util (firstM, secondM, sortTopological, temporaries, uppers)
 
 flexible = fmap absurd
@@ -174,7 +156,7 @@ quit :: TypeError p -> Check p a
 quit e = Check $ lift $ lift $ Left e
 
 emptyEnvironment :: CheckEnvironment p
-emptyEnvironment = CheckEnvironment Map.empty Map.empty Map.empty Map.empty Path.root Map.empty Map.empty
+emptyEnvironment = CheckEnvironment Map.empty Map.empty Map.empty Map.empty root Map.empty Map.empty
 
 askEnvironment :: Check p (CheckEnvironment p)
 askEnvironment = Check ask
@@ -203,6 +185,13 @@ getState = Check $ lift $ get
 modifyState :: (CheckState p -> CheckState p) -> Check p ()
 modifyState f = Check $ lift $ modify f
 
+data TypePatternIntermediate p = TypePatternIntermediate
+  { intermediatePosition :: p,
+    intermediateBinder :: TypeIdentifier,
+    intermediateErasure :: Erasure,
+    intermediateKind :: TypeInfer
+  }
+
 augmentTypePatternLevel :: TypePatternIntermediate p -> Check p b -> Check p b
 augmentTypePatternLevel (TypePatternIntermediate p x π κ) f = do
   useTypeVar x
@@ -217,10 +206,10 @@ augmentTypePatternLevel (TypePatternIntermediate p x π κ) f = do
     constantElimination [] = []
     constantElimination ((σ, τ) : problems)
       | Set.member x $ freeLocalVariablesType σ <> freeLocalVariablesType τ =
-        let σ' = substituteType (Core.Type TypeTrue) x σ
-            σ'' = substituteType (Core.Type TypeFalse) x σ
-            τ' = substituteType (Core.Type TypeTrue) x τ
-            τ'' = substituteType (Core.Type TypeFalse) x τ
+        let σ' = substituteType Core.TypeTrue x σ
+            σ'' = substituteType Core.TypeFalse x σ
+            τ' = substituteType Core.TypeTrue x τ
+            τ'' = substituteType Core.TypeFalse x τ
          in (σ', τ') : (σ'', τ'') : constantElimination problems
       | otherwise =
         (σ, τ) : constantElimination problems
@@ -244,7 +233,7 @@ solveBooleans = do
   variables <- pure $ Map.keys $ Map.filter (\(_, _, _, lev') -> lev == lev') variables
   equations <- pure $ map (\(σ, τ) -> convertBoolean (zonk logical σ) + convertBoolean (zonk logical τ)) equations
   let (answers, equations') = Boolean.solve variables equations
-  modifyState $ \state -> state {booleans = map (\σ -> (unconvertBoolean σ, Core.Type TypeFalse)) equations'}
+  modifyState $ \state -> state {booleans = map (\σ -> (unconvertBoolean σ, Core.TypeFalse)) equations'}
   answers <- Boolean.renameAnswers (fresh logical) answers
   answers <- pure $ Boolean.backSubstitute answers
   for answers $ \(x, σ) ->
@@ -274,20 +263,10 @@ occursCheck p x lev σ' = go σ'
   where
     recurse = go
     go :: TypeUnify -> Check p ()
-    go (Core.Type σ) = do
-      case σ of
-        TypeConstant (TypeVariable x') -> do
-          TypeBinding _ _ _ lev' <- (! x') <$> kindEnvironment <$> askEnvironment
-          if lev' > lev
-            then quit $ EscapingSkolemType p x'
-            else pure ()
-        TypeConstant (TypeGlobalVariable x') -> do
-          TypeBinding _ _ _ lev' <- (! x') <$> kindGlobalEnvironment <$> askEnvironment
-          if lev' > lev
-            then error "type globals aren't supposed to be argumentable"
-            else pure ()
-        TypeLogical x' | x == x' -> quit $ TypeOccursCheck p x σ'
-        TypeLogical x' ->
+    go σ = case σ of
+      Core.TypeLogical x'
+        | x == x' -> quit $ TypeOccursCheck p x σ'
+        | otherwise ->
           (! x') <$> typeLogicalMap <$> getState >>= \case
             (UnboundType p' π κ lev') ->
               if lev' > lev
@@ -295,86 +274,100 @@ occursCheck p x lev σ' = go σ'
                   modifyState $ \state -> state {typeLogicalMap = Map.insert x' (UnboundType p' π κ lev) $ typeLogicalMap state}
                 else pure ()
             (LinkType σ) -> recurse σ
-        Inline σ π τ -> do
-          recurse σ
-          recurse π
-          recurse τ
-        Poly σ ς -> do
-          recurse σ
-          occursPoly ς
-        FunctionPointer σ π τ -> do
-          recurse σ
-          recurse π
-          recurse τ
-        FunctionLiteralType σ π τ -> do
-          recurse σ
-          recurse π
-          recurse τ
-        Tuple σs -> do
-          traverse recurse σs
-          pure ()
-        Effect σ τ -> do
-          recurse σ
-          recurse τ
-        Unique σ -> do
-          recurse σ
-        Shared σ π -> do
-          recurse σ
-          recurse π
-        Pointer σ -> recurse σ
-        Array σ -> recurse σ
-        Number _ _ -> pure ()
-        Boolean -> pure ()
-        Step σ τ -> do
-          recurse σ
-          recurse τ
-        TypeConstant World -> pure ()
-        Type -> pure ()
-        Region -> pure ()
-        Pretype κ τ -> do
-          recurse κ
-          recurse τ
-        Boxed -> pure ()
-        Multiplicity -> pure ()
-        (KindRuntime PointerRep) -> pure ()
-        (KindRuntime (StructRep κs)) -> traverse recurse κs >> pure ()
-        (KindRuntime (UnionRep κs)) -> traverse recurse κs >> pure ()
-        (KindRuntime (WordRep κ)) -> recurse κ
-        (KindSize _) -> pure ()
-        (KindSignedness _) -> pure ()
-        Representation -> pure ()
-        Size -> pure ()
-        Signedness -> pure ()
-        Kind σ -> do
-          recurse σ
-        Syntactic -> pure ()
-        Propositional -> pure ()
-        Top -> pure ()
-        Unification -> pure ()
-        AmbiguousLabel -> pure ()
-        Label -> pure ()
-        Hole v -> absurd v
-        TypeBoolean (TypeNot σ) -> recurse σ
-        TypeBoolean (TypeAnd σ τ) -> do
-          recurse σ
-          recurse τ
-        TypeBoolean (TypeXor σ τ) -> do
-          recurse σ
-          recurse τ
-        TypeBoolean (TypeOr σ τ) -> do
-          recurse σ
-          recurse τ
-        TypeTrue -> pure ()
-        TypeFalse -> pure ()
+      Core.TypeScheme σ ς -> do
+        recurse σ
+        occursPoly ς
+      Core.TypeVariable x' -> do
+        TypeBinding _ _ _ lev' <- (! x') <$> kindEnvironment <$> askEnvironment
+        if lev' > lev
+          then quit $ EscapingSkolemType p x'
+          else pure ()
+      Core.TypeGlobalVariable x' -> do
+        TypeBinding _ _ _ lev' <- (! x') <$> kindGlobalEnvironment <$> askEnvironment
+        if lev' > lev
+          then error "type globals aren't supposed to be argumentable"
+          else pure ()
+      Core.Inline σ π τ -> do
+        recurse σ
+        recurse π
+        recurse τ
+      Core.FunctionPointer σ π τ -> do
+        recurse σ
+        recurse π
+        recurse τ
+      Core.FunctionLiteralType σ π τ -> do
+        recurse σ
+        recurse π
+        recurse τ
+      Core.Tuple σs -> do
+        traverse recurse σs
+        pure ()
+      Core.Effect σ τ -> do
+        recurse σ
+        recurse τ
+      Core.Unique σ -> do
+        recurse σ
+      Core.Shared σ π -> do
+        recurse σ
+        recurse π
+      Core.Pointer σ -> recurse σ
+      Core.Array σ -> recurse σ
+      Core.Number _ _ -> pure ()
+      Core.Boolean -> pure ()
+      Core.Step σ τ -> do
+        recurse σ
+        recurse τ
+      Core.World -> pure ()
+      Core.Type -> pure ()
+      Core.Region -> pure ()
+      Core.Pretype κ τ -> do
+        recurse κ
+        recurse τ
+      Core.Boxed -> pure ()
+      Core.Multiplicity -> pure ()
+      Core.PointerRepresentation -> pure ()
+      Core.StructRepresentation κs -> traverse recurse κs >> pure ()
+      Core.UnionRepresentation κs -> traverse recurse κs >> pure ()
+      Core.WordRepresentation κ -> recurse κ
+      Core.Signed -> pure ()
+      Core.Unsigned -> pure ()
+      Core.Byte -> pure ()
+      Core.Short -> pure ()
+      Core.Int -> pure ()
+      Core.Long -> pure ()
+      Core.Native -> pure ()
+      Core.Representation -> pure ()
+      Core.Size -> pure ()
+      Core.Signedness -> pure ()
+      Core.Kind σ -> do
+        recurse σ
+      Core.Syntactic -> pure ()
+      Core.Propositional -> pure ()
+      Core.Top -> pure ()
+      Core.Unification -> pure ()
+      Core.AmbiguousLabel -> pure ()
+      Core.Label -> pure ()
+      Core.TypeNot σ -> recurse σ
+      Core.TypeAnd σ τ -> do
+        recurse σ
+        recurse τ
+      Core.TypeXor σ τ -> do
+        recurse σ
+        recurse τ
+      Core.TypeOr σ τ -> do
+        recurse σ
+        recurse τ
+      Core.TypeTrue -> pure ()
+      Core.TypeFalse -> pure ()
     occursPoly ς = case ς of
       Core.MonoType σ -> recurse σ
-      Core.TypeForall (Core.TypePattern x π κ) ς -> do
+      Core.TypeForall x π κ ς -> do
         recurse κ
         augmentKindEnvironment p x π κ minBound $ occursPoly ς
         pure ()
 
 kindIsMember :: forall p. p -> TypeUnify -> TypeUnify -> Check p ()
-kindIsMember p (Core.Type Top) _ = quit $ NotTypable p
+kindIsMember p Core.Top _ = quit $ NotTypable p
 kindIsMember p σ κ = do
   κ' <- reconstruct p σ
   matchType p κ κ'
@@ -382,7 +375,7 @@ kindIsMember p σ κ = do
 reconstruct :: forall p. p -> TypeUnify -> Check p TypeUnify
 reconstruct p = Core.reconstruct indexEnvironment indexGlobalEnvironment indexLogicalMap poly representation multiplicities propositional
   where
-    poly (Core.TypeForall _ _) = pure $ Core.Type $ Type
+    poly (Core.TypeForall {}) = pure $ Core.Type
     poly (Core.MonoType σ) = reconstruct p σ
 
     indexEnvironment x = (! x) <$> kindEnvironment <$> askEnvironment >>= kind
@@ -403,9 +396,9 @@ reconstruct p = Core.reconstruct indexEnvironment indexGlobalEnvironment indexLo
         κ <- reconstruct p σ
         (_, π) <- checkPretype p κ
         pure π
-      pure $ foldr (\τ ρ -> Core.Type $ TypeBoolean $ TypeAnd τ ρ) unrestricted πs
+      pure $ foldr (\τ ρ -> Core.TypeAnd τ ρ) Core.TypeTrue πs
     propositional [] = do
-      freshTypeVariable p (Core.Type $ Kind $ Core.Type $ Propositional)
+      freshTypeVariable p (Core.Kind Core.Propositional)
     propositional (σ : σs) = do
       π <- reconstruct p σ
       for σs $ \σ -> do
@@ -413,30 +406,34 @@ reconstruct p = Core.reconstruct indexEnvironment indexGlobalEnvironment indexLo
         matchType p π π'
       pure π
 
-erasureEntail _ Transparent _ = pure ()
-erasureEntail p Concrete τ@(Core.Type σ) = case σ of
-  TypeLogical x ->
+erasureEntail _ Core.Transparent _ = pure ()
+erasureEntail p Core.Concrete τ = case τ of
+  Core.TypeLogical x ->
     (! x) <$> typeLogicalMap <$> getState >>= \case
       LinkType σ -> erasureEntail p Concrete σ
       UnboundType p' _ κ lev ->
         modifyState $ \state -> state {typeLogicalMap = Map.insert x (UnboundType p' Concrete κ lev) $ typeLogicalMap state}
-  TypeConstant (TypeVariable x) -> do
+  Core.TypeVariable x -> do
     TypeBinding {typeErasure = π} <- (! x) <$> kindEnvironment <$> askEnvironment
     matchErasure p Concrete π
-  TypeConstant (TypeGlobalVariable x) -> do
+  Core.TypeGlobalVariable x -> do
     TypeBinding {typeErasure = π} <- (! x) <$> kindGlobalEnvironment <$> askEnvironment
     matchErasure p Concrete π
-  KindRuntime κ -> case κ of
-    PointerRep -> pure ()
-    StructRep πs -> do
-      traverse (erasureEntail p Concrete) πs
-      pure ()
-    UnionRep πs -> do
-      traverse (erasureEntail p Concrete) πs
-      pure ()
-    WordRep π -> erasureEntail p Concrete π
-  KindSignedness _ -> pure ()
-  KindSize _ -> pure ()
+  Core.PointerRepresentation -> pure ()
+  Core.StructRepresentation πs -> do
+    traverse (erasureEntail p Concrete) πs
+    pure ()
+  Core.UnionRepresentation πs -> do
+    traverse (erasureEntail p Concrete) πs
+    pure ()
+  Core.WordRepresentation π -> erasureEntail p Concrete π
+  Core.Signed -> pure ()
+  Core.Unsigned -> pure ()
+  Core.Byte -> pure ()
+  Core.Short -> pure ()
+  Core.Int -> pure ()
+  Core.Long -> pure ()
+  Core.Native -> pure ()
   _ -> quit $ NotErasable p τ
 
 unifyVariable :: p -> TypeLogical -> Erasure -> TypeUnify -> Level -> TypeUnify -> Check p ()
@@ -455,97 +452,106 @@ unifyVariable p x π κ lev σ = do
 matchType :: forall p. p -> TypeUnify -> TypeUnify -> Check p ()
 matchType p = unify
   where
+    boolean σ = case σ of
+      Core.TypeNot {} -> True
+      Core.TypeAnd {} -> True
+      Core.TypeOr {} -> True
+      Core.TypeXor {} -> True
+      _ -> False
+
     unify :: TypeUnify -> TypeUnify -> Check p ()
-    unify (Core.Type (TypeLogical x)) (Core.Type (TypeLogical x')) | x == x' = pure ()
-    unify σ@(Core.Type (TypeBoolean _)) τ = unifyBoolean σ τ
-    unify σ τ@(Core.Type (TypeBoolean _)) = unifyBoolean σ τ
+    unify (Core.TypeLogical x) (Core.TypeLogical x') | x == x' = pure ()
+    unify σ τ | boolean σ || boolean τ = unifyBoolean σ τ
     -- when unifying two variables, the right might not be a solved variable
-    unify τ@(Core.Type (TypeLogical x)) σ@(Core.Type (TypeLogical x')) =
+    -- due to the occurance check
+    unify τ@(Core.TypeLogical x) σ@(Core.TypeLogical x') =
       (! x) <$> typeLogicalMap <$> getState >>= \case
         LinkType σ' -> unify σ' σ
         UnboundType _ π κ lev ->
           (! x') <$> typeLogicalMap <$> getState >>= \case
             LinkType σ' -> unify τ σ'
             UnboundType _ _ _ _ -> unifyVariable p x π κ lev σ
-    unify (Core.Type (TypeLogical x)) σ =
+    unify (Core.TypeLogical x) σ =
       (! x) <$> typeLogicalMap <$> getState >>= \case
         LinkType σ' -> unify σ' σ
         UnboundType _ π κ lev -> unifyVariable p x π κ lev σ
-    unify σ (Core.Type (TypeLogical x)) =
+    unify σ (Core.TypeLogical x) =
       (! x) <$> typeLogicalMap <$> getState >>= \case
         LinkType σ' -> unify σ σ'
         UnboundType _ π κ lev -> unifyVariable p x π κ lev σ
-    unify (Core.Type (TypeConstant σ)) (Core.Type (TypeConstant σ')) | σ == σ' = pure ()
-    unify (Core.Type TypeTrue) (Core.Type TypeTrue) = pure ()
-    unify (Core.Type TypeFalse) (Core.Type TypeFalse) = pure ()
-    unify (Core.Type (Inline σ π τ)) (Core.Type (Inline σ' π' τ')) = do
+    unify (Core.TypeVariable x) (Core.TypeVariable x') | x == x' = pure ()
+    unify (Core.TypeGlobalVariable x) (Core.TypeGlobalVariable x') | x == x' = pure ()
+    unify Core.World Core.World = pure ()
+    unify Core.TypeTrue Core.TypeTrue = pure ()
+    unify Core.TypeFalse Core.TypeFalse = pure ()
+    unify (Core.Inline σ π τ) (Core.Inline σ' π' τ') = do
       unify σ σ'
       unify π π'
       unify τ τ'
-    unify (Core.Type (Poly σ ς)) (Core.Type (Poly σ' ς')) = do
+    unify (Core.TypeScheme σ ς) (Core.TypeScheme σ' ς') = do
       unify σ σ'
       unifyPoly ς ς'
-    unify (Core.Type (FunctionPointer σ π τ)) (Core.Type (FunctionPointer σ' π' τ')) = do
+    unify (Core.FunctionPointer σ π τ) (Core.FunctionPointer σ' π' τ') = do
       unify σ σ'
       unify π π'
       unify τ τ'
-    unify (Core.Type (FunctionLiteralType σ π τ)) (Core.Type (FunctionLiteralType σ' π' τ')) = do
+    unify (Core.FunctionLiteralType σ π τ) (Core.FunctionLiteralType σ' π' τ') = do
       unify σ σ'
       unify π π'
       unify τ τ'
-    unify (Core.Type (Tuple σs)) (Core.Type (Tuple σs')) | length σs == length σs' = do
+    unify (Core.Tuple σs) (Core.Tuple σs') | length σs == length σs' = do
       sequence $ zipWith (unify) σs σs'
       pure ()
-    unify (Core.Type (Effect σ π)) (Core.Type (Effect σ' π')) = do
+    unify (Core.Effect σ π) (Core.Effect σ' π') = do
       unify σ σ'
       unify π π'
-    unify (Core.Type (Unique σ)) (Core.Type (Unique σ')) = do
+    unify (Core.Unique σ) (Core.Unique σ') = do
       unify σ σ'
-    unify (Core.Type (Shared σ π)) (Core.Type (Shared σ' π')) = do
+    unify (Core.Shared σ π) (Core.Shared σ' π') = do
       unify σ σ'
       unify π π'
-    unify (Core.Type (Pointer σ)) (Core.Type (Pointer σ')) = do
+    unify (Core.Pointer σ) (Core.Pointer σ') = do
       unify σ σ'
-    unify (Core.Type (Array σ)) (Core.Type (Array σ')) = do
+    unify (Core.Array σ) (Core.Array σ') = do
       unify σ σ'
-    unify (Core.Type (Number ρ1 ρ2)) (Core.Type (Number ρ1' ρ2')) = do
+    unify (Core.Number ρ1 ρ2) (Core.Number ρ1' ρ2') = do
       unify ρ1 ρ1'
       unify ρ2 ρ2'
-    unify (Core.Type Boolean) (Core.Type Boolean) = pure ()
-    unify (Core.Type (Step σ τ)) (Core.Type (Step σ' τ')) = do
+    unify Core.Boolean Core.Boolean = pure ()
+    unify (Core.Step σ τ) (Core.Step σ' τ') = do
       unify σ σ'
       unify τ τ'
-    unify (Core.Type Type) (Core.Type Type) = pure ()
-    unify (Core.Type Region) (Core.Type Region) = pure ()
-    unify (Core.Type (Pretype κ τ)) (Core.Type (Pretype κ' τ')) = do
+    unify Core.Type Core.Type = pure ()
+    unify Core.Region Core.Region = pure ()
+    unify (Core.Pretype κ τ) (Core.Pretype κ' τ') = do
       unify κ κ'
       unify τ τ'
-    unify (Core.Type Boxed) (Core.Type Boxed) = pure ()
-    unify (Core.Type Multiplicity) (Core.Type Multiplicity) = pure ()
-    unify (Core.Type (KindRuntime PointerRep)) (Core.Type (KindRuntime PointerRep)) = pure ()
-    unify (Core.Type (KindRuntime (StructRep κs))) (Core.Type (KindRuntime (StructRep κs'))) | length κs == length κs' = do
+    unify (Core.Boxed) (Core.Boxed) = pure ()
+    unify (Core.Multiplicity) (Core.Multiplicity) = pure ()
+    unify (Core.PointerRepresentation) (Core.PointerRepresentation) = pure ()
+    unify (Core.StructRepresentation κs) (Core.StructRepresentation κs') | length κs == length κs' = do
       sequence_ $ zipWith (unify) κs κs'
-    unify (Core.Type (KindRuntime (UnionRep κs))) (Core.Type (KindRuntime (UnionRep κs'))) | length κs == length κs' = do
+    unify (Core.UnionRepresentation κs) (Core.UnionRepresentation κs') | length κs == length κs' = do
       sequence_ $ zipWith (unify) κs κs'
-    unify (Core.Type (KindRuntime (WordRep κ))) (Core.Type (KindRuntime (WordRep κ'))) = unify κ κ'
-    unify (Core.Type (KindSize Byte)) (Core.Type (KindSize Byte)) = pure ()
-    unify (Core.Type (KindSize Short)) (Core.Type (KindSize Short)) = pure ()
-    unify (Core.Type (KindSize Int)) (Core.Type (KindSize Int)) = pure ()
-    unify (Core.Type (KindSize Long)) (Core.Type (KindSize Long)) = pure ()
-    unify (Core.Type (KindSize Native)) (Core.Type (KindSize Native)) = pure ()
-    unify (Core.Type (KindSignedness Signed)) (Core.Type (KindSignedness Signed)) = pure ()
-    unify (Core.Type (KindSignedness Unsigned)) (Core.Type (KindSignedness Unsigned)) = pure ()
-    unify (Core.Type Representation) (Core.Type Representation) = pure ()
-    unify (Core.Type Size) (Core.Type Size) = pure ()
-    unify (Core.Type Signedness) (Core.Type Signedness) = pure ()
-    unify (Core.Type (Kind σ)) (Core.Type (Kind σ')) = do
+    unify (Core.WordRepresentation κ) (Core.WordRepresentation κ') = unify κ κ'
+    unify Core.Byte Core.Byte = pure ()
+    unify Core.Short Core.Short = pure ()
+    unify Core.Int Core.Int = pure ()
+    unify Core.Long Core.Long = pure ()
+    unify Core.Native Core.Native = pure ()
+    unify Core.Signed Core.Signed = pure ()
+    unify Core.Unsigned Core.Unsigned = pure ()
+    unify Core.Representation Core.Representation = pure ()
+    unify Core.Size Core.Size = pure ()
+    unify Core.Signedness Core.Signedness = pure ()
+    unify (Core.Kind σ) (Core.Kind σ') = do
       unify σ σ'
-    unify (Core.Type Syntactic) (Core.Type Syntactic) = pure ()
-    unify (Core.Type Propositional) (Core.Type Propositional) = pure ()
-    unify (Core.Type Unification) (Core.Type Unification) = pure ()
-    unify (Core.Type AmbiguousLabel) (Core.Type AmbiguousLabel) = pure ()
-    unify (Core.Type Label) (Core.Type Label) = pure ()
-    unify (Core.Type Top) (Core.Type Top) = pure ()
+    unify Core.Syntactic Core.Syntactic = pure ()
+    unify Core.Propositional Core.Propositional = pure ()
+    unify Core.Unification Core.Unification = pure ()
+    unify Core.AmbiguousLabel Core.AmbiguousLabel = pure ()
+    unify Core.Label Core.Label = pure ()
+    unify Core.Top Core.Top = pure ()
     unify σ σ' = quit $ TypeMismatch p σ σ'
 
     unifyBoolean σ τ = do
@@ -554,8 +560,8 @@ matchType p = unify
       matchType p κ κ'
       modifyState $ \state -> state {booleans = (σ, τ) : booleans state}
     unifyPoly
-      (Core.TypeForall (Core.TypePattern α π κ) ς)
-      (Core.TypeForall (Core.TypePattern α' π' κ') ς') = do
+      (Core.TypeForall α π κ ς)
+      (Core.TypeForall α' π' κ' ς') = do
         matchErasure p π π'
         matchType p κ κ'
         -- A logical variable inside of this forall may have been equated with a type that contains this forall's binding.
@@ -573,273 +579,273 @@ matchType p = unify
         matchType p σ σ'
     unifyPoly ς ς' = quit $ TypePolyMismatch p ς ς'
 
-matchErasure _ Transparent Transparent = pure ()
-matchErasure _ Concrete Concrete = pure ()
+matchErasure _ Core.Transparent Core.Transparent = pure ()
+matchErasure _ Core.Concrete Core.Concrete = pure ()
 matchErasure p π π' = quit $ ErasureMismatch p π π'
 
-matchInstanciation _ InstantiateEmpty InstantiateEmpty = pure ()
-matchInstanciation p (InstantiateType σ θ) (InstantiateType σ' θ') = do
+matchInstanciation _ [] [] = pure ()
+matchInstanciation p (σ : θ) (σ' : θ') = do
   matchType p σ σ'
   matchInstanciation p θ θ'
 matchInstanciation p _ _ = quit $ InstantiationLengthMismatch p
 
-freshTypeVariable p κ = (Core.Type . TypeLogical) <$> (levelCounter <$> getState >>= freshTypeVariableRaw p Transparent κ)
+freshTypeVariable p κ = Core.TypeLogical <$> (levelCounter <$> getState >>= freshTypeVariableRaw p Transparent κ)
 
-freshRepresentationKindVariable p = freshTypeVariable p (Core.Type Representation)
+freshRepresentationKindVariable p = freshTypeVariable p Core.Representation
 
-freshSizeKindVariable p = freshTypeVariable p (Core.Type Size)
+freshSizeKindVariable p = freshTypeVariable p Core.Size
 
-freshSignednessKindVariable p = freshTypeVariable p (Core.Type Signedness)
+freshSignednessKindVariable p = freshTypeVariable p Core.Signedness
 
-freshOrderabilityVariable p = freshTypeVariable p (Core.Type Unification)
+freshOrderabilityVariable p = freshTypeVariable p Core.Unification
 
 freshMetaTypeVariable p = do
-  freshTypeVariable p (Core.Type Type)
+  freshTypeVariable p Core.Type
 
 freshMultiplicityKindVariable p = do
-  freshTypeVariable p (Core.Type Multiplicity)
+  freshTypeVariable p Core.Multiplicity
 
 freshPretypeTypeVariable p = do
   s <- freshRepresentationKindVariable p
   τ <- freshMultiplicityKindVariable p
-  freshTypeVariable p (Core.Type $ Pretype s τ)
+  freshTypeVariable p (Core.Pretype s τ)
 
 freshBoxedTypeVariable p = do
-  freshTypeVariable p (Core.Type Boxed)
+  freshTypeVariable p Core.Boxed
 
 freshRegionTypeVariable p = do
-  freshTypeVariable p $ Core.Type $ Region
+  freshTypeVariable p Core.Region
 
 freshLabelTypeVariable p = do
-  freshTypeVariable p $ Core.Type $ Label
+  freshTypeVariable p Core.Label
 
-checkKind _ (Core.Type (Kind σ)) = pure (σ)
-checkKind p (Core.Type (TypeLogical x)) =
+checkKind _ (Core.Kind σ) = pure (σ)
+checkKind p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkKind p σ
     UnboundType _ π κ l -> do
       ρ <- freshOrderabilityVariable p
-      unifyVariable p x π κ l (Core.Type (Kind ρ))
+      unifyVariable p x π κ l (Core.Kind ρ)
       pure ρ
 checkKind p σ = quit $ ExpectedKind p σ
 
-checkRepresentation _ (Core.Type Representation) = pure ()
-checkRepresentation p (Core.Type (TypeLogical x)) =
+checkRepresentation _ Core.Representation = pure ()
+checkRepresentation p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkRepresentation p σ
     UnboundType _ π κ l -> do
-      unifyVariable p x π κ l (Core.Type Representation)
+      unifyVariable p x π κ l Core.Representation
       pure ()
 checkRepresentation p σ = quit $ ExpectedRepresentation p σ
 
-checkMultiplicity _ (Core.Type Multiplicity) = pure ()
-checkMultiplicity p (Core.Type (TypeLogical x)) =
+checkMultiplicity _ Core.Multiplicity = pure ()
+checkMultiplicity p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkMultiplicity p σ
     UnboundType _ π κ l -> do
-      unifyVariable p x π κ l (Core.Type Multiplicity)
+      unifyVariable p x π κ l Core.Multiplicity
       pure ()
 checkMultiplicity p σ = quit $ ExpectedMultiplicity p σ
 
-checkSize _ (Core.Type Size) = pure ()
-checkSize p (Core.Type (TypeLogical x)) =
+checkSize _ Core.Size = pure ()
+checkSize p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkSize p σ
     UnboundType _ π κ l -> do
-      unifyVariable p x π κ l (Core.Type Size)
+      unifyVariable p x π κ l Core.Size
       pure ()
 checkSize p σ = quit $ ExpectedSize p σ
 
-checkSignedness _ (Core.Type Signedness) = pure ()
-checkSignedness p (Core.Type (TypeLogical x)) =
+checkSignedness _ Core.Signedness = pure ()
+checkSignedness p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkSignedness p σ
     UnboundType _ π κ l -> do
-      unifyVariable p x π κ l (Core.Type Signedness)
+      unifyVariable p x π κ l Core.Signedness
       pure ()
 checkSignedness p σ = quit $ ExpectedSignedness p σ
 
-checkType _ (Core.Type Type) = pure ()
-checkType p (Core.Type (TypeLogical x)) =
+checkType _ Core.Type = pure ()
+checkType p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkType p σ
     UnboundType _ π κ l -> do
-      unifyVariable p x π κ l (Core.Type Type)
+      unifyVariable p x π κ l Core.Type
       pure ()
 checkType p σ = quit $ ExpectedType p σ
 
-checkPretype _ (Core.Type (Pretype σ τ)) = pure (σ, τ)
-checkPretype p (Core.Type (TypeLogical x)) =
+checkPretype _ (Core.Pretype σ τ) = pure (σ, τ)
+checkPretype p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkPretype p σ
     UnboundType _ π κ l -> do
       σ <- freshRepresentationKindVariable p
       τ <- freshMultiplicityKindVariable p
-      unifyVariable p x π κ l (Core.Type $ Pretype σ τ)
+      unifyVariable p x π κ l (Core.Pretype σ τ)
       pure (κ, τ)
 checkPretype p σ = quit $ ExpectedPretype p σ
 
-checkBoxed _ (Core.Type Boxed) = pure ()
-checkBoxed p (Core.Type (TypeLogical x)) =
+checkBoxed _ Core.Boxed = pure ()
+checkBoxed p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkBoxed p σ
     UnboundType _ π κ l -> do
-      unifyVariable p x π κ l (Core.Type Boxed)
+      unifyVariable p x π κ l Core.Boxed
       pure ()
 checkBoxed p σ = quit $ ExpectedBoxed p σ
 
-checkRegion _ (Core.Type Region) = pure ()
-checkRegion p (Core.Type (TypeLogical x)) =
+checkRegion _ Core.Region = pure ()
+checkRegion p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkRegion p σ
     UnboundType _ π κ l -> do
-      unifyVariable p x π κ l (Core.Type Region)
+      unifyVariable p x π κ l Core.Region
       pure ()
 checkRegion p σ = quit $ ExpectedRegion p σ
 
-checkPropoitional _ (Core.Type Propositional) = pure ()
-checkPropoitional p (Core.Type (TypeLogical x)) =
+checkPropoitional _ Core.Propositional = pure ()
+checkPropoitional p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkPropoitional p σ
     UnboundType _ π κ l -> do
-      unifyVariable p x π κ l (Core.Type Propositional)
+      unifyVariable p x π κ l Core.Propositional
       pure ()
 checkPropoitional p σ = quit $ ExpectedPropositional p σ
 
-checkUnification _ (Core.Type Unification) = pure ()
-checkUnification p (Core.Type (TypeLogical x)) =
+checkUnification _ Core.Unification = pure ()
+checkUnification p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkUnification p σ
     UnboundType _ π κ l -> do
-      unifyVariable p x π κ l (Core.Type Unification)
+      unifyVariable p x π κ l Core.Unification
       pure ()
 checkUnification p σ = quit $ ExpectedUnification p σ
 
-checkInline _ (Core.Type (Inline σ τ π)) = pure (σ, τ, π)
-checkInline p (Core.Type (TypeLogical x)) =
+checkInline _ (Core.Inline σ τ π) = pure (σ, τ, π)
+checkInline p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkInline p σ
     UnboundType _ π' κ l -> do
       σ <- freshMetaTypeVariable p
       π <- freshMultiplicityKindVariable p
       τ <- freshMetaTypeVariable p
-      unifyVariable p x π' κ l (Core.Type (Inline σ π τ))
+      unifyVariable p x π' κ l (Core.Inline σ π τ)
       pure (σ, π, τ)
 checkInline p σ = quit $ ExpectedInline p σ
 
-checkFunctionPointer _ (Core.Type (FunctionPointer σ τ π)) = pure (σ, τ, π)
-checkFunctionPointer p (Core.Type (TypeLogical x)) =
+checkFunctionPointer _ (Core.FunctionPointer σ τ π) = pure (σ, τ, π)
+checkFunctionPointer p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkFunctionPointer p σ
     UnboundType _ π' κ l -> do
       σ <- freshPretypeTypeVariable p
       π <- freshRegionTypeVariable p
       τ <- freshPretypeTypeVariable p
-      unifyVariable p x π' κ l (Core.Type $ FunctionPointer σ π τ)
+      unifyVariable p x π' κ l (Core.FunctionPointer σ π τ)
       pure (σ, π, τ)
 checkFunctionPointer p σ = quit $ ExpectedFunctionPointer p σ
 
-checkFunctionLiteralType _ (Core.Type (FunctionLiteralType σ τ π)) = pure (σ, τ, π)
-checkFunctionLiteralType p (Core.Type (TypeLogical x)) =
+checkFunctionLiteralType _ (Core.FunctionLiteralType σ τ π) = pure (σ, τ, π)
+checkFunctionLiteralType p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkFunctionLiteralType p σ
     UnboundType _ π' κ l -> do
       σ <- freshPretypeTypeVariable p
       π <- freshRegionTypeVariable p
       τ <- freshPretypeTypeVariable p
-      unifyVariable p x π' κ l (Core.Type $ FunctionLiteralType σ π τ)
+      unifyVariable p x π' κ l (Core.FunctionLiteralType σ π τ)
       pure (σ, π, τ)
 checkFunctionLiteralType p σ = quit $ ExpectedFunctionLiteralType p σ
 
-checkUnique _ (Core.Type (Unique σ)) = pure σ
-checkUnique p (Core.Type (TypeLogical x)) =
+checkUnique _ (Core.Unique σ) = pure σ
+checkUnique p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkUnique p σ
     UnboundType _ π κ l -> do
       σ <- freshBoxedTypeVariable p
-      unifyVariable p x π κ l (Core.Type $ Unique σ)
+      unifyVariable p x π κ l (Core.Unique σ)
       pure σ
 checkUnique p σ = quit $ ExpectedUnique p σ
 
-checkPointer _ (Core.Type (Pointer σ)) = pure σ
-checkPointer p (Core.Type (TypeLogical x)) =
+checkPointer _ (Core.Pointer σ) = pure σ
+checkPointer p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkPointer p σ
     UnboundType _ π κ l -> do
       σ <- freshPretypeTypeVariable p
-      unifyVariable p x π κ l (Core.Type $ Pointer σ)
+      unifyVariable p x π κ l (Core.Pointer σ)
       pure (σ)
 checkPointer p σ = quit $ ExpectedPointer p σ
 
-checkArray _ (Core.Type (Array σ)) = pure σ
-checkArray p (Core.Type (TypeLogical x)) =
+checkArray _ (Core.Array σ) = pure σ
+checkArray p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkArray p σ
     UnboundType _ π κ l -> do
       σ <- freshPretypeTypeVariable p
-      unifyVariable p x π κ l (Core.Type $ Array σ)
+      unifyVariable p x π κ l (Core.Array σ)
       pure (σ)
 checkArray p σ = quit $ ExpectedArray p σ
 
-checkEffect _ (Core.Type (Effect σ τ)) = pure (σ, τ)
-checkEffect p (Core.Type (TypeLogical x)) =
+checkEffect _ (Core.Effect σ τ) = pure (σ, τ)
+checkEffect p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkEffect p σ
     UnboundType _ π' κ l -> do
       σ <- freshPretypeTypeVariable p
       π <- freshRegionTypeVariable p
-      unifyVariable p x π' κ l (Core.Type $ Effect σ π)
+      unifyVariable p x π' κ l (Core.Effect σ π)
       pure (σ, π)
 checkEffect p σ = quit $ ExpectedEffect p σ
 
-checkShared _ (Core.Type (Shared σ τ)) = pure (σ, τ)
-checkShared p (Core.Type (TypeLogical x)) =
+checkShared _ (Core.Shared σ τ) = pure (σ, τ)
+checkShared p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkShared p σ
     UnboundType _ π' κ l -> do
       σ <- freshBoxedTypeVariable p
       π <- freshRegionTypeVariable p
-      unifyVariable p x π' κ l (Core.Type $ Shared σ π)
+      unifyVariable p x π' κ l (Core.Shared σ π)
       pure (σ, π)
 checkShared p σ = quit $ ExpectedShared p σ
 
-checkNumber _ (Core.Type (Number σ τ)) = pure (σ, τ)
-checkNumber p (Core.Type (TypeLogical x)) =
+checkNumber _ (Core.Number σ τ) = pure (σ, τ)
+checkNumber p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkNumber p σ
     UnboundType _ π κ l -> do
       ρ1 <- freshSignednessKindVariable p
       ρ2 <- freshSizeKindVariable p
-      unifyVariable p x π κ l (Core.Type $ Number ρ1 ρ2)
+      unifyVariable p x π κ l (Core.Number ρ1 ρ2)
       pure (ρ1, ρ2)
 checkNumber p σ = quit $ ExpectedNumber p σ
 
-checkBoolean _ (Core.Type Boolean) = pure ()
-checkBoolean p (Core.Type (TypeLogical x)) =
+checkBoolean _ Core.Boolean = pure ()
+checkBoolean p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkBoolean p σ
     UnboundType _ π κ l -> do
-      unifyVariable p x π κ l (Core.Type $ Boolean)
+      unifyVariable p x π κ l Core.Boolean
       pure ()
 checkBoolean p σ = quit $ ExpectedBoolean p σ
 
-checkStep _ (Core.Type (Step σ τ)) = pure (σ, τ)
-checkStep p (Core.Type (TypeLogical x)) =
+checkStep _ (Core.Step σ τ) = pure (σ, τ)
+checkStep p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkStep p σ
     UnboundType _ π κ l -> do
       σ <- freshPretypeTypeVariable p
       τ <- freshPretypeTypeVariable p
-      unifyVariable p x π κ l (Core.Type $ Step σ τ)
+      unifyVariable p x π κ l (Core.Step σ τ)
       pure (σ, τ)
 checkStep p σ = quit $ ExpectedStep p σ
 
-checkLabel _ (Core.Type Label) = pure ()
-checkLabel p (Core.Type (TypeLogical x)) =
+checkLabel _ Core.Label = pure ()
+checkLabel p (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
     LinkType σ -> checkLabel p σ
     UnboundType _ π κ l -> do
-      unifyVariable p x π κ l (Core.Type Label)
+      unifyVariable p x π κ l Core.Label
       pure ()
 checkLabel p σ = quit $ ExpectedLabel p σ
 
@@ -849,39 +855,39 @@ augmentVariableLinear p x l ς check = do
   Checked e σ lΓ <- augmentTypeEnvironment x p l ς check
   case count x lΓ of
     Single -> pure ()
-    _ -> matchType p l unrestricted
+    _ -> matchType p l Core.TypeTrue
   pure $ Checked e σ (Remove x lΓ)
 
 capture p base lΓ = do
   let captures = variablesUsed lΓ
   for (Set.toList captures) $ \x -> do
     (TermBinding _ l _) <- fromJust <$> Map.lookup x <$> typeEnvironment <$> askEnvironment
-    matchType p l (Core.Type $ TypeBoolean $ TypeOr base l)
+    matchType p l (Core.TypeOr base l)
     pure ()
   pure ()
 
 requireUnrestricted p σ = do
   κ <- reconstruct p σ
   (_, l) <- checkPretype p κ
-  matchType p l unrestricted
+  matchType p l Core.TypeTrue
   pure ()
 
 -- todo relabel seems somewhat fragile here
 -- this depends on `KindChecked σ _ _ <- kindCheck τ`, never having unification variables in σ
 -- because relabel ignores unification variables
-augmentTermMetaPattern (Core.TermMetaPattern p (PatternVariable x π σ)) =
+augmentTermMetaPattern (Core.InlineMatchVariable p x π σ) =
   augmentVariableLinear p x π (relabel (Core.MonoType σ))
 
-nullEffect σ = Core.MonoType $ Core.Type $ Effect σ none
+nullEffect σ = Core.MonoType $ Core.Effect σ Core.TypeFalse
 
 augmentTermPattern pm = go pm
   where
-    go (Core.TermPattern p (RuntimePatternVariable x σ)) = \e -> do
+    go (Core.MatchVariable p x σ) = \e -> do
       κ <- reconstruct p σ
       (_, l) <- checkPretype p κ
       augmentVariableLinear p x l (Core.MonoLabel (nullEffect σ)) e
-    go (Core.TermPattern _ (RuntimePatternTuple pms)) = foldr (.) id (map go pms)
-    go (Core.TermPattern _ (RuntimePatternBoolean _)) = id
+    go (Core.MatchTuple _ pms) = foldr (.) id (map go pms)
+    go (Core.MatchBoolean _ _) = id
 
 checkSolid p σ = do
   (ρ, _) <- checkPretype p =<< reconstruct p σ
@@ -889,45 +895,45 @@ checkSolid p σ = do
 
 typeCheckMetaPattern :: Surface.TermMetaPattern p -> Check p (TermMetaPatternUnify p, TypeUnify, TypeUnify)
 typeCheckMetaPattern = \case
-  (Surface.TermMetaPattern p (PatternVariable x π σ)) -> do
+  (Surface.InlineMatchVariable p x π σ) -> do
     π <- case π of
-      Surface.Type p (Hole ()) -> freshMultiplicityKindVariable p
+      Surface.Hole p -> freshMultiplicityKindVariable p
       π -> do
         (π, ()) <- secondM (checkMultiplicity p) =<< kindCheck π
         pure (flexible π)
     σ <- case σ of
-      Surface.Type p (Hole ()) -> freshMetaTypeVariable p
+      Surface.Hole p -> freshMetaTypeVariable p
       σ -> do
         (σ, ()) <- secondM (checkType p) =<< kindCheck σ
         pure (flexible σ)
-    pure (Core.TermMetaPattern p (PatternVariable x π σ), π, σ)
+    pure (Core.InlineMatchVariable p x π σ, π, σ)
 
 typeCheckRuntimePattern = \case
-  (Surface.TermPattern p (RuntimePatternVariable x σ)) -> do
+  (Surface.MatchVariable p x σ) -> do
     σ' <- case σ of
-      Surface.Type p (Hole ()) -> freshPretypeTypeVariable p
+      Surface.Hole p -> freshPretypeTypeVariable p
       σ -> do
         (σ', _) <- traverse (checkPretype p) =<< kindCheck σ
         pure (flexible σ')
     checkSolid p σ'
-    pure (Core.TermPattern p $ RuntimePatternVariable x σ', σ')
-  (Surface.TermPattern p (RuntimePatternTuple pms)) -> do
+    pure (Core.MatchVariable p x σ', σ')
+  (Surface.MatchTuple p pms) -> do
     (pms, σs) <- unzip <$> traverse typeCheckRuntimePattern pms
-    pure (Core.TermPattern p $ RuntimePatternTuple pms, Core.Type (Tuple σs))
-  (Surface.TermPattern p (RuntimePatternBoolean b)) -> do
-    pure (Core.TermPattern p $ RuntimePatternBoolean b, Core.Type $ Boolean)
+    pure (Core.MatchTuple p pms, Core.Tuple σs)
+  (Surface.MatchBoolean p b) -> do
+    pure (Core.MatchBoolean p b, Core.Boolean)
 
 kindCheckScheme :: Mode -> Surface.TypeScheme p -> Check p (TypeSchemeInfer, TypeUnify)
 kindCheckScheme mode =
   \case
-    Surface.TypeScheme p (Surface.MonoType σ) -> do
-      (σ', _) <- secondM (checkType p) =<< kindCheck σ
-      pure (Core.MonoType σ', Core.Type Type)
-    Surface.TypeScheme _ (Surface.TypeForall pm σ) -> do
-      pm' <- kindCheckPattern mode pm
+    Surface.MonoType σ -> do
+      (σ', _) <- secondM (checkType (Surface.position σ)) =<< kindCheck σ
+      pure (Core.MonoType σ', Core.Type)
+    Surface.TypeForall pm σ -> do
+      pm'@(TypePatternIntermediate _ x er κ) <- kindCheckPattern mode pm
       augmentTypePatternLevel pm' $ do
         (σ', _) <- kindCheckScheme mode σ
-        pure $ (Core.TypeForall (toTypePattern pm') σ', Core.Type $ Type)
+        pure $ (Core.TypeForall x er κ σ', Core.Type)
 
 kindCheckPattern :: Mode -> Surface.TypePattern p -> Check p (TypePatternIntermediate p)
 kindCheckPattern mode (Surface.TypePattern p x π κ) = do
@@ -938,158 +944,161 @@ kindCheckPattern mode (Surface.TypePattern p x π κ) = do
   pure (TypePatternIntermediate p x π κ)
 
 kindCheck :: Surface.Type p -> Check p (TypeInfer, TypeUnify)
-kindCheck (Surface.Type p σ) = case σ of
-  TypeConstant (TypeVariable x) -> do
+kindCheck = \case
+  Surface.Hole p -> quit $ NotTypable p
+  Surface.TypeScheme _ λ -> do
+    (ς, κ) <- kindCheckScheme InlineMode λ
+    pure (Core.TypeScheme (Core.AmbiguousLabel) ς, κ)
+  Surface.TypeVariable p x -> do
     Map.lookup x <$> kindEnvironment <$> askEnvironment >>= \case
-      Just (TypeBinding _ _ κ _) -> pure (Core.Type $ TypeConstant $ TypeVariable x, κ)
+      Just (TypeBinding _ _ κ _) -> pure (Core.TypeVariable x, κ)
       Nothing -> do
         heading <- moduleScope <$> askEnvironment
-        kindCheck (Surface.Type p $ TypeConstant $ TypeGlobalVariable $ globalType heading x)
-  TypeConstant (TypeGlobalVariable x) -> do
+        kindCheck (Surface.TypeGlobalVariable p $ globalType heading x)
+  Surface.TypeGlobalVariable p x -> do
     Map.lookup x <$> kindGlobalEnvironment <$> askEnvironment >>= \case
-      Just (TypeBinding _ _ κ _) -> pure (Core.Type $ TypeConstant $ TypeGlobalVariable x, κ)
+      Just (TypeBinding _ _ κ _) -> pure (Core.TypeGlobalVariable x, κ)
       Nothing ->
         Map.lookup x <$> typeGlobalSynonyms <$> askEnvironment >>= \case
           Just σ -> do
             κ <- reconstruct p (flexible σ)
             pure (flexible σ, κ)
           Nothing -> quit $ UnknownTypeGlobalIdentifier p x
-  Inline σ π τ -> do
+  Surface.Inline p σ π τ -> do
     (σ', _) <- secondM (checkType p) =<< kindCheck σ
     (π', _) <- secondM (checkMultiplicity p) =<< kindCheck π
     (τ', _) <- secondM (checkType p) =<< kindCheck τ
-    pure (Core.Type $ Inline σ' π' τ', Core.Type $ Type)
-  Poly σ λ -> do
-    (σ, _) <- secondM (checkLabel p) =<< kindCheck σ
-    (ς, κ) <- kindCheckScheme InlineMode λ
-    pure (Core.Type $ Poly σ ς, κ)
-  FunctionPointer σ π τ -> do
+    pure (Core.Inline σ' π' τ', Core.Type)
+  Surface.FunctionPointer p σ π τ -> do
     (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion p) =<< kindCheck π
     (τ', _) <- secondM (checkPretype p) =<< kindCheck τ
-    pure (Core.Type $ FunctionPointer σ' π' τ', Core.Type $ Pretype (Core.Type $ KindRuntime $ PointerRep) unrestricted)
-  FunctionLiteralType σ π τ -> do
+    pure (Core.FunctionPointer σ' π' τ', Core.Pretype Core.PointerRepresentation Core.TypeTrue)
+  Surface.FunctionLiteralType p σ π τ -> do
     (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion p) =<< kindCheck π
     (τ', _) <- secondM (checkPretype p) =<< kindCheck τ
-    pure (Core.Type $ FunctionLiteralType σ' π' τ', Core.Type $ Type)
-  Tuple σs -> do
+    pure (Core.FunctionLiteralType σ' π' τ', Core.Type)
+  Surface.Tuple p σs -> do
     (σs, (ρs, τs)) <- second unzip <$> unzip <$> traverse (secondM (checkPretype p) <=< kindCheck) σs
-    let τ = foldr (\σ τ -> Core.Type $ TypeBoolean $ TypeAnd σ τ) unrestricted τs
-    pure (Core.Type $ Tuple σs, Core.Type $ Pretype (Core.Type $ KindRuntime $ StructRep ρs) τ)
-  Step σ τ -> do
+    let τ = foldr Core.TypeAnd Core.TypeTrue τs
+    pure (Core.Tuple σs, Core.Pretype (Core.StructRepresentation ρs) τ)
+  Surface.Step p σ τ -> do
     (σ, (κ, _)) <- secondM (checkPretype p) =<< kindCheck σ
     (τ, (ρ, _)) <- secondM (checkPretype p) =<< kindCheck τ
-    let union = Core.Type $ KindRuntime $ UnionRep $ [κ, ρ]
-    let wrap = Core.Type $ KindRuntime $ StructRep $ [Core.Type $ KindRuntime $ WordRep $ Core.Type $ KindSize $ Byte, union]
-    pure (Core.Type $ Step σ τ, Core.Type $ Pretype wrap $ linear)
-  Effect σ π -> do
+    let union = Core.UnionRepresentation $ [κ, ρ]
+    let wrap = Core.StructRepresentation [Core.WordRepresentation Core.Byte, union]
+    pure (Core.Step σ τ, Core.Pretype wrap Core.TypeFalse)
+  Surface.Effect p σ π -> do
     (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion p) =<< kindCheck π
-    pure (Core.Type $ Effect σ' π', Core.Type $ Type)
-  Unique σ -> do
+    pure (Core.Effect σ' π', Core.Type)
+  Surface.Unique p σ -> do
     (σ', _) <- secondM (checkBoxed p) =<< kindCheck σ
-    pure (Core.Type $ Unique σ', Core.Type $ Pretype (Core.Type $ KindRuntime $ PointerRep) linear)
-  Shared σ π -> do
+    pure (Core.Unique σ', Core.Pretype Core.PointerRepresentation Core.TypeFalse)
+  Surface.Shared p σ π -> do
     (σ', _) <- secondM (checkBoxed p) =<< kindCheck σ
     (π', _) <- secondM (checkRegion p) =<< kindCheck π
-    pure (Core.Type $ Shared σ' π', Core.Type $ Pretype (Core.Type $ KindRuntime $ PointerRep) unrestricted)
-  Pointer σ -> do
+    pure (Core.Shared σ' π', Core.Pretype Core.PointerRepresentation Core.TypeTrue)
+  Surface.Pointer p σ -> do
     (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
-    pure (Core.Type $ Pointer σ', Core.Type $ Boxed)
-  Array σ -> do
+    pure (Core.Pointer σ', Core.Boxed)
+  Surface.Array p σ -> do
     (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
-    pure (Core.Type $ Array σ', Core.Type $ Boxed)
-  Number ρ1 ρ2 -> do
+    pure (Core.Array σ', Core.Boxed)
+  Surface.Number p ρ1 ρ2 -> do
     (ρ1', _) <- secondM (checkSignedness p) =<< kindCheck ρ1
     (ρ2', _) <- secondM (checkSize p) =<< kindCheck ρ2
-    pure (Core.Type $ Number ρ1' ρ2', Core.Type $ Pretype (Core.Type $ KindRuntime $ WordRep (flexible ρ2')) unrestricted)
-  Boolean -> do
-    pure (Core.Type $ Boolean, Core.Type $ Pretype (Core.Type $ KindRuntime $ WordRep $ Core.Type $ KindSize $ Byte) unrestricted)
-  TypeConstant World -> do
-    pure (Core.Type $ TypeConstant World, Core.Type Region)
-  TypeLogical v -> absurd v
-  Type -> do
-    pure (Core.Type Type, Core.Type $ Kind (Core.Type Syntactic))
-  Region -> pure (Core.Type Region, Core.Type $ Kind (Core.Type Propositional))
-  KindRuntime PointerRep -> pure (Core.Type $ KindRuntime PointerRep, Core.Type Representation)
-  KindRuntime (StructRep κs) -> do
+    pure (Core.Number ρ1' ρ2', Core.Pretype (Core.WordRepresentation (flexible ρ2')) Core.TypeTrue)
+  Surface.Boolean _ -> do
+    pure (Core.Boolean, Core.Pretype (Core.WordRepresentation Core.Byte) Core.TypeTrue)
+  Surface.World _ -> do
+    pure (Core.World, Core.Region)
+  Surface.Type _ -> do
+    pure (Core.Type, Core.Kind Core.Syntactic)
+  Surface.Region _ -> pure (Core.Region, Core.Kind Core.Propositional)
+  Surface.PointerRepresentation _ -> pure (Core.PointerRepresentation, Core.Representation)
+  Surface.StructRepresentation p κs -> do
     (κs', _) <- unzip <$> traverse (secondM (checkRepresentation p) <=< kindCheck) κs
-    pure (Core.Type (KindRuntime (StructRep κs')), Core.Type Representation)
-  KindRuntime (UnionRep κs) -> do
+    pure (Core.StructRepresentation κs', Core.Representation)
+  Surface.UnionRepresentation p κs -> do
     (κs', _) <- unzip <$> traverse (secondM (checkRepresentation p) <=< kindCheck) κs
-    pure (Core.Type (KindRuntime (UnionRep κs')), Core.Type Representation)
-  KindRuntime (WordRep κ) -> do
+    pure (Core.UnionRepresentation κs', Core.Representation)
+  Surface.WordRepresentation p κ -> do
     (κ', _) <- secondM (checkSize p) =<< kindCheck κ
-    pure (Core.Type (KindRuntime (WordRep κ')), Core.Type Representation)
-  KindSize κ -> pure (Core.Type (KindSize κ), Core.Type Size)
-  KindSignedness κ -> pure (Core.Type (KindSignedness κ), Core.Type Signedness)
-  Pretype κ τ -> do
+    pure (Core.WordRepresentation κ', Core.Representation)
+  Surface.Byte _ -> pure (Core.Byte, Core.Size)
+  Surface.Short _ -> pure (Core.Short, Core.Size)
+  Surface.Int _ -> pure (Core.Int, Core.Size)
+  Surface.Long _ -> pure (Core.Long, Core.Size)
+  Surface.Native _ -> pure (Core.Native, Core.Size)
+  Surface.Signed _ -> pure (Core.Signed, Core.Signedness)
+  Surface.Unsigned _ -> pure (Core.Unsigned, Core.Signedness)
+  Surface.Pretype p κ τ -> do
     (κ', _) <- secondM (checkRepresentation p) =<< kindCheck κ
     (τ', _) <- secondM (checkMultiplicity p) =<< kindCheck τ
-    pure (Core.Type $ Pretype κ' τ', Core.Type $ Kind (Core.Type Syntactic))
-  Boxed -> do
-    pure (Core.Type $ Boxed, Core.Type $ Kind (Core.Type Syntactic))
-  Multiplicity -> do
-    pure (Core.Type $ Multiplicity, Core.Type $ Kind (Core.Type Propositional))
-  Representation -> pure (Core.Type Representation, Core.Type $ Kind (Core.Type Syntactic))
-  Size -> pure (Core.Type Size, Core.Type $ Kind (Core.Type Syntactic))
-  Signedness -> pure (Core.Type Signedness, Core.Type $ Kind (Core.Type Syntactic))
-  Kind ρ -> do
+    pure (Core.Pretype κ' τ', Core.Kind Core.Syntactic)
+  Surface.Boxed _ -> do
+    pure (Core.Boxed, Core.Kind Core.Syntactic)
+  Surface.Multiplicity _ -> do
+    pure (Core.Multiplicity, Core.Kind Core.Propositional)
+  Surface.Representation _ -> pure (Core.Representation, Core.Kind Core.Syntactic)
+  Surface.Size _ -> pure (Core.Size, Core.Kind Core.Syntactic)
+  Surface.Signedness _ -> pure (Core.Signedness, Core.Kind Core.Syntactic)
+  Surface.Kind p ρ -> do
     (ρ, _) <- secondM (checkUnification p) =<< kindCheck ρ
-    pure (Core.Type (Kind ρ), Core.Type Top)
-  Syntactic -> do
-    pure (Core.Type Syntactic, Core.Type Unification)
-  Propositional -> do
-    pure (Core.Type Propositional, Core.Type Unification)
-  Unification -> do
-    pure (Core.Type Unification, Core.Type Top)
-  AmbiguousLabel -> do
-    pure (Core.Type AmbiguousLabel, Core.Type Label)
-  Label -> do
-    pure (Core.Type Label, Core.Type $ Top)
-  TypeTrue -> do
-    π <- freshTypeVariable p (Core.Type $ Kind (Core.Type $ Propositional))
-    pure (Core.Type $ TypeTrue, π)
-  TypeFalse -> do
-    π <- freshTypeVariable p (Core.Type $ Kind (Core.Type $ Propositional))
-    pure (Core.Type $ TypeFalse, π)
-  TypeBoolean (TypeXor σ τ) -> do
+    pure (Core.Kind ρ, Core.Top)
+  Surface.Syntactic _ -> do
+    pure (Core.Syntactic, Core.Unification)
+  Surface.Propositional _ -> do
+    pure (Core.Propositional, Core.Unification)
+  Surface.Unification _ -> do
+    pure (Core.Unification, Core.Top)
+  Surface.AmbiguousLabel _ -> do
+    pure (Core.AmbiguousLabel, Core.Label)
+  Surface.Label _ -> do
+    pure (Core.Label, Core.Top)
+  Surface.TypeTrue p -> do
+    π <- freshTypeVariable p (Core.Kind Core.Propositional)
+    pure (Core.TypeTrue, π)
+  Surface.TypeFalse p -> do
+    π <- freshTypeVariable p (Core.Kind Core.Propositional)
+    pure (Core.TypeFalse, π)
+  Surface.TypeXor p σ τ -> do
     (σ', κ) <- kindCheck σ
     (τ', κ') <- kindCheck τ
     matchType p κ κ'
     ρ <- checkKind p =<< reconstruct p κ
     checkPropoitional p ρ
-    pure (Core.Type $ TypeBoolean $ TypeXor σ' τ', κ)
-  TypeBoolean (TypeOr σ τ) -> do
+    pure (Core.TypeXor σ' τ', κ)
+  Surface.TypeOr p σ τ -> do
     (σ', κ) <- kindCheck σ
     (τ', κ') <- kindCheck τ
     matchType p κ κ'
     ρ <- checkKind p =<< reconstruct p κ
     checkPropoitional p ρ
-    pure (Core.Type $ TypeBoolean $ TypeOr σ' τ', κ)
-  TypeBoolean (TypeAnd σ τ) -> do
+    pure (Core.TypeOr σ' τ', κ)
+  Surface.TypeAnd p σ τ -> do
     (σ', κ) <- kindCheck σ
     (τ', κ') <- kindCheck τ
     matchType p κ κ'
     ρ <- checkKind p =<< reconstruct p κ
     checkPropoitional p ρ
-    pure (Core.Type $ TypeBoolean $ TypeAnd σ' τ', κ)
-  TypeBoolean (TypeNot σ) -> do
+    pure (Core.TypeAnd σ' τ', κ)
+  Surface.TypeNot p σ -> do
     (σ', κ) <- kindCheck σ
     ρ <- checkKind p =<< reconstruct p κ
     checkPropoitional p ρ
-    pure (Core.Type $ TypeBoolean $ TypeNot σ', κ)
-  Top -> quit $ NotTypable p
-  Hole () -> quit $ NotTypable p
+    pure (Core.TypeNot σ', κ)
+  Surface.Top p -> quit $ NotTypable p
 
 instantiate p ς = case ς of
-  Core.MonoType σ -> pure (σ, Core.InstantiateEmpty)
-  Core.TypeForall (Core.TypePattern x π κ) σ -> do
+  Core.MonoType σ -> pure (σ, [])
+  Core.TypeForall x π κ σ -> do
     τ <- freshTypeVariable p κ
     erasureEntail p π τ
     (ς, θ) <- instantiate p $ substituteType τ x σ
-    pure (ς, Core.InstantiateType τ θ)
+    pure (ς, τ : θ)
 
 instantiateLabel instantiate p (Core.MonoLabel ς) = instantiate p ς
 instantiateLabel instantiate p (Core.LabelForall x ς) = do
@@ -1107,8 +1116,8 @@ data Checked p σ = Checked (TermUnify p) σ (Use TermIdentifier)
 data CheckedScheme p σ = CheckedScheme (TermSchemeUnify p) σ (Use TermIdentifier)
   deriving (Functor, Foldable, Traversable)
 
-regions [] = none
-regions σs = foldl1 (\π1 π2 -> Core.Type $ TypeBoolean $ TypeOr π1 π2) σs
+regions [] = Core.TypeFalse
+regions σs = foldl1 Core.TypeOr σs
 
 validateInstantation p θ θ' = do
   θ' <- for θ' $ \σ -> do
@@ -1116,11 +1125,11 @@ validateInstantation p θ θ' = do
     let ς = relabel $ Core.MonoType $ flexible τ
     (σ, _) <- instantiateLabel instantiate p ς
     pure σ
-  matchInstanciation p θ (Core.instanciation θ')
+  matchInstanciation p θ θ'
 
 typeCheck :: forall p. Surface.Term p -> Check p (Checked p TypeUnify)
-typeCheck (Surface.Term p e) = case e of
-  TermRuntime (Variable x θ') -> do
+typeCheck = \case
+  Surface.Variable p x θ' -> do
     mσ <- Map.lookup x <$> typeEnvironment <$> askEnvironment
     case mσ of
       Just (TermBinding _ _ σ) -> do
@@ -1128,11 +1137,11 @@ typeCheck (Surface.Term p e) = case e of
         case θ' of
           Surface.InstantiationInfer -> pure ()
           Surface.Instantiation θ' -> validateInstantation p θ θ'
-        pure $ Checked (Core.Term p $ TermRuntime $ Variable x θ) τ (Use x)
+        pure $ Checked (Core.Variable p x θ) τ (Use x)
       Nothing -> do
         heading <- moduleScope <$> askEnvironment
-        typeCheck (Surface.Term p $ GlobalVariable (globalTerm heading x) θ')
-  GlobalVariable x θ' -> do
+        typeCheck (Surface.GlobalVariable p (globalTerm heading x) θ')
+  Surface.GlobalVariable p x θ' -> do
     mσ <- Map.lookup x <$> typeGlobalEnvironment <$> askEnvironment
     case mσ of
       Just (TermBinding _ _ σ) -> do
@@ -1141,48 +1150,48 @@ typeCheck (Surface.Term p e) = case e of
           Surface.InstantiationInfer -> pure ()
           Surface.Instantiation θ' -> validateInstantation p θ θ'
         -- todo useNothing here is kinda of a hack
-        pure $ Checked (Core.Term p $ GlobalVariable x θ) τ useNothing
+        pure $ Checked (Core.GlobalVariable p x θ) τ useNothing
       Nothing -> quit $ UnknownGlobalIdentifier p x
-  InlineAbstraction (Surface.TermMetaBound pm e) -> do
+  Surface.InlineAbstraction p pm e -> do
     (pm', π, σ) <- typeCheckMetaPattern pm
     Checked e' τ lΓ <- augmentTermMetaPattern pm' (typeCheck e)
-    pure $ Checked (Core.Term p $ InlineAbstraction $ Core.TermMetaBound pm' e') (Core.Type $ Inline σ π τ) lΓ
-  InlineApplication e1 e2 -> do
+    pure $ Checked (Core.InlineAbstraction p pm' e') (Core.Inline σ π τ) lΓ
+  Surface.InlineApplication p e1 e2 -> do
     Checked e1' (σ, π, τ) lΓ1 <- traverse (checkInline p) =<< typeCheck e1
     Checked e2' σ' lΓ2 <- typeCheck e2
     matchType p σ σ'
     capture p π lΓ2
-    pure $ Checked (Core.Term p $ InlineApplication e1' e2') τ (lΓ1 `combine` lΓ2)
-  Bind e1 (Surface.TermMetaBound pm e2) -> do
+    pure $ Checked (Core.InlineApplication p e1' e2') τ (lΓ1 `combine` lΓ2)
+  Surface.InlineLet p pm e1 e2 -> do
     Checked e1' τ lΓ1 <- typeCheck e1
     (pm', π, τ') <- typeCheckMetaPattern pm
     matchType p τ τ'
     Checked e2' σ lΓ2 <- augmentTermMetaPattern pm' $ typeCheck e2
     capture p π lΓ1
-    pure $ Checked (Core.Term p $ Bind e1' $ Core.TermMetaBound pm' e2') σ (lΓ1 `combine` lΓ2)
-  PolyIntroduction λ -> do
+    pure $ Checked (Core.InlineLet p pm' e1' e2') σ (lΓ1 `combine` lΓ2)
+  Surface.PolyIntroduction p λ -> do
     CheckedScheme eς σ lΓ <- typeCheckScheme InlineMode λ
     τ <- freshLabelTypeVariable p
     vars <- typeLogicalMap <$> getState
     let σ' = zonk vars σ
-    pure $ Checked (Core.Term p $ PolyIntroduction $ eς) (Core.Type $ Poly τ σ') lΓ
-  PolyElimination e θ' -> do
+    pure $ Checked (Core.PolyIntroduction p eς) (Core.TypeScheme τ σ') lΓ
+  Surface.PolyElimination p e θ' -> do
     Checked e ς lΓ <- leveled $ typeCheck e
     elimatePoly e ς lΓ
     where
-      elimatePoly e (Core.Type (Poly l ς)) lΓ = do
+      elimatePoly e (Core.TypeScheme l ς) lΓ = do
         validateLevel l
         (σ, θ) <- instantiate p ς
         case θ' of
           Surface.InstantiationInfer -> pure ()
           Surface.Instantiation θ' -> validateInstantation p θ θ'
-        pure $ Checked (Core.Term p $ PolyElimination e θ) σ lΓ
-      elimatePoly e (Core.Type (TypeLogical v)) lΓ =
+        pure $ Checked (Core.PolyElimination p e θ) σ lΓ
+      elimatePoly e (Core.TypeLogical v) lΓ =
         (! v) <$> typeLogicalMap <$> getState >>= \case
           LinkType σ -> elimatePoly e σ lΓ
           _ -> quit $ ExpectedTypeAnnotation p
       elimatePoly _ _ _ = quit $ ExpectedTypeAnnotation p
-      validateLevel (Core.Type (TypeLogical v)) =
+      validateLevel (Core.TypeLogical v) =
         (! v) <$> typeLogicalMap <$> getState >>= \case
           LinkType σ -> validateLevel σ
           UnboundType p _ _ level' -> do
@@ -1191,19 +1200,19 @@ typeCheck (Surface.Term p e) = case e of
               then quit $ ExpectedTypeAnnotation p
               else pure ()
       validateLevel _ = quit $ ExpectedTypeAnnotation p
-  TermRuntime (Alias e1 (Surface.TermBound pm e2)) -> do
+  Surface.Let p pm e1 e2 -> do
     (pm', τ) <- typeCheckRuntimePattern pm
     Checked e1' (τ', π1) lΓ1 <- traverse (checkEffect p) =<< typeCheck e1
     matchType p τ τ'
     Checked e2' (σ, π2) lΓ2 <- traverse (checkEffect p) =<< augmentTermPattern pm' (typeCheck e2)
     let π = regions [π1, π2]
-    pure $ Checked (Core.Term p $ TermRuntime $ Alias e1' $ Core.TermBound pm' e2') (Core.Type $ Effect σ π) (lΓ1 `combine` lΓ2)
-  TermRuntime (Case e NoType λs NoType) -> do
+    pure $ Checked (Core.Let p pm' e1' e2') (Core.Effect σ π) (lΓ1 `combine` lΓ2)
+  Surface.Case p e λs -> do
     Checked e (τ, π1) lΓ1 <- traverse (checkEffect p) =<< typeCheck e
     σ <- freshPretypeTypeVariable p
     checkSolid p σ
     (e2, pm, πs, lΓ2) <- fmap unzip4 $
-      for λs $ \(Surface.TermBound pm e2) -> do
+      for λs $ \(pm, e2) -> do
         (pm, τ') <- typeCheckRuntimePattern pm
         matchType p τ τ'
         Checked e2 (σ', π) lΓ2 <- traverse (checkEffect p) =<< augmentTermPattern pm (typeCheck e2)
@@ -1212,10 +1221,10 @@ typeCheck (Surface.Term p e) = case e of
     let π = regions $ π1 : πs
     pure $
       Checked
-        (Core.Term p $ TermRuntime $ Case e τ (zipWith Core.TermBound pm e2) σ)
-        (Core.Type $ Effect σ π)
+        (Core.Case p e τ (zip pm e2) σ)
+        (Core.Effect σ π)
         (lΓ1 `combine` branchAll lΓ2)
-  TermRuntime (Extern sym NoType NoType NoType) -> do
+  Surface.Extern p sym -> do
     σ <- freshPretypeTypeVariable p
     checkSolid p σ
     π <- freshRegionTypeVariable p
@@ -1223,10 +1232,10 @@ typeCheck (Surface.Term p e) = case e of
     checkSolid p τ
     pure $
       Checked
-        (Core.Term p $ TermRuntime $ Extern sym σ π τ)
-        (Core.Type $ Effect (Core.Type $ FunctionPointer σ π τ) none)
+        (Core.Extern p sym σ π τ)
+        (Core.Effect (Core.FunctionPointer σ π τ) Core.TypeFalse)
         useNothing
-  TermRuntime (FunctionApplication e1 e2 NoType) -> do
+  Surface.Application p e1 e2 -> do
     Checked e1' ((σ, π2, τ), π1) lΓ1 <- traverse (firstM (checkFunctionPointer p) <=< checkEffect p) =<< typeCheck e1
     Checked e2' (σ', π3) lΓ2 <- traverse (checkEffect p) =<< typeCheck e2
     matchType p σ σ'
@@ -1234,25 +1243,25 @@ typeCheck (Surface.Term p e) = case e of
     let π = regions [π1, π2, π3]
     pure $
       Checked
-        (Core.Term p $ TermRuntime $ FunctionApplication e1' e2' σ)
-        (Core.Type $ Effect τ π)
+        (Core.Application p e1' e2' σ)
+        (Core.Effect τ π)
         (lΓ1 `combine` lΓ2)
-  TermRuntime (TupleIntroduction es) -> do
+  Surface.TupleLiteral p es -> do
     checked <- traverse (traverse (checkEffect p) <=< typeCheck) es
     let (es, σs, πs, lΓs) = unzip4 $ map (\(Checked es (σ, π) lΓ) -> (es, σ, π, lΓ)) checked
     let π = regions πs
     pure $
       Checked
-        (Core.Term p $ TermRuntime $ TupleIntroduction es)
-        (Core.Type $ Effect (Core.Type (Tuple σs)) π)
+        (Core.TupleLiteral p es)
+        (Core.Effect (Core.Tuple σs) π)
         (combineAll lΓs)
-  TermRuntime (ReadReference e) -> do
+  Surface.Read p e -> do
     Checked e' ((σ, π2), π1) lΓ <- traverse (firstM (firstM (checkPointer p) <=< checkShared p) <=< checkEffect p) =<< typeCheck e
     let π = regions [π1, π2]
     requireUnrestricted p σ
     checkSolid p σ
-    pure $ Checked (Core.Term p $ TermRuntime $ ReadReference e') (Core.Type $ Effect σ π) lΓ
-  TermRuntime (WriteReference ep ev NoType) -> do
+    pure $ Checked (Core.Read p e') (Core.Effect σ π) lΓ
+  Surface.Write p ep ev -> do
     Checked ep ((σ, π2), π1) lΓ1 <- traverse (firstM (firstM (checkPointer p) <=< checkShared p) <=< checkEffect p) =<< typeCheck ep
     Checked ev (σ', π3) lΓ2 <- traverse (checkEffect p) =<< typeCheck ev
     matchType p σ σ'
@@ -1261,19 +1270,19 @@ typeCheck (Surface.Term p e) = case e of
     requireUnrestricted p σ
     pure $
       Checked
-        (Core.Term p $ TermRuntime $ WriteReference ep ev σ)
-        (Core.Type $ Effect (Core.Type $ Tuple []) π)
+        (Core.Write p ep ev σ)
+        (Core.Effect (Core.Tuple []) π)
         (lΓ1 `combine` lΓ2)
-  TermRuntime (NumberLiteral v NoType) -> do
+  Surface.NumberLiteral p v -> do
     ρ1 <- freshSignednessKindVariable p
     ρ2 <- freshSizeKindVariable p
     erasureEntail p Concrete ρ2
     pure $
       Checked
-        (Core.Term p $ TermRuntime (NumberLiteral v (Core.Type $ Number ρ1 ρ2)))
-        (Core.Type $ Effect (Core.Type $ Number ρ1 ρ2) none)
+        (Core.NumberLiteral p v (Core.Number ρ1 ρ2))
+        (Core.Effect (Core.Number ρ1 ρ2) Core.TypeFalse)
         useNothing
-  TermRuntime (Arithmatic o e1 e2 NoType) -> do
+  Surface.Arithmatic p o e1 e2 -> do
     Checked e1' ((ρ1, ρ2), π1) lΓ1 <- traverse (firstM (checkNumber p) <=< checkEffect p) =<< typeCheck e1
     Checked e2' ((ρ1', ρ2'), π2) lΓ2 <- traverse (firstM (checkNumber p) <=< checkEffect p) =<< typeCheck e2
     matchType p ρ1 ρ1'
@@ -1283,10 +1292,10 @@ typeCheck (Surface.Term p e) = case e of
     let π = regions [π1, π2]
     pure $
       Checked
-        (Core.Term p $ TermRuntime $ Arithmatic o e1' e2' ρ1)
-        (Core.Type $ Effect (Core.Type $ Number ρ1 ρ2) π)
+        (Core.Arithmatic p o e1' e2' ρ1)
+        (Core.Effect (Core.Number ρ1 ρ2) π)
         (lΓ1 `combine` lΓ2)
-  TermRuntime (Relational o e1 e2 NoType NoType) -> do
+  Surface.Relational p o e1 e2 -> do
     Checked e1' ((ρ1, ρ2), π1) lΓ1 <- traverse (firstM (checkNumber p) <=< checkEffect p) =<< typeCheck e1
     Checked e2' ((ρ1', ρ2'), π2) lΓ2 <- traverse (firstM (checkNumber p) <=< checkEffect p) =<< typeCheck e2
     matchType p ρ1 ρ1'
@@ -1296,24 +1305,24 @@ typeCheck (Surface.Term p e) = case e of
     let π = regions [π1, π2]
     pure $
       Checked
-        (Core.Term p $ TermRuntime $ Relational o e1' e2' (Core.Type $ Number ρ1 ρ2) ρ1)
-        (Core.Type $ Effect (Core.Type $ Boolean) π)
+        (Core.Relational p o e1' e2' (Core.Number ρ1 ρ2) ρ1)
+        (Core.Effect (Core.Boolean) π)
         (lΓ1 `combine` lΓ2)
-  FunctionLiteral (Surface.TermBound pm e) τ' π' -> do
+  Surface.FunctionLiteral p pm τ' π' e -> do
     (pm', σ) <- typeCheckRuntimePattern pm
     Checked e' (τ, π) lΓ <- traverse (checkEffect p) =<< augmentTermPattern pm' (typeCheck e)
     case τ' of
-      Surface.Type _ (Hole ()) -> pure ()
+      Surface.Hole _ -> pure ()
       τ' -> do
         (τ', _) <- kindCheck τ'
         matchType p τ (flexible τ')
     case π' of
-      Surface.Type _ (Hole ()) -> pure ()
+      Surface.Hole _ -> pure ()
       π' -> do
         (π', _) <- kindCheck π'
         matchType p π (flexible π')
-    pure $ Checked (Core.Term p $ FunctionLiteral (Core.TermBound pm' e') τ π) (Core.Type $ FunctionLiteralType σ π τ) lΓ
-  Annotation (Surface.TypeAnnotation e τ) -> do
+    pure $ Checked (Core.FunctionLiteral p pm' τ π e') (Core.FunctionLiteralType σ π τ) lΓ
+  Surface.TypeAnnotation p e τ -> do
     Checked e σ lΓ <- typeCheck e
     (τ, _) <- kindCheck τ
     let ς = relabel $ Core.MonoType $ flexible τ
@@ -1321,15 +1330,15 @@ typeCheck (Surface.Term p e) = case e of
     (σ'', _) <- instantiateLabel instantiate p ς
     matchType p σ σ'
     pure $ Checked e σ'' lΓ
-  Annotation (Surface.PretypeAnnotation e σ') -> do
+  Surface.PretypeAnnotation p e σ' -> do
     Checked e τ lΓ <- typeCheck e
     (σ, _) <- checkEffect p τ
     σ' <- flexible <$> fst <$> kindCheck σ'
     matchType p σ σ'
     pure $ Checked e τ lΓ
-  TermRuntime (BooleanLiteral b) -> do
-    pure $ Checked (Core.Term p $ TermRuntime $ BooleanLiteral b) (Core.Type $ Effect (Core.Type Boolean) none) useNothing
-  TermSugar (If eb et ef NoType) -> do
+  Surface.BooleanLiteral p b -> do
+    pure $ Checked (Core.BooleanLiteral p b) (Core.Effect Core.Boolean Core.TypeFalse) useNothing
+  Surface.If p eb et ef -> do
     Checked eb' ((), π1) lΓ1 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck eb
     Checked et' (σ, π2) lΓ2 <- traverse (checkEffect p) =<< typeCheck et
     Checked ef' (σ', π3) lΓ3 <- traverse (checkEffect p) =<< typeCheck ef
@@ -1337,112 +1346,112 @@ typeCheck (Surface.Term p e) = case e of
     let π = regions [π1, π2, π3]
     pure $
       Checked
-        (Core.Term p $ TermSugar $ If eb' et' ef' $ Core.Type Boolean)
-        (Core.Type $ Effect σ π)
+        (Core.If p eb' et' ef')
+        (Core.Effect σ π)
         (lΓ1 `combine` (lΓ2 `branch` lΓ3))
-  TermRuntime (PointerIncrement ep ei NoType) -> do
+  Surface.PointerAddition p ep ei -> do
     Checked ep' ((σ, π2), π1) lΓ1 <- traverse (firstM (firstM (checkArray p) <=< checkShared p) <=< checkEffect p) =<< typeCheck ep
     Checked ei' ((κ1, κ2), π3) lΓ2 <- traverse (firstM (checkNumber p) <=< checkEffect p) =<< typeCheck ei
-    matchType p κ1 (Core.Type $ KindSignedness Unsigned)
-    matchType p κ2 (Core.Type $ KindSize Native)
+    matchType p κ1 (Core.Unsigned)
+    matchType p κ2 (Core.Native)
     checkSolid p σ
     let π = regions [π1, π3]
     pure $
       Checked
-        (Core.Term p $ TermRuntime $ PointerIncrement ep' ei' σ)
-        (Core.Type $ Effect (Core.Type $ Shared (Core.Type $ Array σ) π2) π)
+        (Core.PointerAddition p ep' ei' σ)
+        (Core.Effect (Core.Shared (Core.Array σ) π2) π)
         (lΓ1 `combine` lΓ2)
-  TermRuntime (Continue e NoType) -> do
+  Surface.Continue p e -> do
     Checked e (σ, π) lΓ <- traverse (checkEffect p) =<< typeCheck e
     τ <- freshPretypeTypeVariable p
     checkSolid p τ
-    let ρ = Core.Type $ Step τ σ
-    pure $ Checked (Core.Term p $ TermRuntime $ Continue e ρ) (Core.Type $ Effect ρ π) lΓ
-  TermRuntime (Break e NoType) -> do
+    let ρ = Core.Step τ σ
+    pure $ Checked (Core.Continue p e ρ) (Core.Effect ρ π) lΓ
+  Surface.Break p e -> do
     Checked e (τ, π) lΓ <- traverse (checkEffect p) =<< typeCheck e
     σ <- freshPretypeTypeVariable p
     checkSolid p σ
-    let ρ = Core.Type $ Step τ σ
-    pure $ Checked (Core.Term p $ TermRuntime $ Break e ρ) (Core.Type $ Effect ρ π) lΓ
-  TermRuntime (Loop e1 (Surface.TermBound pm e2)) -> do
+    let ρ = Core.Step τ σ
+    pure $ Checked (Core.Break p e ρ) (Core.Effect ρ π) lΓ
+  Surface.Loop p pm e1 e2 -> do
     (pm, σ) <- typeCheckRuntimePattern pm
     Checked e1 (σ', π1) lΓ1 <- traverse (checkEffect p) =<< typeCheck e1
     matchType p σ σ'
     Checked e2 ((τ, σ''), π2) lΓ2 <- traverse (firstM (checkStep p) <=< checkEffect p) =<< augmentTermPattern pm (typeCheck e2)
     matchType p σ σ''
-    capture p unrestricted lΓ2
+    capture p Core.TypeTrue lΓ2
     let π = regions [π1, π2]
-    pure $ Checked (Core.Term p $ TermRuntime $ Loop e1 (Core.TermBound pm e2)) (Core.Type $ Effect τ π) (combine lΓ1 lΓ2)
-  TermErasure (IsolatePointer e) -> do
+    pure $ Checked (Core.Loop p pm e1 e2) (Core.Effect τ π) (combine lΓ1 lΓ2)
+  Surface.Isolate p e -> do
     Checked e ((σ, π2), π) lΓ <- traverse (firstM (firstM (checkArray p) <=< checkShared p) <=< checkEffect p) =<< typeCheck e
     pure $
       Checked
-        (Core.Term p $ TermErasure $ IsolatePointer e)
-        (Core.Type $ Effect (Core.Type $ Shared (Core.Type $ Pointer σ) π2) π)
+        (Core.Isolate p e)
+        (Core.Effect (Core.Shared (Core.Pointer σ) π2) π)
         lΓ
-  TermSugar (Not e) -> do
+  Surface.Not p e -> do
     Checked e' ((), π) lΓ <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck e
-    pure $ Checked (Core.Term p $ TermSugar $ Not e') (Core.Type $ Effect (Core.Type Boolean) π) lΓ
-  TermSugar (And e ey) -> do
+    pure $ Checked (Core.Not p e') (Core.Effect Core.Boolean π) lΓ
+  Surface.And p e ey -> do
     Checked e' ((), π1) lΓ1 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck e
     Checked ey' ((), π2) lΓ2 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck ey
     let π = regions [π1, π2]
-    pure $ Checked (Core.Term p $ TermSugar $ And e' ey') (Core.Type $ Effect (Core.Type Boolean) π) (lΓ1 `combine` (lΓ2 `branch` useNothing))
-  TermSugar (Or e en) -> do
+    pure $ Checked (Core.And p e' ey') (Core.Effect Core.Boolean π) (lΓ1 `combine` (lΓ2 `branch` useNothing))
+  Surface.Or p e en -> do
     Checked e' ((), π1) lΓ1 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck e
     Checked en' ((), π2) lΓ2 <- traverse (firstM (checkBoolean p) <=< checkEffect p) =<< typeCheck en
     let π = regions [π1, π2]
-    pure $ Checked (Core.Term p $ TermSugar $ Or e' en') (Core.Type $ Effect (Core.Type Boolean) π) (lΓ1 `combine` (useNothing `branch` lΓ2))
-  TermSugar (Do e1 e2) -> do
+    pure $ Checked (Core.Or p e' en') (Core.Effect Core.Boolean π) (lΓ1 `combine` (useNothing `branch` lΓ2))
+  Surface.Do p e1 e2 -> do
     Checked e1' (τ, π1) lΓ1 <- traverse (checkEffect p) =<< typeCheck e1
-    matchType p τ (Core.Type $ Tuple [])
+    matchType p τ (Core.Tuple [])
     Checked e2' (σ, π2) lΓ2 <- traverse (checkEffect p) =<< typeCheck e2
     let π = regions [π1, π2]
-    pure $ Checked (Core.Term p $ TermSugar $ Do e1' e2') (Core.Type $ Effect σ π) (lΓ1 `combine` lΓ2)
-  TermErasure (Cast e NoType) -> do
+    pure $ Checked (Core.Do p e1' e2') (Core.Effect σ π) (lΓ1 `combine` lΓ2)
+  Surface.Cast p e -> do
     Checked e (σ, _) lΓ <- traverse (checkEffect p) =<< typeCheck e
     κ <- reconstruct p σ
     (ρ, _) <- checkPretype p κ
     m <- freshMultiplicityKindVariable p
-    σ' <- freshTypeVariable p (Core.Type $ Pretype ρ m)
+    σ' <- freshTypeVariable p (Core.Pretype ρ m)
     checkSolid p σ'
     π' <- freshRegionTypeVariable p
-    let τ = Core.Type $ Effect σ' π'
-    pure $ Checked (Core.Term p $ TermErasure $ Cast e τ) τ lΓ
+    let τ = Core.Effect σ' π'
+    pure $ Checked (Core.Cast p e τ) τ lΓ
 
 typeCheckScheme :: Mode -> Surface.TermScheme p -> Check p (CheckedScheme p TypeSchemeUnify)
-typeCheckScheme mode (Surface.TermScheme p (Surface.TypeAbstraction pm e)) = do
+typeCheckScheme mode (Surface.TypeAbstraction pm e) = do
   pm <- kindCheckPattern mode pm
 
   -- Shadowing type variables is prohibited
   vars <- Map.keysSet <$> kindEnvironment <$> askEnvironment
   let αo = intermediateBinder pm
       αn = fresh vars αo
-      pm' = pm {intermediateBinder = αn}
-      α = Core.Type $ TypeConstant $ TypeVariable $ αn
+      pm'@(TypePatternIntermediate _ x er κ) = pm {intermediateBinder = αn}
+      α = Core.TypeVariable αn
 
   augmentTypePatternLevel pm' $
     augmentSynonym αo α $ do
       CheckedScheme e' σ' lΓ <- typeCheckScheme mode e
       pure $
         CheckedScheme
-          (Core.TermScheme p $ Core.TypeAbstraction (flexible $ toTypePattern pm') e')
-          (Core.TypeForall (flexible $ toTypePattern pm') σ')
+          (Core.TypeAbstraction x er (flexible κ) e')
+          (Core.TypeForall x er (flexible κ) σ')
           lΓ
-typeCheckScheme _ (Surface.TermScheme p (Surface.MonoTerm e)) = do
+typeCheckScheme _ (Surface.MonoTerm e) = do
   Checked e σ lΓ <- typeCheck e
-  pure $ CheckedScheme (Core.TermScheme p $ Core.MonoTerm e) (Core.MonoType σ) lΓ
+  pure $ CheckedScheme (Core.MonoTerm e) (Core.MonoType σ) lΓ
 
 defaultType p ρ = do
-  ρ'@(Core.Type ρ) <- finish ρ
-  case ρ of
-    Representation -> pure $ Core.Type $ KindRuntime $ PointerRep
-    Size -> pure $ Core.Type $ KindSize $ Int
-    Signedness -> pure $ Core.Type $ KindSignedness $ Signed
-    Region -> pure $ Core.Type $ TypeConstant World
-    Multiplicity -> pure unrestricted
-    Label -> pure $ Core.Type $ AmbiguousLabel
-    (TypeLogical v) -> absurd v
+  ρ' <- finish ρ
+  case ρ' of
+    Core.TypeLogical v -> absurd v
+    Core.Representation -> pure $ Core.PointerRepresentation
+    Core.Size -> pure $ Core.Int
+    Core.Signedness -> pure $ Core.Signed
+    Core.Region -> pure $ Core.World
+    Core.Multiplicity -> pure Core.TypeTrue
+    Core.Label -> pure $ Core.AmbiguousLabel
     _ -> quit $ AmbiguousType p ρ'
 
 unsolved ::
@@ -1461,7 +1470,7 @@ zonk :: TypeAlgebra u => Map TypeLogical (TypeLogicalState p) -> u TypeLogical -
 zonk vars σ = runIdentity $ zonkType (Identity . get) σ
   where
     get x = case vars ! x of
-      UnboundType _ _ _ _ -> Core.Type (TypeLogical x)
+      UnboundType _ _ _ _ -> Core.TypeLogical x
       LinkType σ -> zonk vars σ
 
 finish :: TypeAlgebra u => u TypeLogical -> Check p (u Void)
@@ -1480,7 +1489,7 @@ finishBooleans p = do
   sat <- booleans <$> getState
   case sat of
     [] -> pure ()
-    σs -> quit $ TypeBooleanMismatch p $ map (\(σ, τ) -> Core.Type $ TypeBoolean $ TypeXor σ τ) σs
+    σs -> quit $ TypeBooleanMismatch p $ map (uncurry Core.TypeXor) σs
 
 topologicalBoundsSort :: Map TypeLogical (TypeLogicalState p) -> [TypeLogical] -> [TypeLogical]
 topologicalBoundsSort vars = runIdentity . sortTopological id quit (Identity . children)
@@ -1494,13 +1503,13 @@ generalizable mode x = do
   level <- levelCounter <$> getState
   (! x) <$> typeLogicalMap <$> getState >>= \case
     UnboundType p π κ level' -> do
-      Core.Type ρ <- reconstruct p κ
+      ρ <- reconstruct p κ
       case ρ of
         _ | level >= level' -> pure False
-        Top -> pure False
-        Kind _ | InlineMode <- mode -> pure True
-        Kind _ | Transparent <- π -> pure True
-        Kind _ -> pure False
+        Core.Top -> pure False
+        Core.Kind _ | InlineMode <- mode -> pure True
+        Core.Kind _ | Core.Transparent <- π -> pure True
+        Core.Kind _ -> pure False
         σ -> error $ "generalization error " ++ show σ
     LinkType _ -> error "generalization error"
 
@@ -1508,36 +1517,37 @@ generalizeExact _ [] e = pure e
 generalizeExact scope ((n, x) : remaining) e = do
   e <- generalizeExact scope remaining e
   (! x) <$> typeLogicalMap <$> getState >>= \case
-    UnboundType p π κ _ -> do
+    UnboundType _ π κ _ -> do
       ( \f -> do
           modifyState $ \state ->
             state
               { typeLogicalMap = f $ typeLogicalMap state
               }
         )
-        $ \σΓ -> Map.insert x (LinkType $ Core.Type $ TypeConstant $ TypeVariable $ TypeIdentifier n) σΓ
-      pure (scope p n π κ e)
+        $ \σΓ -> Map.insert x (LinkType $ Core.TypeVariable $ TypeIdentifier n) σΓ
+      pure (scope n π κ e)
     _ -> error "generalization error"
 
 -- todo refactor this
 generalize :: Mode -> (TermUnify p, TypeUnify) -> Check p (TermSchemeUnify p, TypeSchemeUnify)
-generalize mode (e@(Core.Term p _), σ) = do
+generalize mode (e, σ) = do
   logical <- typeLogicalMap <$> getState
   vars <- filterM (generalizable mode) $ topologicalBoundsSort logical (unsolvedVariables logical σ)
   used <- usedVars <$> getState
   let names = filter (\x -> x `Set.notMember` used) $ temporaries uppers
-  generalizeExact scope (zip names vars) (Core.TermScheme p $ Core.MonoTerm e, Core.MonoType σ)
+  generalizeExact scope (zip names vars) (Core.MonoTerm e, Core.MonoType σ)
   where
-    scope p n π κ (e, σ) =
-      ( Core.TermScheme p $ Core.TypeAbstraction (Core.TypePattern (TypeIdentifier n) π κ) e,
-        Core.TypeForall (Core.TypePattern (TypeIdentifier n) π κ) σ
+    scope n π κ (e, σ) =
+      ( Core.TypeAbstraction (TypeIdentifier n) π κ e,
+        Core.TypeForall (TypeIdentifier n) π κ σ
       )
 
 typeCheckGlobalAuto ::
   Mode ->
   Surface.Term p ->
   Check p (TermSchemeInfer p, TypeSchemeInfer)
-typeCheckGlobalAuto mode e@(Surface.Term p _) = do
+typeCheckGlobalAuto mode e = do
+  let p = Surface.position e
   Checked e σ _ <- leveled $ typeCheck e
   finishBooleans p
   (e, ς) <- generalize mode (e, σ)
@@ -1549,7 +1559,8 @@ typeCheckGlobalSchemed ::
   Mode ->
   Surface.TermScheme p ->
   Check p (TermSchemeInfer p, TypeSchemeInfer)
-typeCheckGlobalSchemed mode e@(Surface.TermScheme p _) = do
+typeCheckGlobalSchemed mode e = do
+  let p = Surface.position e
   CheckedScheme e ς _ <- leveled $ typeCheckScheme mode e
   finishBooleans p
   ς <- simplify <$> finish ς
@@ -1562,7 +1573,8 @@ typeCheckGlobalSyn σ = do
   pure σ
 
 typeCheckGlobalNew :: Surface.Type p -> Check p (TypeInfer, TypeInfer)
-typeCheckGlobalNew σ@(Surface.Type p _) = do
+typeCheckGlobalNew σ = do
+  let p = Surface.position σ
   (σ, κ) <- kindCheck σ
   checkPretype p κ
   κ <- finish κ
@@ -1574,14 +1586,15 @@ typeCheckGlobalForward ς = do
   pure ς
 
 typeCheckGlobalNewForward :: Surface.Type p -> Check p TypeInfer
-typeCheckGlobalNewForward κ@(Surface.Type p _) = do
+typeCheckGlobalNewForward κ = do
+  let p = Surface.position κ
   (κ, _) <- kindCheck κ
   checkPretype p (flexible κ)
   pure κ
 
 convertFunctionLiteral ς = case ς of
-  Core.MonoType (Core.Type (FunctionLiteralType σ π τ)) -> nullEffect (Core.Type $ FunctionPointer σ π τ)
-  Core.TypeForall pm ς -> Core.TypeForall pm $ convertFunctionLiteral ς
+  Core.MonoType (Core.FunctionLiteralType σ π τ) -> nullEffect (Core.FunctionPointer σ π τ)
+  Core.TypeForall x er κ ς -> Core.TypeForall x er κ $ convertFunctionLiteral ς
   _ -> error "not function literal"
 
 typeCheckModule ::
@@ -1591,65 +1604,63 @@ typeCheckModule ::
     (Either (TypeError p))
     [(Path, Core.Global p)]
 typeCheckModule [] = pure []
-typeCheckModule ((path, item) : nodes) | heading <- Path.directory path = do
+typeCheckModule ((path, item) : nodes) | heading <- directory path = do
   environment <- get
   let run f = lift $ runChecker f environment {moduleScope = heading} emptyState
+      p = Surface.position item
+      updateTerm ς = modify $ \environment ->
+        environment
+          { typeGlobalEnvironment =
+              Map.insert
+                (TermGlobalIdentifier path)
+                (TermBinding p Core.TypeTrue (relabel ς))
+                $ typeGlobalEnvironment environment
+          }
+      updateSym σ = modify $ \environment ->
+        environment
+          { typeGlobalSynonyms =
+              Map.insert
+                (TypeGlobalIdentifier path)
+                σ
+                $ typeGlobalSynonyms environment
+          }
+      updateNewType' κ = modify $ \environment ->
+        environment
+          { kindGlobalEnvironment =
+              Map.insertWith
+                (\_ x -> x)
+                (TypeGlobalIdentifier path)
+                (TypeBinding p Transparent κ minBound)
+                $ kindGlobalEnvironment environment
+          }
   item <- case item of
-    Surface.Global e -> case e of
-      Module.Inline (Surface.TermAuto e) -> do
-        (e, σ) <- run (typeCheckGlobalAuto InlineMode e)
-        updateTerm (flexible σ)
-        pure $ Core.Global $ Module.Inline e
-      Module.Inline (Surface.TermManual e) -> do
-        (e, σ) <- run (typeCheckGlobalSchemed InlineMode e)
-        updateTerm (flexible σ)
-        pure $ Core.Global $ Module.Inline e
-      Text (Surface.TermAuto e) -> do
-        (e, σ) <- run (typeCheckGlobalAuto SymbolMode e)
-        updateTerm (convertFunctionLiteral $ flexible σ)
-        pure $ Core.Global $ Text e
-      Text (Surface.TermManual e) -> do
-        (e, σ) <- run (typeCheckGlobalSchemed SymbolMode e)
-        updateTerm (convertFunctionLiteral $ flexible σ)
-        pure $ Core.Global $ Text e
-      Synonym σ -> do
-        σ <- run $ typeCheckGlobalSyn σ
-        updateSym σ
-        pure $ Core.Global $ Synonym σ
-      ForwardText ς -> do
-        ς <- run $ typeCheckGlobalForward ς
-        updateTerm (convertFunctionLiteral $ flexible ς)
-        pure $ Core.Global $ ForwardText ς
-      ForwardNewType κ -> do
-        κ <- run $ typeCheckGlobalNewForward κ
-        updateNewType' (flexible κ)
-        pure $ Core.Global $ ForwardNewType κ
-      where
-        p = Surface.positionGlobal item
-        updateTerm ς = modify $ \environment ->
-          environment
-            { typeGlobalEnvironment =
-                Map.insert
-                  (TermGlobalIdentifier path)
-                  (TermBinding p unrestricted (relabel ς))
-                  $ typeGlobalEnvironment environment
-            }
-        updateSym σ = modify $ \environment ->
-          environment
-            { typeGlobalSynonyms =
-                Map.insert
-                  (TypeGlobalIdentifier path)
-                  σ
-                  $ typeGlobalSynonyms environment
-            }
-        updateNewType' κ = modify $ \environment ->
-          environment
-            { kindGlobalEnvironment =
-                Map.insertWith
-                  (\_ x -> x)
-                  (TypeGlobalIdentifier path)
-                  (TypeBinding p Transparent κ minBound)
-                  $ kindGlobalEnvironment environment
-            }
+    Surface.Macro (Surface.TermAuto e) -> do
+      (e, σ) <- run (typeCheckGlobalAuto InlineMode e)
+      updateTerm (flexible σ)
+      pure $ Core.Macro e
+    Surface.Macro (Surface.TermManual e) -> do
+      (e, σ) <- run (typeCheckGlobalSchemed InlineMode e)
+      updateTerm (flexible σ)
+      pure $ Core.Macro e
+    Surface.Text (Surface.TermAuto e) -> do
+      (e, σ) <- run (typeCheckGlobalAuto SymbolMode e)
+      updateTerm (convertFunctionLiteral $ flexible σ)
+      pure $ Core.Text e
+    Surface.Text (Surface.TermManual e) -> do
+      (e, σ) <- run (typeCheckGlobalSchemed SymbolMode e)
+      updateTerm (convertFunctionLiteral $ flexible σ)
+      pure $ Core.Text e
+    Surface.Synonym σ -> do
+      σ <- run $ typeCheckGlobalSyn σ
+      updateSym σ
+      pure $ Core.Synonym σ
+    Surface.ForwardText ς -> do
+      ς <- run $ typeCheckGlobalForward ς
+      updateTerm (convertFunctionLiteral $ flexible ς)
+      pure $ Core.ForwardText ς
+    Surface.ForwardNewType κ -> do
+      κ <- run $ typeCheckGlobalNewForward κ
+      updateNewType' (flexible κ)
+      pure $ Core.ForwardNewType κ
 
   ((path, item) :) <$> typeCheckModule nodes
