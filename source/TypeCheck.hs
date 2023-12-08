@@ -192,17 +192,9 @@ data TypePatternIntermediate p = TypePatternIntermediate
     intermediateKind :: TypeInfer
   }
 
-augmentTypePatternLevel :: TypePatternIntermediate p -> Check p b -> Check p b
-augmentTypePatternLevel (TypePatternIntermediate p x π κ) f = do
-  useTypeVar x
-  level <- levelCounter <$> getState
-  f' <- augmentKindEnvironment p x π (flexible κ) (succ level) $ leveled $ f
-  -- after leveled, `booleans` in state should be pre zonked
+booleanConstantElimination x = do
   modifyState $ \state -> state {booleans = constantElimination $ booleans state}
-  pure f'
   where
-    useTypeVar (TypeIdentifier x) = do
-      modifyState $ \state -> state {usedVars = Set.insert x $ usedVars state}
     constantElimination [] = []
     constantElimination ((σ, τ) : problems)
       | Set.member x $ freeLocalVariablesType σ <> freeLocalVariablesType τ =
@@ -213,6 +205,18 @@ augmentTypePatternLevel (TypePatternIntermediate p x π κ) f = do
          in (σ', τ') : (σ'', τ'') : constantElimination problems
       | otherwise =
         (σ, τ) : constantElimination problems
+
+augmentTypePatternLevel :: TypePatternIntermediate p -> Check p b -> Check p b
+augmentTypePatternLevel (TypePatternIntermediate p x π κ) f = do
+  useTypeVar x
+  level <- levelCounter <$> getState
+  f' <- augmentKindEnvironment p x π (flexible κ) (succ level) $ leveled $ f
+  -- after leveled, `booleans` in state should be pre zonked
+  booleanConstantElimination x
+  pure f'
+  where
+    useTypeVar (TypeIdentifier x) = do
+      modifyState $ \state -> state {usedVars = Set.insert x $ usedVars state}
 
 leveled :: Check p b -> Check p b
 leveled f = do
@@ -572,6 +576,7 @@ matchType p = unify
         let ς2 = convertType αf α ς
         let ς'2 = convertType αf α' ς'
         augmentKindEnvironment p αf π κ maxBound $ unifyPoly ς2 ς'2
+        booleanConstantElimination αf
         pure ()
     unifyPoly
       (Core.MonoType σ)

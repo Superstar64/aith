@@ -7,17 +7,28 @@ increment(p :: unique int*) :: unique int* {
     p
 }
 
+ignore(p :: unique int*) :: unique int* {
+    let (x,p) = borrow {p} {
+        <A : region> \(p :* int* @ A in false) -> {
+            ()
+        }
+    };
+    p
+}
+
+
 inline borrow<
     A:region,
+    B:region,
     C:region,
     M:boxed,
     J:*representation,
     K:multiplicity,
     N:pretype<J, K>
 > = \(x : unique M in A)
- -> \(f : <B:region> M @ B in false -* N in B | C) 
+ -> \(f : <D:region> M @ D in false -* N in C | B & D) 
  -> {
     let x = cast x : M @ false in A;
     let e = (f) @_ {x};
-    (e, cast x : unique M in A)
+    (e, cast x : unique M in false)
 };
