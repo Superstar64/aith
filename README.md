@@ -221,15 +221,15 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 # Types (Syntax Sugar) (σ, τ, π, κ, ρ)
 | Description | Syntax | Meaning |
 |-|-|-|
-| Byte | `byte` | `signed integer(byte)` |
-| Short | `short` | `signed integer(short)` |
-| Int | `int` | `signed integer(int)` |
-| Long | `long` | `signed integer(long)` |
+| Byte | `byte` | `signed integer(8bit)` |
+| Short | `short` | `signed integer(16bit)` |
+| Int | `int` | `signed integer(32bit)` |
+| Long | `long` | `signed integer(64bit)` |
 | PtrDiff | `ptrdiff` | `signed integer(native)` |
-| UByte | `ubyte` | `unsigned integer(byte)` |
-| UShort | `ushort` | `unsigned integer(short)` |
-| UInt | `uint` | `unsigned integer(int)` |
-| ULong | `ulong` | `unsigned integer(long)` |
+| UByte | `ubyte` | `unsigned integer(8bit)` |
+| UShort | `ushort` | `unsigned integer(16bit)` |
+| UInt | `uint` | `unsigned integer(32bit)` |
+| ULong | `ulong` | `unsigned integer(64bit)` |
 | Integer | `integer(σ)` | `signed integer(σ)` |
 | Natural | `natural(σ)` | `unsigned integer(σ)` |
 | Native Integer | `integer` | `signed integer(native)` |
