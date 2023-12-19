@@ -3,6 +3,10 @@ Aith is a perfomant systems programming language with am empathises on type syst
 As of now Aith is very early stages and very little is implemented.
 [Link to typing rules](https://github.com/Superstar64/aith/blob/images/rules/rules.pdf).
 
+| <img src="https://raw.githubusercontent.com/Superstar64/aith/images/rules/internals.svg"> |
+| :--: |
+| visualization of compiler internals |
+
 | <img src="https://raw.githubusercontent.com/Superstar64/aith/images/rules/hierarchy.svg"> |
 | :--: |
 | visualization of type system |

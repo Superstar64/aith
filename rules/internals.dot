@@ -1,0 +1,17 @@
+digraph internals {
+    rankdir="LR"
+    source_aith[label="file.aith"]
+    source_C[label="file.c"]
+    surface
+    core
+    simple
+    C
+    source_aith -> surface [label="parse"]
+    surface -> source_aith[label="pretty print"]
+    surface -> core [label="type check"]
+    core -> surface[label="annotate"]
+    core -> core [label="reduce"]
+    core -> simple [label="simplify"]
+    simple -> C [label="code generation"]
+    C -> source_C[label="pretty print"]
+}

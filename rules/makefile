@@ -1,8 +1,11 @@
 
-all: rules.pdf hierarchy.svg pure.svg
+all: rules.pdf hierarchy.svg pure.svg internals.svg`
 
 rules.pdf: rules.tex
 	latexmk -pdf $<
+
+internals.svg: internals.dot
+	dot -Tsvg -o $@ $<
 
 hierarchy.svg: hierarchy.dot
 	dot -Tsvg -o $@ $<
