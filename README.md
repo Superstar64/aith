@@ -120,6 +120,7 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | Less or Equal | `e <= e'` |
 | Greater | `e > e'` |
 | Greater or Equal | `e >= e'` |
+| Integer Resize | `resize e` |
 | True | `true` |
 | False | `false` |
 | Switch | `switch e { pm -> e; pm' -> e'; ... }` |
@@ -185,7 +186,7 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | IO Region | `io` |
 | Step | `step<σ, τ>` |
 | Type | `type` |
-| Pretype | `pretype<s>` |
+| Pretype | `pretype<σ, τ>` |
 | Boxed | `boxed` |
 | Capacity | `capacity` |
 | Region | `region` |

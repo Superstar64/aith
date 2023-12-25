@@ -198,6 +198,10 @@ compileTerm (Simple.Relational _ o e1 e2 σ@(Simple.Word size) s) (Simple.Word S
       Simple.LessThenEqual -> C.LessThenEqual
       Simple.GreaterThen -> C.GreaterThen
       Simple.GreaterThenEqual -> C.GreaterThenEqual
+compileTerm (Simple.Resize _ e τ) σ = do
+  e <- compileTerm e τ
+  e <- putIntoVariable σ e
+  pure e
 compileTerm (Simple.BooleanLiteral _ True) _ = pure $ C.IntegerLiteral 1
 compileTerm (Simple.BooleanLiteral _ False) _ = pure $ C.IntegerLiteral 0
 compileTerm (Simple.Case _ e τ λs) σ = do

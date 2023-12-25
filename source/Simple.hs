@@ -70,6 +70,7 @@ data Term p
   | NumberLiteral p Integer
   | Arithmatic p Arithmatic (Term p) (Term p) Signedness
   | Relational p Relational (Term p) (Term p) Type Signedness
+  | Resize p (Term p) Type
   | BooleanLiteral p Bool
   | PointerAddition p (Term p) (Term p) Type
   | Continue p (Term p)
@@ -154,6 +155,7 @@ convertTerm context e = case e of
   Core.NumberLiteral p i _ -> NumberLiteral p i
   Core.Arithmatic p o e1 e2 s -> Arithmatic p o (go e1) (go e2) (convertSigned s)
   Core.Relational p o e1 e2 σ s -> Relational p o (go e1) (go e2) (go'' σ) (convertSigned s)
+  Core.Resize p e σ _ -> Resize p (go e) (go'' σ)
   Core.BooleanLiteral p b -> BooleanLiteral p b
   Core.PointerAddition p e1 e2 σ -> PointerAddition p (go e1) (go e2) (go'' σ)
   Core.Continue p e _ -> Continue p (go e)

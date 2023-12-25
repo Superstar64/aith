@@ -1321,6 +1321,18 @@ typeCheck = \case
         (Core.Relational p o e1' e2' (Core.Number ρ1 ρ2) ρ1)
         (Core.Effect (Core.Boolean) π)
         (lΓ1 `combine` lΓ2)
+  Surface.Resize p e -> do
+    ρ1 <- freshSignednessKindVariable p
+    ρ2 <- freshSizeKindVariable p
+    Checked e ((ρ1', ρ2'), π) lΓ <- traverse (firstM (checkNumber p) <=< checkEffect p) =<< typeCheck e
+    matchType p ρ1 ρ1'
+    matchType p ρ2 ρ2'
+
+    ρ3 <- freshSignednessKindVariable p
+    ρ4 <- freshSizeKindVariable p
+    erasureEntail p Concrete ρ4
+
+    pure $ Checked (Core.Resize p e (Core.Number ρ1 ρ2) (Core.Number ρ3 ρ4)) (Core.Effect (Core.Number ρ3 ρ4) π) lΓ
   Surface.FunctionLiteral p pms τ' π' e -> do
     (pms', σs) <- unzip <$> traverse typeCheckRuntimePattern pms
     Checked e' (τ, π) lΓ <- traverse (checkEffect p) =<< augmentTermPatterns pms' (typeCheck e)

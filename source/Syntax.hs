@@ -69,6 +69,7 @@ keywords =
       "unification",
       "pointer",
       "pretype",
+      "resize",
       "region",
       "representation",
       "short",
@@ -556,13 +557,14 @@ termCore = choice options ∥ termVariable noInstance ∥ pick isStatement (lamb
   where
     noInstance = Language.instantiationInfer ⊣ always
     options =
-      [ Language.extern ⊣ position ⊗ prefixKeyword "extern" ≫ number' ⊗ symbol,
+      [ Language.extern ⊣ position ⊗ prefixKeyword "extern" ≫ number' ≪ space ⊗ symbol,
         Language.numberLiteral ⊣ position ⊗ number,
         Language.true ⊣ position ≪ keyword "true",
         Language.false ⊣ position ≪ keyword "false",
         Language.break ⊣ position ⊗ prefixKeyword "break" ≫ termCore,
         Language.continue ⊣ position ⊗ prefixKeyword "continue" ≫ termCore,
-        Language.cast ⊣ position ⊗ prefixKeyword "cast" ≫ termCore
+        Language.cast ⊣ position ⊗ prefixKeyword "cast" ≫ termCore,
+        Language.resize ⊣ position ⊗ prefixKeyword "resize" ≫ termCore
       ]
 
 inline :: (Syntax δ, Position δ p) => δ (Language.Path, Language.Global p)

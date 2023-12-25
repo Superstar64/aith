@@ -80,6 +80,7 @@ data Term p v
   | NumberLiteral p Integer (Type v)
   | Arithmatic p Arithmatic (Term p v) (Term p v) (Type v)
   | Relational p Relational (Term p v) (Term p v) (Type v) (Type v)
+  | Resize p (Term p v) (Type v) (Type v)
   | BooleanLiteral p Bool
   | PointerAddition p (Term p v) (Term p v) (Type v)
   | Continue p (Term p v) (Type v)
@@ -221,6 +222,7 @@ traverseTerm fς fσ fλ3 fλ2 fλ f = \case
   NumberLiteral p n σ -> NumberLiteral p n <$> fσ σ
   Arithmatic p o e1 e2 σ -> Arithmatic p o <$> f e1 <*> f e2 <*> fσ σ
   Relational p o e1 e2 σ τ -> Relational p o <$> f e1 <*> f e2 <*> fσ σ <*> fσ τ
+  Resize p e σ τ -> Resize p <$> f e <*> fσ σ <*> fσ τ
   BooleanLiteral p b -> pure (BooleanLiteral p b)
   PointerAddition p e1 e2 σ -> PointerAddition p <$> f e1 <*> f e2 <*> fσ σ
   Continue p e σ -> Continue p <$> f e <*> fσ σ
@@ -848,6 +850,7 @@ term = \case
   NumberLiteral _ i σ -> Surface.PretypeAnnotation () (Surface.NumberLiteral () i) (typex σ)
   Arithmatic _ o e1 e2 _ -> Surface.Arithmatic () o (term e1) (term e2)
   Relational _ o e1 e2 _ _ -> Surface.Relational () o (term e1) (term e2)
+  Resize _ e _ σ -> Surface.PretypeAnnotation () (Surface.Resize () (term e)) (typex σ)
   BooleanLiteral _ b -> Surface.BooleanLiteral () b
   PointerAddition _ e1 e2 _ -> Surface.PointerAddition () (term e1) (term e2)
   Continue _ e σ -> Surface.PretypeAnnotation () (Surface.Continue () (term e)) (typex σ)

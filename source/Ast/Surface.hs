@@ -87,6 +87,7 @@ data Term p
   | NumberLiteral p Integer
   | Arithmatic p Arithmatic (Term p) (Term p)
   | Relational p Relational (Term p) (Term p)
+  | Resize p (Term p)
   | BooleanLiteral p Bool
   | PointerAddition p (Term p) (Term p)
   | Continue p (Term p)
@@ -225,6 +226,7 @@ instance Alpha Term where
     NumberLiteral _ _ -> mempty
     Arithmatic _ _ e1 e2 -> goMany [e1, e2]
     Relational _ _ e1 e2 -> goMany [e1, e2]
+    Resize _ e -> go e
     BooleanLiteral _ _ -> mempty
     PointerAddition _ e1 e2 -> goMany [e1, e2]
     Continue _ e -> go e
@@ -532,6 +534,12 @@ relational o = Prism to from . toPrism tuple3'
   where
     to (e, p, e') = Relational p o e e'
     from (Relational p o' e e') | o == o' = Just (e, p, e')
+    from _ = Nothing
+
+resize = Prism to from
+  where
+    to (p, e) = Resize p e
+    from (Resize p e) = Just (p, e)
     from _ = Nothing
 
 booleanLiteral b = Prism to from

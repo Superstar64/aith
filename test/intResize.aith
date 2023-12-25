@@ -1,0 +1,9 @@
+inline castInt = \n -> resize n;
+
+makeByte() :: byte {
+    1
+}
+
+makeInt() :: int {
+    resize (makeByte ())
+}
