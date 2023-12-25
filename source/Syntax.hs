@@ -394,18 +394,11 @@ wrapTerm =
 
 wrap scheme = foldrP scheme . firstI (inverse isoScheme)
 
-termPatternParen :: (Position δ p, Syntax δ) => Bool -> δ (Language.TermPattern p)
-termPatternParen top =
-  branch' Language.matchTuple id
-    ⊣ commaNonSingle' last (go termPattern)
-  where
-    go e
-      | top = indent ≫ line ≫ e ≪ dedent
-      | otherwise = e
-    last = if top then line else always
+termPatternParen :: (Position δ p, Syntax δ) => δ (Language.TermPattern p)
+termPatternParen = branch' Language.matchTuple id ⊣ commaNonSingle' always termPattern
 
 termPattern :: (Position δ p, Syntax δ) => δ (Language.TermPattern p)
-termPattern = choice options ∥ termPatternParen False
+termPattern = choice options ∥ termPatternParen
   where
     options =
       [ Language.matchVariable ⊣ position ⊗ termIdentifier ⊗ annotation,
@@ -415,7 +408,7 @@ termPattern = choice options ∥ termPatternParen False
     annotation = blank ∥# binaryToken "::" ≫ typex ∥ blank
     blank = Language.hole ⊣ position
 
-termPatternCore = choice options ∥ termPatternParen False
+termPatternCore = choice options ∥ termPatternParen
   where
     options =
       [ Language.matchVariable ⊣ position ⊗ termIdentifier ⊗ annotation,
@@ -463,6 +456,7 @@ isStatement e = case e of
   (Language.Loop {}) -> True
   (Language.If {}) -> True
   (Language.Case {}) -> True
+  (Language.Do {}) -> True
   _ -> False
 
 termStatement :: (Position δ p, Syntax δ) => δ (Language.Term p)
@@ -529,7 +523,6 @@ term = termLambda
       where
         options =
           [ Language.read ⊣ position ⊗ token "*" ≫ termPrefix,
-            -- todo add proper lexer for tokens and use ! here
             Language.not ⊣ position ⊗ token "!" ≫ termPrefix,
             Language.isolate ⊣ position ⊗ token "&*" ≫ termPrefix
           ]
@@ -589,7 +582,7 @@ text = localPath ⊗ (Language.text ⊣ definition)
     definition = Language.termManual ⊣ manual ∥ Language.termAuto ⊣ auto
     manual = wrapTerm ⊣ scheme True ⊗ (Language.functionLiteral ⊣ position ⊗ syntax)
     auto = Language.functionLiteral ⊣ position ⊗ syntax
-    syntax = betweenParens (commaSeperatedMany termPattern) ⊗ main
+    syntax = betweenParens (commaSeperatedManyLine termPattern) ⊗ main
     main = implicit ∥# semi ∥ explicit ∥ implicit
     semi = binaryToken "::" ≫ typeUnique ⊗ false ⊗ braced
     false = Language.typeFalse ⊣ position
