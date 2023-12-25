@@ -63,6 +63,7 @@ data Arithmatic
   | Subtraction
   | Multiplication
   | Division
+  | Modulus
   deriving (Show, Eq)
 
 data Relational

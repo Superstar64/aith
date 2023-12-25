@@ -115,6 +115,7 @@ tokens =
     "-*",
     "-[",
     "/",
+    "%",
     ":",
     "::",
     ":*",
@@ -513,9 +514,9 @@ term = termLambda
     termAdd = foldlP apply ⊣ termMul ⊗ many (position ⊗ binaryToken "+" ≫ termMul ⊕ position ⊗ binaryToken "-" ≫ termMul)
       where
         apply = Language.arithmatic Language.Addition `branchDistribute` Language.arithmatic Language.Subtraction
-    termMul = foldlP apply ⊣ termDeref ⊗ many (position ⊗ binaryToken "*" ≫ termDeref ⊕ position ⊗ binaryToken "/" ≫ termDeref)
+    termMul = foldlP apply ⊣ termDeref ⊗ many (position ⊗ binaryToken "*" ≫ termDeref ⊕ position ⊗ binaryToken "/" ≫ termDeref ⊕ position ⊗ binaryToken "%" ≫ termDeref)
       where
-        apply = Language.arithmatic Language.Multiplication `branchDistribute` Language.arithmatic Language.Division
+        apply = Language.arithmatic Language.Multiplication `branchDistribute` Language.arithmatic Language.Division `branchDistribute` Language.arithmatic Language.Modulus
     termDeref = deref ∥ termPrefix
       where
         apply = branchDistribute (Language.write) (Language.read . secondP (toPrism unit')) . toPrism (secondI distribute)

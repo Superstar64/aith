@@ -71,6 +71,7 @@ data Expression
   | Subtraction Expression Expression
   | Multiplication Expression Expression
   | Division Expression Expression
+  | Modulus Expression Expression
   | Equal Expression Expression
   | NotEqual Expression Expression
   | LessThen Expression Expression
@@ -240,6 +241,10 @@ multiplication = Prism (uncurry Multiplication) $ \case
 
 division = Prism (uncurry Division) $ \case
   Division e e' -> Just (e, e')
+  _ -> Nothing
+
+modulus = Prism (uncurry Modulus) $ \case
+  Modulus e e' -> Just (e, e')
   _ -> Nothing
 
 equal = Prism (uncurry Equal) $ \case

@@ -135,11 +135,12 @@ expression = assignment
         add = string "+" ≫ binaryMul
         sub = string "-" ≫ binaryMul
         apply = branchDistribute C.addition C.subtraction
-    binaryMul = foldlP apply ⊣ prefix ⊗ many (mul ⊕ div)
+    binaryMul = foldlP apply ⊣ prefix ⊗ many (mul ⊕ div ⊕ mod)
       where
         mul = string "*" ≫ prefix
         div = string "/" ≫ prefix
-        apply = branchDistribute C.multiplication C.division
+        mod = string "%" ≫ prefix
+        apply = C.multiplication `branchDistribute` C.division `branchDistribute` C.modulus
     prefix = ptr ∥ addr ∥ postfix
       where
         ptr = C.dereference ⊣ string "*" ≫ prefix

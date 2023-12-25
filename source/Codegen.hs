@@ -183,6 +183,7 @@ compileTerm (Simple.Arithmatic _ o e1 e2 s) σ@(Simple.Word size) = do
       Simple.Subtraction -> C.Subtraction
       Simple.Multiplication -> C.Multiplication
       Simple.Division -> C.Division
+      Simple.Modulus -> C.Modulus
 compileTerm (Simple.Relational _ o e1 e2 σ@(Simple.Word size) s) (Simple.Word Simple.Byte) = do
   let σ' = cint size s
   e1 <- compileTerm e1 σ

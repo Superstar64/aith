@@ -114,6 +114,7 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | Subtraction | `e - e'` |
 | Multiplication | `e * e'` |
 | Divsion | `e / e'` |
+| Modulus | `e % e'` |
 | Equality | `e == e'` |
 | Inequality | `e != e'` |
 | Less | `e < e'` |
