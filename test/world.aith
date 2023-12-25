@@ -12,7 +12,7 @@ inline lenient = {
 
 
 inline putchar<> : function(int) -> int uses io in false
-    = extern "putchar";
+    = extern 1 "putchar";
 
 putPtr<A:region>(ptr :: int* @ A) : int in A | io {
     putchar (*ptr)

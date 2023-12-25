@@ -25,7 +25,7 @@ import Ast.Core
 import qualified Ast.Core as Core
 import qualified Ast.Surface as Surface
 import Ast.Symbol hiding (combine)
-import Control.Monad (filterM, (<=<))
+import Control.Monad (filterM, replicateM, zipWithM, (<=<))
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT, withReaderT)
 import Control.Monad.Trans.State (StateT, get, modify, runStateT)
@@ -87,8 +87,8 @@ data TypeError p
   | ExpectedPropositional p TypeUnify
   | ExpectedUnification p TypeUnify
   | ExpectedInline p TypeUnify
-  | ExpectedFunctionPointer p TypeUnify
-  | ExpectedFunctionLiteralType p TypeUnify
+  | ExpectedFunctionPointer p Int TypeUnify
+  | ExpectedFunctionLiteralType p Int TypeUnify
   | ExpectedUnique p TypeUnify
   | ExpectedPointer p TypeUnify
   | ExpectedArray p TypeUnify
@@ -296,11 +296,11 @@ occursCheck p x lev σ' = go σ'
         recurse π
         recurse τ
       Core.FunctionPointer σ π τ -> do
-        recurse σ
+        traverse recurse σ
         recurse π
         recurse τ
       Core.FunctionLiteralType σ π τ -> do
-        recurse σ
+        traverse recurse σ
         recurse π
         recurse τ
       Core.Tuple σs -> do
@@ -496,15 +496,15 @@ matchType p = unify
       unify σ σ'
       unifyPoly ς ς'
     unify (Core.FunctionPointer σ π τ) (Core.FunctionPointer σ' π' τ') = do
-      unify σ σ'
+      zipWithM unify σ σ'
       unify π π'
       unify τ τ'
     unify (Core.FunctionLiteralType σ π τ) (Core.FunctionLiteralType σ' π' τ') = do
-      unify σ σ'
+      zipWithM unify σ σ'
       unify π π'
       unify τ τ'
     unify (Core.Tuple σs) (Core.Tuple σs') | length σs == length σs' = do
-      sequence $ zipWith (unify) σs σs'
+      zipWithM unify σs σs'
       pure ()
     unify (Core.Effect σ π) (Core.Effect σ' π') = do
       unify σ σ'
@@ -534,9 +534,11 @@ matchType p = unify
     unify (Core.Multiplicity) (Core.Multiplicity) = pure ()
     unify (Core.PointerRepresentation) (Core.PointerRepresentation) = pure ()
     unify (Core.StructRepresentation κs) (Core.StructRepresentation κs') | length κs == length κs' = do
-      sequence_ $ zipWith (unify) κs κs'
+      zipWithM unify κs κs'
+      pure ()
     unify (Core.UnionRepresentation κs) (Core.UnionRepresentation κs') | length κs == length κs' = do
-      sequence_ $ zipWith (unify) κs κs'
+      zipWithM unify κs κs'
+      pure ()
     unify (Core.WordRepresentation κ) (Core.WordRepresentation κ') = unify κ κ'
     unify Core.Byte Core.Byte = pure ()
     unify Core.Short Core.Short = pure ()
@@ -738,29 +740,29 @@ checkInline p (Core.TypeLogical x) =
       pure (σ, π, τ)
 checkInline p σ = quit $ ExpectedInline p σ
 
-checkFunctionPointer _ (Core.FunctionPointer σ τ π) = pure (σ, τ, π)
-checkFunctionPointer p (Core.TypeLogical x) =
+checkFunctionPointer _ n (Core.FunctionPointer σ τ π) | length σ == n = pure (σ, τ, π)
+checkFunctionPointer p n (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
-    LinkType σ -> checkFunctionPointer p σ
+    LinkType σ -> checkFunctionPointer p n σ
     UnboundType _ π' κ l -> do
-      σ <- freshPretypeTypeVariable p
+      σs <- replicateM n (freshPretypeTypeVariable p)
       π <- freshRegionTypeVariable p
       τ <- freshPretypeTypeVariable p
-      unifyVariable p x π' κ l (Core.FunctionPointer σ π τ)
-      pure (σ, π, τ)
-checkFunctionPointer p σ = quit $ ExpectedFunctionPointer p σ
+      unifyVariable p x π' κ l (Core.FunctionPointer σs π τ)
+      pure (σs, π, τ)
+checkFunctionPointer p n σ = quit $ ExpectedFunctionPointer p n σ
 
-checkFunctionLiteralType _ (Core.FunctionLiteralType σ τ π) = pure (σ, τ, π)
-checkFunctionLiteralType p (Core.TypeLogical x) =
+checkFunctionLiteralType _ n (Core.FunctionLiteralType σ τ π) | length σ == n = pure (σ, τ, π)
+checkFunctionLiteralType p n (Core.TypeLogical x) =
   (! x) <$> typeLogicalMap <$> getState >>= \case
-    LinkType σ -> checkFunctionLiteralType p σ
+    LinkType σ -> checkFunctionLiteralType p n σ
     UnboundType _ π' κ l -> do
-      σ <- freshPretypeTypeVariable p
+      σs <- replicateM n (freshPretypeTypeVariable p)
       π <- freshRegionTypeVariable p
       τ <- freshPretypeTypeVariable p
-      unifyVariable p x π' κ l (Core.FunctionLiteralType σ π τ)
-      pure (σ, π, τ)
-checkFunctionLiteralType p σ = quit $ ExpectedFunctionLiteralType p σ
+      unifyVariable p x π' κ l (Core.FunctionLiteralType σs π τ)
+      pure (σs, π, τ)
+checkFunctionLiteralType p n σ = quit $ ExpectedFunctionLiteralType p n σ
 
 checkUnique _ (Core.Unique σ) = pure σ
 checkUnique p (Core.TypeLogical x) =
@@ -885,14 +887,15 @@ augmentTermMetaPattern (Core.InlineMatchVariable p x π σ) =
 
 nullEffect σ = Core.MonoType $ Core.Effect σ Core.TypeFalse
 
-augmentTermPattern pm = go pm
-  where
-    go (Core.MatchVariable p x σ) = \e -> do
-      κ <- reconstruct p σ
-      (_, l) <- checkPretype p κ
-      augmentVariableLinear p x l (Core.MonoLabel (nullEffect σ)) e
-    go (Core.MatchTuple _ pms) = foldr (.) id (map go pms)
-    go (Core.MatchBoolean _ _) = id
+augmentTermPattern = \case
+  Core.MatchVariable p x σ -> \e -> do
+    κ <- reconstruct p σ
+    (_, l) <- checkPretype p κ
+    augmentVariableLinear p x l (Core.MonoLabel (nullEffect σ)) e
+  Core.MatchTuple _ pms -> augmentTermPatterns pms
+  Core.MatchBoolean _ _ -> id
+
+augmentTermPatterns pms = foldr (.) id (map augmentTermPattern pms)
 
 checkSolid p σ = do
   (ρ, _) <- checkPretype p =<< reconstruct p σ
@@ -975,12 +978,12 @@ kindCheck = \case
     (τ', _) <- secondM (checkType p) =<< kindCheck τ
     pure (Core.Inline σ' π' τ', Core.Type)
   Surface.FunctionPointer p σ π τ -> do
-    (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
+    (σ', _) <- unzip <$> traverse (secondM (checkPretype p) <=< kindCheck) σ
     (π', _) <- secondM (checkRegion p) =<< kindCheck π
     (τ', _) <- secondM (checkPretype p) =<< kindCheck τ
     pure (Core.FunctionPointer σ' π' τ', Core.Pretype Core.PointerRepresentation Core.TypeTrue)
   Surface.FunctionLiteralType p σ π τ -> do
-    (σ', _) <- secondM (checkPretype p) =<< kindCheck σ
+    (σ', _) <- unzip <$> traverse (secondM (checkPretype p) <=< kindCheck) σ
     (π', _) <- secondM (checkRegion p) =<< kindCheck π
     (τ', _) <- secondM (checkPretype p) =<< kindCheck τ
     pure (Core.FunctionLiteralType σ' π' τ', Core.Type)
@@ -1229,28 +1232,33 @@ typeCheck = \case
         (Core.Case p e τ (zip pm e2) σ)
         (Core.Effect σ π)
         (lΓ1 `combine` branchAll lΓ2)
-  Surface.Extern p sym -> do
-    σ <- freshPretypeTypeVariable p
-    checkSolid p σ
+  Surface.Extern p n sym -> do
+    σs <- replicateM n $ do
+      σ <- freshPretypeTypeVariable p
+      checkSolid p σ
+      pure σ
     π <- freshRegionTypeVariable p
     τ <- freshPretypeTypeVariable p
     checkSolid p τ
     pure $
       Checked
-        (Core.Extern p sym σ π τ)
-        (Core.Effect (Core.FunctionPointer σ π τ) Core.TypeFalse)
+        (Core.Extern p sym σs π τ)
+        (Core.Effect (Core.FunctionPointer σs π τ) Core.TypeFalse)
         useNothing
-  Surface.Application p e1 e2 -> do
-    Checked e1' ((σ, π2, τ), π1) lΓ1 <- traverse (firstM (checkFunctionPointer p) <=< checkEffect p) =<< typeCheck e1
-    Checked e2' (σ', π3) lΓ2 <- traverse (checkEffect p) =<< typeCheck e2
-    matchType p σ σ'
+  Surface.Application p e1 e2s -> do
+    Checked e1' ((σs, π2, τ), π1) lΓ1 <- traverse (firstM (checkFunctionPointer p (length e2s)) <=< checkEffect p) =<< typeCheck e1
+    (e2s', σs', π3s, lΓ2s) <- fmap unzip4 $
+      for e2s $ \e2 -> do
+        Checked e2' (σ', π3) lΓ2 <- traverse (checkEffect p) =<< typeCheck e2
+        pure (e2', σ', π3, lΓ2)
+    zipWithM (matchType p) σs σs'
     checkSolid p τ
-    let π = regions [π1, π2, π3]
+    let π = regions $ [π1, π2] ++ π3s
     pure $
       Checked
-        (Core.Application p e1' e2' σ)
+        (Core.Application p e1' (zip e2s' σs'))
         (Core.Effect τ π)
-        (lΓ1 `combine` lΓ2)
+        (lΓ1 `combine` combineAll lΓ2s)
   Surface.TupleLiteral p es -> do
     checked <- traverse (traverse (checkEffect p) <=< typeCheck) es
     let (es, σs, πs, lΓs) = unzip4 $ map (\(Checked es (σ, π) lΓ) -> (es, σ, π, lΓ)) checked
@@ -1313,9 +1321,9 @@ typeCheck = \case
         (Core.Relational p o e1' e2' (Core.Number ρ1 ρ2) ρ1)
         (Core.Effect (Core.Boolean) π)
         (lΓ1 `combine` lΓ2)
-  Surface.FunctionLiteral p pm τ' π' e -> do
-    (pm', σ) <- typeCheckRuntimePattern pm
-    Checked e' (τ, π) lΓ <- traverse (checkEffect p) =<< augmentTermPattern pm' (typeCheck e)
+  Surface.FunctionLiteral p pms τ' π' e -> do
+    (pms', σs) <- unzip <$> traverse typeCheckRuntimePattern pms
+    Checked e' (τ, π) lΓ <- traverse (checkEffect p) =<< augmentTermPatterns pms' (typeCheck e)
     case τ' of
       Surface.Hole _ -> pure ()
       τ' -> do
@@ -1326,7 +1334,7 @@ typeCheck = \case
       π' -> do
         (π', _) <- kindCheck π'
         matchType p π (flexible π')
-    pure $ Checked (Core.FunctionLiteral p pm' τ π e') (Core.FunctionLiteralType σ π τ) lΓ
+    pure $ Checked (Core.FunctionLiteral p pms' τ π e') (Core.FunctionLiteralType σs π τ) lΓ
   Surface.TypeAnnotation p e τ -> do
     Checked e σ lΓ <- typeCheck e
     (τ, _) <- kindCheck τ

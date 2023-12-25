@@ -79,8 +79,8 @@ data Term p
   | GlobalVariable p TermGlobalIdentifier (Instantiation p)
   | Let p (TermPattern p) (Term p) (Term p)
   | Case p (Term p) [(TermPattern p, Term p)]
-  | Extern p Symbol
-  | Application p (Term p) (Term p)
+  | Extern p Int Symbol
+  | Application p (Term p) [Term p]
   | TupleLiteral p [Term p]
   | Read p (Term p)
   | Write p (Term p) (Term p)
@@ -101,7 +101,7 @@ data Term p
   | If p (Term p) (Term p) (Term p)
   | TypeAnnotation p (Term p) (Type p)
   | PretypeAnnotation p (Term p) (Type p)
-  | FunctionLiteral p (TermPattern p) (Type p) (Type p) (Term p)
+  | FunctionLiteral p [TermPattern p] (Type p) (Type p) (Term p)
   | InlineAbstraction p (TermMetaPattern p) (Term p)
   | InlineApplication p (Term p) (Term p)
   | InlineLet p (TermMetaPattern p) (Term p) (Term p)
@@ -140,8 +140,8 @@ data Type p
   | TypeXor p (Type p) (Type p)
   | World p
   | Inline p (Type p) (Type p) (Type p)
-  | FunctionPointer p (Type p) (Type p) (Type p)
-  | FunctionLiteralType p (Type p) (Type p) (Type p)
+  | FunctionPointer p [Type p] (Type p) (Type p)
+  | FunctionLiteralType p [Type p] (Type p) (Type p)
   | Tuple p [Type p]
   | Effect p (Type p) (Type p)
   | Unique p (Type p)
@@ -217,8 +217,8 @@ instance Alpha Term where
     GlobalVariable p x θ -> termGlobal x p <> go θ
     Let _ pm e1 e2 -> go e1 <> goBound pm e2
     Case _ e λ -> go e <> foldMap (uncurry goBound) λ
-    Extern _ _ -> mempty
-    Application _ e1 e2 -> goMany [e1, e2]
+    Extern _ _ _ -> mempty
+    Application _ e1 e2s -> go e1 <> goMany e2s
     TupleLiteral _ es -> goMany es
     Read _ e -> go e
     Write _ e1 e2 -> goMany [e1, e2]
@@ -239,7 +239,8 @@ instance Alpha Term where
     If _ e1 e2 e3 -> goMany [e1, e2, e3]
     TypeAnnotation _ e σ -> go e <> go σ
     PretypeAnnotation _ e σ -> go e <> go σ
-    FunctionLiteral _ pm σ τ e -> goMany [σ, τ] <> goBound pm e
+    FunctionLiteral _ pms σ τ e ->
+      goMany [σ, τ] <> foldMap freeVariables pms <> foldr deleteTermLocal (freeVariables e) (foldMap bindings pms)
     InlineAbstraction _ pm e -> goBound pm e
     InlineApplication _ e1 e2 -> goMany [e1, e2]
     InlineLet _ pm e1 e2 -> go e1 <> goBound pm e2
@@ -294,8 +295,8 @@ instance Alpha Type where
     TypeXor _ σ τ -> goMany [σ, τ]
     World _ -> mempty
     Inline _ σ π τ -> goMany [σ, π, τ]
-    FunctionPointer _ σ π τ -> goMany [σ, π, τ]
-    FunctionLiteralType _ σ π τ -> goMany [σ, π, τ]
+    FunctionPointer _ σs π τ -> goMany σs <> goMany [π, τ]
+    FunctionLiteralType _ σs π τ -> goMany σs <> goMany [π, τ]
     Tuple _ σs -> goMany σs
     Effect _ σ π -> goMany [σ, π]
     Unique _ σ -> go σ
@@ -354,7 +355,7 @@ annotated (TermManual e) = annotatedScheme e
     annotatedTerm (FunctionLiteral p pm τ π _)
       | Hole _ <- τ = Nothing
       | Hole _ <- π = Nothing
-      | otherwise = FunctionLiteralType p <$> annotatedPattern pm <*> Just π <*> Just τ
+      | otherwise = FunctionLiteralType p <$> traverse annotatedPattern pm <*> Just π <*> Just τ
     annotatedTerm _ = Nothing
     annotatedPattern (MatchVariable _ _ (Hole _)) = Nothing
     annotatedPattern (MatchVariable _ _ σ) = Just σ
@@ -487,8 +488,8 @@ casex = Prism to from . toPrism tuple3'
 
 extern = Prism to from
   where
-    to (p, sym) = Extern p sym
-    from (Extern p sym) = Just (p, sym)
+    to ((p, n), sym) = Extern p n sym
+    from (Extern p n sym) = Just ((p, n), sym)
     from _ = Nothing
 
 application = Prism to from . toPrism tuple3'

@@ -72,8 +72,8 @@ data Term p v
   | GlobalVariable p TermGlobalIdentifier [Type v]
   | Let p (TermPattern p v) (Term p v) (Term p v)
   | Case p (Term p v) (Type v) [(TermPattern p v, Term p v)] (Type v)
-  | Extern p Symbol (Type v) (Type v) (Type v)
-  | Application p (Term p v) (Term p v) (Type v)
+  | Extern p Symbol [Type v] (Type v) (Type v)
+  | Application p (Term p v) [(Term p v, Type v)]
   | TupleLiteral p [Term p v]
   | Read p (Term p v)
   | Write p (Term p v) (Term p v) (Type v)
@@ -92,7 +92,7 @@ data Term p v
   | Or p (Term p v) (Term p v)
   | Do p (Term p v) (Term p v)
   | If p (Term p v) (Term p v) (Term p v)
-  | FunctionLiteral p (TermPattern p v) (Type v) (Type v) (Term p v)
+  | FunctionLiteral p [TermPattern p v] (Type v) (Type v) (Term p v)
   | InlineAbstraction p (TermMetaPattern p v) (Term p v)
   | InlineApplication p (Term p v) (Term p v)
   | InlineLet p (TermMetaPattern p v) (Term p v) (Term p v)
@@ -146,8 +146,8 @@ data Type v
   | TypeXor (Type v) (Type v)
   | World
   | Inline (Type v) (Type v) (Type v)
-  | FunctionPointer (Type v) (Type v) (Type v)
-  | FunctionLiteralType (Type v) (Type v) (Type v)
+  | FunctionPointer [Type v] (Type v) (Type v)
+  | FunctionLiteralType [Type v] (Type v) (Type v)
   | Tuple [Type v]
   | Effect (Type v) (Type v)
   | Unique (Type v)
@@ -208,13 +208,13 @@ type LabelSchemeUnify = LabelScheme TypeLogical
 
 type LabelSchemeInfer = LabelScheme Void
 
-traverseTerm fς fσ fλ2 fλ f = \case
+traverseTerm fς fσ fλ3 fλ2 fλ f = \case
   Variable p x θ -> Variable p x <$> traverse fσ θ
   GlobalVariable p x θ -> GlobalVariable p x <$> traverse fσ θ
   Let p pm e1 e2 -> (\e1 (pm, e2) -> Let p pm e1 e2) <$> f e1 <*> fλ pm e2
   Case p e σ λ τ -> Case p <$> f e <*> fσ σ <*> traverse (uncurry fλ) λ <*> fσ τ
-  Extern p sym σ π τ -> Extern p sym <$> fσ σ <*> fσ π <*> fσ τ
-  Application p e1 e2 σ -> Application p <$> f e1 <*> f e2 <*> fσ σ
+  Extern p sym σ π τ -> Extern p sym <$> traverse fσ σ <*> fσ π <*> fσ τ
+  Application p e1 e2s -> Application p <$> f e1 <*> traverse (\(e, σ) -> (,) <$> f e <*> fσ σ) e2s
   TupleLiteral p es -> TupleLiteral p <$> traverse f es
   Read p e -> Read p <$> f e
   Write p e1 e2 σ -> Write p <$> f e1 <*> f e2 <*> fσ σ
@@ -233,16 +233,32 @@ traverseTerm fς fσ fλ2 fλ f = \case
   Or p e1 e2 -> Or p <$> f e1 <*> f e2
   Do p e1 e2 -> Do p <$> f e1 <*> f e2
   If p e1 e2 e3 -> If p <$> f e1 <*> f e2 <*> f e3
-  FunctionLiteral p pm σ τ e -> (\σ τ (pm, e) -> FunctionLiteral p pm σ τ e) <$> fσ σ <*> fσ τ <*> fλ pm e
+  FunctionLiteral p pms σ τ e -> (\σ τ (pms, e) -> FunctionLiteral p pms σ τ e) <$> fσ σ <*> fσ τ <*> fλ3 pms e
   InlineAbstraction p pm e -> (\(pm, e) -> InlineAbstraction p pm e) <$> fλ2 pm e
   InlineApplication p e1 e2 -> InlineApplication p <$> f e1 <*> f e2
   InlineLet p pm e1 e2 -> (\e1 (pm, e2) -> InlineLet p pm e1 e2) <$> f e1 <*> fλ2 pm e2
   PolyIntroduction p ς -> PolyIntroduction p <$> fς ς
   PolyElimination p e θ -> PolyElimination p <$> f e <*> traverse fσ θ
 
-mapTerm fς fσ fλ2 fλ f = runIdentity . traverseTerm (Identity . fς) (Identity . fσ) ((Identity .) . fλ2) ((Identity .) . fλ) (Identity . f)
+mapTerm fς fσ fλ3 fλ2 fλ f =
+  runIdentity
+    . traverseTerm
+      (Identity . fς)
+      (Identity . fσ)
+      ((Identity .) . fλ3)
+      ((Identity .) . fλ2)
+      ((Identity .) . fλ)
+      (Identity . f)
 
-foldTerm fς fσ fλ2 fλ f = getConst . traverseTerm (Const . fς) (Const . fσ) ((Const .) . fλ2) ((Const .) . fλ) (Const . f)
+foldTerm fς fσ fλ3 fλ2 fλ f =
+  getConst
+    . traverseTerm
+      (Const . fς)
+      (Const . fσ)
+      ((Const .) . fλ3)
+      ((Const .) . fλ2)
+      ((Const .) . fλ)
+      (Const . f)
 
 traverseType logical scheme f = \case
   TypeLogical v -> logical v
@@ -256,8 +272,8 @@ traverseType logical scheme f = \case
   TypeXor σ τ -> TypeXor <$> f σ <*> f τ
   World -> pure World
   Inline σ π τ -> Inline <$> f σ <*> f π <*> f τ
-  FunctionPointer σ π τ -> FunctionPointer <$> f σ <*> f π <*> f τ
-  FunctionLiteralType σ π τ -> FunctionLiteralType <$> f σ <*> f π <*> f τ
+  FunctionPointer σ π τ -> FunctionPointer <$> traverse f σ <*> f π <*> f τ
+  FunctionLiteralType σ π τ -> FunctionLiteralType <$> traverse f σ <*> f π <*> f τ
   Tuple σs -> Tuple <$> traverse f σs
   Effect σ π -> Effect <$> f σ <*> f π
   Unique σ -> Unique <$> f σ
@@ -407,6 +423,12 @@ class Binder pm where
   bindings :: pm -> Set TermIdentifier
   rename :: TermIdentifier -> TermIdentifier -> pm -> pm
 
+instance Binder pm => Binder [pm] where
+  bindings [] = mempty
+  bindings (pm : pms) = bindings pm <> bindings pms
+  rename _ _ [] = []
+  rename x ux (pm : pms) = rename x ux pm : rename x ux pms
+
 freeLocalVariablesTerm :: TermAlgebra u => u p v -> Set TermIdentifier
 freeLocalVariablesTerm e = case freeVariablesTerm e of
   TermVariables variables _ -> variables
@@ -439,7 +461,7 @@ substituteBound θ pm e =
 instance TermAlgebra Term where
   freeVariablesTerm (Variable _ x _) = TermVariables (Set.singleton x) Set.empty
   freeVariablesTerm (GlobalVariable _ x _) = TermVariables Set.empty (Set.singleton x)
-  freeVariablesTerm e = foldTerm go mempty bound bound go e
+  freeVariablesTerm e = foldTerm go mempty bound bound bound go e
     where
       bound pm e = foldr variablesRemoveLocal (go e) (bindings pm)
       go = freeVariablesTerm
@@ -449,7 +471,7 @@ instance TermAlgebra Term where
     | Just x' <- Map.lookup x alpha = Variable p x' θ
   substituteTerms (TermSubstitution _ globals _) (GlobalVariable _ x θ)
     | Just e <- Map.lookup x globals = applyScheme e θ
-  substituteTerms θ e = mapTerm go id bound bound go e
+  substituteTerms θ e = mapTerm go id bound bound bound go e
     where
       bound = substituteBound θ
       go = substituteTerms θ
@@ -457,7 +479,7 @@ instance TermAlgebra Term where
   reduce (InlineLet _ pm e ex) = applyTerm e pm (reduce ex)
   reduce (InlineApplication _ e1 e) | InlineAbstraction _ pm ex <- reduce e1 = applyTerm e pm ex
   reduce (PolyElimination _ e θ) | PolyIntroduction _ e <- reduce e = reduce $ applyScheme e θ
-  reduce e = mapTerm go id bound bound go e
+  reduce e = mapTerm go id bound bound bound go e
     where
       go = reduce
       bound pm e = (pm, reduce e)
@@ -524,22 +546,26 @@ substituteType ux x = substituteTypes (TypeSubstitution (Map.singleton x ux) Map
 substituteLogical f = runIdentity . zonkType (Identity . f)
 
 instance TypeAlgebra (Term p) where
-  freeLocalVariablesType = foldTerm go go bound bound go
+  freeLocalVariablesType = foldTerm go go bound' bound bound go
     where
       go = freeLocalVariablesType
       bound pm e = go pm <> go e
-  substituteTypes θ = mapTerm go go bound bound go
+      bound' pms e = foldMap go pms <> go e
+  substituteTypes θ = mapTerm go go bound' bound bound go
     where
       bound pm e = (go pm, go e)
+      bound' pms e = (map go pms, go e)
       go = substituteTypes θ
-  zonkType f = traverseTerm go go bound bound go
+  zonkType f = traverseTerm go go bound' bound bound go
     where
       go = zonkType f
       bound pm e = pure (,) <*> zonkType f pm <*> zonkType f e
-  simplify = mapTerm go go bound bound go
+      bound' pms e = pure (,) <*> traverse (zonkType f) pms <*> zonkType f e
+  simplify = mapTerm go go bound' bound bound go
     where
       go = simplify
       bound pm e = (simplify pm, simplify e)
+      bound' pms e = (map simplify pms, simplify e)
 
 instance TypeAlgebra (TermScheme p) where
   freeLocalVariablesType (MonoTerm e) = freeLocalVariablesType e
@@ -721,7 +747,7 @@ unconvertBoolean (Boolean.Polynomial e)
 textType :: TermSchemeInfer p -> TypeSchemeInfer
 textType = \case
   TypeAbstraction x er κ e -> TypeForall x er κ (textType e)
-  MonoTerm (FunctionLiteral _ pm τ π _) -> MonoType (FunctionLiteralType (patternType pm) π τ)
+  MonoTerm (FunctionLiteral _ pm τ π _) -> MonoType (FunctionLiteralType (map patternType pm) π τ)
     where
       patternType pm = case pm of
         MatchVariable _ _ σ -> σ
@@ -813,8 +839,9 @@ term = \case
   Let _ pm e1 e2 -> Surface.Let () (termPattern False pm) (term e1) (term e2)
   Case _ e _ [] σ -> Surface.PretypeAnnotation () (Surface.Case () (term e) []) (typex σ)
   Case _ e _ λs _ -> Surface.Case () (term e) (map (\(pm, e) -> (termPattern True pm, term e)) λs)
-  Extern _ sym σ π τ -> Surface.PretypeAnnotation () (Surface.Extern () sym) (Surface.FunctionPointer () (typex σ) (typex π) (typex τ))
-  Application _ e1 e2 _ -> Surface.Application () (term e1) (term e2)
+  Extern _ sym σ π τ ->
+    Surface.PretypeAnnotation () (Surface.Extern () (length σ) sym) (Surface.FunctionPointer () (map typex σ) (typex π) (typex τ))
+  Application _ e1 e2 -> Surface.Application () (term e1) (map (term . fst) e2)
   TupleLiteral _ es -> Surface.TupleLiteral () (map term es)
   Read _ e -> Surface.Read () (term e)
   Write _ e1 e2 _ -> Surface.Write () (term e1) (term e2)
@@ -833,7 +860,7 @@ term = \case
   Or _ e1 e2 -> Surface.Or () (term e1) (term e2)
   Do _ e1 e2 -> Surface.Do () (term e1) (term e2)
   If _ e1 e2 e3 -> Surface.If () (term e1) (term e2) (term e3)
-  FunctionLiteral _ pm σ τ e -> Surface.FunctionLiteral () (termPattern True pm) (typex σ) (typex τ) (term e)
+  FunctionLiteral _ pm σ τ e -> Surface.FunctionLiteral () (map (termPattern True) pm) (typex σ) (typex τ) (term e)
   InlineAbstraction _ pm e -> Surface.InlineAbstraction () (termMetaPattern pm) (term e)
   InlineApplication _ e1 e2 -> Surface.InlineApplication () (term e1) (term e2)
   InlineLet _ pm e1 e2 -> Surface.InlineLet () (termMetaPattern pm) (term e1) (term e2)
@@ -871,8 +898,8 @@ typex = \case
   TypeXor σ τ -> Surface.TypeXor () (typex σ) (typex τ)
   World -> Surface.World ()
   Inline σ π τ -> Surface.Inline () (typex σ) (typex π) (typex τ)
-  FunctionPointer σ π τ -> Surface.FunctionPointer () (typex σ) (typex π) (typex τ)
-  FunctionLiteralType σ π τ -> Surface.FunctionLiteralType () (typex σ) (typex π) (typex τ)
+  FunctionPointer σ π τ -> Surface.FunctionPointer () (map typex σ) (typex π) (typex τ)
+  FunctionLiteralType σ π τ -> Surface.FunctionLiteralType () (map typex σ) (typex π) (typex τ)
   Tuple σs -> Surface.Tuple () (map typex σs)
   Effect σ π -> Surface.Effect () (typex σ) (typex π)
   Unique σ -> Surface.Unique () (typex σ)

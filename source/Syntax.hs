@@ -46,7 +46,6 @@ keywords =
       "extern",
       "false",
       "function",
-      "extern",
       "if",
       "in",
       "inline",
@@ -157,6 +156,7 @@ class SyntaxBase δ => Syntax δ where
   identifer :: δ String
   stringLiteral :: δ String
   number :: δ Integer
+  number' :: δ Int
 
   -- pretty printer only methods
   pick :: (a -> Bool) -> δ a -> δ a -> δ a -- normal ∥ for parser, left when function is true for printer
@@ -367,10 +367,11 @@ typeCore = choice options ∥ hole ∥ integers ∥ typeParen
     -- todo remove this eventually
     funLiteral = Language.functionLiteralType ⊣ position ⊗ body
       where
-        body = rotate ⊣ space ≫ prefixKeyword "internal" ≫ typeParen ⊗ binaryToken "->" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
+        body = rotate ⊣ space ≫ prefixKeyword "internal" ≫ arguments ⊗ binaryToken "->" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
     funPointer = Language.functionPointer ⊣ position ⊗ body
       where
-        body = rotate ⊣ typeParen ⊗ binaryToken "->" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
+        body = rotate ⊣ arguments ⊗ binaryToken "->" ≫ typex ⊗ binaryKeyword "uses" ≫ typeCore
+    arguments = betweenParens (commaSeperatedMany typex)
 
 newtype Scheme p = Scheme {runScheme :: [Language.TypePattern p]}
 
@@ -539,7 +540,7 @@ term = termLambda
       where
         apply = Language.inlineApplication `branchDistribute` Language.application `branchDistribute` Language.polyElimination
         applySyntax = position ⊗ space ≫ pick isStatement (lambdaBrace termStatement) (betweenBraces termStatement)
-        rtApplySyntax = position ⊗ space ≫ termParen
+        rtApplySyntax = position ⊗ space ≫ betweenParens (commaSeperatedMany term)
         elimSyntax = position ⊗ space ≫ instanciation
     termLateVariable = termVariable (instanciation ∥ noInstance) ∥ termCore
 
@@ -562,7 +563,7 @@ termCore = choice options ∥ termVariable noInstance ∥ pick isStatement (lamb
   where
     noInstance = Language.instantiationInfer ⊣ always
     options =
-      [ Language.extern ⊣ position ⊗ prefixKeyword "extern" ≫ symbol,
+      [ Language.extern ⊣ position ⊗ prefixKeyword "extern" ≫ number' ⊗ symbol,
         Language.numberLiteral ⊣ position ⊗ number,
         Language.true ⊣ position ≪ keyword "true",
         Language.false ⊣ position ≪ keyword "false",
@@ -588,7 +589,7 @@ text = localPath ⊗ (Language.text ⊣ definition)
     definition = Language.termManual ⊣ manual ∥ Language.termAuto ⊣ auto
     manual = wrapTerm ⊣ scheme True ⊗ (Language.functionLiteral ⊣ position ⊗ syntax)
     auto = Language.functionLiteral ⊣ position ⊗ syntax
-    syntax = termPatternParen True ⊗ main
+    syntax = betweenParens (commaSeperatedMany termPattern) ⊗ main
     main = implicit ∥# semi ∥ explicit ∥ implicit
     semi = binaryToken "::" ≫ typeUnique ⊗ false ⊗ braced
     false = Language.typeFalse ⊣ position
@@ -665,6 +666,7 @@ instance Syntax Parser where
     pure n
     where
       isNum x = x `elem` ['0' .. '9']
+  number' = let (Parser n) = number in Parser (fromIntegral <$> n)
   pick = const (∥)
   space = Parser $ pure ()
   line = Parser $ pure ()
@@ -707,6 +709,7 @@ instance Syntax Printer where
     tell str
     tell "\""
   number = Printer $ \n -> Just $ tell $ show n
+  number' = Printer $ \n -> Just $ tell $ show n
   (∥#) = (∥)
   pick f (Printer left) (Printer right) = Printer $ \x -> case f x of
     True -> left x

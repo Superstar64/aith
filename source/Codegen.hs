@@ -6,6 +6,7 @@ module Codegen
 where
 
 import qualified C.Ast as C
+import Control.Monad (replicateM)
 import Control.Monad.Trans.Class (lift)
 import Control.Monad.Trans.Reader (ReaderT, ask, runReaderT, withReaderT)
 import Control.Monad.Trans.State.Strict (StateT, evalStateT, get, put)
@@ -95,9 +96,12 @@ augmentPattern' augment target (Simple.MatchTuple _ pms) f = do
   foldr (uncurry (augmentPattern' augment)) f $ zip [C.Member target ("_" ++ show i) | i <- [0 ..]] pms
 augmentPattern' _ _ (Simple.MatchBoolean _ _) x = x
 
+augmentPatternImpl x target f = Codegen $ withReaderT (Map.insert x target) $ runCodegen' f
+
 augmentPattern = augmentPattern' augmentPatternImpl
 
-augmentPatternImpl x target f = Codegen $ withReaderT (Map.insert x target) $ runCodegen' f
+augmentPatterns [] = id
+augmentPatterns ((e, pm) : xs) = augmentPattern e pm . augmentPatterns xs
 
 augmentPatternW = augmentPattern' go
   where
@@ -128,21 +132,21 @@ compileTerm :: Simple.Term p -> Simple.Type -> WriterT [C.Statement] Codegen C.E
 compileTerm (Simple.Variable _ x) _ = do
   x' <- lift $ lookupVariable x
   pure $ x'
-compileTerm (Simple.Extern _ (Simple.Symbol name) σ τ) _ = do
+compileTerm (Simple.Extern _ (Simple.Symbol name) σs τ) _ = do
   τ <- lift $ ctype τ
-  σ <- lift $ ctype σ
-  tell [C.Binding (C.Declaration (C.Composite $ C.Function τ [C.Declaration σ Nothing]) (Just name)) C.Uninitialized]
+  σs <- lift $ traverse ctype σs
+  tell [C.Binding (C.Declaration (C.Composite $ C.Function τ [C.Declaration σ Nothing | σ <- σs]) (Just name)) C.Uninitialized]
   pure $ C.Variable name
-compileTerm (Simple.Application _ e1 e2 τ) σ = do
+compileTerm (Simple.Application _ e1 e2s) σ = do
   σ' <- lift $ ctype σ
-  τ' <- lift $ ctype τ
+  τs' <- lift $ traverse (ctype . snd) e2s
   e1 <- compileTerm e1 Simple.Pointer
   e1 <-
     putIntoVariableRaw
-      (C.Composite $ C.Pointer $ C.Composite $ C.Function σ' [C.Declaration τ' Nothing])
+      (C.Composite $ C.Pointer $ C.Composite $ C.Function σ' [C.Declaration τ' Nothing | τ' <- τs'])
       (C.Scalar e1)
-  e2 <- compileTerm e2 τ
-  putIntoVariable σ $ C.Call e1 [e2]
+  e2s <- traverse (uncurry compileTerm) e2s
+  putIntoVariable σ $ C.Call e1 e2s
 compileTerm (Simple.Let _ e1 (Simple.Bound pm e2)) σ = do
   let τ = Simple.patternType pm
   e1' <- putIntoVariable τ =<< compileTerm e1 τ
@@ -247,14 +251,15 @@ compileTerm (Simple.Loop _ es (Simple.Bound pm el)) τ = do
 compileTerm _ _ = error "invalid type for simple term"
 
 compileFunction :: Simple.Symbol -> Simple.Function p -> Simple.FunctionType -> Codegen C.Statement
-compileFunction (Simple.Symbol name) (Simple.Function _ (Simple.Bound pm e)) (Simple.FunctionType σ τ) = do
-  argumentName <- temporary
-  (result, depend) <- augmentPattern (C.Variable argumentName) pm $ do
-    runWriterT (compileTerm e τ)
+compileFunction (Simple.Symbol name) (Simple.Function _ pms e) (Simple.FunctionType σs τ) = do
+  argumentNames <- replicateM (length pms) temporary
+  (result, depend) <-
+    augmentPatterns [(C.Variable argumentName, pm) | (argumentName, pm) <- zip argumentNames pms] $
+      runWriterT (compileTerm e τ)
 
-  σ <- ctype σ
+  σs <- traverse ctype σs
   τ <- ctype τ
-  let arguments = [C.Declaration σ (Just argumentName)]
+  let arguments = [C.Declaration σ (Just argumentName) | (σ, argumentName) <- zip σs argumentNames]
   let body = depend ++ [C.Return result]
   pure $ C.Binding (C.Declaration (C.Composite $ C.Function τ arguments) (Just name)) (C.FunctionBody body)
 

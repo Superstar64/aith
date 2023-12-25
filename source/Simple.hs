@@ -62,8 +62,8 @@ data Term p
   = Variable p TermIdentifier
   | Let p (Term p) (Bound p)
   | Case p (Term p) Type [Bound p]
-  | Extern p Symbol Type Type
-  | Application p (Term p) (Term p) Type
+  | Extern p Symbol [Type] Type
+  | Application p (Term p) [(Term p, Type)]
   | TupleLiteral p [Term p]
   | Read p (Term p)
   | Write p (Term p) (Term p) Type
@@ -78,9 +78,9 @@ data Term p
 
 data Bound p = Bound (Pattern p) (Term p)
 
-data Function p = Function p (Bound p)
+data Function p = Function p [Pattern p] (Term p)
 
-data FunctionType = FunctionType Type Type
+data FunctionType = FunctionType [Type] Type
 
 mangleType :: Type -> String
 mangleType σ = case σ of
@@ -145,9 +145,9 @@ convertTerm :: Context -> Core.TermInfer p -> Term p
 convertTerm context e = case e of
   Core.Variable p x _ -> Variable p x
   Core.Let p pm e1 e2 -> Let p (go e1) (Bound (go' pm) (go e2))
-  Core.Case p e σ λ _ -> Case p (go e) (go'' σ) (map (\(pm, e) -> Bound (go' pm) (go e)) λ)
-  Core.Extern p sym σ _ τ -> Extern p sym (go'' σ) (go'' τ)
-  Core.Application p e1 e2 σ -> Application p (go e1) (go e2) (go'' σ)
+  Core.Case p e σ λ _ -> Case p (go e) (go'' σ) [Bound (go' pm) (go e) | (pm, e) <- λ]
+  Core.Extern p sym σ _ τ -> Extern p sym (map go'' σ) (go'' τ)
+  Core.Application p e1 e2s -> Application p (go e1) [(go e, go'' σ) | (e, σ) <- e2s]
   Core.TupleLiteral p es -> TupleLiteral p (map go es)
   Core.Read p e -> Read p (go e)
   Core.Write p e1 e2 σ -> Write p (go e1) (go e2) (go'' σ)
@@ -176,13 +176,13 @@ convertTerm context e = case e of
 convertFunctionType context@Context {localKinds} (Core.TypeForall x _ κ σ) =
   convertFunctionType context {localKinds = Map.insert x κ localKinds} σ
 convertFunctionType context (Core.MonoType (Core.FunctionLiteralType σ _ τ)) = do
-  FunctionType (convertType context σ) (convertType context τ)
+  FunctionType (map (convertType context) σ) (convertType context τ)
 convertFunctionType _ _ = error "failed to convert function type"
 
 convertFunction context@Context {localKinds} (Core.TypeAbstraction x _ κ e) =
   convertFunction context {localKinds = Map.insert x κ localKinds} e
 convertFunction context (Core.MonoTerm (Core.FunctionLiteral p pm _ _ e)) =
-  Function p (Bound (convertPattern context pm) (convertTerm context e))
+  Function p (map (convertPattern context) pm) (convertTerm context e)
 convertFunction _ _ = error "failed to convert function"
 
 patternType :: Pattern p -> Type

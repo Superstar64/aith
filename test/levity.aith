@@ -11,5 +11,5 @@ idLevity<R : representation, A : pretype<R, false>> (x :: unique A*) {
 }
 
 useId(ptr) {
-    idPolyPair(ptr, 0)
+    idPolyPair((ptr, 0))
 }

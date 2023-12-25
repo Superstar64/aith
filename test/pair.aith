@@ -1,8 +1,8 @@
-fst(x, y) {
+fst((x, y)) {
     x
 }
 
-snd(x, y) {
+snd((x, y)) {
     y
 }
 

@@ -85,9 +85,9 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 |-|-|
 | Inline Term | `inline x = e;`|
 | Inline Term Ascribe | `inline x : σ = e;`|
-| Function | `x(pm) { e }` |
-| Function Ascribe | `x(pm) : σ in π { e }`|
-| Function Ascribe | `x(pm) :: σ { e }`|
+| Function | `x(pm, pm', ...) { e }` |
+| Function Ascribe | `x(pm, pm', ...) : σ in π { e }`|
+| Function Ascribe | `x(pm, pm', ...) :: σ { e }`|
 | Synonym | `type x = σ;` |
 | New Type Declaration | `newtype x : κ;` |
 
@@ -101,8 +101,8 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | Inline Abstraction | ` \pm -> e` |
 | Inline Application | `e {e'}`|
 | Inline Binding | `inline pm = e; e'`|
-| Extern | `extern "sym"` |
-| Function Application | `e (e')`|
+| Extern | `extern [arity] "sym"` |
+| Function Application | `e (e', e'', ...)`|
 | Runtime Binding | `let pm = e; e'` |
 | Tuple Construction | `(e, e', ...)` |
 | Read Pointer | `*e` |
@@ -122,7 +122,7 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | Greater or Equal | `e >= e'` |
 | True | `true` |
 | False | `false` |
-| Switch | `switch e { pm -> e; pm' -> e'; ... }`
+| Switch | `switch e { pm -> e; pm' -> e'; ... }` |
 | Poly Introduction| `ς e` |
 | Poly Elimination | `e @_` |
 | Poly Elimination | `e @<σ, σ', ...>` |
@@ -173,7 +173,7 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | Unrestricted Inline Function | `σ -* τ` |
 | Polymorphic Inline Function | `σ -π τ ` |
 | Poly | `ς σ` |
-| Function Pointer | `function(σ) -> τ uses π` |
+| Function Pointer | `function(σ, σ', ...) -> τ uses π` |
 | Tuple | `(σ, σ', ...)` |
 | Effect | `σ in π` |
 | Unique | `unique σ` |
