@@ -1,12 +1,12 @@
-idPolyPair<A : pretype<struct(pointer, 32bit word), false>>(x :: A) {
+idPolyPair<A : type<struct(pointer, 32bit word), false>>(x :: A) {
     x
 }
 
-idPolyUnion<A : pretype<union(pointer, 32bit word), false>>(x :: A) {
+idPolyUnion<A : type<union(pointer, 32bit word), false>>(x :: A) {
     x
 }
 
-idLevity<R : representation, A : pretype<R, false>> (x :: unique A*) {
+idLevity<R : representation, A : type<R, false>> (x :: unique A*) {
     x
 }
 

@@ -33,7 +33,7 @@ keywords =
   Set.fromList
     [ "ambiguous",
       "as",
-      "bool",
+      "boolean",
       "boxed",
       "break",
       "byte",
@@ -60,6 +60,7 @@ keywords =
       "linear",
       "long",
       "loop",
+      "metatype",
       "multiarg",
       "multiplicity",
       "native",
@@ -68,7 +69,6 @@ keywords =
       "newtype",
       "unification",
       "pointer",
-      "pretype",
       "resize",
       "region",
       "representation",
@@ -151,7 +151,7 @@ descendants token | Map.member token tokenFamily = tokenFamily Map.! token
 descendants token = error $ "Unknown token " ++ token
 
 -- to allow for correct pretty printing right recursion should be limited to an equal or higher precedence level
-class SyntaxBase δ => Syntax δ where
+class (SyntaxBase δ) => Syntax δ where
   token :: String -> δ ()
   tokenNumeric :: Integer -> String -> δ ()
   keyword :: String -> δ ()
@@ -168,10 +168,10 @@ class SyntaxBase δ => Syntax δ where
   indent :: δ ()
   dedent :: δ ()
 
-class Syntax δ => Position δ p where
+class (Syntax δ) => Position δ p where
   position :: δ p
-  discard :: Functor f => δ (f p) -> δ (f ())
-  discard' :: Functor f => δ (f (p, a)) -> δ (f a)
+  discard :: (Functor f) => δ (f p) -> δ (f ())
+  discard' :: (Functor f) => δ (f (p, a)) -> δ (f a)
   discard' x = fmapI unit' ⊣ inverse compose ⊣ discard (compose ⊣ fmapI swap ⊣ x)
 
 binaryToken op = space ≫ token op ≫ space
@@ -229,7 +229,7 @@ commaNonSingle' final e = discard' positioned
 multiarg core = multiargExclusionary core ∥ singleton ⊣ core
 
 -- excludes single argument multiargs
-multiargExclusionary :: Syntax p => p a -> p [a]
+multiargExclusionary :: (Syntax p) => p a -> p [a]
 multiargExclusionary core = apply ⊣ keyword "multiarg" ≫ betweenParens (core ⊗ token "," ≫ space ≫ commaSeperatedSome core ⊕ always)
   where
     apply = branch (cons . secondP (cons . toPrism (inverse nonEmpty))) nil
@@ -288,7 +288,8 @@ typeUnique = unique ∥ typePtr
   where
     unique = Language.unique ⊣ position ⊗ prefixKeyword "unique" ≫ typePtr
     typePtr =
-      foldlP apply ⊣ typeInt
+      foldlP apply
+        ⊣ typeInt
         ⊗ many
           (position ≪ token "*" ⊕ position ≪ token "[" ≪ token "]" ⊕ position ⊗ binaryToken "@" ≫ typeInt)
       where
@@ -332,11 +333,11 @@ typeCore = choice options ∥ hole ∥ integers ∥ typeParen
     options =
       [ Language.typeVariable ⊣ position ⊗ typeIdentifier,
         Language.typeGlobalVariable ⊣ position ⊗ typeGlobalIdentifier,
-        Language.boolean ⊣ position ≪ keyword "bool",
+        Language.boolean ⊣ position ≪ keyword "boolean",
         Language.world ⊣ position ≪ keyword "io",
         keyword "function" ≫ (funLiteral ∥ funPointer),
-        Language.typex ⊣ position ≪ keyword "type",
-        Language.pretype ⊣ position ⊗ keyword "pretype" ≫ betweenAngle (typex ≪ token "," ⊗ space ≫ typex),
+        Language.typex ⊣ position ≪ keyword "metatype",
+        Language.pretype ⊣ position ⊗ keyword "type" ≫ betweenAngle (typex ≪ token "," ⊗ space ≫ typex),
         Language.boxed ⊣ position ≪ keyword "boxed",
         Language.region ⊣ position ≪ keyword "region",
         Language.pointerRep ⊣ position ≪ keyword "pointer",

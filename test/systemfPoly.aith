@@ -1,16 +1,16 @@
-inline explicit<> : <A : type> A -> A
-    = <A : type> \(x : A) -> x;
+inline explicit<> : <A : metatype> A -> A
+    = <A : metatype> \(x : A) -> x;
 
-inline implicit<A : type> : A -> A
+inline implicit<A : metatype> : A -> A
     = (explicit) @_;
 
 inline use = implicit {explicit} @_;
 
-inline useArgument = \(x : <A :type> A -> A) -> (x)@_;
+inline useArgument = \(x : <A :metatype> A -> A) -> (x)@_;
 
-inline curry<> : <A : type> <B : type> (A -> B) -> A -> B
-    = <A : type> <B : type> \(f : A -> B) -> f;
+inline curry<> : <A : metatype> <B : metatype> (A -> B) -> A -> B
+    = <A : metatype> <B : metatype> \(f : A -> B) -> f;
 
 inline useCurry = (curry) @_ @_ {implicit};
 
-inline immediate = (<A : type, B : type> \(f : A -> B) -> \x -> f {x}) @_;
+inline immediate = (<A : metatype, B : metatype> \(f : A -> B) -> \x -> f {x}) @_;

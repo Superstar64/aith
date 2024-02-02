@@ -195,9 +195,9 @@ main' args = do
       | [] <- flags -> printHelp
       | Just _ <- find (== Help) flags -> printHelp
       | otherwise -> do
-        let options = targets flags
-        cmd <- foldlM processCmd (CommandLine [] [] [] [] []) options
-        baseMain cmd
+          let options = targets flags
+          cmd <- foldlM processCmd (CommandLine [] [] [] [] []) options
+          baseMain cmd
   where
     descriptions =
       [ Option [] ["help"] (NoArg Help) "Help",

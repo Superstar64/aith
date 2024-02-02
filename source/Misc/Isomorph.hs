@@ -56,10 +56,10 @@ associate = Isomorph f g
 
 associate' = inverse associate
 
-fmapI :: Functor f => Isomorph b a -> Isomorph (f b) (f a)
+fmapI :: (Functor f) => Isomorph b a -> Isomorph (f b) (f a)
 fmapI (Isomorph f g) = Isomorph (fmap f) (fmap g)
 
-bimapI :: Bifunctor p => Isomorph a c -> Isomorph b d -> Isomorph (p a b) (p c d)
+bimapI :: (Bifunctor p) => Isomorph a c -> Isomorph b d -> Isomorph (p a b) (p c d)
 bimapI (Isomorph f g) (Isomorph f' g') = Isomorph (bimap f f') (bimap g g')
 
 firstI iso = bimapI iso id
@@ -106,10 +106,10 @@ swapNonEmpty = Isomorph f g
     g (a : as, x) = (a, uncurry (:) $ g (as, x))
 
 -- shreads off duplicate elements
-orderless :: Ord k => Isomorph [(k, v)] (Map k v)
+orderless :: (Ord k) => Isomorph [(k, v)] (Map k v)
 orderless = Isomorph Map.fromList Map.toList
 
-orderlessMulti :: Ord k => Isomorph [(k, v)] (Map k (NonEmpty v))
+orderlessMulti :: (Ord k) => Isomorph [(k, v)] (Map k (NonEmpty v))
 orderlessMulti = Isomorph to from
   where
     to = foldr (\(k, v) -> Map.insertWith (<>) k (v :| [])) Map.empty

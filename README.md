@@ -54,13 +54,26 @@ In Aith, regions are effectful, meaning that all runtime expressions are attache
 These expressions can only access memory in their region or regions proven to be parents of said region. 
 
 ## Type Inference
-(todo)
+Aith is built on top of Hindley Milner type inference, similiar to Haskell and OCaml.
+Hindley Milner is a rather fancy type inference scheme that allows the majority of a program to be without type annotations but still statically typed.
 
 ### First Class Polymorpism (System-F)
-(todo)
+Aith implements first class polymorphism at the meta level.
+This allows treating generic (inline) functions (or more specifically any generic term) as if they where first class.
+Generic inline functions can be passed to other inline functions and returned from them.
+As of now, first class polymorphism is only implmented at the meta level for inline functions and not for runtime functions.
+
+As type inference for first class polymorphism is undeciable, some compromises must be made.
+Aith implements it's own variant of PolyML, which requires explicit boxing and unboxing and requires annotations for variables who's types are instancited.
 
 ### Boolean Unification
-(todo)
+Aith extends Hindley Milner with boolean unification.
+This allows certain types to contain boolean expressions (and only boolean expressions).
+Boolean unification is used by Aith to type check both regions and linear types.
+
+Hindley Milner extended with boolean unification preserves it's nice properties such as principle types.
+This means that types that use booleans infer as nicely as types that don't.
+The main trade off is that now type checking now involves what is effectively a generalization of SAT solving.
 
 # Building and Running Tests
 Install ghc, cabal and make.
@@ -68,7 +81,9 @@ Run `make` to build aith, `make tests` to run the tests and `make test.c` to gen
 
 # Todo List
 
-* Better newtypes
+* Proper Documentation
+* Algebraic data types
+* Newtypes
 * Add higher kinded types (System-F A)
 * Runtime level higher rank polymorphism
 * Simplify boolean types to DNF rather then ANF
@@ -183,11 +198,11 @@ Folders concatenates all it's contents where the folder name is prepend to all t
 | Pointer | `σ*` |
 | Array | `σ[]` |
 | Number | `ρ integer(ρ')` |
-| Boolean | `bool` |
+| Boolean | `boolean` |
 | IO Region | `io` |
 | Step | `step<σ, τ>` |
-| Type | `type` |
-| Pretype | `pretype<σ, τ>` |
+| Meta Type | `metatype` |
+| Type | `type<σ, τ>` |
 | Boxed | `boxed` |
 | Capacity | `capacity` |
 | Region | `region` |

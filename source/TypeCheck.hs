@@ -198,13 +198,13 @@ booleanConstantElimination x = do
     constantElimination [] = []
     constantElimination ((σ, τ) : problems)
       | Set.member x $ freeLocalVariablesType σ <> freeLocalVariablesType τ =
-        let σ' = substituteType Core.TypeTrue x σ
-            σ'' = substituteType Core.TypeFalse x σ
-            τ' = substituteType Core.TypeTrue x τ
-            τ'' = substituteType Core.TypeFalse x τ
-         in (σ', τ') : (σ'', τ'') : constantElimination problems
+          let σ' = substituteType Core.TypeTrue x σ
+              σ'' = substituteType Core.TypeFalse x σ
+              τ' = substituteType Core.TypeTrue x τ
+              τ'' = substituteType Core.TypeFalse x τ
+           in (σ', τ') : (σ'', τ'') : constantElimination problems
       | otherwise =
-        (σ, τ) : constantElimination problems
+          (σ, τ) : constantElimination problems
 
 augmentTypePatternLevel :: TypePatternIntermediate p -> Check p b -> Check p b
 augmentTypePatternLevel (TypePatternIntermediate p x π κ) f = do
@@ -271,13 +271,13 @@ occursCheck p x lev σ' = go σ'
       Core.TypeLogical x'
         | x == x' -> quit $ TypeOccursCheck p x σ'
         | otherwise ->
-          (! x') <$> typeLogicalMap <$> getState >>= \case
-            (UnboundType p' π κ lev') ->
-              if lev' > lev
-                then do
-                  modifyState $ \state -> state {typeLogicalMap = Map.insert x' (UnboundType p' π κ lev) $ typeLogicalMap state}
-                else pure ()
-            (LinkType σ) -> recurse σ
+            (! x') <$> typeLogicalMap <$> getState >>= \case
+              (UnboundType p' π κ lev') ->
+                if lev' > lev
+                  then do
+                    modifyState $ \state -> state {typeLogicalMap = Map.insert x' (UnboundType p' π κ lev) $ typeLogicalMap state}
+                  else pure ()
+              (LinkType σ) -> recurse σ
       Core.TypeScheme σ ς -> do
         recurse σ
         occursPoly ς
@@ -1491,14 +1491,14 @@ unsolved vars σ = foldMap lookup σ
 
 unsolvedVariables vars σ = Map.keys (unsolved vars σ)
 
-zonk :: TypeAlgebra u => Map TypeLogical (TypeLogicalState p) -> u TypeLogical -> u TypeLogical
+zonk :: (TypeAlgebra u) => Map TypeLogical (TypeLogicalState p) -> u TypeLogical -> u TypeLogical
 zonk vars σ = runIdentity $ zonkType (Identity . get) σ
   where
     get x = case vars ! x of
       UnboundType _ _ _ _ -> Core.TypeLogical x
       LinkType σ -> zonk vars σ
 
-finish :: TypeAlgebra u => u TypeLogical -> Check p (u Void)
+finish :: (TypeAlgebra u) => u TypeLogical -> Check p (u Void)
 finish σ = zonkType go σ
   where
     go x =

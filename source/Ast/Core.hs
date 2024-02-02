@@ -425,13 +425,13 @@ class Binder pm where
   bindings :: pm -> Set TermIdentifier
   rename :: TermIdentifier -> TermIdentifier -> pm -> pm
 
-instance Binder pm => Binder [pm] where
+instance (Binder pm) => Binder [pm] where
   bindings [] = mempty
   bindings (pm : pms) = bindings pm <> bindings pms
   rename _ _ [] = []
   rename x ux (pm : pms) = rename x ux pm : rename x ux pms
 
-freeLocalVariablesTerm :: TermAlgebra u => u p v -> Set TermIdentifier
+freeLocalVariablesTerm :: (TermAlgebra u) => u p v -> Set TermIdentifier
 freeLocalVariablesTerm e = case freeVariablesTerm e of
   TermVariables variables _ -> variables
 
@@ -519,9 +519,9 @@ instance Binder (TermMetaPattern p v) where
   rename ux x = \case
     InlineMatchVariable p x' π σ
       | x == x' ->
-        InlineMatchVariable p ux π σ
+          InlineMatchVariable p ux π σ
       | otherwise ->
-        InlineMatchVariable p x' π σ
+          InlineMatchVariable p x' π σ
 
 data TypeSubstitution v = TypeSubstitution (Map TypeIdentifier (Type v)) (Map TypeGlobalIdentifier (Type v))
 
@@ -536,13 +536,13 @@ typeSubstitutionLocalVariables (TypeSubstitution locals globals) =
 class TypeAlgebra u where
   freeLocalVariablesType :: u v -> Set TypeIdentifier
   substituteTypes :: TypeSubstitution v -> u v -> u v
-  zonkType :: Applicative m => (v -> m (Type v')) -> u v -> m (u v')
-  simplify :: Ord v => u v -> u v
+  zonkType :: (Applicative m) => (v -> m (Type v')) -> u v -> m (u v')
+  simplify :: (Ord v) => u v -> u v
 
-convertType :: TypeAlgebra u => TypeIdentifier -> TypeIdentifier -> u v -> u v
+convertType :: (TypeAlgebra u) => TypeIdentifier -> TypeIdentifier -> u v -> u v
 convertType ux x = substituteType (TypeVariable ux) x
 
-substituteType :: TypeAlgebra u => Type v -> TypeIdentifier -> u v -> u v
+substituteType :: (TypeAlgebra u) => Type v -> TypeIdentifier -> u v -> u v
 substituteType ux x = substituteTypes (TypeSubstitution (Map.singleton x ux) Map.empty)
 
 substituteLogical f = runIdentity . zonkType (Identity . f)
@@ -675,7 +675,7 @@ instance TypeAlgebra TypeScheme where
   substituteTypes θ (MonoType σ) = MonoType $ substituteTypes θ σ
   substituteTypes θ (TypeForall x π κ σ)
     | Set.member x (typeSubstitutionShadow θ) =
-      TypeForall x π (go κ) (substituteTypes (typeSubstitutionMask x θ) σ)
+        TypeForall x π (go κ) (substituteTypes (typeSubstitutionMask x θ) σ)
     | otherwise = TypeForall x' π (go κ) (go σ')
     where
       variables = typeSubstitutionLocalVariables θ
@@ -713,7 +713,7 @@ data TypeCore
   | CoreGlobalVariable TypeGlobalIdentifier
   deriving (Show, Eq, Ord)
 
-convertBoolean :: Ord v => Type v -> Boolean.Polynomial TypeCore v
+convertBoolean :: (Ord v) => Type v -> Boolean.Polynomial TypeCore v
 convertBoolean = \case
   TypeLogical v -> Boolean.variable v
   TypeVariable x -> Boolean.constant (CoreVariable x)

@@ -1,6 +1,6 @@
 inline yes = true;
 
-branch(b) {
+branch(b :: boolean) {
     if b {
         1
     } else {

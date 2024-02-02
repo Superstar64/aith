@@ -1,5 +1,5 @@
 
-newtype num : pretype<32bit word, true>;
+newtype num : type<32bit word, true>;
 inline numWrap<R :region> = \(n : int in R) -> cast n : num in R;
 inline numUnwrap<R :region> = \(n : num in R) -> cast n : int in R;
 
@@ -9,7 +9,7 @@ makeNum() {
 }
 
 
-newtype linked : pretype<pointer, true>;
+newtype linked : type<pointer, true>;
 inline linkedUnwrap<R : region> = \(p : linked in R) -> cast p : linked* @ io in R;
 
 read (x) {

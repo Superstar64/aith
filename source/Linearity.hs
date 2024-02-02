@@ -17,7 +17,7 @@ branchAll = foldl Branch useEverything
 
 combineAll = foldl combine useNothing
 
-variablesUsed :: Ord i => Use i -> Set i
+variablesUsed :: (Ord i) => Use i -> Set i
 variablesUsed (Use x) = Set.singleton x
 variablesUsed Everything = mempty
 variablesUsed (Branch a b) = variablesUsed a <> variablesUsed b
@@ -27,7 +27,7 @@ variablesUsed (Remove x a) = Set.delete x (variablesUsed a)
 
 data Count = None | Single | Multiple
 
-count :: Ord i => i -> (Use i) -> Count
+count :: (Ord i) => i -> (Use i) -> Count
 count x (Use x') | x == x' = Single
 count _ (Use _) = None
 count _ Everything = Single

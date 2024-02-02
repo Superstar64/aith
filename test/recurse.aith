@@ -1,3 +1,3 @@
-explode<L : multiplicity, A:pretype<pointer, L>>() :: A {
+explode<L : multiplicity, A:type<pointer, L>>() :: A {
     explode ()
 }

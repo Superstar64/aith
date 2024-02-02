@@ -3,16 +3,16 @@ inline unsafeCast = \e -> cast e;
 inline unsafeCastValue<
     A:*representation,
     B:multiplicity,
-    C:pretype<A,B>,
+    C:type<A,B>,
     D:multiplicity,
-    E:pretype<A,D>,
+    E:type<A,D>,
     F:region
 > = unsafeCast : C in F -> E in F;
 
 inline unsafeCastRegion<
     A:*representation,
     B:multiplicity,
-    C:pretype<A,B>,
+    C:type<A,B>,
     D:region,
     E:region
 > = unsafeCast : C in D -> C in E;

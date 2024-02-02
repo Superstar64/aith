@@ -24,7 +24,7 @@ inline borrow<
     M:boxed,
     J:*representation,
     K:multiplicity,
-    N:pretype<J, K>
+    N:type<J, K>
 > = \(x : unique M in A)
  -> \(f : <D:region> M @ D in false -* N in C | B & D) 
  -> {

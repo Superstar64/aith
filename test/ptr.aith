@@ -2,7 +2,7 @@ derefTriple(x) {
     ***x
 }
 
-deref <A : region, T : pretype<pointer, true>>(x :: T* @ A) : T in A {
+deref <A : region, T : type<pointer, true>>(x :: T* @ A) : T in A {
     *x
 }
 

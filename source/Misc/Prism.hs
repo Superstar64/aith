@@ -65,7 +65,7 @@ firstP prism = bimapP prism id
 
 secondP prism = bimapP id prism
 
-bimapP :: Bitraversable p => Prism a c -> Prism b d -> Prism (p a b) (p c d)
+bimapP :: (Bitraversable p) => Prism a c -> Prism b d -> Prism (p a b) (p c d)
 bimapP (Prism f g) (Prism f' g') = Prism (bimap f f') (bitraverse g g')
 
 foldlP :: Prism (b, a) b -> Isomorph (b, [a]) b

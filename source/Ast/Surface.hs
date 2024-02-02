@@ -32,16 +32,16 @@ deleteTermLocal x variables = variables {termLocals = Map.delete x $ termLocals 
 
 deleteTypeLocal x variables = variables {typeLocals = Map.delete x $ typeLocals variables}
 
-instance Semigroup p => Semigroup (Variables p) where
+instance (Semigroup p) => Semigroup (Variables p) where
   Variables a b c d <> Variables a' b' c' d' =
     let go = Map.unionWith (<>) in Variables (go a a') (go b b') (go c c') (go d d')
 
-instance Semigroup p => Monoid (Variables p) where
+instance (Semigroup p) => Monoid (Variables p) where
   mappend = (<>)
   mempty = let go = Map.empty in Variables go go go go
 
 class Alpha u where
-  freeVariables :: Semigroup p => u p -> Variables p
+  freeVariables :: (Semigroup p) => u p -> Variables p
 
 class TermBindings pm where
   bindings :: pm -> [TermIdentifier]
@@ -381,7 +381,7 @@ removeInserted items = do
     Manual -> [(a, b)]
     Auto -> []
 
-order :: Semigroup p => Map Path (NonEmpty (Global p)) -> Either (ModuleError p) [(Origin, Path, Global p)]
+order :: (Semigroup p) => Map Path (NonEmpty (Global p)) -> Either (ModuleError p) [(Origin, Path, Global p)]
 order code = sortTopological key quit children globals <* validateDuplicates code
   where
     key (_, path, item) = (forward, path)
@@ -397,7 +397,7 @@ order code = sortTopological key quit children globals <* validateDuplicates cod
           Nothing -> Left $ IllegalPath p path
           Just (Text e :| [])
             | Just σ <- annotated e ->
-              pure [(Auto, path, ForwardText σ)]
+                pure [(Auto, path, ForwardText σ)]
           Just (global :| []) -> pure [(Manual, path, global)]
           Just (_ :| _) -> error "unexpected module item"
     globals =
