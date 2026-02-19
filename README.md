@@ -1,6 +1,7 @@
+Aith my toy programming language that experiments with type systems for perfomant systems programming.
+As of now, Aith development is dead.
+I plan to eventually integrate all of it's ideas into [Hazy](https://github.com/Superstar64/Hazy), my Haskell compiler.
 
-Aith is a perfomant systems programming language with am empathises on type systems.
-As of now Aith is very early stages and very little is implemented.
 [Link to typing rules](https://github.com/Superstar64/aith/blob/images/rules/rules.pdf).
 
 | <img src="https://raw.githubusercontent.com/Superstar64/aith/images/rules/internals.svg"> |
